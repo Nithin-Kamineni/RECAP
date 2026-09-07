@@ -17,10 +17,17 @@ baseline  (the CONVENTIONAL-ECC baseline of Task 1)
     `ECC_BASELINE_INFLATES_ONCHIP=1` reproduces the older behaviour and is NOT
     the conventional baseline.
 
-embedded
-    Parity is embedded in the already-stored word, so DRAM traffic is
-    unchanged. This is the reference point for "what does ECC cost if you do
-    not pay for it in DRAM".
+embedded  (Task 2, `embedded.py`)
+    Parity is embedded in the stored weights themselves: the MSB-first weight
+    bit stream is cut into n-bit codewords and the n-k lowest-significance
+    positions are overwritten with parity, which is what the embedding
+    pipeline (ECC-CODE-Engine / Input_Embedding) actually does. Storage is
+    weight_bits per weight with NO external parity, and the complete codeword
+    is read for correction, so DRAM weight traffic is exactly Timeloop's --
+    not K/N of it. Relative to the baseline only the external-parity term is
+    removed; `embedded_dram()` reports the layout, the stored bits, the
+    physical reads and the hand check. This is the reference point for "what
+    does ECC cost if you do not pay for it in DRAM".
 
 recon (Recon+)
     DRAM behaves as in `embedded`, and only K/N of the WEIGHT data is held on
@@ -42,7 +49,7 @@ import pathlib
 
 import pandas as pd
 
-from . import parity
+from . import embedded, parity
 from .energy import onchip_cats, plot_cats
 from .paths import ROOT
 
@@ -164,6 +171,71 @@ def external_parity(cfg, raw, code_k=None, layer_weights=None, dram_word_bits=64
         },
     }
     return energy, detail
+
+
+def embedded_dram(cfg, raw, code_k=None, layer_weights=None, dram_word_bits=64):
+    """The embedded-ECC arm's DRAM weight accounting: complete codeword read,
+    no external parity. Task 2.
+
+    Returns `(external_energy_pJ, detail)` exactly like `external_parity()`, so
+    a caller can write `raw.total + external` for either arm. The first value
+    is 0.0 BY CONSTRUCTION -- the embedded representation stores nothing beside
+    the weights -- and `detail` is what goes into the result JSON: the actual
+    codeword layout and where it comes from, the stored payload/padding, the
+    traffic that crosses the DRAM boundary (every bit of every weight read,
+    message and parity alike), the physical-word estimate, the Timeloop DRAM
+    weight energy that traffic was billed at, and the hand check.
+
+    The layer grouping follows `ECC_PARITY_GROUPING`, the knob the baseline
+    uses, so the two arms fall on the same per-tensor boundaries.
+    """
+    k = code_k or cfg.code_k
+    layout = embedded.EmbeddedLayout(cfg.code_n, k, cfg.weight_bits).validate()
+
+    if layer_weights is None:
+        layer_weights = [lp.get("weights", 0) for lp in (raw.per_layer or [])
+                         if lp.get("status") == "ok"]
+    if not layer_weights:
+        layer_weights = [raw.weights]
+
+    stored = embedded.account_layers(layer_weights, layout, dram_word_bits,
+                                     grouping=cfg.parity_grouping)
+    traffic = embedded.traffic_account(raw.dram_w_reads, stored, layout, dram_word_bits)
+    e_weights, e_external, per_scalar = embedded.dram_energy_pj(raw.e_dram_w,
+                                                                 raw.dram_w_reads)
+    ok, check = embedded.hand_check_layers(layout, layer_weights, dram_word_bits,
+                                           grouping=cfg.parity_grouping)
+
+    baseline_geom = parity.CodeGeometry(cfg.code_n, k, cfg.weight_bits).validate()
+    detail = {
+        "code": {"n": cfg.code_n, "k": k, "t": cfg.code_t,
+                 "parity_bits_per_codeword": layout.parity_bits},
+        "layout": layout.to_dict(),
+        "layout_source": embedded.LAYOUT_SOURCE,
+        "grouping": cfg.parity_grouping,
+        "dram_word_bits": dram_word_bits,
+        "stored": stored.to_dict(),
+        "traffic": traffic,
+        "dram_weight_energy_pJ": e_weights,
+        "external_parity_energy_pJ": e_external,
+        "energy_pJ": e_external,
+        "pJ_per_dram_weight_scalar": per_scalar,
+        "hand_check": check,
+        "hand_check_passed": ok,
+        "comparison_to_baseline_layout": {
+            "baseline_weights_per_codeword": baseline_geom.weights_per_codeword,
+            "baseline_stored_bits_per_weight": (
+                baseline_geom.n / baseline_geom.message_used_bits * cfg.weight_bits),
+            "embedded_weights_per_codeword": layout.weights_per_codeword,
+            "embedded_stored_bits_per_weight": stored.bits_per_weight,
+            "note": ("the baseline stores a codeword BESIDE the data and packs only "
+                     "whole weights into its k-bit message field; the embedded "
+                     "pipeline cuts the weight bit stream itself into n-bit codewords. "
+                     "The two arms therefore count codewords differently, and neither "
+                     "count is a modelling choice."),
+        },
+    }
+    return e_external, detail
 
 
 def build_stacks(cfg, raw, recon_pj, code_k=None, recon_pj_by_k=None,

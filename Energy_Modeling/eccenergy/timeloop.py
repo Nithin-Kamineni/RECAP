@@ -349,6 +349,11 @@ class Mapper:
         self.legacy_root = pathlib.Path(legacy_root) if legacy_root else None
         self._memo = {}
         self.mappings = {}      # shape_name -> mapping record for the result JSON
+        #: Shapes this process has already re-solved under ECC_RERUN_OPTIMISER.
+        #: The point of that flag is ONE fresh mapping per shape, not one per
+        #: time a layer of that shape is reached -- resnet18 alone would
+        #: otherwise re-map a shared shape several times over.
+        self._remapped = set()
         self.n_cached = 0
         self.n_mapped = 0
         self.n_legacy = 0
@@ -414,6 +419,21 @@ class Mapper:
             return self._memo[sig]
 
         out_dir = self.out_root / layer.shape_name
+        # ECC_RERUN_OPTIMISER=1: solve this shape again even though the cache
+        # entry is valid, and overwrite it. Nothing about the entry is wrong --
+        # this is for refreshing a mapping after a change the fingerprint does
+        # not capture, or for checking that a mapping reproduces.
+        if self.cfg.rerun_optimiser and layer.shape_name not in self._remapped:
+            self._remapped.add(layer.shape_name)
+            print(f"      ECC_RERUN_OPTIMISER=1: re-solving {layer.shape_name} "
+                  f"and overwriting its cache entry", flush=True)
+            lock = ShapeLock(out_dir)
+            lock.acquire(shape=layer.shape_name)
+            try:
+                return self._map_now(layer, out_dir, sig)
+            finally:
+                lock.release()
+
         stats, why = self._accept_cached(out_dir, layer)
         if stats is None and self.legacy_root is not None and not self.cfg.cache_strict:
             legacy_dir = self.legacy_root / layer.shape_name

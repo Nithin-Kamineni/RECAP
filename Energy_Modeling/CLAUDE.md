@@ -105,15 +105,50 @@ choice of bound, not a measurement. Same rule, opposite direction, for
 
 ## How to run it
 
-Everything goes through `run.sh`, which is the only file you edit. Inside the
+**`env.sh` is the only file you edit.** It holds every `ECC_*` variable in ten
+commented sections, and `run.sh`, `hpc/run_all.sh`, `hpc/map.sbatch` and
+`hpc/tl.sh` all source it — so a value cannot mean one thing to the mapper and
+another to the evaluator, which is what four hand-synchronised copies of the
+mapper settings used to risk.
+
+**One command runs the whole pipeline**, mapping then evaluation then figures:
+
+    bash hpc/run_all.sh              # submits the map array + a dependent
+                                     # evaluate-and-plot job, both from env.sh
+    bash hpc/run_all.sh --map-only   # the mapping array alone
+    bash hpc/run_all.sh --eval-only  # evaluate + plot from the cache, here
+    bash hpc/run_all.sh --replot     # redraw from results/_raw/ alone
+    bash hpc/run_all.sh --local      # map in this process (needs an allocation)
+
+**Start a cold mapping with `--map-only` on ONE pair, and watch the log.** The
+2026-09-07 verification exercised every part of the pipeline except a cold
+whole-model map through the array: `energy.py::collect()` returns on a
+`results/_raw/` hit *before* the mapper is constructed, so every task in that
+run finished in ~5 s and Timeloop was reached only once, on a single shape.
+A cold run is therefore both the expensive path (uncapped search, hours per
+pair) and the least-exercised one — narrow it before widening it:
+
+    ECC_ARCHS=eyeriss_v2_like ECC_MODELS=resnet18 bash hpc/run_all.sh --map-only
+
+**For the recon work specifically:** anything that changes what the mapper sees
+— a new architecture variant, a reconstruction datapath in the YAML, or any
+knob in `env.sh` sections 2/5 — moves the mapping fingerprint, so the ENTIRE
+matrix goes cold at once and no existing mapping is reused; and because the raw
+cache sits in front of the mapper, re-mapping a pair that already has a raw
+record requires `ECC_RERUN_OPTIMISER=1` (which invalidates that record too),
+not just deleting the mapping.
+
+`run.sh` runs ONE stage of that and has no knobs of its own. Inside the
 container:
 
     cd /home/workspace
-    bash run.sh                    # runs whatever run.sh currently says
+    bash run.sh                    # the figure for ECC_SWEEP's axis
     bash run.sh validate           # check the architectures against the shared
                                    # comparison contract. No container needed.
     bash run.sh map                # solve and cache mappings, evaluate nothing
     bash run.sh baseline           # Task 1: conventional ECC, external parity
+    bash run.sh embedded --eval    # Task 2: embedded ECC beside that baseline,
+                                   # from the cached mappings; only DRAM differs
     bash run.sh diagnose           # audit the architectures, no figure
     bash run.sh panels             # one image, one panel per ECC_PANEL_MODELS
     bash run.sh --replot           # figure only, from results/_raw/
@@ -127,13 +162,26 @@ iteration cheap and what stops an energy edit from silently changing a mapping:
 
 `--eval` (`ECC_FROM_CACHE=1`) never invokes Timeloop and needs no container.
 
-`run.sh` defaults with `${VAR:=default}`, so the environment wins over the file.
+`env.sh` defaults with `${VAR:=default}`, so the environment wins over the file.
 That makes one-off runs free and means **you never have to edit a file to change
 a knob**:
 
     ECC_SWEEP=arch bash run.sh                  # a different axis
-    ECC_CONST_MODEL=resnet50 bash run.sh        # same sweep, different constant
-    ECC_SWEEP_KS="51 39 30" bash run.sh         # a shorter BCH sweep
+    ECC_MODELS=resnet50 bash hpc/run_all.sh     # a different network
+    ECC_KS="51 39 30" ECC_SWEEP=bch bash run.sh # a shorter BCH sweep
+
+`env.sh` sections 1-9 are the editable surface; section 10 is DERIVED and is not
+a knob. The lists in section 3 -- `ECC_ARCHS`, `ECC_MODELS`, `ECC_KS`,
+`ECC_APPROACHES` -- are what the pipeline runs; section 10 translates them into
+the swept-list-plus-two-held-constants form `config.py` reads
+(`ECC_SWEEP_ARCHS` / `ECC_CONST_ARCH` and so on), picks `panels` when a
+multi-model architecture sweep is asked for, sets `ECC_STEM` from the axis, and
+generates the SLURM task list. Those derived names still honour an explicit
+override from the environment, so every command in this file keeps working.
+
+`ECC_RERUN_OPTIMISER=1` re-solves a shape even when a valid cache entry exists
+and overwrites it. It is refused together with `--eval`, which forbids invoking
+Timeloop at all.
 
 The same overrides exist as flags, for interactive use:
 
@@ -193,8 +241,10 @@ no pull is needed.
 |---|---|
 | `bash run.sh map` | `bash run.sh validate` |
 | `bash run.sh` (cold sweep) | `bash run.sh baseline --eval` |
-| any run that must invoke the mapper | `bash run.sh --replot` |
+| any run that must invoke the mapper | `bash run.sh embedded --eval` |
+| | `bash run.sh --replot` |
 | | `python3 -m eccenergy.tests.test_results_store` |
+| | `python3 -m eccenergy.tests.test_embedded` |
 | | `python3 -m eccenergy.tests.test_noc` |
 | | `python3 -m eccenergy.tests.test_mapper_lock` |
 
@@ -244,15 +294,20 @@ Docker. Rules that differ from the laptop:
 - Keep `ECC_MAPPER_THREADS=18` and `--cpus-per-task=18`: the thread count is in
   the mapping fingerprint, and 18 is what every laptop cache entry used, so the
   two machines' `ecc_energy_study/outputs/` trees merge as cache hits.
-- The image is `/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/timeloop.sif` (`ECC_SIF`
-  overrides); build it once with `apptainer pull` as `hpc/HIPERGATOR.md` §3 says.
+- The image is `timeloop.sif` in the project root; `ECC_SIF` in `env.sh`
+  section 7 is its path. Build it once with `apptainer pull` as
+  `hpc/HIPERGATOR.md` §3 says.
 - **One command runs everything**: `bash hpc/run_all.sh` submits the
-  (architecture, model) job array `hpc/map.sbatch` and a dependent
-  `hpc/eval.sbatch` that evaluates and draws when the array succeeds
-  (`TASKFILE=hpc/tasks_full.txt` for the 8 x 8 matrix). By hand:
-  `sbatch hpc/map.sbatch`, then `bash hpc/eval_panel.sh` and
-  `python3 hpc/summary.py`. Built 2026-09-06 after
-  the five single-process checks passed. `%N` is the only concurrency cap; the
+  (architecture, model) job array `hpc/map.sbatch` and, with
+  `--dependency=afterok` on it, submits ITSELF as `--eval-only` to evaluate and
+  draw when the array succeeds. The array's size, cores, memory, wall time and
+  concurrency come from section 7 of `env.sh` and are passed to `sbatch` on the
+  command line, which overrides `map.sbatch`'s `#SBATCH` header; the task list
+  is GENERATED into `hpc/.runtime/tasks.txt` from `ECC_ARCHS x ECC_MODELS`, so
+  a stale hand-written list can no longer disagree with `--array`. The matrix
+  is chosen by widening those two lists, not by a second task file. By hand:
+  `bash hpc/run_all.sh --map-only`, then `bash hpc/run_all.sh --eval-only` and
+  `python3 hpc/summary.py`. `ECC_CONCURRENCY` is the only concurrency cap; the
   `rewetz` investment is 181 cores, so 18-core tasks fit 10 at a time.
   `hpc/HIPERGATOR.md` §7 has the race analysis and the cost model.
 
@@ -306,12 +361,19 @@ is labelled as such everywhere it appears.
 
 ## Layout
 
-    run.sh                  the knob file. Editing anything else is unusual.
-    hpc/                    HiPerGator: HIPERGATOR.md (transfer, image, verification,
-                            workflow, parallel design), tl.sh (apptainer
-                            wrapper), map.sbatch + tasks_panel.txt (the
-                            job array), eval_panel.sh (cache-only evaluation)
-                            and summary.py (the model x arch matrix).
+    env.sh                  THE KNOB FILE -- every ECC_* variable, in ten
+                            commented sections. Editing anything else is
+                            unusual. Sections 1-9 are knobs; section 10 is
+                            derived (it feeds config.py's swept-list-plus-two-
+                            constants form and generates the SLURM task list).
+    run.sh                  ONE stage of the pipeline. Sources env.sh, execs
+                            `python3 -m eccenergy`. No knobs of its own.
+    hpc/                    HiPerGator: run_all.sh (THE ONE COMMAND: map ->
+                            evaluate -> plot), map.sbatch (the job array, no
+                            knobs), tl.sh (apptainer wrapper), summary.py (the
+                            model x arch matrix), HIPERGATOR.md (transfer,
+                            image, verification, workflow, parallel design) and
+                            .runtime/ (generated: the task list, CACTI scratch).
     FINDINGS.md             what the most recent audit / evaluation found, with
                             the numbers and how they were obtained. The ONLY
                             place empirical claims about the current model live.
@@ -335,6 +397,10 @@ is labelled as such everywhere it appears.
       ecc.py                the three arms; DC reconstruction energy, by (N,K)
       parity.py             external BCH parity: grouping, padding, DRAM
                             granularity, and the payload/parity hand check
+      embedded.py           the embedded-ECC codeword layout as the embedding
+                            pipeline produces it (n-bit chunks of the weight
+                            bit stream, parity in the LSBs), its stored /
+                            physical / energy accounting and hand check. Task 2.
       results_store.py      THE result writer. Nothing else writes an
                             evaluation JSON. See docs/RESULTS_SCHEMA.md.
       plots/style.py        palette, units, save paths
@@ -346,7 +412,12 @@ is labelled as such everywhere it appears.
       experiments/panels.py one image, one panel per ECC_PANEL_MODELS entry
       experiments/common.py Session: setup, collection, reporting
       experiments/diagnose.py  the architecture audit
-      experiments/baseline.py  Task 1: the conventional-ECC result
+      experiments/baseline.py  Task 1: the conventional-ECC result (frozen:
+                            not refactored; audit.py mirrors its checks)
+      experiments/embedded.py  Task 2: embedded ECC beside the baseline, one
+                            file, same mappings; checks that only DRAM moved
+      experiments/audit.py  the Task 1 checks/caveats/detail as functions, for
+                            Task 2 onward. Keep in step with baseline.py.
       experiments/validate.py  the standardized-comparison contract check
       tests/                the offline test suite (no pytest, no container)
       generate.py           workload generators (needs torch for CNNs)
@@ -418,7 +489,9 @@ geometry and re-running is milliseconds:
    `ecc_energy_study/outputs/<arch>/<subdir>/fp-<hash>/<shape>/`.
    One entry per layer shape per architecture. Cold, a full 8-model sweep is
    hours; warm, it is seconds. Runs are resumable: every solved shape is saved
-   immediately. **Never delete this.**
+   immediately. **Never delete this.** `ECC_RERUN_OPTIMISER=1` re-solves a shape
+   even on a valid hit and overwrites that entry -- one re-map per shape per
+   process, and refused together with `--eval`.
 
    `fp-<hash>` is the mapping fingerprint: a hash of the patched architecture
    YAML the mapper actually sees, the globals (node, clock) and every mapper
@@ -476,7 +549,15 @@ differ only in where the parity lives. Codewords are counted from DRAM weight
 reads: `n_codewords = dram_weight_reads / (K / weight_bits)`.
 
 - **baseline** — parity beside the data in DRAM; weight traffic inflates by N/K.
-- **embedded** — parity inside the already-stored word; DRAM unchanged.
+- **embedded** — parity inside the stored weights themselves, laid out the way
+  the embedding pipeline (ECC-CODE-Engine / Input_Embedding) does it: the
+  MSB-first weight bit stream is cut into n-bit codewords, so weights straddle
+  codewords (7.875 per BCH(63,K) codeword) and the n-k lowest-significance
+  positions carry the parity. Storage is `weight_bits` per weight with no
+  external parity; the complete codeword is read for correction, so DRAM
+  traffic is exactly Timeloop's. `eccenergy/embedded.py` has the layout and
+  its source; `bash run.sh embedded` (Task 2) writes it beside the baseline
+  and checks that every non-DRAM component is identical.
 - **recon** — DRAM as embedded, but only K/N of the weights are held on chip;
   the parity portion is regenerated by a synthesized datapath, charged per
   codeword from `data/dc/BCH_N63_results.json`.

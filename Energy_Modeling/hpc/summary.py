@@ -9,11 +9,13 @@ directory and lays the totals out as one row per model, one column per
 architecture. Only the standard library is used, so it runs with the system
 python outside the container.
 
-Three numbers per cell are available; `--field` chooses which is shown:
+Five numbers per cell are available; `--field` chooses which is shown:
 
     timeloop   the Timeloop/Accelergy energy alone (no ECC arithmetic on top)
     parity     the external BCH parity charged in DRAM
     total      timeloop + parity == the `baseline_external_parity` variant
+    embedded   the `embedded_ecc` variant (Task 2), where it has been evaluated
+    saving     100 * (total - embedded) / total, percent (Task 2)
 
 `timeloop` is the default because it is the number the architectures are
 actually being compared on; the parity term is nearly architecture-independent
@@ -41,22 +43,25 @@ def newest(d: pathlib.Path):
 
 
 def cell(path: pathlib.Path):
-    """(timeloop uJ, parity uJ, total uJ) from one result file, or None."""
+    """(timeloop uJ, parity uJ, total uJ, embedded uJ | None, saving % | None)."""
     doc = json.loads(path.read_text())
-    for var in doc.get("variants", []):
-        if var.get("name") != "baseline_external_parity":
-            continue
-        if var.get("status") != "evaluated":
-            return None
-        comp = var.get("energy_by_component_pJ") or {}
-        parity = comp.get(PARITY_KEY, 0.0)
-        total = var["total_energy_pJ"]
-        return ((total - parity) / 1e6, parity / 1e6, total / 1e6)
-    return None
+    variants = {v.get("name"): v for v in doc.get("variants", [])}
+    base = variants.get("baseline_external_parity")
+    if base is None or base.get("status") != "evaluated":
+        return None
+    comp = base.get("energy_by_component_pJ") or {}
+    parity = comp.get(PARITY_KEY, 0.0)
+    total = base["total_energy_pJ"]
+    emb = variants.get("embedded_ecc")
+    emb_uj = saving = None
+    if emb is not None and emb.get("status") == "evaluated":
+        emb_uj = emb["total_energy_pJ"] / 1e6
+        saving = 100.0 * (total - emb["total_energy_pJ"]) / total if total else None
+    return ((total - parity) / 1e6, parity / 1e6, total / 1e6, emb_uj, saving)
 
 
 def collect(scope=None, mapper=None, phase="Pre"):
-    """{(model, arch): (timeloop, parity, total, scope, mapper, path)}"""
+    """{(model, arch): (timeloop, parity, total, embedded, saving, scope, mapper, path)}"""
     out = {}
     root = EVAL / phase
     if not root.is_dir():
@@ -95,7 +100,7 @@ def main(argv=None):
     ap.add_argument("--mapper", help="mapper slug filter")
     ap.add_argument("--phase", default="Pre", choices=("Pre", "Post"))
     ap.add_argument("--field", default="timeloop",
-                    choices=("timeloop", "parity", "total"))
+                    choices=("timeloop", "parity", "total", "embedded", "saving"))
     ap.add_argument("--csv", help="also write the matrix here")
     args = ap.parse_args(argv)
 
@@ -104,13 +109,14 @@ def main(argv=None):
         print("no evaluated results found under", EVAL / args.phase)
         return 1
 
-    idx = {"timeloop": 0, "parity": 1, "total": 2}[args.field]
+    idx = {"timeloop": 0, "parity": 1, "total": 2, "embedded": 3, "saving": 4}[args.field]
+    unit = "%" if args.field == "saving" else "uJ"
     models = sorted({m for m, _ in data})
     archs = sorted({a for _, a in data})
 
-    scopes = sorted({v[3] for v in data.values()})
-    print(f"\n{args.field} energy, uJ   phase={args.phase}   "
-          f"scope={'/'.join(scopes)}\n")
+    scopes = sorted({v[5] for v in data.values()})
+    print(f"\n{args.field} {'energy' if unit == 'uJ' else 'vs conventional ECC'}, "
+          f"{unit}   phase={args.phase}   scope={'/'.join(scopes)}\n")
     w = max(14, max(len(a) for a in archs) + 2)
     print(f"{'model':<16}" + "".join(f"{a:>{w}}" for a in archs))
     print("-" * (16 + w * len(archs)))
@@ -118,7 +124,8 @@ def main(argv=None):
         row = f"{m:<16}"
         for a in archs:
             v = data.get((m, a))
-            row += f"{v[idx]:>{w},.3f}" if v else f"{'-':>{w}}"
+            row += (f"{v[idx]:>{w},.3f}" if v and v[idx] is not None
+                    else f"{'-':>{w}}")
         print(row)
 
     missing = [(m, a) for m in models for a in archs if (m, a) not in data]
@@ -133,11 +140,14 @@ def main(argv=None):
         with open(out, "w", newline="") as fh:
             wr = csv.writer(fh)
             wr.writerow(["model", "arch", "scope", "mapper",
-                         "timeloop_uJ", "parity_uJ", "total_uJ", "source"])
+                         "timeloop_uJ", "parity_uJ", "total_uJ",
+                         "embedded_uJ", "embedded_saving_pct", "source"])
             for (m, a), v in sorted(data.items()):
-                wr.writerow([m, a, v[3], v[4],
+                wr.writerow([m, a, v[5], v[6],
                              f"{v[0]:.6f}", f"{v[1]:.6f}", f"{v[2]:.6f}",
-                             str(v[5].relative_to(ROOT))])
+                             "" if v[3] is None else f"{v[3]:.6f}",
+                             "" if v[4] is None else f"{v[4]:.4f}",
+                             str(v[7].relative_to(ROOT))])
         print(f"\ncsv -> {out}")
     return 0
 

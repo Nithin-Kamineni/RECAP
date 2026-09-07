@@ -904,3 +904,151 @@ was renamed `Local (spads/RF/NoC)` → `Local (spads/RF)`; CSV columns follow.
 The recon arm scales the weight share of NoC energy by K/N like the other
 on-chip categories (decision 2026-09-07), recorded as an approximation on every
 result.
+
+## 14. Task 2 — embedded ECC, DRAM energy effect only (2026-09-07)
+
+**Verdict.** Implemented as an evaluation-only experiment on the Task 1
+mappings. Only the DRAM component differs between the two arms, and every
+result file checks that rather than asserting it. Whole-model savings at
+BCH(63,51) are 2.8–5.6% (resnet18) and 2.6–4.1% (mobilenet_v2), equal to
+`parity / (Timeloop + parity)` on each architecture, because the embedded arm
+removes the external-parity traffic and nothing else.
+
+### The two questions asked before the work
+
+*Does the mapper have to be re-run because the DRAM footprint differs between
+the arms?* No. Timeloop maps 8-bit weights against the architecture; the
+external parity is added afterwards, in evaluation (`ecc.external_parity()`),
+and the embedded arm changes nothing the mapper sees either — the weights are 8
+bits wide in DRAM and on chip under both arms. The fingerprint is unchanged,
+every mapping is a cache hit (`evaluation_only_rerun: PASS`, 0 newly mapped
+shapes on every file), and the plan requires the fixed mapping for this
+comparison anyway. A parity-aware mapper could in principle trade a little more
+on-chip reuse for fewer DRAM weight reads under the baseline's 1.3125× weight
+traffic cost; that is a Task 4-class question, not a Task 2 one.
+
+*Is the external parity already in the baseline's DRAM?* Yes, since Task 1:
+6 whole weights per BCH(63,51) codeword, 3 message-padding bits, tail padding,
+× the measured refetch, rounded to 64-bit DRAM words — 31.25% over payload
+traffic, 10.5 stored bits per weight. Note this is *more* than the flat n/k the
+Task 2 request described (8 · 63/51 = 9.88 b/weight); the difference is the
+whole-weight packing rule, which is correct for a separately stored codeword.
+
+### The actual embedded-codeword layout
+
+Read from the embedding code rather than chosen. `ECC-CODE-Engine/4-EmbeddingECC/ecc_embed.py`
+(approach `replace`, the copy in `../Input_Embedding/3-Testing/{utils,implementations}`
+is verbatim):
+
+* `convert_to_binary(vals, bit_size=8)` — one MSB-first bit stream, 8 bits per weight.
+* `messageSliceBasedOnChunkSize(bits, chunk_size=n)` — fixed **63-bit chunks
+  for every K**; a chunk spans several weights and slices them mid-value; only
+  the final chunk is zero-padded.
+* `ParityOverwriteByTopWeightsEncode(chunk, n, k)` — systematic BCH(n,k); the k
+  highest-significance chunk positions are the message, the n−k lowest are
+  overwritten with parity.
+
+Consequences (`eccenergy/embedded.py`, checked by `test_embedded.py`):
+7.875 weights per codeword; gcd(63,8)=1 so the alignment repeats every 8
+codewords = 63 weights and 7 of 8 codeword boundaries split a weight; storage
+is exactly 8 bits per weight plus ≤62 bits of tail padding per tensor; there
+is no external parity and no shortened code. Parity bits per weight by
+significance: BCH(63,51) → bit0 1.000, bit1 0.524 (1.524 total); BCH(63,30) →
+bits 0–3 every weight, bit4 0.19. That table is what "do not treat all full
+weight bits as independent payload" means in numbers, and Task 3 will need it.
+
+The baseline's layout (`parity.py`) is the opposite rule — whole weights in a
+separately stored codeword — and both are right for what they describe. The
+result JSON says so under `comparison_to_baseline_layout`.
+
+### What the embedded arm's DRAM energy is, and is not
+
+The complete codeword is read for correction, so **every one of the 8 bits of
+every DRAM weight read is billed** — Timeloop already does exactly that — and no
+K/N reduction is applied at DRAM (`embedded_reads_complete_codeword`). The
+external-parity term is zero (`external_parity_energy_pJ: 0.0`, written
+explicitly). Stored bits, physical reads and energy are reported separately:
+the physical DRAM word count is an *estimate* (bits/64 rounded up once) because
+Timeloop bills per 8-bit scalar, and the tail padding is reported but not
+charged, the same rule the baseline's payload is billed by. Both are in
+`approximations` on every file. ECC codec energy is charged to neither arm and
+the file says so; the arms would decode different codeword counts (1.95 M vs
+1.48 M on resnet18), so a codec cost would not cancel.
+
+### Results (NoC costed, converged search, BCH(63,51), 8-bit weights)
+
+Whole model, µJ. "conv." is Task 1's conventional-ECC total; these are the
+2026-09-07 NoC-costed totals, not the §13 pre-NoC ones.
+
+| architecture | resnet18 conv. | parity | embedded | saving | mobilenet_v2 conv. | parity | embedded | saving |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| eyeriss_v2_like | 5,075.371 | 276.997 | 4,798.375 | 5.46% | 1,862.971 | 70.591 | 1,792.380 | 3.79% |
+| eyeriss_like | 5,357.602 | 298.623 | 5,058.978 | 5.57% | 1,984.785 | 81.692 | 1,903.093 | 4.12% |
+| simba_like | 5,699.198 | 297.968 | 5,401.230 | 5.23% | 1,996.279 | 71.388 | 1,924.891 | 3.58% |
+| simple_input_stationary | 6,647.611 | 271.572 | 6,376.039 | 4.09% | 2,102.472 | 71.123 | 2,031.349 | 3.38% |
+| simple_weight_stationary | 7,782.205 | 249.544 | 7,532.661 | 3.21% | 2,348.220 | 79.359 | 2,268.861 | 3.38% |
+| simple_output_stationary | 9,363.620 | 260.121 | 9,103.499 | 2.78% | 2,639.039 | 69.395 | 2,569.644 | 2.63% |
+
+resnet18 footprint (identical on every architecture, as it must be):
+11,678,912 weights; conventional 15,328,593 B stored in 1,946,488 codewords
+(10.5 b/weight); embedded 11,679,027 B in 1,483,051 codewords (8.0001
+b/weight; 115 B of tail padding across 21 tensors). mobilenet_v2: 4,554,073 B
+vs 3,469,946 B. DRAM weight reads are identical between the arms on every
+file (resnet18 on v2: 13,849,792 scalars, refetch ×1.19).
+
+Development pair (resnet18, `layer3.0.downsample.0` + `layer4.1.conv2`,
+2,392,064 weights): conventional 440.5 / 445.0 / 493.5 / 563.9 / 551.6 /
+762.1 µJ and savings 11.0 / 10.9 / 9.7 / 8.5 / 8.8 / 6.3 % for v2 / v1 /
+Simba-like / IS / WS / OS. The pair is weight-dominated, which is why its
+saving is twice the whole-model figure; it validates the implementation and
+ranks nothing (§13).
+
+The saving orders the architectures by DRAM weight-traffic share, as it
+should: the Eyeriss designs and Simba-like refetch most on resnet18
+(×1.19–1.28) and save most; output-stationary refetches least (×1.00–1.11)
+and saves least.
+
+### What was verified
+
+* `bash run.sh baseline --eval`, re-run after the change on all 12 whole-model
+  (architecture, model) pairs, reproduces the pre-change files exactly: total,
+  per-component energies, parity accounting (stored + traffic), validation
+  outcomes, mapping ids and summary rows. `parity.py`, `baseline.py`,
+  `build_stacks()` and `external_parity()` have no diff.
+* On every Task 2 file the six Task 2 checks and all Task 1 checks pass; the
+  single failing entry is the pre-existing `noc_share_within_published_band_eyeriss_v2`
+  (5.3% against 6–10%), which Task 1's files fail identically.
+* `embedded_matches_sweep_figure_arm` passes everywhere: the figure's embedded
+  bar (`build_stacks()`, unchanged, = `raw.total`) and the JSON agree.
+* Tests: `test_embedded` 11/11 (two need pandas and run in the container),
+  `test_results_store` 15/15, `test_noc` 12/12, `test_mapper_lock` 4/4.
+
+### How it was produced
+
+```bash
+module load apptainer
+export ECC_MAPPER_ALGORITHM=random_pruned ECC_MAPPER_SEARCH_SIZE= ECC_VICTORY=2000 \
+       ECC_MAPPER_TIMEOUT=2000 ECC_MAPPER_THREADS=18 ECC_SWEEP=arch \
+       ECC_SWEEP_ARCHS="eyeriss_v2_like eyeriss_like simple_weight_stationary simple_output_stationary simple_input_stationary simba_like"
+ECC_LAYERS= ECC_CONST_MODEL=resnet18     bash hpc/tl.sh bash run.sh embedded --eval
+ECC_LAYERS= ECC_CONST_MODEL=mobilenet_v2 bash hpc/tl.sh bash run.sh embedded --eval
+ECC_LAYERS="layer3.0.downsample.0 layer4.1.conv2" ECC_CONST_MODEL=resnet18 bash hpc/tl.sh bash run.sh embedded --eval
+python3 hpc/summary.py --scope layers-full --field saving --csv results/tables/panel_matrix.csv
+```
+
+Result files: `results/evaluation/Pre/<arch>/<model>/bch63_51/w8a8/{layers-full,layers2__…}/map-energy-vic2000l-random_pruned-seednone-ssnone-perm16/2026-09-07T1942*.json`
+(experiment `task2_embedded_ecc_dram_only`; `latest.json` points at them).
+
+### Caveats that still stand
+
+* Fixed mapping, DRAM effect only: no on-chip saving is credited to the
+  embedded arm (that is Tasks 3–5), and no accuracy claim is made about
+  overwriting weight LSBs with parity — that is the Input_Embedding study's
+  question.
+* `build_stacks()` still counts the embedded arm's *decodes* at the baseline's
+  6 weights/codeword (`ECC_EMB_WEIGHTS_PER_CW`). Decode is off by default and
+  outside this comparison; when codec energy is adopted, that count should
+  move to the 7.875-weights layout and the decision be recorded.
+* The whole-model numbers here are on six architectures without the `_wglb`
+  bracketing pair, at the NoC-costed setting; the §13 caveats on convergence,
+  the missing six models and Simba-like's provenance all still apply.

@@ -1,6 +1,6 @@
 # PROJECT_STATUS
 
-**Last updated:** 2026-09-06 (HiPerGator bring-up + first whole-model panel run)
+**Last updated:** 2026-09-07 (Task 2 -- embedded ECC, DRAM effect only -- implemented and evaluated)
 **Migration:** COMPLETE. Single-process Apptainer flow verified (all five checks
 passed; the six copied-cache energies match the laptop exactly), and parallel
 execution is built and proven: `sbatch hpc/map.sbatch` ran 12/12 tasks, 0 failed,
@@ -15,11 +15,162 @@ converged search, and the panel figure is regenerated and quotable. The
 architecture ranking is preserved across both models. **The two development
 layers are not a proxy for the model** — weight-stationary and input-stationary
 swap between them.
-**Model status:** Task 1 is mechanically complete; prior numerical and modelling
-caveats below still apply — NoC energy is still zero everywhere, the `_wglb`
-bracketing pair was not run, and six of the eight models are still unmapped.
-run.sh defaults, architectures and ECC arms are unchanged.
+**Model status:** Tasks 1 and 2 are complete (Task 2 section next; FINDINGS.md
+§14). The `embedded` arm is now a measured DRAM-only result on the Task 1
+mappings; `recon` is still the placeholder. Prior caveats still apply — the
+`_wglb` bracketing pair was not run and six of the eight models are still
+unmapped. NoC energy has been costed since 2026-09-07 (FINDINGS.md
+"Interconnect"). run.sh defaults, architectures and the baseline are unchanged.
 See FINDINGS.md §12 (bring-up) and §13 (the whole-model run) for evidence.
+
+---
+
+## 2026-09-07 TASK 2 — EMBEDDED ECC, DRAM ENERGY EFFECT ONLY — DONE
+
+**What was asked** (`03_staged_implementation_plan.txt` §2): an embedded-ECC
+evaluation mode with the parity inside the stored weights and no external
+parity, using the *actual* embedded-codeword layout, reading the complete
+codeword for correction, with mappings / on-chip widths / access counts / MAC
+behaviour fixed, changing only the modelled DRAM storage/traffic energy, and
+distinguishing stored bits from physical reads.
+
+**Two questions answered first, then the work:**
+
+1. *Re-run the mapping optimiser?* **No.** The mapper never sees parity: Task 1
+   maps 8-bit weights against the architecture and adds the external parity in
+   evaluation, after Timeloop. The embedded arm changes nothing the mapper
+   sees either (DRAM and on-chip weights are 8 bits wide under both arms), so
+   the fingerprint is unchanged, the cached mappings are reused, and the plan
+   itself requires the fixed mapping for this comparison. Every Task 2 file
+   records `evaluation_only_rerun: PASS` (0 newly mapped shapes) and
+   `fixed_mapping_shared_across_variants: PASS`.
+2. *Is external parity already in the baseline DRAM?* **Yes**, since Task 1:
+   `parity.py` + `ecc.external_parity()`, 6 whole weights per BCH(63,51)
+   codeword, 3 message-padding bits, tail padding, ×measured refetch, rounded
+   to 64-bit DRAM words — 31.25% over payload traffic, i.e. 10.5 stored bits
+   per weight rather than the flat n/k (8·63/51 = 9.88). Nothing was
+   re-implemented there.
+
+**The actual embedded layout** was read from the embedding code
+(`ECC-CODE-Engine/4-EmbeddingECC/ecc_embed.py`, copied verbatim into
+`../Input_Embedding/3-Testing/{utils,implementations}`): the int8 tensor is
+one MSB-first bit stream cut into fixed 63-bit chunks (`chunk_size =
+message_parity_size`), weights straddle chunk boundaries (7.875 weights per
+codeword for every K; gcd(63,8)=1 so the alignment repeats every 8 codewords =
+63 weights and 7 of 8 boundaries split a weight), only the final chunk is
+zero-padded, and `ParityOverwriteByTopWeightsEncode` overwrites the n−k
+lowest-significance chunk positions with the parity. At BCH(63,51) every
+weight loses its LSB and about half lose bit 1 as well (1.524 parity bits per
+weight). Storage is therefore exactly 8 bits per weight plus one tail pad per
+tensor, and there is no external parity. This is the opposite packing rule to
+the baseline's whole-weight codewords, and both are correct for their layout.
+
+**What the embedded arm's DRAM energy is:** Timeloop's DRAM weight energy,
+unchanged. The complete codeword is read (every one of the 8 bits, message and
+parity), so no K/N reduction is applied at DRAM; what disappears relative to
+Task 1 is the external-parity traffic and nothing else. The saving is
+therefore `parity / (Timeloop + parity)` on each architecture.
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `eccenergy/embedded.py` | **new.** `EmbeddedLayout` (bit-stream layout, phases, parity-significance profile), `account()` / `account_layers()` (stored bits, tail padding, straddles, external parity = 0, DRAM words), `traffic_account()` (complete-codeword reads, physical-word estimate), `dram_energy_pj()`, `hand_check()` / `hand_check_layers()` (codeword-by-codeword walk vs closed form). `LAYOUT_SOURCE` cites the files the layout was read from. |
+| `eccenergy/ecc.py` | `embedded_dram()` added beside `external_parity()`; module docstring's embedded paragraph rewritten. `build_stacks()`, `external_parity()`, `savings()` **unchanged** (verified by diff). |
+| `eccenergy/experiments/embedded.py` | **new.** Task 2's experiment `task2_embedded_ecc_dram_only`: baseline + embedded evaluated in ONE file from the same raw record, recon placements unavailable, six Task 2 checks, report. |
+| `eccenergy/experiments/audit.py` | **new.** Task 1's checks / caveats / detail as functions, mirrored from `baseline.py` so `baseline.py` did not have to be touched. Keep the two in step. |
+| `eccenergy/config.py` | `"embedded"` in `EXPERIMENTS`. No new knob: the layout is fixed by the pipeline, and the per-tensor grouping reuses `ECC_PARITY_GROUPING`. |
+| `eccenergy/__main__.py` | runner + help text. |
+| `run.sh` | documentation of the experiment and the quick-run command (no default changed). |
+| `hpc/run_all.sh --eval-only` | writes `embedded --eval` beside `baseline --eval` per model (`ECC_EVAL_EXPERIMENTS`). Was `hpc/eval_panel.sh` until the env.sh consolidation. |
+| `hpc/summary.py` | `--field embedded` and `--field saving`; two CSV columns. |
+| `eccenergy/tests/test_embedded.py` | **new.** 11 offline tests (2 need pandas → container). |
+| `CLAUDE.md`, `README.md`, `docs/RESULTS_SCHEMA.md`, `hpc/HIPERGATOR.md`, `FINDINGS.md` §14, `progress.txt` | documentation. |
+
+**Not touched:** `eccenergy/parity.py`, `eccenergy/experiments/baseline.py`,
+`energy.py`, `results_store.py`, `paths.py`, every `archs/` YAML, every
+`run.sh` default, the recon arm.
+
+### Exact run commands (HiPerGator; `--eval` never invokes Timeloop)
+
+```bash
+module load apptainer
+export ECC_MAPPER_ALGORITHM=random_pruned ECC_MAPPER_SEARCH_SIZE= ECC_VICTORY=2000 \
+       ECC_MAPPER_TIMEOUT=2000 ECC_MAPPER_THREADS=18 ECC_SWEEP=arch \
+       ECC_SWEEP_ARCHS="eyeriss_v2_like eyeriss_like simple_weight_stationary simple_output_stationary simple_input_stationary simba_like"
+# whole model, both panel models
+ECC_LAYERS= ECC_CONST_MODEL=resnet18     bash hpc/tl.sh bash run.sh embedded --eval
+ECC_LAYERS= ECC_CONST_MODEL=mobilenet_v2 bash hpc/tl.sh bash run.sh embedded --eval
+# the development pair (quick run)
+ECC_LAYERS="layer3.0.downsample.0 layer4.1.conv2" ECC_CONST_MODEL=resnet18 \
+  bash hpc/tl.sh bash run.sh embedded --eval
+# the matrix, and the tests
+python3 hpc/summary.py --scope layers-full --field saving
+bash hpc/tl.sh python3 -m eccenergy.tests.test_embedded
+```
+
+### Results (BCH(63,51), 8-bit weights, NoC costed, converged search)
+
+Whole model — conventional ECC (Task 1) vs embedded ECC (Task 2), µJ:
+
+| architecture | resnet18 conv. | embedded | saving | mobilenet_v2 conv. | embedded | saving |
+|---|---:|---:|---:|---:|---:|---:|
+| eyeriss_v2_like | 5,075.371 | 4,798.375 | 5.46% | 1,862.971 | 1,792.380 | 3.79% |
+| eyeriss_like | 5,357.602 | 5,058.978 | 5.57% | 1,984.785 | 1,903.093 | 4.12% |
+| simba_like | 5,699.198 | 5,401.230 | 5.23% | 1,996.279 | 1,924.891 | 3.58% |
+| simple_input_stationary | 6,647.611 | 6,376.039 | 4.09% | 2,102.472 | 2,031.349 | 3.38% |
+| simple_weight_stationary | 7,782.205 | 7,532.661 | 3.21% | 2,348.220 | 2,268.861 | 3.38% |
+| simple_output_stationary | 9,363.620 | 9,103.499 | 2.78% | 2,639.039 | 2,569.644 | 2.63% |
+
+resnet18 DRAM footprint, both arms: 11,678,912 weights; conventional
+15,328,593 B stored (1,946,488 codewords, 10.5 b/weight), embedded
+11,679,027 B (1,483,051 codewords, 8.0001 b/weight, 115 B of tail padding
+over 21 tensors); DRAM weight reads identical (13.85 M scalars on v2,
+refetch ×1.19). Development pair (2 layers, resnet18): savings 11.0% (v2),
+10.9% (v1), 9.7% (Simba-like), 8.8% (WS), 8.5% (IS), 6.3% (OS) — a
+development check, not a ranking.
+
+**Baseline regression:** `bash run.sh baseline --eval` re-run after the change
+on all 12 whole-model (architecture, model) pairs reproduces the pre-change
+files exactly — total, per-component energies, parity accounting, validation
+outcomes, mapping ids and summary all identical.
+
+**Checks on every Task 2 file:** the six Task 2 checks and Task 1's checks
+all pass; the only failing entry is the pre-existing
+`noc_share_within_published_band_eyeriss_v2` (5.3% vs the 6–10% band), which
+Task 1's files fail identically. Tests: 11/11 `test_embedded` (in the
+container), 15/15 `test_results_store`, 12/12 `test_noc`, 4/4
+`test_mapper_lock`.
+
+### Assumptions and approximations, recorded in every result
+
+* **Bit-proportional DRAM.** Timeloop bills 1/8 of a 64-bit word per 8-bit
+  scalar; physical DRAM words are *estimated* as bits/64 rounded up once, and
+  the final chunk's tail padding is reported but not charged — the same rule
+  the baseline's payload is billed by. A burst-exact count is not available.
+* **Per-tensor grouping** (`ECC_PARITY_GROUPING=layer`, shared with the
+  baseline): each layer is its own bit stream and pays its own tail pad, as the
+  embedding driver encodes one tensor per call.
+* **ECC codec energy is outside the comparison** — charged to neither arm. The
+  arms would decode different codeword counts (1.95 M vs 1.48 M on resnet18),
+  so a codec cost would not cancel; it is simply not costed until a
+  characterised codec energy is adopted. `ECC_DECODE=1` affects the sweep
+  figures only and is warned about.
+* No on-chip saving is credited to the embedded arm and no inference-accuracy
+  claim is made about overwriting weight LSBs.
+* `build_stacks()`'s embedded bar was already `raw.total` and is unchanged;
+  `embedded_matches_sweep_figure_arm` checks the JSON against it on every
+  file. Its decode *count* for the embedded arm still uses the baseline's
+  6 weights/codeword (`ECC_EMB_WEIGHTS_PER_CW`); that is a codec-energy
+  question and was deliberately not changed here.
+
+### Next: Task 3 — Eyeriss v2 reconstruction, evaluator only, fixed mapping
+
+Not started. Uses the Task 2 file as the embedded-ECC reference. The recon
+arm in `build_stacks()` is still the placeholder the user will correct first;
+`experiments/audit.py` is the shared check set Task 3 should reuse, and
+`EmbeddedLayout.parity_significance_profile()` already says which weight bits
+are dependent per codeword phase, which Task 3's reconstruction counts need.
 
 ---
 
@@ -387,9 +538,10 @@ Everything here is recorded in the result JSONs under `approximations` and
 
 ---
 
-## Next: Task 2 — embedded ECC, DRAM energy effect only
+## Next (as written at the end of Task 1): Task 2 — embedded ECC, DRAM energy effect only
 
-Not started. What it needs:
+**Done on 2026-09-07 — see the Task 2 section at the top of this file.** What
+it needed, as listed then:
 
 1. The **actual embedded-codeword layout**, not "all 8 weight bits are
    independent payload". `parity.py` has the geometry; the embedded arm needs

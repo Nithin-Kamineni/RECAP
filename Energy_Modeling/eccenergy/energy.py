@@ -287,9 +287,17 @@ def collect(cfg, results, arch, mapper_factory, models, variant=None,
     laptop with no container: it reads `results/_raw/` and nothing else.
     """
     raws, need_mapping = {}, []
+    # THE RAW CACHE SITS IN FRONT OF THE MAPPER: a hit returns before
+    # `mapper_factory()` is even called. So ECC_RERUN_OPTIMISER=1 has to
+    # invalidate the raw record as well, or the flag would silently do nothing
+    # on every model that has been evaluated once -- which is all of them.
+    if cfg.rerun_optimiser:
+        print(f"  ECC_RERUN_OPTIMISER=1: ignoring the raw-energy cache for "
+              f"{', '.join(models)} so the mapper is reached")
     for model in models:
-        cached = load_raw(results, cfg, arch, model, variant, fingerprint,
-                          layers=models[model])
+        cached = (None if cfg.rerun_optimiser else
+                  load_raw(results, cfg, arch, model, variant, fingerprint,
+                           layers=models[model]))
         if cached is not None:
             raws[model] = cached
         else:

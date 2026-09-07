@@ -281,28 +281,33 @@ array submissions or accept that the duplicated shape is mapped twice.
 > puts an atomic-mkdir lock on every shape's cache entry; a second task that
 > reaches a shape being mapped waits (logged as `[lock] ... is being mapped by
 > another task`) and then reuses the result. Any task layout is safe, including
-> `hpc/tasks_full.txt` (8 architectures x 8 CNNs, 64 tasks), where resnet18/
-> resnet50, resnet50/densenet121 and mobilenet_v2/efficientnet_b0 share shapes.
+> the full 8 architectures x 8 CNNs matrix (64 tasks -- widen `ECC_ARCHS` and
+> `ECC_MODELS` in `env.sh`), where resnet18/resnet50, resnet50/densenet121 and
+> mobilenet_v2/efficientnet_b0 share shapes.
 
 **Submit:**
 
 ```
 cd /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling
-mkdir -p hpc/logs
-sbatch hpc/map.sbatch
+bash hpc/run_all.sh --map-only        # or `bash hpc/run_all.sh` for map + eval
 ```
 
-`hpc/tasks_panel.txt` is one `<arch> <model>` per line; the array index selects
-the line. Task 1–6 are the six architectures × `resnet18`, 7–12 × `mobilenet_v2`.
-To map a different set, write another task file and set `--array` to its length.
+The task list is GENERATED into `hpc/.runtime/tasks.txt` from `ECC_ARCHS x
+ECC_MODELS` in `env.sh`, one `<arch> <model>` per line, and `--array` is sized
+from it at submit time -- so a stale hand-written list can no longer disagree
+with the array. Task 1–6 are the six architectures × `resnet18`, 7–12 ×
+`mobilenet_v2` at the default lists. To map a different set, widen those two
+variables; nothing else changes.
 
-**Concurrency.** `%N` in `--array` is the only place concurrency is capped. The
+**Concurrency.** `ECC_CONCURRENCY` (the `%N` in `--array`) is the only place
+concurrency is capped. The
 `rewetz` investment is **181 cores**; at `--cpus-per-task=18` that is 10 tasks,
 and `%9` (162 cores) leaves room for a VS Code ondemand session, which itself
 holds 9. Asking for more does not fail — the surplus simply waits with reason
 `JobArrayTaskLimit`. `slurmInfo -g rewetz` shows the current headroom.
 
-**`ECC_MAPPER_THREADS` must stay 18** and must equal `--cpus-per-task`. The
+**`ECC_MAPPER_THREADS` must stay 18** and must equal `ECC_MAP_CPUS`
+(`--cpus-per-task`). The
 thread count is hashed into the mapping fingerprint, so a different value is a
 different cache key and a different search — the results would not be
 comparable with the laptop numbers or with anything already cached.
@@ -323,12 +328,15 @@ written atomically.
 
 ```
 module load apptainer
-bash hpc/eval_panel.sh
+bash hpc/run_all.sh --eval-only
 ```
 
-which runs `bash run.sh baseline --eval` once per model and then
+which runs `bash run.sh baseline --eval` and `bash run.sh embedded --eval`
+(Task 2; `ECC_EVAL_EXPERIMENTS` selects) once per model and then
 `bash run.sh panels --eval`, all at the same converged search settings the
-array used. Finally, the model × architecture matrix:
+array used -- guaranteed, because both stages read those settings from the same
+`env.sh`. A plain `bash hpc/run_all.sh` chains this onto the array with
+`--dependency=afterok`, so it happens by itself. Finally, the model × architecture matrix:
 
 ```
 python3 hpc/summary.py --scope layers-full --csv results/tables/panel_matrix.csv

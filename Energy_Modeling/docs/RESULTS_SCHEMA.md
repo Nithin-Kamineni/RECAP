@@ -136,6 +136,20 @@ conventional baseline evaluated, embedded ECC and the five reconstruction
 placements as `not_implemented`. The document shape is final from Task 1
 onward; later tasks fill entries in rather than changing the schema.
 
+**Task 2** (`bash run.sh embedded`, experiment `task2_embedded_ecc_dram_only`)
+is the first to do so: its file holds `baseline_external_parity` (the same
+number Task 1 writes, from the same function) and `embedded_ecc`, both
+`evaluated`, from one set of cached mappings. The embedded variant's `detail`
+carries `embedded_dram_accounting` — the actual codeword layout and where it
+comes from, stored payload/padding, traffic, physical-word estimate, energy
+and hand check — and `validation` gains six Task 2 checks:
+`non_dram_components_match_task1_baseline`,
+`dram_difference_is_exactly_the_external_parity`,
+`embedded_reads_complete_codeword`, `embedded_layout_hand_check`,
+`embedded_matches_sweep_figure_arm` and `evaluation_only_rerun`. Its
+`energy_by_component_pJ` writes `"DRAM external BCH parity": 0.0` explicitly,
+so a reader sees zero rather than missing.
+
 ## Reading results back
 
 ```python

@@ -20,7 +20,7 @@ def _parse_args(argv):
         description="ECC energy modelling (Timeloop + Accelergy). "
                     "Configure with ECC_* environment variables; see run.sh.")
     p.add_argument("experiment", nargs="?", choices=EXPERIMENTS,
-                   help="sweep (default) | baseline | validate | map | diagnose")
+                   help="sweep (default) | baseline | embedded | validate | map | diagnose | panels")
     p.add_argument("--sweep", choices=SWEEPS,
                    help="override ECC_SWEEP: which axis goes on the x axis")
     p.add_argument("--replot", action="store_true",
@@ -114,7 +114,7 @@ def main(argv=None):
 
     # imported here so a config error never pays for matplotlib/pandas import
     from .ecc import load_recon_energy, recon_pj_for_k
-    from .experiments import baseline, diagnose, panels, sweep, validate
+    from .experiments import baseline, diagnose, embedded, panels, sweep, validate
 
     recon_pj, provenance = load_recon_energy(cfg)
     if cfg.sweep == "bch" and cfg.recon_pj_override is None:
@@ -129,6 +129,10 @@ def main(argv=None):
 
     runners = {"sweep": sweep.run, "diagnose": diagnose.run, "panels": panels.run,
                "baseline": baseline.run, "validate": validate.run,
+               # Task 2: the embedded-ECC arm beside the conventional baseline,
+               # from the same cached mappings; only DRAM differs, and the
+               # result file checks that rather than asserting it.
+               "embedded": embedded.run,
                # `map` is the mapping-generation half of the split the plan
                # requires: solve and cache the mappings for the selected layers,
                # write no result, evaluate nothing.

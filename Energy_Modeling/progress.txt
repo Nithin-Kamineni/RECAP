@@ -1,6 +1,6 @@
 PROGRESS CHECKLIST  --  ECC accelerator energy modelling
 ========================================================
-Last updated : 2026-09-07 (interconnect / NoC energy model added; every mapper cache is cold again)
+Last updated : 2026-09-07 (Task 2 embedded ECC implemented + evaluated; NoC model added earlier the same day)
 Legend       : ✅ done   ❌ not done / wrong   ⚠️ done with caveats or partially
 
 How to read this: one line per task or subtask, each marked with exactly one
@@ -195,7 +195,84 @@ INTERCONNECT (NoC) ENERGY MODEL  --  2026-09-07
    on disk is still the PRE-NoC result and must not be compared against NoC numbers
 
 
-TASK 2  --  EMBEDDED ECC (DRAM effect only)          ❌ not started
+TASK 2  --  EMBEDDED ECC (DRAM effect only)          ✅ DONE 2026-09-07
+------------------------------------------------------------------
+✅ Questions answered first: no re-mapping needed (the mapper never sees parity; both arms are
+   8-bit weights to it; plan requires the fixed mapping) and the baseline DRAM already carries the
+   accounted external parity since Task 1 (10.5 stored b/weight at BCH(63,51), not flat n/k)
+✅ ACTUAL embedded-codeword layout read from the embedding code (ECC-CODE-Engine 4-EmbeddingECC,
+   copied into ../Input_Embedding/3-Testing): MSB-first weight bit stream cut into fixed 63-bit
+   chunks, weights straddle (7.875 weights/codeword, period 8 cw = 63 weights, 7 of 8 boundaries
+   split a weight), last chunk zero-padded, parity overwrites the n-k lowest-significance
+   positions (BCH(63,51): every LSB + 52% of bit1). eccenergy/embedded.py; source cited in JSON
+✅ Storage = 8 b/weight + one tail pad per tensor; external parity = 0; complete codeword read
+   (no K/N cut at DRAM); DRAM energy = Timeloop's; only the external-parity term is removed
+✅ Experiment `bash run.sh embedded --eval` (experiments/embedded.py): baseline + embedded
+   evaluated in ONE JSON from the same cached mappings; recon placements stay not_implemented
+✅ Checked, not asserted: non_dram_components_match_task1_baseline, dram_difference_is_exactly_
+   the_external_parity, embedded_reads_complete_codeword, embedded_layout_hand_check,
+   embedded_matches_sweep_figure_arm, evaluation_only_rerun, fixed_mapping_shared_across_variants
+   -- all PASS on 12 whole-model + 6 dev-pair files
+✅ Evaluation-only reruns from the cache: 0 newly mapped shapes on every file
+✅ Stored bits vs physical reads vs energy kept apart and reported; bit-proportional DRAM word
+   estimate and uncharged tail padding recorded as approximations on every file
+✅ ECC codec energy explicitly OUTSIDE the comparison (charged to neither arm; warned if ECC_DECODE=1)
+✅ Baseline code untouched (parity.py, external_parity, build_stacks, baseline.py); `baseline --eval`
+   re-run after the change reproduces all 12 whole-model files field-for-field
+✅ Whole-model saving at BCH(63,51): resnet18 5.5/5.6/5.2/4.1/3.2/2.8 %, mobilenet_v2
+   3.8/4.1/3.6/3.4/3.4/2.6 % (v2, v1, Simba-like, IS, WS, OS) = parity / (Timeloop + parity)
+✅ Tests: eccenergy/tests/test_embedded.py 11/11 (2 need pandas -> container); other suites unchanged
+✅ hpc/eval_panel.sh writes the Task 2 file per model; hpc/summary.py --field embedded|saving
+⚠️ The sweep figure's embedded DECODE count still uses the baseline's 6 weights/codeword
+   (ECC_EMB_WEIGHTS_PER_CW); a codec-energy question, deliberately left for when codec energy enters
+⚠️ eyeriss_v2 noc_share_within_published_band still FAILS (5.3% < 6%) -- pre-existing, same in Task 1
+❌ No inference-accuracy claim (LSB overwrite) -- Input_Embedding's question, not this one's
 TASK 3  --  EYERISS V2 RECONSTRUCTION, FIXED MAPPING ❌ not started
 TASK 4  --  EYERISS V2 RECONSTRUCTION + MAPPER       ❌ not started
 TASK 5  --  OTHER ARCHITECTURES                      ❌ not started
+
+
+CONFIGURATION  --  ONE env.sh, ONE COMMAND                ✅ DONE 2026-09-07
+------------------------------------------------------------------
+✅ env.sh at the project root is now THE knob file: every ECC_* variable, one per line with a
+   comment, in ten sections (1 most-changed, 2 mapping optimiser, 3 what the pipeline runs,
+   4 recon placement PLACEHOLDER, 5 hardware, 6 ECC accounting, 7 cluster, 8 output, 9 misc,
+   10 derived). Sourced by run.sh, hpc/run_all.sh, hpc/map.sbatch and hpc/tl.sh
+✅ Removed the four hand-synchronised copies of the mapper defaults (run.sh had
+   hybrid/500/10000, map.sbatch + eval_panel.sh + sweep.sh had random_pruned/2000/2000): the
+   evaluator could read a different cache slug than the mapper wrote. One copy now, in env.sh,
+   defaulting to the converged HPC values -- verified to resolve to the existing uncapped cache
+   (multimodel__opt-energy__vic2000__vicx__alg-random_pruned__to2000__noc__paper, 43 mappings)
+✅ Section 3 master lists (ECC_ARCHS, ECC_MODELS, ECC_KS, ECC_APPROACHES) replace
+   ECC_SWEEP_*/ECC_CONST_*/ECC_PANEL_MODELS/tasks_*.txt as the editable surface; section 10
+   derives config.py's swept-list-plus-two-constants form, the panels layout, ECC_STEM, and
+   GENERATES hpc/.runtime/tasks.txt, so a stale --array can no longer skip pairs silently
+✅ hpc/run_all.sh is the single command: --map-only / --eval-only / --replot / --local; it
+   submits itself as the dependent eval job, sized and resourced from env.sh section 7
+✅ New ECC_RERUN_OPTIMISER: re-solves a shape even on a valid cache hit and overwrites it
+   (config.py + timeloop.py::stats_for, one re-map per shape per process); refused together
+   with ECC_FROM_CACHE, which forbids mapping outright
+✅ Deleted: hpc/eval_panel.sh, hpc/eval.sbatch, hpc/sweep.sh, hpc/tasks_{panel,full,conv}.txt.
+   run.sh is now a 51-line entrypoint with no knobs; map.sbatch keeps only its #SBATCH header
+✅ Verified: `bash hpc/run_all.sh --eval-only` reproduces results/tables/ArchitectureSweep.csv
+   and the figures byte-for-byte (git diff empty); test_results_store, test_embedded,
+   test_mapper_lock pass; test_noc's one failure is the pre-existing missing-pandas import
+⚠️ Section 4 (recon placement study) is a PLACEHOLDER: ECC_RECON_MODELING, ECC_RECON_ARCH/
+   MODEL/K, ECC_RECON_PLACEMENTS, ECC_RECON_PLACEMENT_LABELS, ECC_RECON_RESULTS_JSON,
+   ECC_RECON_STEM, ECC_RECON_RERUN, ECC_RECON_ONCHIP_FRACTION. No code reads any of them yet
+✅ Pipeline verified on SLURM, not just locally (jobs 41332209 map array + 41332210 eval):
+   12/12 map tasks COMPLETED (~5 s each, raw-cache hits), dependent eval job COMPLETED in 56 s
+   and rewrote results/figures/ArchitectureSweep.{png,pdf} + tables + manifest; git diff on
+   results/ is EMPTY, so the rebuilt output is byte-identical to the committed one
+❌→✅ TWO defects found by that verification, both fixed:
+   1. ECC_RERUN_OPTIMISER was UNREACHABLE. energy.py::collect() returns on a raw-energy cache
+      hit BEFORE mapper_factory() is called, so the flag did nothing on any (arch, model)
+      already evaluated once. A re-map request now invalidates the raw record too, and
+      ECC_REPLOT_ONLY joins ECC_FROM_CACHE as a refused combination (neither builds a mapper).
+      Proven on job 41331682: cold -> mapped; default -> "raw cache hit" (mapper never
+      reached); RERUN=1 -> raw cache ignored, "re-solving ... overwriting its cache entry"
+   2. The dependent eval job died in 0 s (job 41331853): `./env.sh: No such file or directory`.
+      sbatch executes a COPY at /var/spool/slurmd/job<id>/slurm_script, so ${BASH_SOURCE[0]}
+      pointed outside the project. hpc/run_all.sh now resolves the root from its own location,
+      then an inherited ECC_PROJECT_ROOT, then SLURM_SUBMIT_DIR, and exits with a clear
+      message if none holds an env.sh. map.sbatch was never affected (absolute cd)

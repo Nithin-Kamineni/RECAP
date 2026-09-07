@@ -99,7 +99,7 @@ def _one(name, default=""):
 
 
 # ------------------------------------------------------------------ registries
-EXPERIMENTS = ("sweep", "diagnose", "baseline", "validate", "map", "panels")
+EXPERIMENTS = ("sweep", "diagnose", "baseline", "embedded", "validate", "map", "panels")
 APPROACHES = ("baseline", "embedded", "recon")
 
 #: The three axes a run can walk. The other two are held at their constant.
@@ -301,6 +301,12 @@ class Config:
     phase: str
     overwrite: bool
     cache_strict: bool
+    #: ECC_RERUN_OPTIMISER=1 -- re-solve a mapping even when a valid cache entry
+    #: exists, overwriting it. For refreshing a mapping after a change the
+    #: fingerprint does not capture, or to check that a mapping reproduces.
+    #: Meaningless (and refused) together with `from_cache`, which forbids
+    #: mapping outright.
+    rerun_optimiser: bool
     run_note: str
 
     # ---- mapper -------------------------------------------------------------
@@ -437,6 +443,17 @@ class Config:
                 f"  transformers: {' '.join(tfm)}")
         self.workload = "transformer" if tfm else "cnn"
 
+        # ECC_FROM_CACHE forbids invoking Timeloop at all, so it cannot also be
+        # asked to re-run the mapper. Silently preferring one would mean a run
+        # asked to refresh its mappings quietly refreshing nothing.
+        if self.rerun_optimiser and (self.from_cache or self.replot_only):
+            blocker = "ECC_FROM_CACHE=1 (--eval)" if self.from_cache \
+                else "ECC_REPLOT_ONLY=1 (--replot)"
+            raise ConfigError(
+                f"ECC_RERUN_OPTIMISER=1 asks the mapper to re-solve every shape, "
+                f"but {blocker} never invokes Timeloop at all.\n"
+                f"  -> re-map with `bash run.sh map`, then evaluate with `--eval`")
+
         if self.weak_enabled and self.weak_k >= self.weak_n:
             raise ConfigError(f"need WEAK_K < WEAK_N; got {self.weak_n}/{self.weak_k}")
         if self.classify_mode not in ("instances", "name"):
@@ -565,8 +582,8 @@ class Config:
         """
         if self.stem_override:
             # ECC_STEM forces ONE output name, deliberately overriding the
-            # two disambiguating suffixes below. `hpc/sweep.sh` sets it so
-            # an architecture sweep always lands on `ArchitectureSweep.png`
+            # two disambiguating suffixes below. env.sh section 10 sets it
+            # so an architecture sweep always lands on `ArchitectureSweep.png`
             # whether it drew one model or a panel per model. The cost is
             # real: a one-model and a two-model sweep then overwrite each
             # other, and only the manifest beside the figure records which
@@ -888,6 +905,7 @@ def load_config():
         phase=(_one("ECC_PHASE", "Pre") or "Pre").capitalize(),
         overwrite=_b("ECC_OVERWRITE", False),
         cache_strict=_b("ECC_CACHE_STRICT", True),
+        rerun_optimiser=_b("ECC_RERUN_OPTIMISER", False),
         run_note=_s("ECC_RUN_NOTE"),
 
         opt_metric=_s("ECC_OPT_METRIC", "energy").lower(),
@@ -1001,6 +1019,9 @@ def banner(cfg, recon_pj, recon_provenance):
         ("replot only", str(cfg.replot_only)),
         ("cached mapper only", str(cfg.from_cache)
             + ("   (never invokes Timeloop)" if cfg.from_cache else "")),
+        ("re-run the optimiser", str(cfg.rerun_optimiser)
+            + ("   (ECC_RERUN_OPTIMISER=1: valid cache entries are IGNORED and "
+               "OVERWRITTEN)" if cfg.rerun_optimiser else "")),
     ]
     for k, v in rows:
         lines.append(f"  {k:22s}: {v}")

@@ -13,14 +13,19 @@
 #  the caches are visible; the working directory inside the container is the
 #  project root, whatever directory this is called from.
 #
-#  ECC_SIF overrides the image path. Anything that invokes the mapper must be
+#  ECC_SIF (env.sh, section 7) is the image path. Anything that invokes the mapper must be
 #  run inside an allocation (srun/sbatch), never on a login node -- see
 #  hpc/HIPERGATOR.md.
 # =============================================================================
 set -euo pipefail
 
-SIF="${ECC_SIF:-/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/timeloop.sif}"
 PROJ="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# env.sh owns every path and knob, ECC_SIF included, and exports them into the
+# container. Sourcing it here means `bash hpc/tl.sh ...` from a bare shell sees
+# the same configuration as the pipeline does.
+source "$PROJ/env.sh"
+SIF="${ECC_SIF}"
 
 if [ ! -f "$SIF" ]; then
     echo "hpc/tl.sh: image not found: $SIF" >&2
