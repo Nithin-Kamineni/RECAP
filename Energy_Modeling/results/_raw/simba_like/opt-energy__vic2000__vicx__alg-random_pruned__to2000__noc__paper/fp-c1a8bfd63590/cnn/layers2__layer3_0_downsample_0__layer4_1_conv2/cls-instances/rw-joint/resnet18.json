@@ -1,0 +1,183 @@
+{
+ "base": {
+  "DRAM": 172957696.0,
+  "Global buffer": 2237907.6900000004,
+  "Local (spads/RF)": 121525742.9,
+  "NoC": 2306755.06,
+  "Compute": 146675253.91,
+  "ECC decode": 0.0,
+  "Reconstruction": 0.0
+ },
+ "base_w": {
+  "DRAM": 153092096.0,
+  "Global buffer": 0.0,
+  "Local (spads/RF)": 13521966.620000001,
+  "NoC": 1673276.75,
+  "Compute": 0.0,
+  "ECC decode": 0.0,
+  "Reconstruction": 0.0
+ },
+ "base_i": {
+  "DRAM": 8626176.0,
+  "Global buffer": 497477.63,
+  "Local (spads/RF)": 99673135.81,
+  "NoC": 364778.38999999996,
+  "Compute": 0.0,
+  "ECC decode": 0.0,
+  "Reconstruction": 0.0
+ },
+ "e_dram_w": 153092096.0,
+ "dram_w_reads": 2392064.0,
+ "layers_ok": 2,
+ "layers_skipped": 0,
+ "weights": 2392064,
+ "per_layer": [
+  {
+   "layer": "layer3.0.downsample.0",
+   "shape": "C128_M256_R1_S1_P14_Q14_ws2_hs2",
+   "status": "ok",
+   "weights": 32768,
+   "macs": 6422528,
+   "grouped": false,
+   "repeat_count": 1,
+   "mapping_id": "69bc7dadd20102b9",
+   "mapping_cached": true,
+   "total_energy_pJ": 28502611.580000002,
+   "dram_weight_reads": 32768.0,
+   "dram_weight_energy_pJ": 2097152.0
+  },
+  {
+   "layer": "layer4.1.conv2",
+   "shape": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+   "status": "ok",
+   "weights": 2359296,
+   "macs": 115605504,
+   "grouped": false,
+   "repeat_count": 1,
+   "mapping_id": "1aced7093fc88fb7",
+   "mapping_cached": true,
+   "total_energy_pJ": 417200743.98,
+   "dram_weight_reads": 2359296.0,
+   "dram_weight_energy_pJ": 150994944.0
+  }
+ ],
+ "levels": [
+  {
+   "level": "DRAM",
+   "dataspace": "Inputs",
+   "category": "DRAM",
+   "instances": 1,
+   "energy_pJ": 8626176.0,
+   "reads": 134784.0,
+   "writes": 0.0
+  },
+  {
+   "level": "DRAM",
+   "dataspace": "Outputs",
+   "category": "DRAM",
+   "instances": 1,
+   "energy_pJ": 11239424.0,
+   "reads": 50176.0,
+   "writes": 125440.0
+  },
+  {
+   "level": "DRAM",
+   "dataspace": "Weights",
+   "category": "DRAM",
+   "instances": 1,
+   "energy_pJ": 153092096.0,
+   "reads": 2392064.0,
+   "writes": 0.0
+  },
+  {
+   "level": "GlobalBuffer",
+   "dataspace": "Inputs",
+   "category": "Global buffer",
+   "instances": 1,
+   "energy_pJ": 497477.63,
+   "reads": 134784.0,
+   "writes": 134784.0
+  },
+  {
+   "level": "GlobalBuffer",
+   "dataspace": "Outputs",
+   "category": "Global buffer",
+   "instances": 1,
+   "energy_pJ": 1740430.06,
+   "reads": 401408.0,
+   "writes": 526848.0
+  },
+  {
+   "level": "NoC: inter_PE_spatial <==> PEInputBuffer",
+   "dataspace": "Inputs",
+   "category": "NoC",
+   "instances": null,
+   "energy_pJ": 364778.38999999996,
+   "reads": 134784.0,
+   "writes": 0.0
+  },
+  {
+   "level": "NoC: inter_PE_spatial <==> PEInputBuffer",
+   "dataspace": "Outputs",
+   "category": "NoC",
+   "instances": null,
+   "energy_pJ": 268699.92,
+   "reads": 476672.0,
+   "writes": 0.0
+  },
+  {
+   "level": "NoC: inter_PE_spatial <==> PEInputBuffer",
+   "dataspace": "Weights",
+   "category": "NoC",
+   "instances": null,
+   "energy_pJ": 1673276.75,
+   "reads": 2392064.0,
+   "writes": 0.0
+  },
+  {
+   "level": "PEAccuBuffer",
+   "dataspace": "Outputs",
+   "category": "Local (spads/RF)",
+   "instances": 64,
+   "energy_pJ": 8330640.470000001,
+   "reads": 3703616.0,
+   "writes": 3747520.0
+  },
+  {
+   "level": "PEInputBuffer",
+   "dataspace": "Inputs",
+   "category": "Local (spads/RF)",
+   "instances": 16,
+   "energy_pJ": 99673135.81,
+   "reads": 14852096.0,
+   "writes": 114048.0
+  },
+  {
+   "level": "PEWeightBuffer",
+   "dataspace": "Weights",
+   "category": "Local (spads/RF)",
+   "instances": 64,
+   "energy_pJ": 10141991.32,
+   "reads": 309248.0,
+   "writes": 296960.0
+  },
+  {
+   "level": "PEWeightRegs",
+   "dataspace": "Weights",
+   "category": "Local (spads/RF)",
+   "instances": 256,
+   "energy_pJ": 3379975.3000000003,
+   "reads": 3713024.0,
+   "writes": 77312.0
+  },
+  {
+   "level": "mac",
+   "dataspace": "Compute",
+   "category": "Compute",
+   "instances": 256,
+   "energy_pJ": 146675253.91,
+   "reads": 0.0,
+   "writes": 0.0
+  }
+ ]
+}
