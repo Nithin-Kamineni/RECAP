@@ -1,0 +1,86 @@
+==============================================================================
+ecc-energy  |  sweep=arch (architecture)  |  output=ArchitectureSweep__layers2__layer3_0_downsample_0__layer4_1_conv2
+==============================================================================
+  sweeping              : eyeriss_v2_like, eyeriss_like, simple_weight_stationary, simple_output_stationary, simple_input_stationary, simba_like
+  holding               : model=resnet18   code=BCH(63,51) t=2
+  approaches            : baseline, embedded, recon
+  workload file         : cnn
+  layer scope           : two-layer: layer3.0.downsample.0, layer4.1.conv2
+  weight precision      : 8b (the protected payload)
+  activation precision  : 8b
+  accumulator precision : per architecture, as published (v1 16b, v2 20b, Simba 24b, simple designs 16b)  [primary]
+  result phase          : Pre   (mapping is ECC-unaware; the ECC effect is applied during evaluation)
+  code                  : BCH(63,51)  t=2  r=12
+  weights / codeword    : 6.0000
+  DRAM weight inflation : baseline x1.2353 (+23.5%), embedded/recon x1.0
+  recon on-chip scale   : 0.8095 (weights only)
+  reconstruction        : 4.1296273 pJ per codeword
+  recon provenance      : BCH_N63_results.json [BCH_63_51_t2] n=63 k=51 t=2 (incremental+idle): inc=1.8995000 idle=2.2301273
+  parity accounting     : grouping=layer, message padding charged
+  decode                : 0 pJ for every arm (ECC_DECODE=0; category hidden)
+  weak ECC overlay      : off
+  arch fidelity         : paper   (archs/<name>/arch_paper.yaml where present)
+  arch treatment        : opt-energy__vic2000__vicx__alg-random_pruned__ss20000__to2000__paper   (separate mapper cache)
+  level classifier      : instances
+  mapper objective      : energy
+  mapper                : victory=2000 scaling=levels algorithm=random_pruned timeout=2000 perms/if=16 search_size=20000
+  palette / formats     : house / png, pdf @ 400 dpi
+  replot only           : True
+  cached mapper only    : False
+==============================================================================
+  [layers] resnet18: 2 of 21 layers  (2,392,064 of 11,678,912 weights, 20.48% of the model)
+           layer3.0.downsample.0    C128_M256_R1_S1_P14_Q14_ws2_hs2  weights=32,768
+           layer4.1.conv2           C512_M512_R3_S3_P7_Q7_ws1_hs1  weights=2,359,296
+  [scope] two-layer run -- results are written under layers2__layer3_0_downsample_0__layer4_1_conv2/ and are NOT full-model numbers
+  [bound] eyeriss_like: the 8 kB filter GLB that JSSC 2017 publishes is NOT modelled as a reuse level, so DRAM weight traffic and the ECC saving are UPPER bounds. Add eyeriss_like_wglb to the run to bracket it -- see archs/eyeriss_like_wglb/README.md.
+
+########## architecture: eyeriss_v2_like ##########
+  source arch_paper.yaml  (paper fidelity, 9 loop levels)  -> victory 4000, objective energy
+  raw cache hit: resnet18
+  resnet18           raw       401.98 uJ   DRAM weight reads      2,424,832
+
+########## architecture: eyeriss_like ##########
+  source arch_paper.yaml  (paper fidelity, 8 loop levels)  -> victory 2000, objective energy
+  raw cache hit: resnet18
+  resnet18           raw       390.11 uJ   DRAM weight reads      2,424,832
+
+########## architecture: simple_weight_stationary ##########
+  source arch_paper.yaml  (paper fidelity, 8 loop levels)  -> victory 2000, objective energy
+  raw cache hit: resnet18
+  resnet18           raw       469.46 uJ   DRAM weight reads      2,392,064
+
+########## architecture: simple_output_stationary ##########
+  source arch_paper.yaml  (paper fidelity, 8 loop levels)  -> victory 2000, objective energy
+  raw cache hit: resnet18
+  resnet18           raw       711.87 uJ   DRAM weight reads      2,392,064
+
+########## architecture: simple_input_stationary ##########
+  source arch_paper.yaml  (paper fidelity, 8 loop levels)  -> victory 2000, objective energy
+  raw cache hit: resnet18
+  resnet18           raw       508.52 uJ   DRAM weight reads      2,392,064
+
+########## architecture: simba_like ##########
+  source arch_paper.yaml  (paper fidelity, 9 loop levels)  -> victory 4000, objective energy
+  raw cache hit: resnet18
+  resnet18           raw       446.07 uJ   DRAM weight reads      2,424,832
+
+  --- architecture sweep, reference arm = baseline ---
+  group                   baseline uJ  embedded uJ     recon uJ  embedded %     recon %
+  Eyeriss v2                   450.47       401.98       398.56       10.8%       11.5%
+  Eyeriss v1                   438.61       390.11       382.01       11.1%       12.9%
+  Weight stationary            517.30       469.46       458.03        9.2%       11.5%
+  Output stationary            759.71       711.87       708.68        6.3%        6.7%
+  Input stationary             556.36       508.52       496.16        8.6%       10.8%
+  Simba-like (reference        494.56       446.07       445.02        9.8%       10.0%
+  reconstruction is 0.42% of the recon+ total at Eyeriss v2
+
+==============================================================================
+Done. arch sweep -> ArchitectureSweep__layers2__layer3_0_downsample_0__layer4_1_conv2
+  results/figures/ArchitectureSweep__layers2__layer3_0_downsample_0__layer4_1_conv2.png
+  results/figures/ArchitectureSweep__layers2__layer3_0_downsample_0__layer4_1_conv2.pdf
+  results/tables/ArchitectureSweep__layers2__layer3_0_downsample_0__layer4_1_conv2.csv
+  results/manifests/ArchitectureSweep__layers2__layer3_0_downsample_0__layer4_1_conv2.json
+NOTE: ECC decode charged as ZERO for every arm; the category is omitted from the stacks and the legend (ECC_DECODE=1 restores it).
+Raw energies are cached in results/_raw/ -- set ECC_REPLOT_ONLY=1 to
+redraw at different constants without touching the mapper.
+==============================================================================

@@ -1,0 +1,386 @@
+{
+ "base": {
+  "DRAM": 1819192832.0,
+  "Global buffer": 6212779695.3,
+  "Local (spads/RF/NoC)": 908342430.4799999,
+  "Compute": 2059970985.7999995,
+  "ECC decode": 0.0,
+  "Reconstruction": 0.0
+ },
+ "base_w": {
+  "DRAM": 782577664.0,
+  "Global buffer": 355945068.91,
+  "Local (spads/RF/NoC)": 416286303.02000004,
+  "Compute": 0.0,
+  "ECC decode": 0.0,
+  "Reconstruction": 0.0
+ },
+ "base_i": {
+  "DRAM": 447284224.0,
+  "Global buffer": 3384048207.7799997,
+  "Local (spads/RF/NoC)": 165257365.04000002,
+  "Compute": 0.0,
+  "ECC decode": 0.0,
+  "Reconstruction": 0.0
+ },
+ "e_dram_w": 782577664.0,
+ "dram_w_reads": 12227776.0,
+ "layers_ok": 21,
+ "layers_skipped": 0,
+ "weights": 11678912,
+ "per_layer": [
+  {
+   "layer": "conv1",
+   "shape": "C3_M64_R7_S7_P112_Q112_ws2_hs2",
+   "status": "ok",
+   "weights": 9408,
+   "repeat_count": 1,
+   "mapping_id": "93d077c863399fc0",
+   "mapping_cached": false,
+   "total_energy_pJ": 878981991.2500001,
+   "dram_weight_reads": 9408.0,
+   "dram_weight_energy_pJ": 602112.0
+  },
+  {
+   "layer": "layer1.0.conv1",
+   "shape": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+   "status": "ok",
+   "weights": 36864,
+   "repeat_count": 1,
+   "mapping_id": "98cc3779e78319a8",
+   "mapping_cached": false,
+   "total_energy_pJ": 703523829.74,
+   "dram_weight_reads": 73728.0,
+   "dram_weight_energy_pJ": 4718592.0
+  },
+  {
+   "layer": "layer1.0.conv2",
+   "shape": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+   "status": "ok",
+   "weights": 36864,
+   "repeat_count": 1,
+   "mapping_id": "98cc3779e78319a8",
+   "mapping_cached": false,
+   "total_energy_pJ": 703523829.74,
+   "dram_weight_reads": 73728.0,
+   "dram_weight_energy_pJ": 4718592.0
+  },
+  {
+   "layer": "layer1.1.conv1",
+   "shape": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+   "status": "ok",
+   "weights": 36864,
+   "repeat_count": 1,
+   "mapping_id": "98cc3779e78319a8",
+   "mapping_cached": false,
+   "total_energy_pJ": 703523829.74,
+   "dram_weight_reads": 73728.0,
+   "dram_weight_energy_pJ": 4718592.0
+  },
+  {
+   "layer": "layer1.1.conv2",
+   "shape": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+   "status": "ok",
+   "weights": 36864,
+   "repeat_count": 1,
+   "mapping_id": "98cc3779e78319a8",
+   "mapping_cached": false,
+   "total_energy_pJ": 703523829.74,
+   "dram_weight_reads": 73728.0,
+   "dram_weight_energy_pJ": 4718592.0
+  },
+  {
+   "layer": "layer2.0.conv1",
+   "shape": "C64_M128_R3_S3_P28_Q28_ws2_hs2",
+   "status": "ok",
+   "weights": 73728,
+   "repeat_count": 1,
+   "mapping_id": "b5bbd23905cec45f",
+   "mapping_cached": false,
+   "total_energy_pJ": 501491690.85,
+   "dram_weight_reads": 73728.0,
+   "dram_weight_energy_pJ": 4718592.0
+  },
+  {
+   "layer": "layer2.0.conv2",
+   "shape": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+   "status": "ok",
+   "weights": 147456,
+   "repeat_count": 1,
+   "mapping_id": "1236143d1e0047aa",
+   "mapping_cached": false,
+   "total_energy_pJ": 582595374.73,
+   "dram_weight_reads": 147456.0,
+   "dram_weight_energy_pJ": 9437184.0
+  },
+  {
+   "layer": "layer2.0.downsample.0",
+   "shape": "C64_M128_R1_S1_P28_Q28_ws2_hs2",
+   "status": "ok",
+   "weights": 8192,
+   "repeat_count": 1,
+   "mapping_id": "1e81e475cef7ea3d",
+   "mapping_cached": false,
+   "total_energy_pJ": 50001748.85,
+   "dram_weight_reads": 114688.0,
+   "dram_weight_energy_pJ": 7340032.0
+  },
+  {
+   "layer": "layer2.1.conv1",
+   "shape": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+   "status": "ok",
+   "weights": 147456,
+   "repeat_count": 1,
+   "mapping_id": "1236143d1e0047aa",
+   "mapping_cached": false,
+   "total_energy_pJ": 582595374.73,
+   "dram_weight_reads": 147456.0,
+   "dram_weight_energy_pJ": 9437184.0
+  },
+  {
+   "layer": "layer2.1.conv2",
+   "shape": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+   "status": "ok",
+   "weights": 147456,
+   "repeat_count": 1,
+   "mapping_id": "1236143d1e0047aa",
+   "mapping_cached": false,
+   "total_energy_pJ": 582595374.73,
+   "dram_weight_reads": 147456.0,
+   "dram_weight_energy_pJ": 9437184.0
+  },
+  {
+   "layer": "layer3.0.conv1",
+   "shape": "C128_M256_R3_S3_P14_Q14_ws2_hs2",
+   "status": "ok",
+   "weights": 294912,
+   "repeat_count": 1,
+   "mapping_id": "d849b2266882195d",
+   "mapping_cached": false,
+   "total_energy_pJ": 338113175.77,
+   "dram_weight_reads": 589824.0,
+   "dram_weight_energy_pJ": 37748736.0
+  },
+  {
+   "layer": "layer3.0.conv2",
+   "shape": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+   "status": "ok",
+   "weights": 589824,
+   "repeat_count": 1,
+   "mapping_id": "3b518aa5128f085e",
+   "mapping_cached": false,
+   "total_energy_pJ": 709998277.7199999,
+   "dram_weight_reads": 589824.0,
+   "dram_weight_energy_pJ": 37748736.0
+  },
+  {
+   "layer": "layer3.0.downsample.0",
+   "shape": "C128_M256_R1_S1_P14_Q14_ws2_hs2",
+   "status": "ok",
+   "weights": 32768,
+   "repeat_count": 1,
+   "mapping_id": "51b62b4ebfa215ef",
+   "mapping_cached": false,
+   "total_energy_pJ": 31825697.88,
+   "dram_weight_reads": 32768.0,
+   "dram_weight_energy_pJ": 2097152.0
+  },
+  {
+   "layer": "layer3.1.conv1",
+   "shape": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+   "status": "ok",
+   "weights": 589824,
+   "repeat_count": 1,
+   "mapping_id": "3b518aa5128f085e",
+   "mapping_cached": false,
+   "total_energy_pJ": 709998277.7199999,
+   "dram_weight_reads": 589824.0,
+   "dram_weight_energy_pJ": 37748736.0
+  },
+  {
+   "layer": "layer3.1.conv2",
+   "shape": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+   "status": "ok",
+   "weights": 589824,
+   "repeat_count": 1,
+   "mapping_id": "3b518aa5128f085e",
+   "mapping_cached": false,
+   "total_energy_pJ": 709998277.7199999,
+   "dram_weight_reads": 589824.0,
+   "dram_weight_energy_pJ": 37748736.0
+  },
+  {
+   "layer": "layer4.0.conv1",
+   "shape": "C256_M512_R3_S3_P7_Q7_ws2_hs2",
+   "status": "ok",
+   "weights": 1179648,
+   "repeat_count": 1,
+   "mapping_id": "326e539697b08344",
+   "mapping_cached": false,
+   "total_energy_pJ": 338655466.17,
+   "dram_weight_reads": 1179648.0,
+   "dram_weight_energy_pJ": 75497472.0
+  },
+  {
+   "layer": "layer4.0.conv2",
+   "shape": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+   "status": "ok",
+   "weights": 2359296,
+   "repeat_count": 1,
+   "mapping_id": "2f90d4e10aab9df6",
+   "mapping_cached": false,
+   "total_energy_pJ": 700135668.29,
+   "dram_weight_reads": 2359296.0,
+   "dram_weight_energy_pJ": 150994944.0
+  },
+  {
+   "layer": "layer4.0.downsample.0",
+   "shape": "C256_M512_R1_S1_P7_Q7_ws2_hs2",
+   "status": "ok",
+   "weights": 131072,
+   "repeat_count": 1,
+   "mapping_id": "86f495f3921105cf",
+   "mapping_cached": false,
+   "total_energy_pJ": 31639339.369999997,
+   "dram_weight_reads": 131072.0,
+   "dram_weight_energy_pJ": 8388608.0
+  },
+  {
+   "layer": "layer4.1.conv1",
+   "shape": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+   "status": "ok",
+   "weights": 2359296,
+   "repeat_count": 1,
+   "mapping_id": "2f90d4e10aab9df6",
+   "mapping_cached": false,
+   "total_energy_pJ": 700135668.29,
+   "dram_weight_reads": 2359296.0,
+   "dram_weight_energy_pJ": 150994944.0
+  },
+  {
+   "layer": "layer4.1.conv2",
+   "shape": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+   "status": "ok",
+   "weights": 2359296,
+   "repeat_count": 1,
+   "mapping_id": "2f90d4e10aab9df6",
+   "mapping_cached": false,
+   "total_energy_pJ": 700135668.29,
+   "dram_weight_reads": 2359296.0,
+   "dram_weight_energy_pJ": 150994944.0
+  },
+  {
+   "layer": "fc",
+   "shape": "C512_M1000_R1_S1_P1_Q1_ws1_hs1",
+   "status": "ok",
+   "weights": 512000,
+   "repeat_count": 1,
+   "mapping_id": "f4a46b9523cfbb52",
+   "mapping_cached": false,
+   "total_energy_pJ": 37293552.26,
+   "dram_weight_reads": 512000.0,
+   "dram_weight_energy_pJ": 32768000.0
+  }
+ ],
+ "levels": [
+  {
+   "level": "DRAM",
+   "dataspace": "Inputs",
+   "category": "DRAM",
+   "instances": 1,
+   "energy_pJ": 447284224.0,
+   "reads": 6988812.0,
+   "writes": 0.0
+  },
+  {
+   "level": "DRAM",
+   "dataspace": "Outputs",
+   "category": "DRAM",
+   "instances": 1,
+   "energy_pJ": 589330944.0,
+   "reads": 3361792.0,
+   "writes": 5846504.0
+  },
+  {
+   "level": "DRAM",
+   "dataspace": "Weights",
+   "category": "DRAM",
+   "instances": 1,
+   "energy_pJ": 782577664.0,
+   "reads": 12227776.0,
+   "writes": 0.0
+  },
+  {
+   "level": "input_activation_reg",
+   "dataspace": "Inputs",
+   "category": "Local (spads/RF/NoC)",
+   "instances": 256,
+   "energy_pJ": 165257365.04,
+   "reads": 153790464.0,
+   "writes": 151726080.0
+  },
+  {
+   "level": "mac",
+   "dataspace": "Compute",
+   "category": "Compute",
+   "instances": 256,
+   "energy_pJ": 2059970985.8,
+   "reads": 0.0,
+   "writes": 0.0
+  },
+  {
+   "level": "operand_glb",
+   "dataspace": "Inputs",
+   "category": "Global buffer",
+   "instances": 1,
+   "energy_pJ": 3384048207.7799997,
+   "reads": 1039067136.0,
+   "writes": 6988812.0
+  },
+  {
+   "level": "operand_glb",
+   "dataspace": "Weights",
+   "category": "Global buffer",
+   "instances": 1,
+   "energy_pJ": 355945068.91,
+   "reads": 100557824.0,
+   "writes": 12227776.0
+  },
+  {
+   "level": "output_activation_reg",
+   "dataspace": "Outputs",
+   "category": "Local (spads/RF/NoC)",
+   "instances": 256,
+   "energy_pJ": 326798762.41999996,
+   "reads": 152209820.0,
+   "writes": 253302016.0
+  },
+  {
+   "level": "pe_spad",
+   "dataspace": "Weights",
+   "category": "Local (spads/RF/NoC)",
+   "instances": 256,
+   "energy_pJ": 251028937.98000002,
+   "reads": 60882432.0,
+   "writes": 7030272.0
+  },
+  {
+   "level": "psum_glb",
+   "dataspace": "Outputs",
+   "category": "Global buffer",
+   "instances": 1,
+   "energy_pJ": 2472786418.61,
+   "reads": 214276608.0,
+   "writes": 220123112.0
+  },
+  {
+   "level": "weight_reg",
+   "dataspace": "Weights",
+   "category": "Local (spads/RF/NoC)",
+   "instances": 256,
+   "energy_pJ": 165257365.04,
+   "reads": 153790464.0,
+   "writes": 60882432.0
+  }
+ ]
+}

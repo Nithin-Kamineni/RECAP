@@ -1,0 +1,201 @@
+{
+ "base": {
+  "DRAM": 172605440.0,
+  "Global buffer": 31612167.919999998,
+  "Local (spads/RF)": 46575198.03,
+  "NoC": 22098855.939999998,
+  "Compute": 142622702.96,
+  "ECC decode": 0.0,
+  "Reconstruction": 0.0
+ },
+ "base_w": {
+  "DRAM": 159383552.0,
+  "Global buffer": 0.0,
+  "Local (spads/RF)": 25246152.98,
+  "NoC": 9300974.72,
+  "Compute": 0.0,
+  "ECC decode": 0.0,
+  "Reconstruction": 0.0
+ },
+ "base_i": {
+  "DRAM": 8404992.0,
+  "Global buffer": 3046790.49,
+  "Local (spads/RF)": 5224325.28,
+  "NoC": 6932519.15,
+  "Compute": 0.0,
+  "ECC decode": 0.0,
+  "Reconstruction": 0.0
+ },
+ "e_dram_w": 159383552.0,
+ "dram_w_reads": 2490368.0,
+ "layers_ok": 2,
+ "layers_skipped": 0,
+ "weights": 2392064,
+ "per_layer": [
+  {
+   "layer": "layer3.0.downsample.0",
+   "shape": "C128_M256_R1_S1_P14_Q14_ws2_hs2",
+   "status": "ok",
+   "weights": 32768,
+   "macs": 6422528,
+   "grouped": false,
+   "repeat_count": 1,
+   "mapping_id": "bb10bda4436002f0",
+   "mapping_cached": false,
+   "total_energy_pJ": 30672912.62999999,
+   "dram_weight_reads": 131072.0,
+   "dram_weight_energy_pJ": 8388608.0
+  },
+  {
+   "layer": "layer4.1.conv2",
+   "shape": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+   "status": "ok",
+   "weights": 2359296,
+   "macs": 115605504,
+   "grouped": false,
+   "repeat_count": 1,
+   "mapping_id": "a7e4e7b780fc98b2",
+   "mapping_cached": false,
+   "total_energy_pJ": 384841452.21999997,
+   "dram_weight_reads": 2359296.0,
+   "dram_weight_energy_pJ": 150994944.0
+  }
+ ],
+ "levels": [
+  {
+   "level": "DRAM",
+   "dataspace": "Inputs",
+   "category": "DRAM",
+   "instances": 1,
+   "energy_pJ": 8404992.0,
+   "reads": 131328.0,
+   "writes": 0.0
+  },
+  {
+   "level": "DRAM",
+   "dataspace": "Outputs",
+   "category": "DRAM",
+   "instances": 1,
+   "energy_pJ": 4816896.0,
+   "reads": 0.0,
+   "writes": 75264.0
+  },
+  {
+   "level": "DRAM",
+   "dataspace": "Weights",
+   "category": "DRAM",
+   "instances": 1,
+   "energy_pJ": 159383552.0,
+   "reads": 2490368.0,
+   "writes": 0.0
+  },
+  {
+   "level": "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial",
+   "dataspace": "Inputs",
+   "category": "NoC",
+   "instances": null,
+   "energy_pJ": 3066444.8000000003,
+   "reads": 788480.0,
+   "writes": 0.0
+  },
+  {
+   "level": "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial",
+   "dataspace": "Outputs",
+   "category": "NoC",
+   "instances": null,
+   "energy_pJ": 4100934.6700000004,
+   "reads": 1254400.0,
+   "writes": 0.0
+  },
+  {
+   "level": "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial",
+   "dataspace": "Weights",
+   "category": "NoC",
+   "instances": null,
+   "energy_pJ": 8031753.57,
+   "reads": 2490368.0,
+   "writes": 0.0
+  },
+  {
+   "level": "NoC: inter_PE_spatial <==> ifmap_spad",
+   "dataspace": "Inputs",
+   "category": "NoC",
+   "instances": null,
+   "energy_pJ": 3866074.3499999996,
+   "reads": 587776.0,
+   "writes": 0.0
+  },
+  {
+   "level": "NoC: inter_PE_spatial <==> ifmap_spad",
+   "dataspace": "Outputs",
+   "category": "NoC",
+   "instances": null,
+   "energy_pJ": 1764427.4000000001,
+   "reads": 100352.0,
+   "writes": 0.0
+  },
+  {
+   "level": "NoC: inter_PE_spatial <==> ifmap_spad",
+   "dataspace": "Weights",
+   "category": "NoC",
+   "instances": null,
+   "energy_pJ": 1269221.1500000001,
+   "reads": 180224.0,
+   "writes": 0.0
+  },
+  {
+   "level": "iact_glb",
+   "dataspace": "Inputs",
+   "category": "Global buffer",
+   "instances": 1,
+   "energy_pJ": 3046790.49,
+   "reads": 788480.0,
+   "writes": 131328.0
+  },
+  {
+   "level": "ifmap_spad",
+   "dataspace": "Inputs",
+   "category": "Local (spads/RF)",
+   "instances": 192,
+   "energy_pJ": 5224325.28,
+   "reads": 953344.0,
+   "writes": 98560.0
+  },
+  {
+   "level": "mac",
+   "dataspace": "Compute",
+   "category": "Compute",
+   "instances": 384,
+   "energy_pJ": 142622702.96,
+   "reads": 0.0,
+   "writes": 0.0
+  },
+  {
+   "level": "psum_glb",
+   "dataspace": "Outputs",
+   "category": "Global buffer",
+   "instances": 1,
+   "energy_pJ": 28565377.43,
+   "reads": 1179136.0,
+   "writes": 1254400.0
+  },
+  {
+   "level": "psum_spad",
+   "dataspace": "Outputs",
+   "category": "Local (spads/RF)",
+   "instances": 192,
+   "energy_pJ": 16104719.77,
+   "reads": 1089760.0,
+   "writes": 1177568.0
+  },
+  {
+   "level": "weights_spad",
+   "dataspace": "Weights",
+   "category": "Local (spads/RF)",
+   "instances": 192,
+   "energy_pJ": 25246152.98,
+   "reads": 1103872.0,
+   "writes": 22528.0
+  }
+ ]
+}

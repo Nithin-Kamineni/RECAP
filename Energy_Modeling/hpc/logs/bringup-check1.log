@@ -1,0 +1,146 @@
+==============================================================================
+ecc-energy  |  sweep=arch (architecture)  |  output=ArchitectureSweep
+==============================================================================
+  sweeping              : eyeriss_v2_like, eyeriss_like, simple_weight_stationary, simple_output_stationary, simple_input_stationary, simba_like
+  holding               : model=resnet18   code=BCH(63,51) t=2
+  approaches            : baseline, embedded, recon
+  workload file         : cnn
+  layer scope           : full
+  weight precision      : 8b (the protected payload)
+  activation precision  : 8b
+  accumulator precision : per architecture, as published (v1 16b, v2 20b, Simba 24b, simple designs 16b)  [primary]
+  result phase          : Pre   (mapping is ECC-unaware; the ECC effect is applied during evaluation)
+  code                  : BCH(63,51)  t=2  r=12
+  weights / codeword    : 6.0000
+  DRAM weight inflation : baseline x1.2353 (+23.5%), embedded/recon x1.0
+  recon on-chip scale   : 0.8095 (weights only)
+  reconstruction        : 4.1296273 pJ per codeword
+  recon provenance      : BCH_N63_results.json [BCH_63_51_t2] n=63 k=51 t=2 (incremental+idle): inc=1.8995000 idle=2.2301273
+  parity accounting     : grouping=layer, message padding charged
+  decode                : 0 pJ for every arm (ECC_DECODE=0; category hidden)
+  weak ECC overlay      : off
+  arch fidelity         : paper   (archs/<name>/arch_paper.yaml where present)
+  arch treatment        : opt-energy__vicx__paper   (separate mapper cache)
+  level classifier      : instances
+  mapper objective      : energy
+  mapper                : victory=500 scaling=levels algorithm=hybrid timeout=10000 perms/if=16 search_size=uncapped
+  palette / formats     : house / png, pdf @ 400 dpi
+  replot only           : False
+  cached mapper only    : False
+==============================================================================
+
+==============================================================================
+THE SHARED CONTRACT  --  archs/_shared/standard.yaml
+==============================================================================
+  weight precision      : 8b   (the protected payload)
+  activation precision  : 8b
+  accumulator policy    : paper_native
+                          per architecture, as published. Partial-sum
+                          width is a design property; equalising it
+                          would equalise the architectures.
+  packing rule          : dense_bytes
+                          a level holds floor(physical_bits / operand_bits)
+                          operands, applied to EVERY level of EVERY design
+  technology            : 45nm  (logic and DRAM)
+  DRAM                  : LPDDR4, 64b word, 8b operand, depth 1,048,576
+
+==============================================================================
+PER ARCHITECTURE
+==============================================================================
+
+  eyeriss_v2_like  (Eyeriss v2)
+    source        : /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/archs/eyeriss_v2_like/arch_paper.yaml
+    origin        : published   provenance recorded: yes
+    fingerprint   : 9a71cfbcfa3c
+    precisions    : weight/activation 8b   multiplier 8b   accumulator 20b
+    acc. evidence : Table IV, "Arithmetic Precision: weights & iacts: 8b fixed-point / psums: 20b fixed-point"; Table V repeats it for all three variants. Verified agains
+    DRAM          : width 64b  datawidth 8b  depth 1048576
+    PE fanout     : 384 instances
+    weight levels : weights_spad 288x192
+    weight capacity: 55,296 weights on chip   (GLB keeps weights: False)
+    . published at TSMC 65nm LP 1P9M, modelled at 45nm. Deliberate: a mixed-node comparison would report silicon as architecture.
+
+  eyeriss_like  (Eyeriss v1)
+    source        : /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/archs/eyeriss_like/arch_paper.yaml
+    origin        : published   provenance recorded: yes
+    fingerprint   : 402de46cd7d3
+    precisions    : weight/activation 8b   multiplier 8b   accumulator 16b
+    acc. evidence : Sec. IV: "The computation consists of a 16-b two-stage pipelined multiplier and adder. Since the multiplication results are truncated from 32 to 16 b.
+    DRAM          : width 64b  datawidth 8b  depth 1048576
+    PE fanout     : 168 instances
+    weight levels : weights_spad 448x168
+    weight capacity: 75,264 weights on chip   (GLB keeps weights: False)
+    . published at 65nm, modelled at 45nm. Deliberate: a mixed-node comparison would report silicon as architecture.
+
+  simple_weight_stationary  (Weight stationary)
+    source        : /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/archs/simple_weight_stationary/arch_paper.yaml
+    origin        : locally_authored   provenance recorded: yes
+    fingerprint   : 5fe89325a05e
+    precisions    : weight/activation 8b   multiplier 8b   accumulator 16b
+    acc. evidence : The design's own mac.adder_width. Not a published number -- it is the reference design's declaration, kept because changing it would be inventing a de
+    DRAM          : width 64b  datawidth 8b  depth 1048576
+    PE fanout     : 256 instances
+    weight levels : operand_glb 65,536x1; pe_spad 384x256; weight_reg 1x256
+    weight capacity: 164,096 weights on chip   (GLB keeps weights: True)
+    . locally authored reference dataflow -- reproduces no paper, so its geometry is a design choice, not a citation.
+
+  simple_output_stationary  (Output stationary)
+    source        : /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/archs/simple_output_stationary/arch_paper.yaml
+    origin        : locally_authored   provenance recorded: yes
+    fingerprint   : fb0c7bf64acc
+    precisions    : weight/activation 8b   multiplier 8b   accumulator 16b
+    acc. evidence : the design's own mac.adder_width; not published
+    DRAM          : width 64b  datawidth 8b  depth 1048576
+    PE fanout     : 256 instances
+    weight levels : operand_glb 65,536x1; weight_reg 1x256
+    weight capacity: 65,792 weights on chip   (GLB keeps weights: True)
+    . locally authored reference dataflow -- reproduces no paper, so its geometry is a design choice, not a citation.
+
+  simple_input_stationary  (Input stationary)
+    source        : /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/archs/simple_input_stationary/arch_paper.yaml
+    origin        : locally_authored   provenance recorded: yes
+    fingerprint   : 1d0ad66682d5
+    precisions    : weight/activation 8b   multiplier 8b   accumulator 16b
+    acc. evidence : Matched to its two sibling reference dataflows so that the three simple designs differ only in which operand is stationary.
+    DRAM          : width 64b  datawidth 8b  depth 1048576
+    PE fanout     : 256 instances
+    weight levels : operand_glb 65,536x1; weight_reg 1x256
+    weight capacity: 65,792 weights on chip   (GLB keeps weights: True)
+    . locally authored reference dataflow -- reproduces no paper, so its geometry is a design choice, not a citation.
+
+  simba_like  (Simba-like (reference design))
+    source        : /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/archs/simba_like/arch_paper.yaml
+    origin        : reference_design   provenance recorded: yes
+    fingerprint   : b9374cc9d254
+    precisions    : weight/activation 8b   multiplier 8b   accumulator 24b
+    acc. evidence : "Each chip has a peak performance of 4 tera-ops per second (TOPS) using 8-bit weights and activations and 24-bit accumulation." Verified 2026-09-06.  
+    DRAM          : width 64b  datawidth 8b  depth 1048576
+    PE fanout     : 256 instances
+    weight levels : PEWeightBuffer 32,768x64; PEWeightRegs 64x256
+    weight capacity: 2,113,536 weights on chip   (GLB keeps weights: False)
+    . published at TSMC 16nm FinFET, modelled at 45nm. Deliberate: a mixed-node comparison would report silicon as architecture.
+    . GlobalBuffer holds Outputs alongside operands at 8b and declares why: the PE post-processing unit requantizes to 8b on the way out of PEAccuBuffer, so this level holds activations, not 24b psums
+
+==============================================================================
+PRESERVED DIFFERENCES  --  these are the architectures, not defects
+==============================================================================
+  architecture                acc b   fanout   on-chip weights  GLB keeps W
+  eyeriss_v2_like                20      384            55,296        False
+  eyeriss_like                   16      168            75,264        False
+  simple_weight_stationary       16      256           164,096         True
+  simple_output_stationary       16      256            65,792         True
+  simple_input_stationary        16      256            65,792         True
+  simba_like                     24      256         2,113,536        False
+
+  On-chip weight capacity spanning a wide range is EXPECTED and is one
+  of the things this study measures: less capacity means more DRAM
+  refetch, which is where the BCH parity cost lands.
+
+==============================================================================
+RESULT
+==============================================================================
+  PASS: 6 architecture(s) obey the shared contract.
+  Operand precision, DRAM geometry and process node are identical;
+  topology, capacity, weight bypass rules and accumulator width are
+  each design's own, and are recorded with their sources.
+  Full report: /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/results/manifests/validate.json

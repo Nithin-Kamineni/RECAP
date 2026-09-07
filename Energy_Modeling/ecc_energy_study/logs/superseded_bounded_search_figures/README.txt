@@ -1,0 +1,1 @@
+Copied 2026-09-06 before the full-model re-map. These figures came from the BOUNDED development search (random_pruned, search_size 300, 4 permutations, victory 100, 4 threads) and, for mobilenet_v2, from the pre-fix depthwise shapes (1 input channel). Kept for comparison only; do not quote.

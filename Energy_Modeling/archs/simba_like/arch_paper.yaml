@@ -1,0 +1,158 @@
+architecture:
+  # ============================================================
+  # Simba (NVIDIA), PSUM-HONEST.  Selected by ECC_ARCH_FIDELITY=paper.
+  #
+  # Source:
+  #   Y. S. Shao et al., "Simba: Scaling Deep-Learning Inference
+  #   with Multi-Chip-Module-Based Architecture", MICRO-52, 2019.
+  #   https://people.eecs.berkeley.edu/~ysshao/assets/papers/shao2019-micro.pdf
+  #
+  # This file differs from the stock example_designs/simba_like in
+  # ONE place: `mac.adder_width` is 24, not 16.
+  #
+  #   The paper: each chip delivers "4 tera-ops per second (TOPS)
+  #   using 8-bit weights and activations and 24-bit accumulation".
+  #   The stock design already declares PEAccuBuffer at
+  #   `datawidth: 24`, so its accumulator storage was right while
+  #   its accumulator ARITHMETIC was declared 16-bit -- Accelergy
+  #   then costed the adder for a narrower datapath than the
+  #   buffer it writes into.
+  #
+  # WHY THE GLOBAL BUFFER STAYS AT datawidth: 8, unlike the
+  # Eyeriss v1 correction in archs/eyeriss_like/arch_paper.yaml.
+  # The rule applied across this study is: a level is billed at
+  # the ACCUMULATOR width where the paper says partial sums live
+  # there, and at the ACTIVATION width where the paper says values
+  # are requantized before reaching it.  Simba's PE ends in a
+  # post-processing unit that requantizes on the way out of the
+  # accumulation buffer, so the chip-level GlobalBuffer holds
+  # 8-bit activations, not 24-bit psums.  Eyeriss v1's 100 kB GLB
+  # is the opposite case -- JSSC 2017 says it is "allocated for
+  # ifmaps and psums" -- which is why that one had to be split.
+  # ============================================================
+  version: 0.4
+  nodes: # Top-level is hierarchical
+  - !Container # Top-level system
+    name: System
+    attributes:
+      datawidth: 8
+      technology: "45nm"
+
+  - !Component # DRAM main memory
+    name: DRAM
+    class: DRAM
+    attributes:
+      depth: 1048576
+      type: "LPDDR4"
+      width: 64
+      datawidth: 8
+
+  - !Component # Global buffer for inputs & outputs
+    name: GlobalBuffer
+    class: smartbuffer_SRAM
+    attributes:
+      depth: 2048
+      width: 256
+      # psum-width-ok: the PE post-processing unit requantizes to 8b on the way out of PEAccuBuffer, so this level holds activations, not 24b psums
+      datawidth: 8
+      n_banks: 4
+      nports: 2
+    constraints:
+      dataspace: {keep: [Inputs, Outputs], bypass: [Weights]}
+
+  - !Container # Each PE works on a different output channel
+    name: PE
+    spatial: {meshX: 16}
+    constraints:
+      spatial: {factors: R=1 S=1 P=1 Q=1 N=1, permutation: [M, C, R, S, P, Q, N]}
+
+  - !Component # Input buffer -- 8192 x 64b = 64 kB per PE.
+    # STORAGE CLASS: SRAM, not RF.  Accelergy's `regfile` compound component
+    # (which `smartbuffer_RF` instantiates) fires `comparator[1..depth]` on
+    # EVERY read.  At depth 8192 that is 8192 address comparators per access =
+    # 305 of the 306 pJ this level was being charged -- 99.7% of it, and 60% of
+    # a 64-bit LPDDR4 DRAM read, for a buffer that is on-chip SRAM in the real
+    # chip.  A 64 kB structure is an SRAM by construction; MICRO-52 Fig. 4
+    # shows it as a per-PE buffer, not a register file.  Costed by CACTI, like
+    # the GlobalBuffer above and like every SRAM in the other designs.
+    name: PEInputBuffer
+    class: storage
+    subclass: smartbuffer_SRAM
+    attributes:
+      depth: 8192
+      width: 64
+      datawidth: 8
+    constraints:
+      dataspace: {keep: [Inputs], bypass: [Weights, Outputs]}
+
+  - !Container # Weight channels distributed across different buffers
+    name: distributed_buffers
+    spatial: {meshY: 4}
+    constraints:
+      spatial: {factors: P=1 Q=1 R=1 S=1 C=1 N=1, permutation: [M, C, Q, R, S, P, N]}
+
+  - !Parallel # Weight/accumulator buffers
+    nodes:
+    - !Component # Weight buffer
+      # STORAGE CLASS: SRAM, not RF -- same defect as PEInputBuffer above.
+      # 4096 x 64b = 32 kB, and `smartbuffer_RF` was firing 4096 comparators
+      # per read = 152.7 of the 153.5 pJ charged (99.5%).  Costed by CACTI.
+      name: PEWeightBuffer
+      class: storage
+      subclass: smartbuffer_SRAM
+      attributes:
+        depth: 4096
+        width: 64
+        datawidth: 8       # paper: 8-bit weights
+        n_banks: 8
+      constraints:
+        dataspace: {keep: [Weights], bypass: [Inputs, Outputs]}
+
+    - !Component # Accumulator buffer
+      # Address-DECODED register file, not a CAM: see
+      # archs/_shared/components/regfile_decoded.yaml. Upstream's
+      # smartbuffer_RF fires all `depth` comparators per access, which
+      # was 92% of this level's energy and is charged to no other
+      # design in the study. Geometry and cell type are unchanged.
+      name: PEAccuBuffer
+      class: storage
+      subclass: smartbuffer_RF_decoded
+      attributes:
+        depth: 128
+        datawidth: 24      # paper: "24-bit accumulation"
+        width: 24
+      constraints:
+        dataspace: {keep: [Outputs], bypass: [Inputs, Weights]}
+
+    - !Nothing {constraints: {dataspace: {keep: [Inputs]}}}
+
+  - !Container # Four registers/MAC pairs per distributed buffer
+    name: reg_mac
+    spatial: {meshY: 4}
+    constraints:
+      spatial: {factors: P=1 Q=1 R=1 S=1 M=1 N=1, permutation: [C, M, Q, R, S, P, N]}
+
+  - !Component # Weight registers
+    # Address-DECODED register file, not a CAM: see
+    # archs/_shared/components/regfile_decoded.yaml. Upstream's
+    # smartbuffer_RF fires all `depth` comparators per access, which
+    # was 25% of this level's energy and is charged to no other
+    # design in the study. Geometry and cell type are unchanged.
+    name: PEWeightRegs
+    class: storage
+    subclass: smartbuffer_RF_decoded
+    attributes:
+      depth: 1
+      width: 512
+      cluster_size: 64
+      num_ports: 2
+      datawidth: 8
+    constraints:
+      dataspace: {keep: [Weights], bypass: [Inputs, Outputs]}
+
+  - !Component # MAC unit
+    name: mac
+    class: intmac
+    attributes:
+      multiplier_width: 8  # paper: 8-bit weights and activations
+      adder_width: 24      # paper: 24-bit accumulation (stock design said 16)

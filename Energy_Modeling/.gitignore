@@ -1,0 +1,45 @@
+# Auto-managed working directory: cloned repo + the expensive mapper cache.
+# Keep it on disk (it is hours of compute) but out of version control.
+# The package re-clones the exercises repo itself if ecc_energy_study/ is wiped.
+ecc_energy_study/timeloop-accelergy-exercises/
+ecc_energy_study/outputs/
+ecc_energy_study/problems/
+ecc_energy_study/problems_multimodel/
+ecc_energy_study/arch_*_patched*.yaml
+ecc_energy_study/globals.yaml
+
+# Generated workload shapes -- rebuild with `python3 -m eccenergy.generate`
+ecc_energy_study/model_layers.json
+ecc_energy_study/transformer_layers.json
+
+# Figures, tables and manifests are reproducible from results*/_raw/ + run.sh
+# (`bash hpc/sweep.sh <axis>`). Raw energies and evaluation JSONs ARE kept:
+# they are the expensive part. The pattern covers every results directory
+# (results/, results_noc_*/, anything ECC_RESULTS_DIR points at in here).
+results*/figures/
+results*/tables/
+results*/manifests/
+
+# Runtime scratch: CACTI inputs/outputs bound writable into the read-only
+# image (hpc/tl.sh), and the container's temp directory.
+hpc/.runtime/
+tmp/
+
+# Home-directory files that came along with the container/laptop transfer,
+# not project files (the container uses this directory as $HOME).
+.bashrc
+.profile
+.config/
+.ipython/
+.jupyter/
+.local/
+
+# Apptainer image (1.9 GB) -- built with `apptainer pull`, see hpc/HIPERGATOR.md §3
+*.sif
+
+# Python caches, SLURM job output (hpc/logs/*.out) and editor files are
+# covered by the repository-root .gitignore; kept here too so this directory
+# still behaves when copied out on its own.
+__pycache__/
+*.pyc
+.ipynb_checkpoints/

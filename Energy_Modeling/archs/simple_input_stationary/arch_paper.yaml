@@ -1,0 +1,172 @@
+architecture:
+  # ============================================================
+  # Simple input-stationary.  Selected by ECC_ARCH_FIDELITY=paper.
+  #
+  # NOT FROM A PAPER, AND NOT SHIPPED BY ANYONE.
+  # timeloop-accelergy-exercises ships weight-stationary and
+  # output-stationary reference designs but no input-stationary
+  # one, so this file was authored here (2026-09-06) as the exact
+  # MIRROR of its two siblings:
+  #
+  #     archs/simple_weight_stationary/arch_paper.yaml
+  #     archs/simple_output_stationary/arch_paper.yaml
+  #
+  # Everything the three share is identical on purpose -- the same
+  # 16 x 16 PE mesh, the same 128 kB buffer split 64 kB operand /
+  # 64 kB partial sum, the same 512-entry bank geometry, the same
+  # 192 x 16b PE scratchpad, the same 8b operands and 16b
+  # accumulator.  The ONLY difference between the three designs is
+  # which operand the PE scratchpad keeps:
+  #
+  #     weight_stationary   pe_spad keeps Weights
+  #     output_stationary   pe_spad keeps Outputs (the accumulator)
+  #     input_stationary    pe_spad keeps Inputs   <- this file
+  #
+  # That is what makes them a controlled three-way comparison of a
+  # dataflow rather than three unrelated accelerators.
+  #
+  # The dataflow follows section 9 of
+  # 01_project_context_and_architectures.txt: activations stay
+  # resident in the PE while filters stream past producing partial
+  # sums.  Concretely that means M (output channels) is forced OUT
+  # of the spatial fanout and made the INNERMOST temporal loop at
+  # the scratchpad, so one resident activation is consumed by many
+  # filters before it is replaced.  The array is tiled over the
+  # dimensions that identify an input instead: C across meshX,
+  # P and Q across meshY.
+  #
+  # WHY THIS DESIGN MATTERS TO A WEIGHT-ECC STUDY.  Input-stationary
+  # gives weights NO local reuse: every filter crosses the whole
+  # hierarchy once per resident activation tile.  It is therefore
+  # the architecture where weight traffic -- the quantity this study
+  # protects with BCH -- is largest relative to everything else.
+  # ============================================================
+  version: 0.4
+  nodes: # Top-level is hierarchical
+  - !Container # Top-level system
+    name: system
+
+  - !Component # DRAM main memory
+    name: DRAM
+    class: DRAM
+    attributes:
+      depth: 1048576
+      type: "LPDDR4"
+      width: 64
+      datawidth: 8         # study-wide operand width; see archs/_shared/standard.yaml
+
+  - !Container # IS accelerator
+    name: simple_is
+    attributes:
+      technology: "45nm"
+
+  # ------------------------------------------------------------
+  # 128 kB of global buffer, split by dataspace exactly as the two
+  # sibling designs split it, so partial sums can keep their own
+  # precision without dragging the operands up with them. 16 banks
+  # each, 512-entry bank geometry, so CACTI sees the same array in
+  # all three designs.
+  # ------------------------------------------------------------
+  - !Parallel
+    nodes:
+    - !Component # operand half of the shared buffer: 64 kB
+      name: operand_glb
+      class: smartbuffer_SRAM
+      attributes:
+        depth: 8192
+        width: 64
+        n_banks: 16
+        datawidth: 8       # weights and input activations
+        read_bandwidth: 16
+        write_bandwidth: 16
+      constraints:
+        dataspace: {keep: [Inputs, Weights], bypass: [Outputs]}
+
+    - !Component # partial-sum half of the shared buffer: 64 kB
+      name: psum_glb
+      class: smartbuffer_SRAM
+      attributes:
+        depth: 8192
+        width: 64
+        n_banks: 16
+        datawidth: 16      # accumulator width, matching mac.adder_width
+        read_bandwidth: 16
+        write_bandwidth: 16
+      constraints:
+        dataspace: {keep: [Outputs], bypass: [Inputs, Weights]}
+
+  # ------------------------------------------------------------
+  # Array of PEs.  M=1 spatially is the input-stationary decision:
+  # output channels may NOT be spread across the array, so the
+  # filters for every M must stream past the resident activations.
+  # C goes to meshX, P and Q to meshY (split: 1), because those are
+  # the dimensions that identify which input activation a PE holds.
+  # ------------------------------------------------------------
+  - !Container
+    name: PE
+    spatial: {meshX: 16, meshY: 16}
+    constraints:
+      spatial:
+        permutation: [C, P, Q, N, M, R, S]
+        split: 1
+        factors: [R=1, S=1, M=1]
+
+  - !Component # PE Scratchpad -- input stationary, so this holds Inputs only
+    name: pe_spad
+    class: smartbuffer_SRAM
+    attributes:
+      depth: 192
+      width: 16
+      datawidth: 8         # two 8-bit activations per 16b word (384 iacts)
+    constraints:
+      dataspace: {bypass: [Weights, Outputs], keep: [Inputs]}
+      # M innermost: a resident activation is reused across output
+      # channels before the scratchpad is refilled. This is the
+      # temporal half of "input stationary"; the spatial M=1 above
+      # is the other half.
+      temporal: {permutation: [M, R, S, P, Q]}
+
+  - !Parallel # Register for each data type
+    nodes:
+    - !Component # Weight register
+      name: weight_reg
+      class: storage
+      subclass: aladdin_register
+      attributes:
+        depth: 1
+        width: 8            # one 8-bit weight
+        datawidth: 8
+      constraints:
+        dataspace: {keep: [Weights]}
+        temporal: {factors: [R=1, S=1, M=1, C=1]}
+
+    - !Component # Input activation register
+      name: input_activation_reg
+      class: storage
+      subclass: aladdin_register
+      attributes:
+        depth: 1
+        width: 8            # one 8-bit activation
+        datawidth: 8
+      constraints:
+        dataspace: {keep: [Inputs]}
+        temporal: {factors: [P=1, Q=1, C=1, N=1]}
+
+    - !Component # Output activation register -- holds a partial sum
+      name: output_activation_reg
+      class: storage
+      subclass: aladdin_register
+      attributes:
+        depth: 1
+        width: 16           # accumulator width
+        datawidth: 16
+      constraints:
+        dataspace: {keep: [Outputs]}
+        temporal: {factors: [P=1, Q=1, M=1, N=1]}
+
+  - !Component # MAC unit
+    name: mac
+    class: intmac
+    attributes:
+      multiplier_width: 8
+      adder_width: 16

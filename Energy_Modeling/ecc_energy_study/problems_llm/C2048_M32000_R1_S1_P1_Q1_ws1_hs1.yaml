@@ -1,0 +1,44 @@
+problem:
+  version: 0.4
+  shape:
+    name: cnn_layer
+    coefficients:
+      - name: Wstride
+        default: 1
+      - name: Hstride
+        default: 1
+      - name: Wdilation
+        default: 1
+      - name: Hdilation
+        default: 1
+    dimensions: [ C, M, R, S, N, P, Q ]
+    data_spaces:
+      - name: Weights
+        projection:
+          - [ [C] ]
+          - [ [M] ]
+          - [ [R] ]
+          - [ [S] ]
+      - name: Inputs
+        projection:
+          - [ [N] ]
+          - [ [C] ]
+          - [ [R, Wdilation], [P, Wstride] ]
+          - [ [S, Hdilation], [Q, Hstride] ]
+      - name: Outputs
+        projection:
+          - [ [N] ]
+          - [ [M] ]
+          - [ [Q] ]
+          - [ [P] ]
+        read_write: True
+  instance:
+    C: 2048
+    M: 32000
+    R: 1
+    S: 1
+    N: 1
+    P: 1
+    Q: 1
+    Wstride: 1
+    Hstride: 1

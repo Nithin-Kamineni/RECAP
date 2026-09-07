@@ -1,0 +1,332 @@
+[
+  {
+    "family": "BCH",
+    "configuration_id": "BCH_63_57_t1",
+    "n": 63,
+    "k": 57,
+    "t": 1,
+    "energy_pJ": {
+      "active_per_codeword": 3.5933672,
+      "idle_per_cycle": 1.9359672,
+      "incremental_per_codeword": 1.6574,
+      "active_measurement_window": 919.9020032,
+      "idle_measurement_window": 495.6076032,
+      "incremental_measurement_window": 424.2944
+    },
+    "r": 6,
+    "d_min": 3,
+    "power_uW": {
+      "active": {
+        "dynamic": 3581.1,
+        "leakage": 12.2672,
+        "total": 3593.3672
+      },
+      "idle": {
+        "dynamic": 1923.7,
+        "leakage": 12.2672,
+        "total": 1935.9672
+      }
+    },
+    "measurement": {
+      "clock_period_ns": 1.0,
+      "measured_cycles": 256,
+      "measured_time_ns": 256.0,
+      "active_codewords": 256,
+      "codewords_per_active_cycle": 1
+    },
+    "technology": {
+      "target_library": "/apps/local/FreePDK45/osu_soc/lib/files/gscl45nm.db",
+      "library_name": "gscl45nm",
+      "operating_condition": "typical",
+      "voltage_V": 1.1,
+      "analysis_stage": "pre-layout synthesis with wire-load model"
+    },
+    "configuration_reference": {
+      "catalog": "ECC_configurations/ecc_configurations.json",
+      "parity_mask_width_bits": 342,
+      "systematic": true
+    },
+    "reports": {
+      "active_power": "results/report_snapshots/BCH_63_57_t1/active/power.rpt",
+      "idle_power": "results/report_snapshots/BCH_63_57_t1/idle/power.rpt",
+      "active_area": "results/report_snapshots/BCH_63_57_t1/active/area.rpt",
+      "idle_area": "results/report_snapshots/BCH_63_57_t1/idle/area.rpt"
+    },
+    "generated_utc": "2026-08-28T02:39:03.492387+00:00"
+  },
+  {
+    "family": "BCH",
+    "configuration_id": "BCH_63_51_t2",
+    "n": 63,
+    "k": 51,
+    "t": 2,
+    "energy_pJ": {
+      "active_per_codeword": 4.1296273,
+      "idle_per_cycle": 2.2301273,
+      "incremental_per_codeword": 1.8995,
+      "active_measurement_window": 1057.1845888,
+      "idle_measurement_window": 570.9125888,
+      "incremental_measurement_window": 486.272
+    },
+    "r": 12,
+    "d_min": 5,
+    "power_uW": {
+      "active": {
+        "dynamic": 4116.3,
+        "leakage": 13.3273,
+        "total": 4129.6273
+      },
+      "idle": {
+        "dynamic": 2216.8,
+        "leakage": 13.3273,
+        "total": 2230.1273
+      }
+    },
+    "measurement": {
+      "clock_period_ns": 1.0,
+      "measured_cycles": 256,
+      "measured_time_ns": 256.0,
+      "active_codewords": 256,
+      "codewords_per_active_cycle": 1
+    },
+    "technology": {
+      "target_library": "/apps/local/FreePDK45/osu_soc/lib/files/gscl45nm.db",
+      "library_name": "gscl45nm",
+      "operating_condition": "typical",
+      "voltage_V": 1.1,
+      "analysis_stage": "pre-layout synthesis with wire-load model"
+    },
+    "configuration_reference": {
+      "catalog": "ECC_configurations/ecc_configurations.json",
+      "parity_mask_width_bits": 612,
+      "systematic": true
+    },
+    "reports": {
+      "active_power": "results/report_snapshots/BCH_63_51_t2/active/power.rpt",
+      "idle_power": "results/report_snapshots/BCH_63_51_t2/idle/power.rpt",
+      "active_area": "results/report_snapshots/BCH_63_51_t2/active/area.rpt",
+      "idle_area": "results/report_snapshots/BCH_63_51_t2/idle/area.rpt"
+    },
+    "generated_utc": "2026-09-04T17:12:29.053809+00:00"
+  },
+  {
+    "family": "BCH",
+    "configuration_id": "BCH_63_45_t3",
+    "n": 63,
+    "k": 45,
+    "t": 3,
+    "energy_pJ": {
+      "active_per_codeword": 4.0503856,
+      "idle_per_cycle": 2.4120856,
+      "incremental_per_codeword": 1.6383,
+      "active_measurement_window": 1036.8987136,
+      "idle_measurement_window": 617.4939136,
+      "incremental_measurement_window": 419.4048
+    },
+    "r": 18,
+    "d_min": 7,
+    "power_uW": {
+      "active": {
+        "dynamic": 4036.6,
+        "leakage": 13.7856,
+        "total": 4050.3856
+      },
+      "idle": {
+        "dynamic": 2398.3,
+        "leakage": 13.7856,
+        "total": 2412.0856
+      }
+    },
+    "measurement": {
+      "clock_period_ns": 1.0,
+      "measured_cycles": 256,
+      "measured_time_ns": 256.0,
+      "active_codewords": 256,
+      "codewords_per_active_cycle": 1
+    },
+    "technology": {
+      "target_library": "/apps/local/FreePDK45/osu_soc/lib/files/gscl45nm.db",
+      "library_name": "gscl45nm",
+      "operating_condition": "typical",
+      "voltage_V": 1.1,
+      "analysis_stage": "pre-layout synthesis with wire-load model"
+    },
+    "configuration_reference": {
+      "catalog": "ECC_configurations/ecc_configurations.json",
+      "parity_mask_width_bits": 810,
+      "systematic": true
+    },
+    "reports": {
+      "active_power": "results/report_snapshots/BCH_63_45_t3/active/power.rpt",
+      "idle_power": "results/report_snapshots/BCH_63_45_t3/idle/power.rpt",
+      "active_area": "results/report_snapshots/BCH_63_45_t3/active/area.rpt",
+      "idle_area": "results/report_snapshots/BCH_63_45_t3/idle/area.rpt"
+    },
+    "generated_utc": "2026-08-28T02:40:09.447936+00:00"
+  },
+  {
+    "family": "BCH",
+    "configuration_id": "BCH_63_39_t4",
+    "n": 63,
+    "k": 39,
+    "t": 4,
+    "energy_pJ": {
+      "active_per_codeword": 4.2452299,
+      "idle_per_cycle": 2.7891299,
+      "incremental_per_codeword": 1.4561,
+      "active_measurement_window": 1086.7788544,
+      "idle_measurement_window": 714.0172544,
+      "incremental_measurement_window": 372.7616
+    },
+    "r": 24,
+    "d_min": 9,
+    "power_uW": {
+      "active": {
+        "dynamic": 4230.7,
+        "leakage": 14.5299,
+        "total": 4245.2299
+      },
+      "idle": {
+        "dynamic": 2774.6,
+        "leakage": 14.5299,
+        "total": 2789.1299
+      }
+    },
+    "measurement": {
+      "clock_period_ns": 1.0,
+      "measured_cycles": 256,
+      "measured_time_ns": 256.0,
+      "active_codewords": 256,
+      "codewords_per_active_cycle": 1
+    },
+    "technology": {
+      "target_library": "/apps/local/FreePDK45/osu_soc/lib/files/gscl45nm.db",
+      "library_name": "gscl45nm",
+      "operating_condition": "typical",
+      "voltage_V": 1.1,
+      "analysis_stage": "pre-layout synthesis with wire-load model"
+    },
+    "configuration_reference": {
+      "catalog": "ECC_configurations/ecc_configurations.json",
+      "parity_mask_width_bits": 936,
+      "systematic": true
+    },
+    "reports": {
+      "active_power": "results/report_snapshots/BCH_63_39_t4/active/power.rpt",
+      "idle_power": "results/report_snapshots/BCH_63_39_t4/idle/power.rpt",
+      "active_area": "results/report_snapshots/BCH_63_39_t4/active/area.rpt",
+      "idle_area": "results/report_snapshots/BCH_63_39_t4/idle/area.rpt"
+    },
+    "generated_utc": "2026-08-28T02:41:20.551340+00:00"
+  },
+  {
+    "family": "BCH",
+    "configuration_id": "BCH_63_36_t5",
+    "n": 63,
+    "k": 36,
+    "t": 5,
+    "energy_pJ": {
+      "active_per_codeword": 4.3440254,
+      "idle_per_cycle": 2.8358254,
+      "incremental_per_codeword": 1.5082,
+      "active_measurement_window": 1112.0705024,
+      "idle_measurement_window": 725.9713024,
+      "incremental_measurement_window": 386.0992
+    },
+    "r": 27,
+    "d_min": 11,
+    "power_uW": {
+      "active": {
+        "dynamic": 4329.2,
+        "leakage": 14.8254,
+        "total": 4344.0254
+      },
+      "idle": {
+        "dynamic": 2821.0,
+        "leakage": 14.8254,
+        "total": 2835.8254
+      }
+    },
+    "measurement": {
+      "clock_period_ns": 1.0,
+      "measured_cycles": 256,
+      "measured_time_ns": 256.0,
+      "active_codewords": 256,
+      "codewords_per_active_cycle": 1
+    },
+    "technology": {
+      "target_library": "/apps/local/FreePDK45/osu_soc/lib/files/gscl45nm.db",
+      "library_name": "gscl45nm",
+      "operating_condition": "typical",
+      "voltage_V": 1.1,
+      "analysis_stage": "pre-layout synthesis with wire-load model"
+    },
+    "configuration_reference": {
+      "catalog": "ECC_configurations/ecc_configurations.json",
+      "parity_mask_width_bits": 972,
+      "systematic": true
+    },
+    "reports": {
+      "active_power": "results/report_snapshots/BCH_63_36_t5/active/power.rpt",
+      "idle_power": "results/report_snapshots/BCH_63_36_t5/idle/power.rpt",
+      "active_area": "results/report_snapshots/BCH_63_36_t5/active/area.rpt",
+      "idle_area": "results/report_snapshots/BCH_63_36_t5/idle/area.rpt"
+    },
+    "generated_utc": "2026-08-28T02:42:29.479423+00:00"
+  },
+  {
+    "family": "BCH",
+    "configuration_id": "BCH_63_30_t6",
+    "n": 63,
+    "k": 30,
+    "t": 6,
+    "energy_pJ": {
+      "active_per_codeword": 4.2096811,
+      "idle_per_cycle": 2.8310811,
+      "incremental_per_codeword": 1.3786,
+      "active_measurement_window": 1077.6783616,
+      "idle_measurement_window": 724.7567616,
+      "incremental_measurement_window": 352.9216
+    },
+    "r": 33,
+    "d_min": 13,
+    "power_uW": {
+      "active": {
+        "dynamic": 4195.0,
+        "leakage": 14.6811,
+        "total": 4209.6811
+      },
+      "idle": {
+        "dynamic": 2816.4,
+        "leakage": 14.6811,
+        "total": 2831.0811
+      }
+    },
+    "measurement": {
+      "clock_period_ns": 1.0,
+      "measured_cycles": 256,
+      "measured_time_ns": 256.0,
+      "active_codewords": 256,
+      "codewords_per_active_cycle": 1
+    },
+    "technology": {
+      "target_library": "/apps/local/FreePDK45/osu_soc/lib/files/gscl45nm.db",
+      "library_name": "gscl45nm",
+      "operating_condition": "typical",
+      "voltage_V": 1.1,
+      "analysis_stage": "pre-layout synthesis with wire-load model"
+    },
+    "configuration_reference": {
+      "catalog": "ECC_configurations/ecc_configurations.json",
+      "parity_mask_width_bits": 990,
+      "systematic": true
+    },
+    "reports": {
+      "active_power": "results/report_snapshots/BCH_63_30_t6/active/power.rpt",
+      "idle_power": "results/report_snapshots/BCH_63_30_t6/idle/power.rpt",
+      "active_area": "results/report_snapshots/BCH_63_30_t6/active/area.rpt",
+      "idle_area": "results/report_snapshots/BCH_63_30_t6/idle/area.rpt"
+    },
+    "generated_utc": "2026-08-28T02:43:34.840848+00:00"
+  }
+]

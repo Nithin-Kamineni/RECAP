@@ -1,0 +1,122 @@
+{
+ "eyeriss_v2_like": {
+  "resnet18": {
+   "base": {
+    "DRAM": 7052102144.0,
+    "Global buffer": 2547232149.6800003,
+    "Local (spads/RF/NoC)": 6680147762.169996,
+    "Compute": 2120234502.2800004,
+    "ECC decode": 0.0,
+    "Reconstruction": 0.0
+   },
+   "base_w": {
+    "DRAM": 5470879744.0,
+    "Global buffer": 0.0,
+    "Local (spads/RF/NoC)": 2536962854.59,
+    "Compute": 0.0,
+    "ECC decode": 0.0,
+    "Reconstruction": 0.0
+   },
+   "E_DRAM_W": 5470879744.0,
+   "DRAM_W_READS": 85482496.0,
+   "ok": 21,
+   "skip": 0
+  }
+ },
+ "eyeriss_like": {
+  "resnet18": {
+   "base": {
+    "DRAM": 3660290560.0,
+    "Global buffer": 752156309.8799996,
+    "Local (spads/RF/NoC)": 6052260740.63,
+    "Compute": 2059970985.7999995,
+    "ECC decode": 0.0,
+    "Reconstruction": 0.0
+   },
+   "base_w": {
+    "DRAM": 2590375936.0,
+    "Global buffer": 0.0,
+    "Local (spads/RF/NoC)": 3905393887.9099994,
+    "Compute": 0.0,
+    "ECC decode": 0.0,
+    "Reconstruction": 0.0
+   },
+   "E_DRAM_W": 2590375936.0,
+   "DRAM_W_READS": 40474624.0,
+   "ok": 21,
+   "skip": 0
+  }
+ },
+ "simple_weight_stationary": {
+  "resnet18": {
+   "base": {
+    "DRAM": 3098640384.0,
+    "Global buffer": 9237153418.6,
+    "Local (spads/RF/NoC)": 1370952272.9999988,
+    "Compute": 2059970985.7999995,
+    "ECC decode": 0.0,
+    "Reconstruction": 0.0
+   },
+   "base_w": {
+    "DRAM": 1744461824.0,
+    "Global buffer": 455070095.06999993,
+    "Local (spads/RF/NoC)": 711844783.75,
+    "Compute": 0.0,
+    "ECC decode": 0.0,
+    "Reconstruction": 0.0
+   },
+   "E_DRAM_W": 1744461824.0,
+   "DRAM_W_READS": 13628608.0,
+   "ok": 21,
+   "skip": 0
+  }
+ },
+ "simba_like": {
+  "resnet18": {
+   "base": {
+    "DRAM": 3806416384.0,
+    "Global buffer": 33553279861.15,
+    "Local (spads/RF/NoC)": 32850968.090000004,
+    "Compute": 2059970985.7999995,
+    "ECC decode": 0.0,
+    "Reconstruction": 0.0
+   },
+   "base_w": {
+    "DRAM": 3401121792.0,
+    "Global buffer": 6107245786.019999,
+    "Local (spads/RF/NoC)": 32850968.090000004,
+    "Compute": 0.0,
+    "ECC decode": 0.0,
+    "Reconstruction": 0.0
+   },
+   "E_DRAM_W": 3401121792.0,
+   "DRAM_W_READS": 53142528.0,
+   "ok": 21,
+   "skip": 0
+  }
+ },
+ "simple_output_stationary": {
+  "resnet18": {
+   "base": {
+    "DRAM": 4338312192.0,
+    "Global buffer": 3173324722.130001,
+    "Local (spads/RF/NoC)": 5159804724.410002,
+    "Compute": 2059970985.7999995,
+    "ECC decode": 0.0,
+    "Reconstruction": 0.0
+   },
+   "base_w": {
+    "DRAM": 2713518080.0,
+    "Global buffer": 431122576.03000003,
+    "Local (spads/RF/NoC)": 330515092.8900001,
+    "Compute": 0.0,
+    "ECC decode": 0.0,
+    "Reconstruction": 0.0
+   },
+   "E_DRAM_W": 2713518080.0,
+   "DRAM_W_READS": 21199360.0,
+   "ok": 21,
+   "skip": 0
+  }
+ }
+}

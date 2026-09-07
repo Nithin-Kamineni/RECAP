@@ -1,0 +1,200 @@
+2026-09-06 17:37:28 INFO            _                _                      
+2026-09-06 17:37:28 INFO           / \   ___ ___ ___| | ___ _ __ __ _ _   _ 
+2026-09-06 17:37:28 INFO          / _ \ / __/ __/ _ \ |/ _ \ '__/ _` | | | |
+2026-09-06 17:37:28 INFO         / ___ \ (_| (_|  __/ |  __/ | | (_| | |_| |
+2026-09-06 17:37:28 INFO        /_/   \_\___\___\___|_|\___|_|  \__, |\__, |
+2026-09-06 17:37:28 INFO                                        |___/ |___/ 
+2026-09-06 17:37:28 INFO        generating outputs according to the following specified output flags... 
+2026-09-06 17:37:28 INFO         Please use the -f flag to update the preference (default to all output files)
+2026-09-06 17:37:28 INFO        {'ERT': 1, 'ERT_summary': 1, 'ART': 1, 'ART_summary': 1, 'energy_estimation': 1, 'flattened_arch': 1}
+2026-09-06 17:37:28 INFO        Accelergy creating default config at:
+2026-09-06 17:37:28 INFO        /home/vkamineni/.config/accelergy/accelergy_config.yaml
+2026-09-06 17:37:28 INFO        with:
+2026-09-06 17:37:28 INFO        {'version': '0.4', 'estimator_plug_ins': ['/usr/local/share/accelergy/estimation_plug_ins'], 'primitive_components': ['/usr/local/share/accelergy/primitive_component_libs'], 'compound_components': [], 'math_functions': [], 'python_plug_ins': [], 'table_plug_ins': {'roots': ['/usr/local/share/accelergy/table_plug_ins']}}
+2026-09-06 17:37:28 INFO        Parsing file /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/ecc_energy_study/outputs/eyeriss_like/multimodel__opt-energy__vic2000__vicx__alg-random_pruned__ss20000__to2000__paper/fp-65833ebb89d3/C64_M128_R1_S1_P28_Q28_ws2_hs2/parsed-processed-input.yaml for architecture info
+2026-09-06 17:37:28 INFO        Parsing file /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/ecc_energy_study/outputs/eyeriss_like/multimodel__opt-energy__vic2000__vicx__alg-random_pruned__ss20000__to2000__paper/fp-65833ebb89d3/C64_M128_R1_S1_P28_Q28_ws2_hs2/parsed-processed-input.yaml for compound_components info
+2026-09-06 17:37:28 INFO        Adding required action "leak" to class DRAM
+2026-09-06 17:37:28 INFO        Adding required action "write" to class DRAM
+2026-09-06 17:37:28 INFO        Adding required action "read" to class DRAM
+2026-09-06 17:37:28 INFO        Adding required action "update" to class DRAM
+2026-09-06 17:37:28 INFO        Calculated Architecture class smartbuffer_RF_decoded attributes"memory_width" as "max(32, width)" = 32.
+2026-09-06 17:37:28 INFO        Calculated Architecture class smartbuffer_RF_decoded attributes"memory_depth" as "max(64, depth)" = 64.
+2026-09-06 17:37:28 INFO        Calculated Architecture class smartbuffer_RF_decoded attributes"widthscale" as "width / memory_width" = 0.5.
+2026-09-06 17:37:28 INFO        Calculated Architecture class smartbuffer_RF_decoded attributes"depthscale" as "depth / memory_depth" = 0.1875.
+2026-09-06 17:37:28 INFO        Calculated Architecture class smartbuffer_RF_decoded attributes"real_depth" as "depth" = 12.
+2026-09-06 17:37:28 INFO        Calculated Architecture class smartbuffer_RF_decoded attributes"area_scale" as "widthscale * depthscale" = 0.09375.
+2026-09-06 17:37:28 INFO        Calculated Architecture class smartbuffer_RF_decoded attributes"dynamic_energy_scale" as "widthscale * (depthscale ** (1.56 / 2))" = 0.1354911710963393.
+2026-09-06 17:37:28 INFO        Calculated Architecture class smartbuffer_RF_decoded attributes"static_energy_scale" as "area_scale" = 0.09375.
+2026-09-06 17:37:28 INFO        Calculated Architecture class smartbuffer_RF_decoded attributes"memory_width" as "max(32, width)" = 32.
+2026-09-06 17:37:28 INFO        Calculated Architecture class smartbuffer_RF_decoded attributes"memory_depth" as "max(64, depth)" = 64.
+2026-09-06 17:37:28 INFO        Calculated Architecture class smartbuffer_RF_decoded attributes"widthscale" as "width / memory_width" = 0.5.
+2026-09-06 17:37:28 INFO        Calculated Architecture class smartbuffer_RF_decoded attributes"depthscale" as "depth / memory_depth" = 0.375.
+2026-09-06 17:37:28 INFO        Calculated Architecture class smartbuffer_RF_decoded attributes"real_depth" as "depth" = 24.
+2026-09-06 17:37:28 INFO        Calculated Architecture class smartbuffer_RF_decoded attributes"area_scale" as "widthscale * depthscale" = 0.1875.
+2026-09-06 17:37:28 INFO        Calculated Architecture class smartbuffer_RF_decoded attributes"dynamic_energy_scale" as "widthscale * (depthscale ** (1.56 / 2))" = 0.23265607289158186.
+2026-09-06 17:37:28 INFO        Calculated Architecture class smartbuffer_RF_decoded attributes"static_energy_scale" as "area_scale" = 0.1875.
+2026-09-06 17:37:28 WARNING     Area scale in attributes is deprecated. Use it on the same level as the attributes, not a subkey.
+2026-09-06 17:37:28 WARNING     Area scale in attributes is deprecated. Use it on the same level as the attributes, not a subkey.
+2026-09-06 17:37:28 INFO        Estimator plug-in identified by: /usr/local/share/accelergy/estimation_plug_ins/accelergy-adc-plug-in/adc.estimator.yaml
+2026-09-06 17:37:28 INFO        Estimator plug-in identified by: /usr/local/share/accelergy/estimation_plug_ins/accelergy-aladdin-plug-in/aladdin.estimator.yaml
+2026-09-06 17:37:28 INFO        Estimator plug-in identified by: /usr/local/share/accelergy/estimation_plug_ins/accelergy-cacti-plug-in/cacti.estimator.yaml
+2026-09-06 17:37:28 INFO        Estimator plug-in identified by: /usr/local/share/accelergy/estimation_plug_ins/accelergy-library-plugin/library.estimator.yaml
+2026-09-06 17:37:28 INFO        Estimator plug-in identified by: /usr/local/share/accelergy/estimation_plug_ins/accelergy-neurosim-plugin/neurosim.estimator.yaml
+2026-09-06 17:37:28 INFO        Estimator plug-in identified by: /usr/local/share/accelergy/estimation_plug_ins/accelergy-table-based-plug-ins/table.estimator.yaml
+2026-09-06 17:37:28 INFO        Estimator plug-in identified by: /usr/local/share/accelergy/estimation_plug_ins/dummy_tables/dummy.estimator.yaml
+2026-09-06 17:37:28 INFO        Loading Python plug-in: /usr/local/share/accelergy/estimation_plug_ins/accelergy-cacti-plug-in/cacti_wrapper.py. Errors below are likely due to plug-in, not Accelergy.
+2026-09-06 17:37:28 INFO        Getting all estimators in module <module 'python_plug_in0' from '/usr/local/share/accelergy/estimation_plug_ins/accelergy-cacti-plug-in/cacti_wrapper.py'>
+2026-09-06 17:37:28 INFO        Added estimator CactiCache that estimates cache with actions idle, read, read_access, update, update_access, write, write_access, leak
+2026-09-06 17:37:28 INFO        Added estimator CactiDRAM that estimates ['DRAM', 'dram'] with actions idle, read, update, write, leak
+2026-09-06 17:37:28 INFO        Added estimator CactiSRAM that estimates ['SRAM', 'sram'] with actions idle, read, update, write, leak
+2026-09-06 17:37:28 INFO        Done loading Python plug-ins.
+2026-09-06 17:37:28 INFO        Found estimator plug-in: ADC Plug-In (<ADCEstimator.ADCEstimator object at 0x14719dbfea10>)
+2026-09-06 17:37:28 INFO        Found estimator plug-in: Aladdin_table (<AladdinTable.AladdinTable object at 0x14719dbff0d0>)
+2026-09-06 17:37:28 INFO        Found estimator plug-in: Library (<LibraryEstimator.LibraryEstimator object at 0x14719d893f70>)
+2026-09-06 17:37:28 INFO        Found estimator plug-in: Neurosim Plug-In (<NeuroWrapper.NeuroWrapper object at 0x14719d951e70>)
+2026-09-06 17:37:28 INFO        Found estimator plug-in: DEPRECATED table-based-plug-ins. Use the Library plug-in instead. (<SetsOfTables.SetsOfTables object at 0x14719d950100>)
+2026-09-06 17:37:28 INFO        Found estimator plug-in: dummy (<DummyTable.DummyTable object at 0x14719d819480>)
+2026-09-06 17:37:28 INFO        Found estimator plug-in: CactiCache (<accelergy.plug_in_interface.estimator_wrapper.EstimatorWrapper object at 0x14719d893370>)
+2026-09-06 17:37:28 INFO        Found estimator plug-in: CactiDRAM (<accelergy.plug_in_interface.estimator_wrapper.EstimatorWrapper object at 0x14719d953dc0>)
+2026-09-06 17:37:28 INFO        Found estimator plug-in: CactiSRAM (<accelergy.plug_in_interface.estimator_wrapper.EstimatorWrapper object at 0x14719d8933d0>)
+2026-09-06 17:37:28 INFO        Calculated storage."width" as "width" = 64.
+2026-09-06 17:37:28 INFO        Calculated storage."depth" as "depth" = 6656.
+2026-09-06 17:37:28 INFO        Calculated storage."n_rw_ports" as "n_rw_ports" = 1.
+2026-09-06 17:37:28 INFO        Calculated storage."technology" as "technology" = 45nm.
+2026-09-06 17:37:28 INFO        Calculated storage."global_cycle_seconds" as "global_cycle_seconds" = 1e-09.
+2026-09-06 17:37:28 INFO        Calculated address_generators[0..1]."n_bits" as "max(1, ceil(log2(depth))) if depth >= 1 else 1" = 13.
+2026-09-06 17:37:28 INFO        Calculated address_generators[0..1]."precision" as "max(1, ceil(log2(depth))) if depth >= 1 else 1" = 13.
+2026-09-06 17:37:28 INFO        Calculated address_generators[0..1]."width" as "max(1, ceil(log2(depth))) if depth >= 1 else 1" = 13.
+2026-09-06 17:37:28 INFO        Calculated address_generators[0..1]."global_cycle_seconds" as "global_cycle_seconds" = 1e-09.
+2026-09-06 17:37:28 INFO        Calculated storage."width" as "width" = 64.
+2026-09-06 17:37:28 INFO        Calculated storage."depth" as "depth" = 6144.
+2026-09-06 17:37:28 INFO        Calculated storage."n_rw_ports" as "n_rw_ports" = 1.
+2026-09-06 17:37:28 INFO        Calculated storage."technology" as "technology" = 45nm.
+2026-09-06 17:37:28 INFO        Calculated storage."global_cycle_seconds" as "global_cycle_seconds" = 1e-09.
+2026-09-06 17:37:28 INFO        Calculated address_generators[0..1]."n_bits" as "max(1, ceil(log2(depth))) if depth >= 1 else 1" = 13.
+2026-09-06 17:37:28 INFO        Calculated address_generators[0..1]."precision" as "max(1, ceil(log2(depth))) if depth >= 1 else 1" = 13.
+2026-09-06 17:37:28 INFO        Calculated address_generators[0..1]."width" as "max(1, ceil(log2(depth))) if depth >= 1 else 1" = 13.
+2026-09-06 17:37:28 INFO        Calculated address_generators[0..1]."global_cycle_seconds" as "global_cycle_seconds" = 1e-09.
+2026-09-06 17:37:28 INFO        Calculated storage."width" as "memory_width" = 32.
+2026-09-06 17:37:28 INFO        Calculated storage."depth" as "memory_depth" = 64.
+2026-09-06 17:37:28 INFO        Calculated storage."n_rdwr_ports" as "n_rdwr_ports" = 1.
+2026-09-06 17:37:28 INFO        Calculated storage."global_cycle_seconds" as "global_cycle_seconds" = 1e-09.
+2026-09-06 17:37:28 INFO        Calculated storage.area_scale as "area_scale" = 0.09375.
+2026-09-06 17:37:28 INFO        Calculated list index expression as "width*depth" = 2048.
+2026-09-06 17:37:28 INFO        Calculated storage.storage[1..2048]."global_cycle_seconds" as "global_cycle_seconds" = 1e-09.
+2026-09-06 17:37:28 INFO        Calculated address_generators[0..1]."n_bits" as "max(1, ceil(log2(real_depth))) if real_depth >= 1 else 1" = 4.
+2026-09-06 17:37:28 INFO        Calculated address_generators[0..1]."precision" as "max(1, ceil(log2(real_depth))) if real_depth >= 1 else 1" = 4.
+2026-09-06 17:37:28 INFO        Calculated address_generators[0..1]."width" as "max(1, ceil(log2(real_depth))) if real_depth >= 1 else 1" = 4.
+2026-09-06 17:37:28 INFO        Calculated address_generators[0..1]."global_cycle_seconds" as "global_cycle_seconds" = 1e-09.
+2026-09-06 17:37:28 INFO        Calculated action write energy_scale as "dynamic_energy_scale" = 0.1354911710963393.
+2026-09-06 17:37:28 INFO        Calculated list index expression as "width" = 32.
+2026-09-06 17:37:28 INFO        Calculated action read energy_scale as "dynamic_energy_scale" = 0.1354911710963393.
+2026-09-06 17:37:28 INFO        Calculated list index expression as "width" = 32.
+2026-09-06 17:37:28 INFO        Calculated action leak energy_scale as "static_energy_scale" = 0.09375.
+2026-09-06 17:37:28 INFO        Calculated list index expression as "width*depth" = 2048.
+2026-09-06 17:37:28 INFO        Calculated system_top_level.ifmap_spad[1..168].leak.leak."global_cycle_seconds" as "global_cycle_seconds" = 1e-09.
+2026-09-06 17:37:28 INFO        Calculated action write energy_scale as "dynamic_energy_scale" = 0.1354911710963393.
+2026-09-06 17:37:28 INFO        Calculated list index expression as "width" = 32.
+2026-09-06 17:37:28 INFO        Calculated storage."width" as "width" = 16.
+2026-09-06 17:37:28 INFO        Calculated storage."depth" as "depth" = 224.
+2026-09-06 17:37:28 INFO        Calculated storage."n_rw_ports" as "n_rw_ports" = 1.
+2026-09-06 17:37:28 INFO        Calculated storage."technology" as "technology" = 45nm.
+2026-09-06 17:37:28 INFO        Calculated storage."global_cycle_seconds" as "global_cycle_seconds" = 1e-09.
+2026-09-06 17:37:28 INFO        Calculated address_generators[0..1]."n_bits" as "max(1, ceil(log2(depth))) if depth >= 1 else 1" = 8.
+2026-09-06 17:37:28 INFO        Calculated address_generators[0..1]."precision" as "max(1, ceil(log2(depth))) if depth >= 1 else 1" = 8.
+2026-09-06 17:37:28 INFO        Calculated address_generators[0..1]."width" as "max(1, ceil(log2(depth))) if depth >= 1 else 1" = 8.
+2026-09-06 17:37:28 INFO        Calculated address_generators[0..1]."global_cycle_seconds" as "global_cycle_seconds" = 1e-09.
+2026-09-06 17:37:28 INFO        Calculated storage."width" as "memory_width" = 32.
+2026-09-06 17:37:28 INFO        Calculated storage."depth" as "memory_depth" = 64.
+2026-09-06 17:37:28 INFO        Calculated storage."n_rdwr_ports" as "n_rdwr_ports" = 1.
+2026-09-06 17:37:28 INFO        Calculated storage."global_cycle_seconds" as "global_cycle_seconds" = 1e-09.
+2026-09-06 17:37:28 INFO        Calculated storage.area_scale as "area_scale" = 0.1875.
+2026-09-06 17:37:28 INFO        Calculated list index expression as "width*depth" = 2048.
+2026-09-06 17:37:28 INFO        Calculated storage.storage[1..2048]."global_cycle_seconds" as "global_cycle_seconds" = 1e-09.
+2026-09-06 17:37:28 INFO        Calculated address_generators[0..1]."n_bits" as "max(1, ceil(log2(real_depth))) if real_depth >= 1 else 1" = 5.
+2026-09-06 17:37:28 INFO        Calculated address_generators[0..1]."precision" as "max(1, ceil(log2(real_depth))) if real_depth >= 1 else 1" = 5.
+2026-09-06 17:37:28 INFO        Calculated address_generators[0..1]."width" as "max(1, ceil(log2(real_depth))) if real_depth >= 1 else 1" = 5.
+2026-09-06 17:37:28 INFO        Calculated address_generators[0..1]."global_cycle_seconds" as "global_cycle_seconds" = 1e-09.
+2026-09-06 17:37:28 INFO        Calculated action write energy_scale as "dynamic_energy_scale" = 0.23265607289158186.
+2026-09-06 17:37:28 INFO        Calculated list index expression as "width" = 32.
+2026-09-06 17:37:28 INFO        Calculated action read energy_scale as "dynamic_energy_scale" = 0.23265607289158186.
+2026-09-06 17:37:28 INFO        Calculated list index expression as "width" = 32.
+2026-09-06 17:37:28 INFO        Calculated action leak energy_scale as "static_energy_scale" = 0.1875.
+2026-09-06 17:37:28 INFO        Calculated list index expression as "width*depth" = 2048.
+2026-09-06 17:37:28 INFO        Calculated system_top_level.psum_spad[1..168].leak.leak."global_cycle_seconds" as "global_cycle_seconds" = 1e-09.
+2026-09-06 17:37:28 INFO        Calculated action write energy_scale as "dynamic_energy_scale" = 0.23265607289158186.
+2026-09-06 17:37:28 INFO        Calculated list index expression as "width" = 32.
+2026-09-06 17:37:28 INFO        Calculated intadder."width" as "adder_width" = 16.
+2026-09-06 17:37:28 INFO        Calculated intmultiplier."width_a" as "multiplier_width" = 8.
+2026-09-06 17:37:28 INFO        Calculated intmultiplier."width_b" as "multiplier_width" = 8.
+2026-09-06 17:37:28 INFO        
+2026-09-06 17:37:28 INFO        ENERGY ESTIMATION for DRAM(type=LPDDR4, depth=1048576, width=64, datawidth=8, has_power_gating=False, n_banks=2, cluster_size=1, reduction_supported=True, multiple_buffering=1, min_utilization=0, allow_overbooking=False, meshX=1, meshY=1, version=0.4, global_cycle_seconds=1e-09, technology=45nm, action_latency_cycles=1, cycle_seconds=1e-09, n_instances=1).leak(global_cycle_seconds=1e-09, action_latency_cycles=1)
+2026-09-06 17:37:28 INFO        CactiDRAM estimated 0 with accuracy 80%. Messages:
+2026-09-06 17:37:28 INFO        | Unused arguments (depth, datawidth, has_power_gating, n_banks, cluster_size, reduction_supported, multiple_buffering, min_utilization, allow_overbooking, meshX, meshY, version, global_cycle_seconds, technology, action_latency_cycles, cycle_seconds, n_instances) provided for ['DRAM', 'dram'].__init__. Arguments used: (type, width)
+2026-09-06 17:37:28 INFO        | Unused arguments (action_latency_cycles) provided for ['DRAM', 'dram'].leak. Arguments used: (global_cycle_seconds)
+2026-09-06 17:37:28 INFO        | Multiplying by n_instances 1
+2026-09-06 17:37:28 INFO        
+2026-09-06 17:37:28 INFO        ENERGY ESTIMATION for DRAM(type=LPDDR4, depth=1048576, width=64, datawidth=8, has_power_gating=False, n_banks=2, cluster_size=1, reduction_supported=True, multiple_buffering=1, min_utilization=0, allow_overbooking=False, meshX=1, meshY=1, version=0.4, global_cycle_seconds=1e-09, technology=45nm, action_latency_cycles=1, cycle_seconds=1e-09, n_instances=1).write(global_cycle_seconds=1e-09, action_latency_cycles=1)
+2026-09-06 17:37:28 INFO        CactiDRAM estimated 5.12e-10 with accuracy 80%. Messages:
+2026-09-06 17:37:28 INFO        | Unused arguments (depth, datawidth, has_power_gating, n_banks, cluster_size, reduction_supported, multiple_buffering, min_utilization, allow_overbooking, meshX, meshY, version, global_cycle_seconds, technology, action_latency_cycles, cycle_seconds, n_instances) provided for ['DRAM', 'dram'].__init__. Arguments used: (type, width)
+2026-09-06 17:37:28 INFO        | Unused arguments (global_cycle_seconds, action_latency_cycles) provided for ['DRAM', 'dram'].write. Arguments used: ()
+2026-09-06 17:37:28 INFO        
+2026-09-06 17:37:28 INFO        ENERGY ESTIMATION for DRAM(type=LPDDR4, depth=1048576, width=64, datawidth=8, has_power_gating=False, n_banks=2, cluster_size=1, reduction_supported=True, multiple_buffering=1, min_utilization=0, allow_overbooking=False, meshX=1, meshY=1, version=0.4, global_cycle_seconds=1e-09, technology=45nm, action_latency_cycles=1, cycle_seconds=1e-09, n_instances=1).read(global_cycle_seconds=1e-09, action_latency_cycles=1)
+2026-09-06 17:37:28 INFO        CactiDRAM estimated 5.12e-10 with accuracy 80%. Messages:
+2026-09-06 17:37:28 INFO        | Unused arguments (depth, datawidth, has_power_gating, n_banks, cluster_size, reduction_supported, multiple_buffering, min_utilization, allow_overbooking, meshX, meshY, version, global_cycle_seconds, technology, action_latency_cycles, cycle_seconds, n_instances) provided for ['DRAM', 'dram'].__init__. Arguments used: (type, width)
+2026-09-06 17:37:28 INFO        | Unused arguments (global_cycle_seconds, action_latency_cycles) provided for ['DRAM', 'dram'].read. Arguments used: ()
+2026-09-06 17:37:28 INFO        
+2026-09-06 17:37:28 INFO        ENERGY ESTIMATION for DRAM(type=LPDDR4, depth=1048576, width=64, datawidth=8, has_power_gating=False, n_banks=2, cluster_size=1, reduction_supported=True, multiple_buffering=1, min_utilization=0, allow_overbooking=False, meshX=1, meshY=1, version=0.4, global_cycle_seconds=1e-09, technology=45nm, action_latency_cycles=1, cycle_seconds=1e-09, n_instances=1).update(global_cycle_seconds=1e-09, action_latency_cycles=1)
+2026-09-06 17:37:28 INFO        CactiDRAM estimated 5.12e-10 with accuracy 80%. Messages:
+2026-09-06 17:37:28 INFO        | Unused arguments (depth, datawidth, has_power_gating, n_banks, cluster_size, reduction_supported, multiple_buffering, min_utilization, allow_overbooking, meshX, meshY, version, global_cycle_seconds, technology, action_latency_cycles, cycle_seconds, n_instances) provided for ['DRAM', 'dram'].__init__. Arguments used: (type, width)
+2026-09-06 17:37:28 INFO        | Unused arguments (global_cycle_seconds, action_latency_cycles) provided for ['DRAM', 'dram'].update. Arguments used: ()
+2026-09-06 17:37:28 INFO        
+2026-09-06 17:37:28 INFO        ENERGY ESTIMATION for SRAM(width=64, depth=6656, n_rw_ports=1, technology=45nm, global_cycle_seconds=1e-09, action_latency_cycles=1, cycle_seconds=1e-09, n_instances=1).write(global_cycle_seconds=1e-09, action_latency_cycles=1, cycle_seconds=1e-09, technology=45nm, n_instances=1)
+2026-09-06 17:37:28 INFO        Plug-ins provided accuracy, but failed to estimate:
+2026-09-06 17:37:28 INFO        | CactiSRAM with accuracy 80% estimating value: OSError: [Errno 30] Read-only file system: '/usr/local/share/accelergy/estimation_plug_ins/accelergy-cacti-plug-in/cacti_inputs_outputs'
+2026-09-06 17:37:28 ERROR       ================= An error has caused Accelergy to crash. Error below =================
+2026-09-06 17:37:28 ERROR       Can not find an energy estimator for SRAM(width=64, depth=6656, n_rw_ports=1, technology=45nm, global_cycle_seconds=1e-09, action_latency_cycles=1, cycle_seconds=1e-09, n_instances=1).write(global_cycle_seconds=1e-09, action_latency_cycles=1, cycle_seconds=1e-09, technology=45nm, n_instances=1)
+2026-09-06 17:37:28 ERROR       Logs for plug-ins that could estimate query:
+2026-09-06 17:37:28 ERROR       | 
+2026-09-06 17:37:28 ERROR       | ADC Plug-In with accuracy 0% estimating accuracy:
+2026-09-06 17:37:28 ERROR       |  | Accuracy is 0%. Not supported.
+2026-09-06 17:37:28 ERROR       |  | ADC Plug-In does not support SRAM.write. Supported classes: ['adc', 'pim_adc', 'sar_adc', 'array_adc', 'pim_array_adc', 'cim_array_adc', 'cim_adc'], supported actions: ['convert', 'drive', 'read', 'sample', 'leak', 'activate']
+2026-09-06 17:37:28 ERROR       | Aladdin_table with accuracy 0% estimating accuracy:
+2026-09-06 17:37:28 ERROR       |  | Accuracy is 0%. Not supported.
+2026-09-06 17:37:28 ERROR       |  | Only SRAMs with depth <= 128 and width <= 32 are supported by Aladdin
+2026-09-06 17:37:28 ERROR       | Library with accuracy 0% estimating accuracy:
+2026-09-06 17:37:28 ERROR       |  | Found 0 entries for sram.write.
+2026-09-06 17:37:28 ERROR       |  | ValueError: Could not find energy for sram
+2026-09-06 17:37:28 ERROR       | Neurosim Plug-In with accuracy 0% estimating accuracy:
+2026-09-06 17:37:28 ERROR       |  | Accuracy is 0%. Not supported.
+2026-09-06 17:37:28 ERROR       |  | ERROR: NeuroSim estimator does not support sram. Supported primitives are: ['array_row_drivers', 'array_col_drivers', 'array_adc', 'memory_cell', 'shift_add', 'intadder', 'intadder_tree', 'max_pool', 'mux', 'flip_flop', 'not_gate', 'nand_gate', 'nor_gate']
+2026-09-06 17:37:28 ERROR       | DEPRECATED table-based-plug-ins. Use the Library plug-in instead. with accuracy 0% estimating accuracy:
+2026-09-06 17:37:28 ERROR       |  | Accuracy is 0%. Not supported.
+2026-09-06 17:37:28 ERROR       | dummy with accuracy 0% estimating accuracy:
+2026-09-06 17:37:28 ERROR       |  | Accuracy is 0%. Not supported.
+2026-09-06 17:37:28 ERROR       |  | Set attribute "technology" to -1 to use placeholder estimations (for testing).
+2026-09-06 17:37:28 ERROR       | CactiCache with accuracy 0% estimating accuracy:
+2026-09-06 17:37:28 ERROR       |  | Accuracy is 0%. Not supported.
+2026-09-06 17:37:28 ERROR       |  | Class name SRAM is not supported. Supported class names: ['cache']
+2026-09-06 17:37:28 ERROR       | CactiDRAM with accuracy 0% estimating accuracy:
+2026-09-06 17:37:28 ERROR       |  | Accuracy is 0%. Not supported.
+2026-09-06 17:37:28 ERROR       |  | Class name SRAM is not supported. Supported class names: ['DRAM', 'dram']
+2026-09-06 17:37:28 ERROR       | CactiSRAM with accuracy 80% estimating value: 
+2026-09-06 17:37:28 ERROR       |  | Unused arguments (global_cycle_seconds, action_latency_cycles, cycle_seconds, n_instances) provided for ['SRAM', 'sram'].__init__. Arguments used: (width, depth, n_rw_ports, technology)
+2026-09-06 17:37:28 ERROR       |  | Unused arguments (global_cycle_seconds, action_latency_cycles, cycle_seconds, technology, n_instances) provided for ['SRAM', 'sram'].write. Arguments used: ()
+2026-09-06 17:37:28 ERROR       |  | Calling CACTI with cache_size=53248 n_rw_ports=1 block_size=8 tech_node_um=0.045 n_banks=1 tag_size=0 associativity=1
+2026-09-06 17:37:28 ERROR       |  | OSError: [Errno 30] Read-only file system: '/usr/local/share/accelergy/estimation_plug_ins/accelergy-cacti-plug-in/cacti_inputs_outputs'
+2026-09-06 17:37:28 ERROR       Why plug-ins did not estimate:
+2026-09-06 17:37:28 ERROR       | CactiSRAM with accuracy 80% estimating accuracy: No messages found.
+2026-09-06 17:37:28 ERROR       | ADC Plug-In with accuracy 0% estimating accuracy: ADC Plug-In does not support SRAM.write. Supported classes: ['adc', 'pim_adc', 'sar_adc', 'array_adc', 'pim_array_adc', 'cim_array_adc', 'cim_adc'], supported actions: ['convert', 'drive', 'read', 'sample', 'leak', 'activate']
+2026-09-06 17:37:28 ERROR       | Aladdin_table with accuracy 0% estimating accuracy: Only SRAMs with depth <= 128 and width <= 32 are supported by Aladdin
+2026-09-06 17:37:28 ERROR       | Library with accuracy 0% estimating accuracy: ValueError: Could not find energy for sram
+2026-09-06 17:37:28 ERROR       | Neurosim Plug-In with accuracy 0% estimating accuracy: ERROR: NeuroSim estimator does not support sram. Supported primitives are: ['array_row_drivers', 'array_col_drivers', 'array_adc', 'memory_cell', 'shift_add', 'intadder', 'intadder_tree', 'max_pool', 'mux', 'flip_flop', 'not_gate', 'nand_gate', 'nor_gate']
+2026-09-06 17:37:28 ERROR       | DEPRECATED table-based-plug-ins. Use the Library plug-in instead. with accuracy 0% estimating accuracy: Accuracy is 0%. Not supported.
+2026-09-06 17:37:28 ERROR       | dummy with accuracy 0% estimating accuracy: Set attribute "technology" to -1 to use placeholder estimations (for testing).
+2026-09-06 17:37:28 ERROR       | CactiCache with accuracy 0% estimating accuracy: Class name SRAM is not supported. Supported class names: ['cache']
+2026-09-06 17:37:28 ERROR       | CactiDRAM with accuracy 0% estimating accuracy: Class name SRAM is not supported. Supported class names: ['DRAM', 'dram']
+2026-09-06 17:37:28 ERROR       | CactiSRAM with accuracy 80% estimating value: OSError: [Errno 30] Read-only file system: '/usr/local/share/accelergy/estimation_plug_ins/accelergy-cacti-plug-in/cacti_inputs_outputs'
+2026-09-06 17:37:28 ERROR       .
+2026-09-06 17:37:28 ERROR       .
+2026-09-06 17:37:28 ERROR       To see a list of available component models, run "<command you used> -h" and find the option to list Accelergy components. Alternatively, run accelergy verbose and check the log file.

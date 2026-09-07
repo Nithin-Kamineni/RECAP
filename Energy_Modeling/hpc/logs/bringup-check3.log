@@ -1,0 +1,32 @@
+==============================================================================
+ecc-energy  |  sweep=arch (architecture)  |  output=ArchitectureSweep
+==============================================================================
+  sweeping              : eyeriss_v2_like, eyeriss_like, simple_weight_stationary, simple_output_stationary, simple_input_stationary, simba_like
+  holding               : model=resnet18   code=BCH(63,51) t=2
+  approaches            : baseline, embedded, recon
+  workload file         : cnn
+  layer scope           : full
+  weight precision      : 8b (the protected payload)
+  activation precision  : 8b
+  accumulator precision : per architecture, as published (v1 16b, v2 20b, Simba 24b, simple designs 16b)  [primary]
+  result phase          : Pre   (mapping is ECC-unaware; the ECC effect is applied during evaluation)
+  code                  : BCH(63,51)  t=2  r=12
+  weights / codeword    : 6.0000
+  DRAM weight inflation : baseline x1.2353 (+23.5%), embedded/recon x1.0
+  recon on-chip scale   : 0.8095 (weights only)
+  reconstruction        : 4.1296273 pJ per codeword
+  recon provenance      : BCH_N63_results.json [BCH_63_51_t2] n=63 k=51 t=2 (incremental+idle): inc=1.8995000 idle=2.2301273
+  parity accounting     : grouping=layer, message padding charged
+  decode                : 0 pJ for every arm (ECC_DECODE=0; category hidden)
+  weak ECC overlay      : off
+  arch fidelity         : paper   (archs/<name>/arch_paper.yaml where present)
+  arch treatment        : opt-energy__vicx__paper   (separate mapper cache)
+  level classifier      : instances
+  mapper objective      : energy
+  mapper                : victory=500 scaling=levels algorithm=hybrid timeout=10000 perms/if=16 search_size=uncapped
+  palette / formats     : house / png, pdf @ 400 dpi
+  replot only           : False
+  cached mapper only    : False
+==============================================================================
+
+--dry-run: configuration is valid; nothing executed.

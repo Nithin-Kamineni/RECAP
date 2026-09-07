@@ -1,0 +1,147 @@
+architecture:
+  # ============================================================
+  # Simple output-stationary, PSUM-HONEST + 8-BIT OPERANDS.
+  # Selected by ECC_ARCH_FIDELITY=paper.
+  #
+  # Not from a paper -- the textbook output-stationary reference
+  # that ships with timeloop-accelergy-exercises. Same correction
+  # as archs/simple_weight_stationary/arch_paper.yaml: the stock
+  # file declares `datawidth: 16` on every level while declaring
+  # an 8-bit multiplier, so in an 8-bit-weight study it pays
+  # 128 pJ per DRAM weight read where eyeriss and simba pay 64.
+  #
+  #   operands (Weights, Inputs)  -> datawidth 8
+  #   partial sums (Outputs)      -> datawidth 16, the width the
+  #                                  design's own `adder_width: 16`
+  #                                  already declares
+  #
+  # The stock `shared_glb` held all three dataspaces at one
+  # datawidth, so it is split into an 8b operand buffer and a 16b
+  # psum buffer. Total capacity, word width and bank geometry are
+  # unchanged (128 kB = 64 + 64, 64b words, 512-entry banks), so
+  # per-access energy is the stock number and only the packing
+  # changes.
+  #
+  # The PE scratchpad is the output-stationary accumulator, so it
+  # keeps its 16-bit datawidth -- it was already correct.
+  #
+  # This makes ECC_FORCE_DATAWIDTH=8 unnecessary for this design.
+  # Set ECC_ARCH_FIDELITY=stock for the 16-bit-everywhere original.
+  # ============================================================
+  version: 0.4
+  nodes: # Top-level is hierarchical
+  - !Container # Top-level system
+    name: system
+
+  - !Component # DRAM main memory
+    name: DRAM
+    class: DRAM
+    attributes:
+      depth: 1048576
+      type: "LPDDR4"
+      width: 64
+      datawidth: 8         # was 16: operands are 8-bit in this study
+
+  - !Container # OS accelerator
+    name: simple_ws       # stock name kept verbatim (upstream copy-paste), so
+    attributes:           # the only differences from stock are the datawidths
+      technology: "45nm"
+
+  # ------------------------------------------------------------
+  # The stock single 128 kB shared_glb (depth 16384 x 64b, 32
+  # banks, datawidth 16) split by dataspace so partial sums can
+  # keep their own precision. 16 banks each, same 512-entry bank
+  # geometry, so CACTI sees the same array it saw before.
+  # ------------------------------------------------------------
+  - !Parallel
+    nodes:
+    - !Component # operand half of the shared buffer: 64 kB
+      name: operand_glb
+      class: smartbuffer_SRAM
+      attributes:
+        depth: 8192
+        width: 64
+        n_banks: 16
+        datawidth: 8       # weights and input activations
+        read_bandwidth: 16
+        write_bandwidth: 16
+      constraints:
+        dataspace: {keep: [Inputs, Weights], bypass: [Outputs]}
+
+    - !Component # partial-sum half of the shared buffer: 64 kB
+      name: psum_glb
+      class: smartbuffer_SRAM
+      attributes:
+        depth: 8192
+        width: 64
+        n_banks: 16
+        datawidth: 16      # accumulator width, matching mac.adder_width
+        read_bandwidth: 16
+        write_bandwidth: 16
+      constraints:
+        dataspace: {keep: [Outputs], bypass: [Inputs, Weights]}
+
+  - !Container # Array of PEs
+    name: PE
+    spatial: {meshX: 16, meshY: 16}
+    constraints:
+      spatial:
+        permutation: [C, M]
+        split: 1
+        factors: [R=1, S=1, P=1, Q=1]
+
+  - !Component # PE Scratchpad -- output stationary, so this is the accumulator
+    name: pe_spad
+    class: smartbuffer_SRAM
+    attributes:
+      depth: 192
+      width: 16
+      datawidth: 16        # unchanged: this level holds partial sums
+    constraints:
+      dataspace: {bypass: [Inputs, Weights], keep: [Outputs]}
+      temporal: {permutation: [R, S, P, Q]}
+
+  - !Parallel # Register for each data type
+    nodes:
+    - !Component # Weight register
+      name: weight_reg
+      class: storage
+      subclass: aladdin_register
+      attributes:
+        depth: 1
+        width: 8            # one 8-bit weight
+        datawidth: 8
+      constraints:
+        dataspace: {keep: [Weights]}
+        temporal: {factors: [R=1, S=1, M=1, C=1]}
+
+    - !Component # Input activation register
+      name: input_activation_reg
+      class: storage
+      subclass: aladdin_register
+      attributes:
+        depth: 1
+        width: 8            # one 8-bit activation
+        datawidth: 8
+      constraints:
+        dataspace: {keep: [Inputs]}
+        temporal: {factors: [P=1, Q=1, C=1, N=1]}
+
+    - !Component # Output activation register -- holds a partial sum
+      name: output_activation_reg
+      class: storage
+      subclass: aladdin_register
+      attributes:
+        depth: 1
+        width: 16           # accumulator width, unchanged from stock
+        datawidth: 16
+      constraints:
+        dataspace: {keep: [Outputs]}
+        temporal: {factors: [P=1, Q=1, M=1, N=1]}
+
+  - !Component # MAC unit
+    name: mac
+    class: intmac
+    attributes:
+      multiplier_width: 8
+      adder_width: 16

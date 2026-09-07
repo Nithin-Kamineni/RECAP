@@ -1,0 +1,57 @@
+[
+  {
+    "family": "EMBEDDED_ECC",
+    "configuration_id": "EMBEDDED_ECC_7_4",
+    "n": 7,
+    "k": 4,
+    "t": 1,
+    "energy_pJ": {
+      "active_per_codeword": 0.405229,
+      "idle_per_cycle": 0.2107911,
+      "incremental_per_codeword": 0.1944379,
+      "active_measurement_window": 103.738624,
+      "idle_measurement_window": 53.9625216,
+      "incremental_measurement_window": 49.7761024
+    },
+    "r": 3,
+    "d_min": 3,
+    "power_uW": {
+      "active": {
+        "dynamic": 403.9239,
+        "leakage": 1.3051,
+        "total": 405.229
+      },
+      "idle": {
+        "dynamic": 209.486,
+        "leakage": 1.3051,
+        "total": 210.7911
+      }
+    },
+    "measurement": {
+      "clock_period_ns": 1.0,
+      "measured_cycles": 256,
+      "measured_time_ns": 256.0,
+      "active_codewords": 256,
+      "codewords_per_active_cycle": 1
+    },
+    "technology": {
+      "target_library": "/apps/local/FreePDK45/osu_soc/lib/files/gscl45nm.db",
+      "library_name": "gscl45nm",
+      "operating_condition": "typical",
+      "voltage_V": 1.1,
+      "analysis_stage": "pre-layout synthesis with wire-load model"
+    },
+    "configuration_reference": {
+      "catalog": "ECC_configurations/ecc_configurations.json",
+      "parity_mask_width_bits": 12,
+      "systematic": true
+    },
+    "reports": {
+      "active_power": "results/report_snapshots/EMBEDDED_ECC_7_4/active/power.rpt",
+      "idle_power": "results/report_snapshots/EMBEDDED_ECC_7_4/idle/power.rpt",
+      "active_area": "results/report_snapshots/EMBEDDED_ECC_7_4/active/area.rpt",
+      "idle_area": "results/report_snapshots/EMBEDDED_ECC_7_4/idle/area.rpt"
+    },
+    "generated_utc": "2026-09-04T17:20:11.987173+00:00"
+  }
+]

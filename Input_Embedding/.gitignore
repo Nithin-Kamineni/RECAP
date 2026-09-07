@@ -1,0 +1,18 @@
+# =============================================================================
+#  Input_Embedding -- ignore rules (see also the repository-root .gitignore,
+#  which already covers __pycache__/, SLURM logs/*.out|*.err and editor files)
+# =============================================================================
+
+# ImageNet-1k validation set: a symlink to the physical copy under the sibling
+# ECC-CODE-Engine checkout (env.sh: IMAGENET_ROOT). Recreate it with
+#   ln -s /path/to/ECC-CODE-Engine/0-Data/imagenet-val 0-Data/imagenet-val
+0-Data/imagenet-val
+
+# QAT int8 checkpoints (14-45 MB each) -- rebuilt by `cd 1-Quantization && sbatch run.sh`
+0-Data/artifacts/models/**/*.pth
+0-Data/artifacts/models/**/*.pt
+
+# Calibration-scale dumps (reserved; regenerable). The directory itself is
+# kept via .gitkeep so the layout in README.md exists on a fresh clone.
+0-Data/artifacts/activation_stats/*
+!0-Data/artifacts/activation_stats/.gitkeep

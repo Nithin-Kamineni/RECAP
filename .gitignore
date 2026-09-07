@@ -1,0 +1,44 @@
+# =============================================================================
+#  RECAP -- repository-wide ignore rules
+#
+#  Sub-project rules live next to the code they describe:
+#    Energy_Modeling/.gitignore   mapper cache, container image, results policy
+#    Input_Embedding/.gitignore   checkpoints, dataset symlink
+# =============================================================================
+
+# ---- agent / session scratch -----------------------------------------------
+_claude/
+
+# ---- Python ----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.pytest_cache/
+*.egg-info/
+
+# ---- containers ------------------------------------------------------------
+# Apptainer/Singularity images are multi-GB build products. Each sub-project
+# README says how to rebuild its image.
+*.sif
+
+# ---- SLURM job output ------------------------------------------------------
+# Every sub-project writes SLURM stdout/stderr into a logs/ directory next to
+# the submit script. Job output is regenerable and noisy. Hand-kept evidence
+# such as Energy_Modeling/hpc/logs/bringup-*.log is NOT matched by this.
+**/logs/*.out
+**/logs/*.err
+
+# ---- editors / OS ----------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+.nfs*
+
+# ---- retired git metadata --------------------------------------------------
+# Energy_Modeling/ was a standalone repo (HPG-RECAP) before it was folded into
+# this one; its old .git/ is kept on disk under this name for reference.
+.git-hpg-recap-backup/

@@ -1,0 +1,380 @@
+# =====================================================================
+#  WHERE EVERY DECLARED NUMBER CAME FROM
+#
+#  archs/_shared/standard.yaml says what must be the SAME across
+#  designs.  This file records, level by level, where each design's own
+#  numbers came from -- so that "Eyeriss v2 has 55,296 on-chip weights"
+#  can be traced to a table in a paper rather than to a YAML nobody
+#  checked.  `bash run.sh validate` cross-checks the geometries here
+#  against the arch YAMLs and reports anything undocumented.
+#
+#  `verified:` is the date the claim was checked against the primary
+#  source.  `approximation:` marks a place where the model cannot
+#  express the published number and says what was done instead.
+# =====================================================================
+version: 1
+
+# =====================================================================
+#  STORAGE CLASS: WHY SOME LEVELS ARE smartbuffer_SRAM AND SOME ARE
+#  smartbuffer_RF, AND THE DEFECT THAT MADE IT MATTER
+#
+#  Corrected 2026-09-06.  Accelergy's `regfile` compound component --
+#  what `smartbuffer_RF` instantiates -- is declared as
+#
+#      subcomponents:
+#      - name: comparator[1..depth]   # class aladdin_comparator
+#      actions:
+#      - name: read
+#        subcomponents:
+#        - {name: comparator[1..depth], actions: [{name: compare}]}
+#
+#  i.e. EVERY one of the level's `depth` address comparators fires on
+#  EVERY read.  That is a fully-associative CAM, and none of these
+#  designs contains one.  The error is 0.0373 pJ x depth per access and
+#  therefore grows LINEARLY with depth, which is backwards from real
+#  memory physics: a deeper array was being charged more per access
+#  than a shallower one, without limit.
+#
+#  Measured, at 45nm, before -> after (read energy per access):
+#
+#    eyeriss_like    weights_spad    224 x 16b     4.391 ->  0.816 pJ  (94.7% was comparators)
+#    eyeriss_v2_like weights_spad     96 x 24b     2.986 ->  0.625 pJ  (89.2%)
+#    simba_like      PEWeightBuffer 4096 x 64b   153.503 -> 17.090 pJ  (99.5%)
+#    simba_like      PEInputBuffer  8192 x 64b   306.234 -> 25.922 pJ  (99.7%)
+#
+#  Simba's 32 kB weight buffer was being charged 153 pJ per 64-bit read
+#  -- 30% of an LPDDR4 DRAM access -- for an on-chip SRAM.
+#
+#  WHY THIS DISTORTED THE ARCHITECTURE COMPARISON RATHER THAN JUST
+#  ADDING NOISE.  The three `simple_*` reference designs declare their
+#  PE scratchpad `smartbuffer_SRAM`, so they were costed by CACTI and
+#  paid no comparator tax at all: 0.660 pJ for a 384 B array against
+#  4.391 pJ for eyeriss_like's 448 B one -- a 6.7x gap between two
+#  nearly identical arrays, decided entirely by the class name.  It fell
+#  hardest on the designs whose whole argument is deep RF reuse.  Before
+#  the fix eyeriss_like spent 58% of its energy in its scratchpads and
+#  simba_like 85%, against 6% for simple_weight_stationary.
+#
+#  THE RULE NOW APPLIED, uniformly:
+#    * a level the design's own paper calls an SRAM is smartbuffer_SRAM
+#      (CACTI), exactly as the simple designs' pe_spad already was;
+#    * a level the paper calls a register file is smartbuffer_RF_decoded
+#      (archs/_shared/components/regfile_decoded.yaml) -- upstream's
+#      smartbuffer_RF with the comparator array removed and everything
+#      else, including every scaling rule, copied verbatim.
+#
+#  A FIRST PASS AT THIS FIX changed only the SRAM levels and left the
+#  register levels on smartbuffer_RF, on the reasoning that
+#  `memory_depth = max(64, depth)` clamps the comparator count at 64 and
+#  therefore bounds the error. THAT WAS WRONG. The clamp bounds the
+#  comparator COUNT, not the share of the access: measured,
+#
+#    eyeriss_like.psum_spad     24 x 16b   4.8x overcharged
+#    eyeriss_like.ifmap_spad    12 x 16b   3.8x
+#    eyeriss_v2_like.psum_spad  32 x 20b   5.5x
+#    eyeriss_v2_like.ifmap_spad 24 x  8b   3.6x
+#    simba_like.PEAccuBuffer   128 x 24b  11.9x
+#
+#  against 1.0x for the simple designs, whose registers are declared as
+#  bare `aladdin_register` at depth 1 and pay no addressing cost at all.
+#  On resnet18 layer4.1.conv2, psum_spad was eyeriss_like's largest
+#  non-DRAM term: 1257 of 4439 fJ/compute, falling to 126 once the CAM
+#  was removed. The two Eyeriss designs and Simba each lost 22-36% of
+#  their total energy to this; the three simple designs were byte-for-
+#  byte unchanged, because none of them declares a smartbuffer_RF level.
+#  That asymmetry IS the defect, stated as a measurement.
+#
+#  REMAINING, AND NOW IN EYERISS'S FAVOUR. smartbuffer_RF(_decoded)
+#  applies CACTI's "2x depth -> 1.56x dynamic power" law to a flip-flop
+#  array, so a 24 x 16b spad reads at 0.105 pJ where the simple designs'
+#  single 16b register reads at 0.182 pJ. A flip-flop array's per-access
+#  energy does not fall with depth -- the read mux makes it rise, slowly
+#  -- so this understates the Eyeriss spads by roughly 1.4-1.7x. Bound,
+#  measured on layer4.1.conv2: charging both spads at the bare-register
+#  rate adds ~3% to eyeriss_like's total and changes no ordering. Left
+#  uncorrected and recorded here rather than hidden.
+#
+#  Levels changed, with the sentence that licenses each:
+#    eyeriss_like.weights_spad     "the filter spad is implemented in a
+#                                   224-b x 16-b SRAM due to its large size"
+#    eyeriss_v2_like.weights_spad  Table IV "weight data: 288B (SRAM)"
+#    eyeriss_v2_like_wglb.weights_spad   inherited from eyeriss_v2_like
+#    simba_like.PEWeightBuffer     32 kB; SRAM by construction (the paper
+#                                  publishes no cell type, so this is a
+#                                  REPRODUCTION judgement, not a citation)
+#    simba_like.PEInputBuffer      64 kB; same
+#
+#  Levels moved to smartbuffer_RF_decoded (papers call them registers,
+#  so the cell type is unchanged; only the phantom CAM is gone):
+#    eyeriss_like.ifmap_spad          0.389 -> 0.066 pJ
+#    eyeriss_like.psum_spad           0.660 -> 0.105 pJ
+#    eyeriss_v2_like.ifmap_spad       0.340 -> 0.095 pJ
+#    eyeriss_v2_like.psum_spad        1.022 -> 0.185 pJ
+#    eyeriss_v2_like_wglb.*           inherited from eyeriss_v2_like
+#    simba_like.PEAccuBuffer          3.881 -> 0.326 pJ
+#    simba_like.PEWeightRegs          0.325 -> 0.280 pJ
+#
+#  Levels NOT touched, and why: every level of simple_weight_stationary,
+#  simple_output_stationary and simple_input_stationary. None declares a
+#  smartbuffer_RF, so none was ever charged a comparator. Their numbers
+#  are identical before and after this correction, which is the control
+#  that shows it is a fix and not a thumb on the scale.
+#
+#  The `stock` fidelity YAMLs (archs/*/arch.yaml) deliberately keep the
+#  upstream smartbuffer_RF: their job is to reproduce the pre-correction
+#  model exactly.
+# =====================================================================
+
+eyeriss_like:
+  source_document: "Chen, Krishna, Emer, Sze, IEEE JSSC 52(1), 2017"
+  url: "https://eems.mit.edu/wp-content/uploads/2016/11/eyeriss_jssc_2017.pdf"
+  verified: 2026-09-06
+  levels:
+    DRAM:
+      quote: "study-wide DRAM model, not from the paper"
+      note: "LPDDR4 64b word at 8b operands; identical for every design."
+    ifmap_glb + psum_glb:
+      quote: >-
+        "The Eyeriss accelerator has a GLB of 108 kB ... 100 kB of the GLB is
+        allocated for ifmaps and psums as required by the RS dataflow for
+        reuse. ... the space is divided into 25 banks, each of which is a
+        512-b x 64-b (4 kB) SRAM. Each bank is assigned entirely to ifmaps or
+        psums, and the assignment is reconfigurable"
+      modelled: "13 banks ifmap (52 kB) + 12 banks psum (48 kB) = the 100 kB"
+      approximation: >-
+        Timeloop has no dynamic repartitioning, so the reconfigurable 25-bank
+        split is frozen at 13/12. Bank GEOMETRY (512 x 64b) is exact, which is
+        what sets per-access energy; only the ifmap:psum ratio is fixed.
+    filter_glb_8kB:
+      quote: >-
+        "Even though it is not required by the dataflow, the remaining 8 kB
+        (two banks of 512-b x 64-b SRAMs) of the GLB is allocated for filter
+        weights to compensate for insufficient off-chip traffic bandwidth."
+      modelled: "NOT modelled as a reuse level (!Nothing on the Weights branch)"
+      rationale: >-
+        The paper is explicit that it is a prefetch buffer the RS dataflow does
+        not need. Declaring it as a Timeloop storage level would hand v1 a full
+        extra stage of weight reuse the dataflow does not actually have, which
+        is exactly the quantity this study measures.
+    weights_spad:
+      quote: "The filter spad is implemented in a 224-b x 16-b SRAM due to its large size"
+      modelled: "depth 224, width 16, datawidth 8 -> 448 8-bit weights per PE"
+    ifmap_spad:
+      quote: "the ifmap and psum spads of size 12 b x 16 b and 24 b x 16 b, respectively, are implemented using registers"
+      modelled: "depth 12, width 16, datawidth 8 -> 24 8-bit iacts per PE"
+    psum_spad:
+      quote: "the ifmap and psum spads of size 12 b x 16 b and 24 b x 16 b"
+      modelled: "depth 24, width 16, datawidth 16 -> 24 psums at the accumulator width"
+    mac:
+      quote: >-
+        "The computation consists of a 16-b two-stage pipelined multiplier and
+        adder. Since the multiplication results are truncated from 32 to 16 b"
+      modelled: "multiplier_width 8 (study quantization), adder_width 16 (published)"
+    PE_array:
+      quote: >-
+        Sec. V-B describes a broadcast tag "of the same size of the PE array
+        (i.e., 168 b)", fixing the array at 168 PEs.
+      modelled: "meshX 14 x meshY 12 = 168 PEs"
+
+eyeriss_like_wglb:
+  source_document: "Chen, Krishna, Emer, Sze, IEEE JSSC 52(1), 2017 -- same paper as eyeriss_like"
+  url: "https://eems.mit.edu/wp-content/uploads/2016/11/eyeriss_jssc_2017.pdf"
+  verified: 2026-09-06
+  inherits: eyeriss_like
+  levels:
+    filter_glb:
+      quote: >-
+        "Even though it is not required by the dataflow, the remaining 8 kB
+        (two banks of 512-b x 64-b SRAMs) of the GLB is allocated for filter
+        weights to compensate for insufficient off-chip traffic bandwidth.
+        While the PE array is working on a processing pass, the GLB preloads
+        the filters used by the next processing pass."
+      modelled: "depth 1024 (2 x 512), width 64, n_banks 2, datawidth 8 -> 8192 weights"
+      rationale: >-
+        The CAPACITY and the BANK GEOMETRY are published exactly; what is a
+        judgement call is whether a double-buffered prefetch store should be
+        declared as a Timeloop reuse level. Modelled as a reuse level here and
+        as !Nothing in eyeriss_like, so the two BRACKET the answer instead of
+        one of them silently choosing it.
+      why_it_matters: >-
+        eyeriss_like refetches resnet18's weights 7.0x from DRAM against
+        1.0-2.3x for every other design, and the ECC saving is very nearly
+        0.3125 * E_dram_weights / (total + 0.3125 * E_dram_weights). So this
+        single structural choice sets the largest saving in the study. It is
+        the reason this variant exists.
+
+eyeriss_v2_like:
+  source_document: "Chen, Yang, Emer, Sze, IEEE JETCAS 9(2), 2019 (arXiv:1807.07928)"
+  url: "https://arxiv.org/abs/1807.07928"
+  verified: 2026-09-06
+  levels:
+    DRAM:
+      quote: "study-wide DRAM model, not from the paper"
+    iact_glb + psum_glb:
+      quote: "Table IV: Global Buffer 192 KB (SRAM)"
+      modelled: "72 kB iact (48 banks) + 120 kB psum (64 banks) = 192 kB"
+    weights_glb:
+      modelled: "!Nothing -- weights have no GLB level in v2"
+      rationale: >-
+        Weights stream from DRAM through the weight routers into the PE spads.
+        This is the single largest architectural difference from v1 in a
+        weight-traffic study, so it is left as the paper describes it. The
+        eyeriss_v2_like_wglb variant exists to bound what that costs.
+    weights_spad:
+      quote: "Table IV: weight data: 288B (SRAM); Fig. 17: 96 x 24b SRAM"
+      modelled: "depth 96, width 24, datawidth 8 -> 288 weights/PE, 55,296 on chip"
+      contested: >-
+        Sec. III-D ("each count-data pair is 12b and is stored in a 12b word of
+        the data SPad") supports a CSC-native reading of 2 weights per 24b word
+        = 192 weights/PE. The dense-bytes rule in standard.yaml gives 288. The
+        difference is a third of v2's on-chip weight capacity and therefore
+        materially changes its DRAM refetch; it is the largest single modelling
+        judgement in the study. Recorded here so a reader can disagree with it.
+    ifmap_spad:
+      quote: "Table IV: iact data: 24B (Reg); Fig. 17: 16 x 12b Regs"
+      modelled: "depth 24, width 8, datawidth 8 -> 24 iacts/PE"
+      approximation: >-
+        Timeloop requires width % datawidth == 0 and the published word is 12b,
+        which 8 does not divide. Modelled as 24 x 8b: same 24 B, same 24
+        operands, 24 narrow words instead of 16 wide ones. Per-access register
+        energy is therefore for a narrower word than the design has. This is
+        the only place in the study where a published word width cannot be
+        declared as-is.
+    psum_spad:
+      quote: "Table IV: psum: 80B (Reg); Fig. 17: 32 x 20b Regs"
+      modelled: "depth 32, width 20, datawidth 20 -- exact"
+    mac:
+      quote: "Table IV: Arithmetic Precision: weights & iacts: 8b fixed-point / psums: 20b fixed-point"
+      modelled: "multiplier_width 8, adder_width 20"
+    PE_array:
+      quote: "Table IV: Number of PEs 192"
+      modelled: "16 PE clusters x 12 PEs, flattened from the physical 8x2 / 3x4"
+    SIMD:
+      quote: "Table V: # of MACs ... Eyeriss v2: 384"
+      modelled: "a 2-wide SIMD container under each PE (192 PEs x 2 = 384 MACs)"
+
+eyeriss_v2_like_wglb:
+  source_document: "derived from eyeriss_v2_like; the weight level is NOT in the paper"
+  verified: 2026-09-06
+  levels:
+    weight_noc:
+      modelled: "8192 x 64b = 64 kB smartbuffer_SRAM on the Weights branch"
+      rationale: >-
+        A stand-in for the 3 weight routers per GLB cluster, which let one DRAM
+        fetch feed many PE clusters. Timeloop's example-design flow has no
+        router primitive. Sized comparably to v1's total filter-spad capacity so
+        the comparison isolates the missing reuse level rather than handing v2
+        extra capacity.
+      warning: "DIAGNOSTIC ONLY. Do not quote a number from this design as Eyeriss v2."
+  inherits: eyeriss_v2_like
+
+simba_like:
+  source_document: "Shao et al., MICRO-52, 2019"
+  url: "https://research.nvidia.com/publication/2019-10_simba-scaling-deep-learning-inference-multi-chip-module-based-architecture"
+  verified: 2026-09-06
+  levels:
+    mac:
+      quote: >-
+        "Each chip has a peak performance of 4 tera-ops per second (TOPS) using
+        8-bit weights and activations and 24-bit accumulation."
+      modelled: "multiplier_width 8, adder_width 24"
+      note: >-
+        timeloop-accelergy-exercises ships PEAccuBuffer at datawidth 24 but
+        mac.adder_width 16 -- accumulator storage at the published width and
+        accumulator arithmetic at another. 24 is used for both.
+    GlobalBuffer:
+      modelled: "2048 x 256b, 4 banks, datawidth 8"
+      declared_claim: >-
+        Carries Outputs at 8b, BELOW the 24b accumulator, and says so in the
+        YAML with a `# psum-width-ok:` note: the PE post-processing unit
+        requantizes on the way out of PEAccuBuffer, so this level holds
+        activations rather than partial sums.
+      not_verified: >-
+        The buffer and PE geometries below the MAC come from the exercises repo,
+        not from a table checked against the paper. They are a REPRODUCTION,
+        not a citation. Only the precisions above have been traced to the paper.
+    PEWeightBuffer + PEAccuBuffer + PEInputBuffer + PEWeightRegs:
+      modelled: "as shipped by timeloop-accelergy-exercises"
+      not_verified: "same caveat as GlobalBuffer"
+      contradicts_the_paper: >-
+        Upgraded 2026-09-06 from "unverified" to "demonstrably not the
+        published chiplet", on two checks that need only numbers already
+        verified here.
+
+        (1) MAC COUNT. 16 PEs x 4 distributed_buffers x 4 reg_mac = 256 MACs.
+        The paper's headline is "4 tera-ops per second (TOPS) using 8-bit
+        weights and activations"; at 2 ops per MAC and Simba's published
+        ~1.8 GHz that needs ~1024 MACs. This is a quarter-scale chiplet.
+
+        (2) BUFFER HIERARCHY. As declared: PEInputBuffer 64 kB x 16 = 1 MB,
+        PEWeightBuffer 32 kB x 64 = 2 MB, behind a GlobalBuffer of 64 kB.
+        3 MB of PE-private SRAM behind a shared buffer 48x smaller is not a
+        memory hierarchy any real design has; a per-PE buffer is normally a
+        small fraction of the shared one. A secondary source reproducing the
+        paper's PE figure gives 32 KB / 8 KB / 3 KB for the three PE buffers,
+        which would make PEInputBuffer 8-21x too large -- but that is a
+        lecture slide, not the paper, so it is NOT used to re-dimension
+        anything.
+
+        CONSEQUENCE, and why this is not cosmetic: the geometry gives this
+        design 2,113,536 on-chip weights, 28x eyeriss_like's 75,264. On-chip
+        weight capacity is what sets DRAM refetch, and DRAM refetch is what
+        sets the ECC saving. This design's 1.4x refetch and its saving are
+        both products of a number that reproduces nothing.
+
+        ACTION TAKEN: `source: published` -> `source: reference_design` in
+        standard.yaml, and the figure label "Simba" -> "Simba-like
+        (reference design)". The geometry is UNCHANGED, because changing it
+        without the paper would replace one unsourced number with another.
+      to_fix_properly: >-
+        Obtain MICRO-52 Fig. 4 / Table 1 and re-dimension PEInputBuffer,
+        PEAccuBuffer and the PEWeightBuffer instance count, then restore
+        `source: published`. Attempted 2026-09-06 without success: ACM DL and
+        CACM return 403, the Berkeley mirror 302s to a dead host, Semantic
+        Scholar reports no open-access PDF.
+  deviation:
+    technology: >-
+      Simba is a TSMC 16nm FinFET design modelled here at 45nm, the largest
+      node deviation in the study. Not corrected: correcting one design would
+      reintroduce the mixed-node confound the standard removes.
+
+simple_weight_stationary:
+  source_document: "timeloop-accelergy-exercises reference design; NO paper"
+  verified: 2026-09-06
+  levels:
+    operand_glb + psum_glb:
+      modelled: "the stock 128 kB shared_glb split 64 kB operand (8b) / 64 kB psum (16b)"
+      rationale: >-
+        The stock file declares datawidth 16 on EVERY level while declaring an
+        8-bit multiplier, so an 8-bit-weight study charged it twice the DRAM
+        energy per weight. Timeloop allows one datawidth per level, so the
+        shared buffer had to be split to give operands and psums their own.
+        Total capacity, word width and bank geometry are unchanged.
+    pe_spad:
+      modelled: "192 x 16b at datawidth 8 -> 384 weights"
+    mac:
+      modelled: "multiplier_width 8, adder_width 16 -- the design's own declaration"
+      not_verified: "not a published number; there is no paper to check it against"
+
+simple_output_stationary:
+  source_document: "timeloop-accelergy-exercises reference design; NO paper"
+  verified: 2026-09-06
+  inherits: simple_weight_stationary
+  levels:
+    pe_spad:
+      modelled: "192 x 16b at datawidth 16 -> 192 partial sums (this is the accumulator)"
+
+simple_input_stationary:
+  source_document: "authored in this repository 2026-09-06; NO paper, nothing shipped upstream"
+  verified: 2026-09-06
+  inherits: simple_weight_stationary
+  levels:
+    pe_spad:
+      modelled: "192 x 16b at datawidth 8 -> 384 input activations"
+      rationale: >-
+        Deliberately identical to the weight-stationary sibling except for which
+        dataspace it keeps, so the three simple designs differ only in the
+        dataflow. See archs/simple_input_stationary/README.md.
+  dataflow_constraints:
+    spatial: "M=1 -- output channels may not be spread across the array"
+    temporal: "M innermost at pe_spad -- a resident activation is reused across filters"

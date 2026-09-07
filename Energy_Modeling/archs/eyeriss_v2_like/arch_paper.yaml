@@ -1,0 +1,280 @@
+architecture:
+  # ============================================================
+  # Eyeriss v2, PAPER-FIDELITY.  Selected by ECC_ARCH_FIDELITY=paper.
+  #
+  # Source of every number below:
+  #   Y.-H. Chen, T.-J. Yang, J. Emer, V. Sze, "Eyeriss v2: A
+  #   Flexible Accelerator for Emerging Deep Neural Networks on
+  #   Mobile Devices", IEEE JETCAS 9(2), 2019.
+  #   https://arxiv.org/abs/1807.07928
+  #
+  # Every geometry below is Table IV or Fig. 17, verified against
+  # the arXiv PDF on 2026-09-06.  Table IV, verbatim:
+  #
+  #     Number of PEs        192
+  #     Global Buffer        192 KB (SRAM)
+  #     Scratch Pads         weight addr: 14B (Reg)
+  #     (per PE)             weight data: 288B (SRAM)
+  #                          iact addr: 4.5B (Reg)
+  #                          iact data: 24B (Reg)
+  #                          psum: 80B (Reg)
+  #     Arithmetic Precision weights & iacts: 8b fixed-point
+  #                          psums: 20b fixed-point
+  #
+  # Fig. 17 gives the same spads as arrays: iact addr 9x4b Regs,
+  # iact data 16x12b Regs, weight addr 16x7b Regs, weight data
+  # 96x24b SRAM, psum 32x20b Regs.
+  #
+  # HOW THOSE BECOME DENSE CAPACITIES.  This study maps DENSE
+  # workloads, so archs/_shared/standard.yaml fixes ONE rule for
+  # every level of every design: a level holds
+  # floor(physical_bits / 8) 8-bit operands.  Applied here:
+  #
+  #     weight data 288 B -> 288 weights/PE -> 55,296 on chip
+  #     iact data    24 B ->  24 iacts/PE
+  #     psum         80 B ->  32 psums/PE at the published 20b
+  #
+  # TWO EARLIER READINGS OF THE WEIGHT SPAD, AND WHY NEITHER IS
+  # USED.  Sec. III-D says "setting each count at 4b yields the
+  # best compression rate for the 8b iact and weights. Therefore,
+  # each count-data pair is 12b and is stored in a 12b word of the
+  # data SPad for both iact and weight."  Read CSC-natively, a 24b
+  # word holds two 12b count-data pairs = 2 weights, i.e. 192
+  # weights/PE -- which is what the older arch.yaml declared.  A
+  # previous version of THIS file instead cited Sec. III-C, "each
+  # port has a bitwidth of 24 bits such that it can send and
+  # receive three 8b uncompressed iact values", to get 3 weights
+  # per word.  That sentence is about a ROUTER PORT, not the spad,
+  # so it does not license the spad capacity even though it lands
+  # on the same number.  The capacity used here comes from Table
+  # IV's 288 B and the study-wide dense rule -- nothing else.
+  #
+  # WHAT CHANGED, AND WHY IT MATTERS.  The iact data spad was
+  # declared at 16 entries (the CSC-native reading, one value per
+  # 12b word) while the weight spad in the same file was declared
+  # dense-repacked.  One design cannot use two packing rules: that
+  # is the same class of defect as comparing a design at datawidth
+  # 16 against one at datawidth 8.  Both now follow the dense
+  # rule, so the iact spad is 24 B = 24 iacts.
+  #
+  # WHAT TIMELOOP CANNOT EXPRESS.  Fig. 17's 12b register words
+  # are not a multiple of the 8b operand, and Timeloop requires
+  # width % datawidth == 0, so the 16 x 12b array is modelled as
+  # 24 x 8b: the same 24 B and the same 24 operands, in 24 narrow
+  # words instead of 16 wide ones.  This is the only place in the
+  # study where a published word width cannot be declared as-is.
+  # See archs/eyeriss_v2_like/provenance.yaml.
+  #
+  # The psum path was already honest here (20b at every level)
+  # and is unchanged; see archs/eyeriss_like/arch_paper.yaml for
+  # the v1 side of that correction.
+  # ============================================================
+  version: 0.4
+  nodes:
+  - !Container # Top-level system
+    name: system
+
+  - !Component # DRAM main memory
+    name: DRAM
+    class: DRAM
+    attributes:
+      type: "LPDDR4"
+      depth: 1048576
+      width: 64
+      datawidth: 8
+
+  - !Container # Eyeriss v2 accelerator
+    name: eyeriss_v2
+    attributes:
+      technology: "45nm"   # DEVIATES from the paper's TSMC 65nm LP, to match
+                           # the other example designs. ECC_FORCE_TECHNOLOGY.
+
+  # ------------------------------------------------------------
+  # GLB clusters.  Table IV: "Global Buffer 192 KB (SRAM)".
+  # Sec. III-D: 16 GLB clusters, each with three iact banks of
+  # 1.5 kB (-> 72 kB) and four psum banks of 1.875 kB (-> 120 kB).
+  # iacts and psums live in PHYSICALLY SEPARATE SRAM in v2, so
+  # they are two parallel storage levels, not one shared GLB.
+  # Weights are NOT stored in the GLB in v2: they stream from
+  # DRAM through the weight routers straight into the PE spads.
+  # ------------------------------------------------------------
+  - !Parallel
+    nodes:
+    - !Component # iact GLB: 16 clusters x 3 banks x 1.5 kB = 72 kB
+      name: iact_glb
+      class: smartbuffer_SRAM
+      attributes:
+        depth: 9216          # 9216 x 64b = 73728 B = 72 kB
+        width: 64
+        n_banks: 48          # 16 GLB clusters x 3 iact banks
+        datawidth: 8         # Table IV: "weights & iacts: 8b fixed-point"
+        read_bandwidth: 48   # one 8b iact per bank per cycle
+        write_bandwidth: 48
+      constraints:
+        dataspace: {keep: [Inputs], bypass: [Weights, Outputs]}
+
+    - !Component # psum GLB: 16 clusters x 4 banks x 1.875 kB = 120 kB
+      name: psum_glb
+      class: smartbuffer_SRAM
+      attributes:
+        depth: 24576         # 24576 x 40b = 122880 B = 120 kB
+        width: 40            # "For psum, each port has a bitwidth of 40-bit to
+                             # send and receive two psums per cycle"
+        n_banks: 64          # 16 GLB clusters x 4 psum banks
+        datawidth: 20        # Table IV: "psums: 20b fixed-point"
+        read_bandwidth: 64
+        write_bandwidth: 64
+      constraints:
+        dataspace: {keep: [Outputs], bypass: [Weights, Inputs]}
+
+    - !Nothing # Weights have no GLB level in v2: DRAM -> router -> weight spad
+      constraints:
+        dataspace: {keep: [Weights]}
+
+  # ------------------------------------------------------------
+  # 16 PE clusters (physically an 8x2 array, Table II).  Flattened
+  # to a single 16-wide mesh: the hierarchical mesh NoC lets any GLB
+  # cluster reach any PE cluster, so the 8x2 split would only
+  # restrict the mapper.
+  #
+  # With the interconnect costed this is no longer free of
+  # consequence: Timeloop charges wire per hop from the array edge,
+  # and a unicast averages 7.5 hops on a 16-wide row against ~4 on
+  # 8x2.  The 8x2 shape WAS tried (2026-09-07, dev layer pair,
+  # random_pruned/20000): NoC energy fell 22.1 -> 18.0 uJ but total
+  # energy ROSE 415.5 -> 446.1 uJ -- the 2-D mesh changes the
+  # mapspace, and under this search budget the mapper found worse
+  # GLB/DRAM tilings (DRAM +36 uJ at wire 0.12; GLB +50 uJ and 3.85%
+  # utilization at wire 0.4).  Kept 1-D so the mapper's problem stays
+  # what every other result was produced under; the unicast-hop
+  # over-count is recorded in FINDINGS.md and is small once wire is
+  # at 0.12 pJ/bit/mm.  Revisit with a converged search or with the
+  # 16 GLB clusters modelled as distributed.
+  # ------------------------------------------------------------
+  - !Container
+    name: PE_cluster
+    spatial: {meshX: 16}
+    constraints:
+      spatial:
+        permutation: [N, C, M, P, Q, R, S]
+        factors: [N=1, R=1, S=1]   # filter rows/cols stay inside a PE (row-stationary)
+        split: 999
+
+  # ------------------------------------------------------------
+  # 12 PEs per cluster (physically a 3x4 array).  Table IV:
+  # "Number of PEs 192" = 16 x 12.
+  # RS+ tiles across PEs by filter row (R), channel (C) and
+  # output channel (M) -- the channel-group dimension is what v2
+  # adds over v1, so C is left free here.
+  # ------------------------------------------------------------
+  - !Container
+    name: PE
+    spatial: {meshY: 12}
+    constraints:
+      spatial:
+        split: 0
+        permutation: [N, P, Q, R, S, C, M]
+        factors: [N=1, P=1, Q=1]
+
+  # ------------------------------------------------------------
+  # Per-PE scratchpads, Fig. 17 and Table IV.  The CSC address
+  # register files (iact 9x4b = 4.5 B, weight 16x7b = 14 B) carry
+  # no traffic in a dense workload and are not modelled; Table IV
+  # accounts for them separately from the data spads, so leaving
+  # them out does not change the data capacities below.
+  # ------------------------------------------------------------
+  - !Parallel
+    nodes:
+    - !Component # iact data spad -- Table IV: "iact data: 24B (Reg)";
+      # Fig. 17: 16 x 12b Regs.  Dense rule: 24 B -> 24 8-bit iacts.  The 12b
+      # word (8b data + 4b CSC count) is not a multiple of 8, so the array is
+      # modelled as 24 x 8b -- same bits, same operands, narrower words.
+      # Address-DECODED register file, not a CAM: see
+      # archs/_shared/components/regfile_decoded.yaml. Upstream's
+      # smartbuffer_RF fires all `depth` comparators per access, which
+      # was 75% of this level's energy and is charged to no other
+      # design in the study. Geometry and cell type are unchanged.
+      name: ifmap_spad
+      class: smartbuffer_RF_decoded
+      attributes:
+        depth: 24
+        width: 8
+        datawidth: 8
+        read_bandwidth: 1    # one iact feeds both SIMD lanes
+        write_bandwidth: 1
+      constraints:
+        dataspace: {keep: [Inputs]}
+        temporal:
+          permutation: [N, M, C, P, Q, R, S]
+          factors: [N=1, M=1, C=1, P=1, Q=1, R=1, S=1]
+
+    - !Component # weight data spad -- Table IV: "weight data: 288B (SRAM)";
+      # Fig. 17: 96 x 24b SRAM.  Dense rule: 288 B -> 288 8-bit weights/PE
+      # = 55,296 across the 192 PEs.  The published 24b word IS a multiple of
+      # 8, so unlike the iact spad this one is declared exactly as built.
+      # STORAGE CLASS: SRAM, not RF.  Accelergy's `regfile` compound component
+      # (which `smartbuffer_RF` instantiates) declares `comparator[1..depth]`
+      # and fires EVERY one of them on EVERY read -- a fully-associative CAM.
+      # At depth 96 that is 89% of the modelled access energy spent on
+      # address comparators this design does not contain, and the error grows
+      # LINEARLY with depth, which is backwards from real memory physics.
+      # The paper calls this level an SRAM (quoted above), so it is costed by
+      # CACTI like every other SRAM in the study. Measured effect: 2.99 pJ
+      # -> see provenance.yaml.  Levels the papers call registers keep
+      # smartbuffer_RF; there the clamp at 64 comparators bounds the error.
+      name: weights_spad
+      class: smartbuffer_SRAM
+      attributes:
+        depth: 96
+        width: 24            # Fig. 17's published 24b SRAM word (3 x 8b dense)
+        datawidth: 8
+        read_bandwidth: 2    # SIMD fetches two weights per cycle
+        write_bandwidth: 2
+      constraints:
+        dataspace: {keep: [Weights]}
+        temporal:
+          permutation: [N, M, P, Q, S, C, R]
+          factors: [N=1, M=1, P=1, Q=1, S=1]
+
+    - !Component # psum spad -- Fig. 17: 32 x 20b Regs (Table IV: 80 B). Exact.
+      # Address-DECODED register file, not a CAM: see
+      # archs/_shared/components/regfile_decoded.yaml. Upstream's
+      # smartbuffer_RF fires all `depth` comparators per access, which
+      # was 82% of this level's energy and is charged to no other
+      # design in the study. Geometry and cell type are unchanged.
+      name: psum_spad
+      class: smartbuffer_RF_decoded
+      attributes:
+        depth: 32
+        width: 20
+        datawidth: 20
+        update_fifo_depth: 2
+        read_bandwidth: 2
+        write_bandwidth: 2
+      constraints:
+        dataspace: {keep: [Outputs]}
+        temporal:
+          permutation: [N, C, P, Q, R, S, M]
+          factors: [N=1, C=1, R=1, S=1, P=1, Q=1]
+
+  # ------------------------------------------------------------
+  # 2-way SIMD inside each PE (Sec. IV-B): two weights are fetched
+  # for the same iact, giving two MACs per cycle on two output
+  # channels.  M is left free so the mapper picks 2 when M is even
+  # and falls back to 1 (one idle lane) when it is not.
+  # ------------------------------------------------------------
+  - !Container
+    name: SIMD
+    spatial: {meshX: 2}
+    constraints:
+      spatial:
+        permutation: [M, C, N, P, Q, R, S]
+        factors: [N=1, C=1, P=1, Q=1, R=1, S=1]
+        split: 999
+
+  - !Component # MAC unit
+    name: mac
+    class: intmac
+    attributes:
+      multiplier_width: 8    # Table IV: weights & iacts 8b
+      adder_width: 20        # Table IV: psums 20b

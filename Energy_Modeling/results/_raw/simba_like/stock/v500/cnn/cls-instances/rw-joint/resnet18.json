@@ -1,0 +1,31 @@
+{
+ "base": {
+  "DRAM": 3806416384.0,
+  "Global buffer": 231223423.44999993,
+  "Local (spads/RF/NoC)": 33354907405.790005,
+  "Compute": 2059970985.7999995,
+  "ECC decode": 0.0,
+  "Reconstruction": 0.0
+ },
+ "base_w": {
+  "DRAM": 3401121792.0,
+  "Global buffer": 0.0,
+  "Local (spads/RF/NoC)": 6140096754.109999,
+  "Compute": 0.0,
+  "ECC decode": 0.0,
+  "Reconstruction": 0.0
+ },
+ "base_i": {
+  "DRAM": 243061760.0,
+  "Global buffer": 24221404.089999996,
+  "Local (spads/RF/NoC)": 22356206925.759987,
+  "Compute": 0.0,
+  "ECC decode": 0.0,
+  "Reconstruction": 0.0
+ },
+ "e_dram_w": 3401121792.0,
+ "dram_w_reads": 53142528.0,
+ "layers_ok": 21,
+ "layers_skipped": 0,
+ "weights": 11678912
+}

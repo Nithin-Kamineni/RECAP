@@ -1,0 +1,1132 @@
+PROJECT CONTEXT: ECC WEIGHT RECONSTRUCTION IN AI ACCELERATOR DATAPATHS
+PART 2: DESIGN-SPACE EXPLORATION AND IMPLEMENTATION — SECTION 12 ONWARD
+
+Source conversation:
+https://chatgpt.com/share/6a9cf72e-979c-83e9-932b-c6193b111007
+
+Read Part 1 for project foundations and architecture-specific datapaths.
+
+This file begins at:
+"12. The fanout/reuse tradeoff is the central DSE"
+
+STATUS
+
+This is a research and implementation brief derived from the source chat.
+Expected winners and qualitative trends are hypotheses, not established
+experimental results.
+
+Added implementation clarifications are explicitly identified where they
+qualify an illustrative comparison from the source.
+
+
+======================================================================
+12. THE FANOUT/REUSE TRADEOFF IS THE CENTRAL DSE
+======================================================================
+
+Treat reconstruction placement as a problem involving both temporal reuse
+and spatial fanout.
+
+
+12.1 AXIS 1: TEMPORAL REUSE
+
+Question:
+How many times is a reconstructed value consumed after reconstruction?
+
+Low temporal reuse                         High temporal reuse
+        |                                          |
+        +------------------------------------------>
+           Reconstruction cost becomes easier
+           to amortize when the full result is retained
+
+High temporal reuse favors:
+
+Reconstruct once
+      |
+      v
+Full decoded register
+      |
+      v
+Reuse repeatedly
+
+Relevant examples:
+- Weight-stationary architectures.
+- Simba.
+- Portions of Eyeriss RS and RS+ execution.
+
+Important distinction:
+High reuse helps only when reconstruction is outside the repeated-use
+loop or its result is retained. Reconstructing on every use does not gain
+this amortization.
+
+
+12.2 AXIS 2: SPATIAL FANOUT
+
+Question:
+How many PEs consume the same weight?
+
+                   Source
+                     |
+                     v
+               Reduced value
+                     |
+           +---------+---------+
+           v         v         v
+          PE        PE        PE
+
+Two basic choices:
+
+
+PRE-FANOUT RECONSTRUCTION
+
+           Encoder
+              |
+              v
+         Full 8-bit value
+           /  |  \
+          v   v   v
+         PE  PE  PE
+
+Characteristics:
+- One encoder at this fanout source.
+- One reconstruction can serve several consumers.
+- Downstream multicast carries full-width values.
+
+
+POST-FANOUT RECONSTRUCTION
+
+        Reduced 4-bit value
+           /  |  \
+          /   |   \
+         v    v    v
+        XOR  XOR  XOR
+         |    |    |
+         v    v    v
+        PE   PE   PE
+
+Characteristics:
+- Multiple destination encoders.
+- Reduced-width network transport.
+- Reconstruction may occur separately at each destination.
+- Replicated area and leakage may matter.
+
+This tradeoff requires an explicit experiment.
+
+A hierarchical network also permits intermediate placement:
+- Before global fanout.
+- At destination-cluster boundaries.
+- After local fanout.
+- At individual PE inputs.
+
+
+======================================================================
+13. EXAMPLE SHOWING WHY THE OPTIMUM MOVES
+======================================================================
+
+Illustrative representation:
+- 8 total bits.
+- 4 independent bits.
+- 4 reconstructable bits.
+- 64 uses of a weight.
+
+This assumes independent reconstruction is feasible at the stated
+granularity. See section 15 for group dependencies.
+
+
+OPTION A: RECONSTRUCT BEFORE PE RF
+
+NoC:             4-bit representation
+Encoder:         1 reconstruction
+RF storage:      8-bit weight
+RF reads:        64 x 8-bit reads
+
+
+OPTION B: RECONSTRUCT AFTER PE RF
+
+NoC:             4-bit representation
+RF storage:      4-bit representation
+RF reads:        64 x 4-bit reads
+Encoder:         64 reconstructions
+
+Under the simplified read-and-encoder comparison, B beats A when:
+
+64 * [E_RF(8) - E_RF(4)] > 63 * E_encoder
+
+Interpretation:
+- B saves RF read energy on 64 reads.
+- B performs 63 additional reconstructions compared with A.
+
+This equation omits differences in writes, capacity/leakage, controls,
+timing, packing, and any other unequal costs. Include those in the full
+model.
+
+
+OPTION C: REDUCED RF PLUS DECODED REGISTER
+
+NoC:                      4-bit representation
+RF storage:               4-bit representation
+RF reads:                 1 x 4-bit read
+Encoder:                  1 reconstruction
+Decoded-register reuse:   64 uses
+
+Option C can potentially outperform both A and B.
+
+Research implication:
+Include reconstruction-result retention in the DSE rather than comparing
+only fixed pipeline boundaries.
+
+IMPLEMENTATION CLARIFICATION:
+A fair baseline may already retain a full weight in an operand register,
+avoiding 64 RF reads. Compare equivalent reuse mechanisms. Do not attribute
+ordinary register-reuse benefits entirely to ECC reconstruction.
+
+For nonconsecutive reuse, a single register may be insufficient. Evaluate
+the actual schedule and, if appropriate, a small cache with its lookup,
+replacement, fill, storage, and energy costs.
+
+
+======================================================================
+14. EYERISS V2 ALREADY USES COMPRESSION
+======================================================================
+
+Eyeriss v2 processes sparse weights and activations using compressed CSC
+representations, with separate weight address and data scratchpads.
+
+ECC reduction therefore operates within an already compressed datapath.
+
+Baseline representation:
+
+CSC metadata
+     +
+Full weight-value bits
+
+Proposed representation:
+
+CSC metadata
+     +
+ECC-independent weight bits
+
+Reducing weight values from 8 bits to 4 bits does not halve total storage
+when entries also contain:
+- Count bits.
+- Address metadata.
+- Column metadata.
+
+Effective compression ratio:
+
+C_effective =
+    (Original value bits + Metadata bits)
+    /
+    (Reduced value bits + Metadata bits)
+
+This expression assumes unchanged metadata. If the proposed organization
+changes metadata or introduces group identifiers, include those costs.
+
+Report value-bit reduction separately from complete representation
+reduction.
+
+Do not replace a 12-bit compressed entry with a 4-bit entry merely because
+an 8-bit weight value was reduced to 4 bits; determine what every stored
+field represents.
+
+
+======================================================================
+15. XOR RECONSTRUCTION MAY REQUIRE A COMPLETE ECC GROUP
+======================================================================
+
+The encoder may operate at codeword granularity rather than independent
+weight granularity.
+
+Illustrative parity relationships:
+
+p0 = m0 XOR m1 XOR m4
+p1 = m1 XOR m2 XOR m5
+
+If these message bits belong to different weights, reconstructing one
+weight can require retained bits from several weights.
+
+The hardware may not support:
+
+4 retained bits of Weight 1 --> Encoder --> Full Weight 1
+
+It may instead require:
+
+                 Retained bits W1
+                        |
+Retained bits W2 --------+------+
+                        |      |
+Retained bits W3 --------+------+
+                        |      |
+                        v      v
+                      ECC encoder
+                           |
+                           v
+                  Reconstructed group
+                           |
+                           v
+                     W1 W2 W3 ...
+
+Consequences:
+- Group-assembly buffering.
+- Encoder input width.
+- Reconstruction latency.
+- Packing and unpacking.
+- Routing.
+- Codeword alignment.
+- Scheduling.
+- Whether weights can be reconstructed independently.
+- Whether all dependencies are available at a chosen boundary.
+
+Define reconstruction granularity:
+
+G_rec =
+    Number of weights whose retained information must be available
+    simultaneously to reconstruct an ECC group.
+
+The exact dependency set can be more informative than a single scalar.
+
+Immediate implementation task:
+Inspect the actual ECC generator relationships and weight-to-codeword
+mapping before designing a PE-local encoder.
+
+Determine:
+- Which retained bits are needed for each reconstructed output bit?
+- Which weights supply those bits?
+- Whether the dependencies reach the same PE or cluster together.
+- Whether sparse compression removes or reorders needed values.
+- Whether group assembly requires additional transfers or storage.
+
+Reconstruction granularity may be as important as XOR count.
+
+
+======================================================================
+16. WHAT SRAM READ/WRITE SAVING REALLY MEANS
+======================================================================
+
+Avoid unsupported claims such as:
+
+"Reducing weights from 8 bits to 4 bits reduces SRAM energy by 50%."
+
+A 64-bit SRAM access can still activate:
+- Decoder.
+- Wordline.
+- Bitlines.
+- Sense amplifiers.
+- Peripheral circuitry.
+
+Storing a representation such as:
+
+xxxx0000 xxxx0000 ...
+
+inside full-width words does not automatically halve physical energy.
+
+Exploit the representation physically.
+
+
+BASELINE PACKING
+
+64-bit SRAM word
+    =
+8 full weights x 8 bits
+
+
+REDUCED PACKING
+
+64-bit SRAM word
+    =
+16 reduced weights x 4 bits
+
+Now one access can return twice as many reduced weight representations.
+
+Potential benefit:
+Fewer physical accesses for the same number of useful weights.
+
+Alternative:
+A physically narrower memory organization, if supported by the chosen
+memory implementation.
+
+Model:
+- Physical word width.
+- Number of entries.
+- Banking.
+- Access granularity.
+- Packing efficiency.
+- Padding/alignment.
+- Metadata.
+- Packing/unpacking overhead.
+- Group-assembly requirements.
+- Number of useful values delivered per access.
+
+Reduced logical bit count and reduced physical energy are related but are
+not interchangeable.
+
+
+======================================================================
+17. EXPERIMENTAL DSE VARIANTS
+======================================================================
+
+For each architecture, define applicable variants:
+
+BASE
+    Full representation throughout the modeled on-chip hierarchy.
+
+REC-L0
+    Reconstruct at global-buffer/input-buffer output.
+
+REC-L1
+    Reconstruct after the global NoC.
+
+REC-L2
+    Reconstruct at PE-local-memory input.
+
+REC-L3
+    Reconstruct at PE-local-memory output.
+
+REC-L4
+    Reconstruct at PE-local-memory output and retain reconstructed values
+    in a decoded-weight reuse register/cache.
+
+Not every architecture contains every listed level. Mark nonexistent or
+inapplicable boundaries explicitly instead of inventing them.
+
+Sweep retained/full ratio:
+
+k / n
+
+Illustrative effective weight-width cases:
+- 8 -> 7 bits.
+- 8 -> 6 bits.
+- 8 -> 5 bits.
+- 8 -> 4 bits.
+- 8 -> 3 bits.
+
+Only evaluate reductions supported by the actual embedded-ECC scheme.
+A numerical bit-width sweep does not prove a valid code or mapping exists
+for every point.
+
+Other central dimensions from the discussion:
+- Temporal reuse.
+- Spatial fanout.
+- Reconstruction boundary.
+- Reconstruction granularity.
+- Encoder replication.
+- Reconstructed-weight retention.
+- Physical memory packing.
+- Sparse metadata overhead.
+
+
+======================================================================
+18. METRICS TO COLLECT
+======================================================================
+
+Collect per layer and per architecture/variant.
+
+| Metric | Purpose |
+|--------|---------|
+| DRAM bits read | Establish off-chip traffic baseline |
+| DRAM-to-accelerator transmitted bits | Identify post-ECC bandwidth reduction |
+| Global-buffer weight writes | Quantify higher-level weight-storage traffic |
+| Global-buffer weight reads | Quantify higher-level weight-storage traffic |
+| Weight-NoC bits and bit-hops | Quantify transport cost and placement benefit |
+| PE weight-SPad writes | Quantify local storage traffic |
+| PE weight-SPad reads | Determine local-read savings and reconstruction frequency |
+| Unique weights loaded | Normalize workload and data residency |
+| Weight uses / MACs | Quantify useful consumption and temporal reuse |
+| Reconstruction count | Determine actual encoder work |
+| XOR operations | Characterize reconstruction dynamic activity |
+| Reconstruction cycles | Quantify performance impact |
+| Encoder area | Quantify hardware overhead |
+| Encoder leakage | Account for replicated hardware over execution time |
+| Encoder critical path | Evaluate timing and frequency impact |
+| Full/reduced SRAM capacity | Quantify physical storage/area implications |
+| Total energy | Primary energy result |
+| Energy-delay product (EDP) | Include latency tradeoff |
+| Area-energy product / EDAP | Optional area-aware secondary objective |
+
+Define reconstruction amortization factor:
+
+A_rec =
+    N_MAC_weight
+    /
+    N_reconstruct
+
+Interpretation:
+Number of useful weight-consuming MAC operations supported per
+reconstruction.
+
+A larger value generally indicates better amortization.
+
+Use consistent granularity:
+If one reconstruction produces a group of weights, document that the
+denominator counts group reconstructions.
+
+Additional implementation accounting needed where applicable:
+- Metadata traffic.
+- Group-assembly reads/writes.
+- Packing/unpacking energy.
+- Decoded-register/cache accesses.
+- Cache misses and reconstruction fills.
+- Encoder stalls.
+- Added pipeline registers.
+- Baseline versus proposed execution time.
+- Encoder and added-buffer leakage over execution time.
+
+Avoid double-counting costs already included in component energy models.
+
+
+======================================================================
+19. TIMELOOP + ACCELERGY FOR THE HIERARCHY MODEL
+======================================================================
+
+Timeloop models hierarchies of:
+- Storage.
+- Compute.
+- Spatial organization.
+
+Its statistics can expose accesses at storage and arithmetic levels.
+
+The referenced Eyeriss example includes:
+
+DRAM
+shared_glb
+ifmap_spad
+weights_spad
+psum_spad
+MAC
+
+It also specifies which tensors reside at or bypass each level.
+
+Basic accounting:
+
+Weight accesses at each hierarchy level
+    x
+Energy per physical access
+
+Use reduced physical representations where appropriate.
+
+Do not assume that changing a logical datawidth alone automatically models:
+- Correct physical packing.
+- Changed access counts.
+- HM-NoC multicast behavior.
+- CSC metadata.
+- ECC-group dependencies.
+- Reconstruction caching.
+- Encoder throughput.
+
+Encoder integration options:
+1. Add an explicit reconstruction component to Accelergy.
+2. Post-process measured/derived reconstruction counts with characterized
+   encoder costs.
+
+Basic reconstruction energy:
+
+E_rec_total =
+    N_reconstruct * E_encoder
+
+Use the same code configuration, width, granularity, and operating
+conditions for the characterized encoder and the architectural count.
+
+A default "eyeriss-like" configuration is not automatically a faithful
+Eyeriss-v2 implementation. Confirm topology, bypass rules, storage,
+compression, and network behavior.
+
+
+======================================================================
+20. RTL SYNTHESIS COMPLEMENTS THE ARCHITECTURAL MODEL
+======================================================================
+
+Use two complementary modeling pipelines.
+
+
+DATA MOVEMENT PIPELINE
+
+Timeloop
+   +
+Accelergy
+   |
+   v
+Memory accesses
+NoC traffic
+RF/SPad accesses
+MAC count
+   |
+   v
+Data-movement and compute energy
+
+
+RECONSTRUCTION PIPELINE
+
+SystemVerilog XOR reconstruction block
+       |
+       v
+Design Compiler / synthesis flow
+       |
+       v
+Area
+Delay
+Dynamic power
+Leakage
+       |
+       v
+Energy per reconstruction
+
+
+COMBINED EVALUATION
+
+Architectural event counts
+       +
+Characterized component costs
+       |
+       v
+Total energy, area, latency, and derived metrics
+
+Dynamic energy must be associated with a defined event interval and
+activity assumptions. Synthesis area alone does not determine energy per
+reconstruction.
+
+Use representative switching activity where available, and document:
+- Technology/library.
+- Voltage.
+- Clock or throughput target.
+- Encoder configuration.
+- Input/output loading.
+- Activity assumptions.
+- Combinational versus pipelined organization.
+
+SRAM modeling:
+
+Do not synthesize a large array into flip-flops and report the result as
+SRAM energy.
+
+Appropriate sources can include:
+- SRAM macro/library characterization.
+- Memory compiler.
+- CACTI.
+- OpenRAM.
+- Appropriate Accelergy SRAM models.
+
+The source discussion emphasizes that Eyeriss-v2 weight storage includes
+actual SRAM structures, not merely generic synthesized registers.
+
+
+======================================================================
+21. EXPECTED QUALITATIVE ENERGY TREND
+======================================================================
+
+Hypothesis from the source discussion:
+
+Energy
+  ^
+  |\
+  | \
+  |  \                      Repeated
+  |   \                   reconstruction
+  |    \                   starts hurting
+  |     \                      /
+  |      \                    /
+  |       \__________________/
+  |
+  +------------------------------------------------>
+      Early                                  Late
+                Reconstruction position
+
+Possible explanation:
+
+Moving reconstruction toward computation initially saves:
+- Upstream storage traffic.
+- NoC traffic.
+- Local-buffer traffic.
+
+Extremely late reconstruction may repeatedly regenerate the same weight
+for each MAC use.
+
+A decoded-weight latch/cache may shift the best placement later:
+
+Reduced transport --> Reduced SPad --> XOR --> Small full latch --> MAC
+
+IMPORTANT:
+The U-shaped curve is a hypothesis, not an expected output to force.
+Measured energy can be monotonic or have a different shape depending on
+encoder costs, access schedules, packing, fanout, and reuse.
+
+Do not generate synthetic "results" that merely reproduce this sketch.
+
+
+======================================================================
+22. ARCHITECTURE-SPECIFIC HYPOTHESES
+======================================================================
+
+22.1 EYERISS V2
+
+Leading candidate:
+
+Reduced weight SPad
+      |
+      v
+XOR reconstruction
+      |
+      v
+Small reconstructed-weight reuse register
+      |
+      v
+MAC
+
+Rating: 5/5.
+
+Alternative if PE-local replication is expensive:
+
+Reconstruct at HM-NoC destination-cluster boundary.
+
+Rating: 4/5.
+
+
+22.2 WEIGHT STATIONARY
+
+Leading candidate:
+
+Reduced local RF/SPad
+      |
+      v
+Encoder
+      |
+      v
+Stationary decoded-weight register
+      |
+      v
+Many MAC uses
+
+Rating: 5/5.
+
+Potentially a clear demonstration of reconstruction amortization.
+
+
+22.3 EYERISS V1
+
+Leading candidate:
+
+Reduced weight NoC
+      |
+      v
+Reduced local storage
+      |
+      v
+Encoder
+      |
+      v
+Reuse latch
+      |
+      v
+MAC
+
+Rating: 5/5.
+
+Its multicast distribution provides an explicit fanout experiment.
+
+
+22.4 OUTPUT STATIONARY
+
+Leading candidate in the streaming-weight abstraction:
+
+Reduced weight NoC
+      |
+      v
+PE-local reconstruction
+      |
+      v
+MAC
+
+Rating: 5/5.
+
+Rationale:
+Avoid expanding weights before their transport is complete.
+
+Qualify this by actual multicast, forwarding, local buffering, and
+throughput requirements.
+
+
+22.5 INPUT STATIONARY
+
+Leading candidate:
+
+Reduced weight NoC
+      |
+      v
+PE-local reconstruction
+      |
+      v
+MAC
+
+Rating: 5/5.
+
+Potentially valuable when many weights/filters stream past stationary
+activations.
+
+
+22.6 SIMBA
+
+Leading candidate:
+
+Reduced distributed weight buffer
+      |
+      v
+XOR reconstruction
+      |
+      v
+Full vector-MAC weight registers
+      |
+      v
+High temporal reuse
+
+Rating: 5/5.
+
+Rationale:
+The published architecture already retains weights in vector-MAC
+registers, providing a natural reconstruction destination.
+
+All six conclusions require measurement.
+
+
+======================================================================
+23. PROPOSED PAPER STORY
+======================================================================
+
+The contribution should be broader than:
+
+"We reconstructed ECC bits with XOR gates near the PE."
+
+Proposed framing:
+
+Embedded ECC creates deterministically redundant weight bits. Rather than
+propagating those bits through the entire accelerator hierarchy, remove
+them after off-chip error correction and regenerate them at a selected
+reconstruction boundary.
+
+Moving this boundary closer to computation can reduce storage and
+communication costs, but can increase reconstruction multiplicity through
+temporal reuse patterns and spatial fanout.
+
+Conceptual DSE:
+
+                   +----------------------+
+                   | Reconstruction DSE   |
+                   +-----------+----------+
+                               |
+           +-------------------+-------------------+
+           v                   v                   v
+    Storage hierarchy    Network fanout     Temporal reuse
+           |                   |                   |
+           +-------------------+-------------------+
+                               |
+                               v
+                 Best reconstruction boundary
+                 under measured constraints
+
+Evaluate generality across:
+1. Eyeriss v2 / RS+.
+2. Weight stationary.
+3. Eyeriss v1 / RS.
+4. Output stationary.
+5. Input stationary.
+6. Simba.
+
+Eyeriss v2 remains the initial and primary implementation target.
+
+
+======================================================================
+24. FIRST EXPERIMENT TO PRIORITIZE
+======================================================================
+
+Before implementing all architectures, run a four-point Eyeriss-v2 study.
+
+
+EV2-BASE
+
+Full weight representation everywhere in the on-chip weight path.
+
+
+EV2-NOC
+
+Reduced weight through HM-NoC
+      |
+      v
+Reconstruct before PE weight SPad
+      |
+      v
+Full weight SPad
+
+
+EV2-SPAD
+
+Reduced weight through HM-NoC
+      |
+      v
+Reduced weight SPad
+      |
+      v
+Reconstruct at SPad output for each required read/use
+
+
+EV2-CACHE
+
+Reduced weight through HM-NoC
+      |
+      v
+Reduced weight SPad
+      |
+      v
+Reconstruct at SPad output
+      |
+      v
+Retain reconstructed weight in a small reuse register/cache
+
+
+MEASURE
+
+- NoC energy.
+- Weight-SPad energy.
+- Encoder energy.
+- MAC energy.
+- Total energy.
+- Area.
+- Latency.
+- Reconstruction count.
+
+Include relevant additional buffering/control costs from earlier sections.
+
+
+TEMPORAL REUSE SWEEP
+
+Reuse = 1
+Reuse = 2
+Reuse = 4
+Reuse = 8
+Reuse = 16
+Reuse = 32
+Reuse = 64
+Reuse = 128
+
+Use a clearly defined reuse metric and schedule.
+
+Expected phenomenon to investigate:
+
+Low reuse
+   |
+   v
+Late reconstruction may be attractive
+
+Moderate reuse
+   |
+   v
+Late reconstruction may still win
+
+Very high reuse without retention
+   |
+   v
+Repeated reconstruction may lose its advantage
+
+Very high reuse with retained reconstructed weights
+   |
+   v
+Decoded-register/cache variant may preserve the benefit
+
+These are potential crossover behaviors, not guaranteed results.
+
+A controlled microbenchmark can isolate the mechanism. Actual layer
+mappings are still required to establish architectural relevance.
+
+Also evaluate spatial fanout, since temporal reuse alone does not resolve
+the central placement tradeoff.
+
+
+======================================================================
+25. FIVE MAIN RISKS TO THE STUDY
+======================================================================
+
+1. ECC DEPENDENCY GRANULARITY
+
+Determine how many retained bits and weights must be simultaneously
+available to reconstruct one group.
+
+Do not assume every weight can be reconstructed independently.
+
+
+2. PHYSICAL SRAM PACKING
+
+Show that the reduced representation lowers physical accesses, memory
+width, or another characterized physical cost.
+
+Do not claim savings merely because unused bit positions contain zeros.
+
+
+3. EYERISS-V2 CSC INTERACTION
+
+Account for address/count/column metadata.
+
+Do not equate value-bit reduction with total compressed-representation
+reduction.
+
+Check whether ECC grouping is compatible with sparse ordering and
+zero-skipping.
+
+
+4. FANOUT VERSUS RECONSTRUCTION MULTIPLICITY
+
+Post-multicast reconstruction can save transport energy while replicating:
+- Encoder instances.
+- Reconstruction events.
+- Area.
+- Leakage.
+- Potential buffering.
+
+Measure the complete tradeoff.
+
+
+5. TEMPORAL REUSE VERSUS RECONSTRUCTION MULTIPLICITY
+
+Do not compare only encoder energy per reconstruction.
+
+Also compare:
+
+Encoder energy per useful MAC after amortization.
+
+Count actual reconstructed-result reuse under the execution schedule.
+
+
+======================================================================
+FINAL ARCHITECTURAL FRAMING FROM THE SOURCE
+======================================================================
+
+Do not reduce the project to only:
+
+Global-buffer output
+versus
+RF output
+
+Model the actual applicable hierarchy:
+
+ECC correction
+      |
+      v
+Source/global storage, if present
+      |
+      v
+Global interconnect
+      |
+      v
+Cluster-local interconnect, if present
+      |
+      v
+PE-local weight storage
+      |
+      v
+Reconstruction
+      |
+      v
+Decoded reuse register
+      |
+      v
+MAC
+
+Treat every feasible boundary as a DSE candidate.
+
+Two leading hypotheses:
+
+
+EYERISS V2
+
+Reduced HM-NoC
+      |
+      v
+Reduced weight SPad
+      |
+      v
+XOR encoder
+      |
+      v
+Small decoded-weight reuse buffer
+      |
+      v
+MAC
+
+
+SIMBA / GENERIC WEIGHT STATIONARY
+
+Reduced weight hierarchy
+      |
+      v
+Local reduced weight buffer
+      |
+      v
+XOR encoder
+      |
+      v
+Stationary full-weight MAC register
+      |
+      v
+Many MAC uses
+
+Objective:
+Keep storage and transport reduced while avoiding repeated regeneration
+of the same XOR-derived weight.
+
+
+======================================================================
+FOUNDATIONAL REFERENCES TO CONSULT
+======================================================================
+
+The source discussion identifies these reference families:
+
+- Eyeriss-v2 architecture description:
+  RS+, hierarchical mesh, sparse CSC representation, PE weight storage.
+
+- Original Eyeriss architecture and row-stationary/dataflow papers:
+  Memory hierarchy, multicast, RF reuse, data-movement energy.
+
+- Simba architecture:
+  Package/chiplet/PE hierarchy, distributed weight buffers, stationary
+  vector-MAC weight registers.
+
+- Timeloop architecture/model documentation and selected configurations:
+  Storage hierarchy, tensor residency/bypass, mapping and access counts.
+
+- Accelergy documentation and energy-estimation components:
+  Component actions, energy tables, memory and custom encoder integration.
+
+Verify exact implementation claims and record usable bibliographic
+references in the project rather than retaining chat-local citation IDs.
+
+
+======================================================================
+IMPLEMENTATION HANDOFF NOTES
+======================================================================
+
+These notes make the implications of the discussion explicit; they are
+not claims that an implementation already exists.
+
+Before making architectural changes:
+
+1. Inspect the repository and its existing Timeloop/Accelergy flow.
+2. Identify the actual baseline architecture configuration.
+3. Inspect the ECC parameters, generator relationships, and weight mapping.
+4. Establish reconstruction granularity and dependency availability.
+5. Define physically packed reduced representations, including metadata.
+6. Implement the initial Eyeriss-v2 variants.
+7. Derive reconstruction counts from actual events and reuse schedules.
+8. Characterize the corresponding encoder implementation.
+9. Combine costs without double-counting.
+10. Compare energy, area, and latency against an equivalent baseline.
+
+Do not assume:
+- A default Eyeriss-like model is Eyeriss v2.
+- Weights reside in a global buffer in every architecture.
+- Half the value bits means half the SRAM or NoC energy.
+- Every weight can be reconstructed independently.
+- A single latch captures all reuse.
+- Late reconstruction always wins.
+- An added encoder is free in timing, area, leakage, or control.
+- The qualitative ratings are experimental results.
+
+The deliverable is a reproducible, configurable evaluation that can
+determine the best reconstruction boundary, not an implementation designed
+to confirm a predetermined winner.
+
+END OF PART 2

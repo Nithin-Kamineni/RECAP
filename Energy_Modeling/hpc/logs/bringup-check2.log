@@ -1,0 +1,18 @@
+eccenergy result-store and parity tests
+  ok    test_code_that_cannot_hold_a_weight_is_rejected
+  ok    test_codeword_packing_is_whole_weights
+  ok    test_evaluated_variant_must_carry_a_number
+  ok    test_existing_result_is_not_silently_overwritten
+  ok    test_fixed_mapping_violation_is_detected
+  ok    test_hand_check_matches_closed_form
+  ok    test_layer_grouping_costs_at_least_as_much_as_model_grouping
+  ok    test_missing_reference_is_refused
+  ok    test_namespace_separates_dev_from_full_and_forced_precision
+  ok    test_padding_charge_is_the_larger_number
+  ok    test_parity_accounting_by_hand
+  ok    test_roundtrip
+  ok    test_savings_definition
+  ok    test_unavailable_variant_must_explain_itself
+  ok    test_unavailable_variant_must_not_carry_a_number
+
+all tests passed

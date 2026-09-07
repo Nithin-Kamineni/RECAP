@@ -1,0 +1,1149 @@
+PROJECT CONTEXT: ECC WEIGHT RECONSTRUCTION IN AI ACCELERATOR DATAPATHS
+PART 1: PROJECT FOUNDATIONS AND ARCHITECTURES — SECTIONS 1–11
+
+Source conversation:
+https://chatgpt.com/share/6a9cf72e-979c-83e9-932b-c6193b111007
+
+PURPOSE OF THIS FILE
+
+This file provides project context for an LLM coding assistant implementing
+an architectural design-space exploration of ECC-derived weight
+reconstruction in AI accelerators.
+
+The primary target is Eyeriss v2. The methodology should also support:
+- Eyeriss v1.
+- Generic weight-stationary (WS) architectures.
+- Generic output-stationary (OS) architectures.
+- Generic input-stationary (IS) architectures.
+- Simba.
+
+The central idea is to retain only the independent portion of an embedded-ECC
+weight representation within selected parts of the on-chip hierarchy, then
+reconstruct the omitted dependent bits using XOR encoders before computation.
+
+Example:
+- Original embedded weight representation: 8 bits.
+- Retained information: approximately 3–4 bits per weight.
+- Remaining bits: deterministically reconstructed from ECC relationships.
+
+IMPORTANT:
+The per-weight example is illustrative. Actual ECC dependencies may span
+multiple weights in a codeword. Part 2, section 15 explains this constraint.
+Do not implement an independent per-weight encoder unless the ECC mapping
+actually supports it.
+
+The research question is not simply where XOR gates can be inserted. It is
+where the reduced representation should stop and the full representation
+should resume to minimize total cost while meeting throughput, timing,
+capacity, and reliability requirements.
+
+Three central quantities:
+1. How many bits can remain omitted up to a candidate boundary?
+2. How much temporal reuse occurs after reconstruction?
+3. How much spatial fanout occurs before or after reconstruction?
+
+Working framing:
+"Reconstruction-boundary optimization across the accelerator
+memory/interconnect hierarchy."
+
+STATUS OF THE MATERIAL
+
+- Architecture descriptions summarize the source discussion.
+- Proposed placements, ratings, and expected winners are hypotheses.
+- No measured energy savings, area results, or timing results are established
+  by this document.
+- Verify exact architecture configurations against the selected papers,
+  repository configurations, and hardware models before implementation.
+- Generic WS, OS, and IS describe dataflows; they do not uniquely specify a
+  physical architecture.
+- The original chat included citation markers. Those opaque chat-local
+  markers are omitted here; they are not usable bibliographic references.
+
+Historical motivation from the source discussion:
+The original Eyeriss-style 65-nm energy comparison placed a DRAM access at
+roughly 200 times MAC energy, a large global-buffer access at approximately
+6 times, an inter-PE/array transfer at approximately 2 times, and a small RF
+access at approximately 1 time.
+
+These are historical illustrative ratios, not parameters to reuse
+uncritically for a new technology or implementation.
+
+
+======================================================================
+1. CORRECT CONCEPTUAL MODEL FOR THE ECC SCHEME
+======================================================================
+
+An oversimplified view is:
+
+DRAM --> SRAM --> RF --> PE
+          ^
+       Encoder?
+
+The more useful model separates the off-chip reliability domain from the
+on-chip reduced-representation domain:
+
+                       OFF-CHIP RELIABILITY DOMAIN
++----------------------------------------------------------------+
+| DRAM: full embedded-ECC representation                          |
+|          |                                                     |
+|          v                                                     |
+| ECC decode / error correction                                  |
++----------+-----------------------------------------------------+
+           |
+           | Discard bits that can be deterministically rebuilt.
+           v
+       Reduced representation
+       Example: 4 retained bits instead of 8 full bits
+           |
+           |    ON-CHIP RECONSTRUCTION DOMAIN
+           |
+           +-------------- R1
+           v
+       Global storage
+           |
+           +-------------- R2
+           v
+          NoC
+           |
+           +-------------- R3
+           v
+       Local weight storage
+           |
+           +-------------- R4
+           v
+      Weight register/latch
+           |
+           +-------------- R5
+           v
+          MAC
+
+Research question:
+
+How deep into the accelerator can the reduced representation be propagated
+before the cost of repeated reconstruction becomes larger than the
+additional storage and communication energy saved?
+
+Reliability constraint:
+
+If the complete embedded-ECC representation in DRAM provides error
+correction, the reconstructable bits generally must not be discarded
+before the DRAM-side ECC check and correction.
+
+Required conceptual sequence:
+
+DRAM full ECC codeword
+        |
+        v
+Read complete protected codeword
+        |
+        v
+ECC syndrome computation / correction
+        |
+        v
+Corrected codeword
+        |
+        v
+Retain independent/systematic portion
+        |
+        v
+Accelerator reduced-representation datapath
+
+Potential benefits:
+- Lower memory-controller-to-accelerator bandwidth.
+- Lower on-chip SRAM capacity requirements.
+- Lower on-chip SRAM access traffic or access count.
+- Lower NoC traffic.
+- Lower PE weight-storage traffic.
+
+Do not automatically claim reduced DRAM-array read energy. The complete
+protected codeword may still need to be read to perform error correction.
+
+Reconstructing at an SRAM input restores full-width data before storage,
+so that SRAM does not receive the reduced-storage benefit. Upstream
+transport may still benefit if it carried the reduced representation.
+
+
+======================================================================
+2. MOST IMPORTANT PLACEMENT PRINCIPLE
+======================================================================
+
+Illustrative assumptions:
+- Full weight representation: 8 bits.
+- Reduced representation: 4 bits.
+- Reconstruction: several XOR operations.
+
+2.1 EARLY RECONSTRUCTION
+
+4-bit SRAM
+   |
+   | Read 4 bits
+   v
+Encoder
+   |
+   | 8 bits
+   v
+NoC --8 bits--> RF --8 bits--> MAC
+
+Benefits:
+- Reduced SRAM storage.
+- Potential SRAM access-energy savings.
+
+Limitations:
+- No reduced-width NoC traffic after the encoder.
+- No reduced-width RF storage or traffic.
+
+
+2.2 LATE RECONSTRUCTION
+
+4-bit SRAM
+   |
+   +--4 bits--> NoC --4 bits--> 4-bit RF
+                                  |
+                                  v
+                                Encoder
+                                  |
+                                  | 8 bits
+                                  v
+                                 MAC
+
+Potential benefits:
+- Reduced SRAM storage.
+- Reduced SRAM traffic.
+- Reduced NoC traffic.
+- Reduced RF storage.
+- Reduced RF read bit-volume.
+
+Main risk:
+The encoder may execute once for every MAC use of the weight.
+
+
+2.3 LATE RECONSTRUCTION WITH A RECONSTRUCTED-WEIGHT LATCH/CACHE
+
+4-bit SRAM
+   |
+   +--4 bits--> NoC --4 bits--> 4-bit weight SPad
+                                  |
+                                  | Read once
+                                  v
+                               XOR encoder
+                                  |
+                                  | 8 bits
+                                  v
+                         Reconstructed-weight
+                            register/latch
+                                  |
+                                  +--> reuse
+                                  +--> reuse
+                                  +--> reuse
+                                  +--> reuse --> MAC
+
+Goal:
+Preserve most benefits of late reconstruction without paying reconstruction
+energy for every reuse.
+
+This is particularly promising for weight-stationary architectures and
+Simba.
+
+A latch and a cache are different implementations:
+- A latch/register can retain the currently active weight.
+- A cache can retain multiple reconstructed weights but adds lookup,
+  replacement, and storage costs.
+
+The appropriate mechanism depends on the actual weight-access schedule.
+
+
+======================================================================
+3. RATING SYSTEM
+======================================================================
+
+The source discussion used architectural promise ratings, not experimental
+results.
+
+| Rating | Interpretation |
+|--------|----------------|
+| 5/5 | Extremely promising reconstruction boundary |
+| 4/5 | Strong candidate worth evaluating |
+| 3/5 | Useful tradeoff point |
+| 2/5 | Usually less attractive than another placement |
+| 1/5 | Generally not worthwhile |
+
+All ratings assume the reduced representation is physically exploited:
+- Packed weights.
+- Fewer accesses.
+- Narrower transfers.
+- Appropriate memory organization.
+
+Merely leaving unused bits in a full-width word does not establish
+proportional energy savings.
+
+
+======================================================================
+4. ENERGY MODEL
+======================================================================
+
+For reconstruction placement r, define:
+
+n:
+    Full representation width.
+
+k:
+    Retained representation width, where k < n.
+
+A_l:
+    Number of accesses/transfers at hierarchy level l.
+
+E_l(b):
+    Energy of accessing/transferring b bits at hierarchy level l.
+
+N_rec(r):
+    Number of reconstructions at placement r.
+
+E_rec:
+    Energy per reconstruction.
+
+E_control(r):
+    Additional control energy associated with placement r.
+
+Conceptual model:
+
+E(r) =
+    SUM over l in partial(r) [A_l * E_l(k)]
+  + SUM over l in full(r)    [A_l * E_l(n)]
+  + N_rec(r) * E_rec
+  + E_control(r)
+
+Boundary interpretation:
+
+Reduced representation | Full representation
+                       ^
+                  Reconstruction
+
+Moving the boundary toward computation can save more data movement, but
+may increase N_rec.
+
+Implementation interpretation:
+This is a conceptual accounting model. If packing or remapping changes
+physical access counts, use placement-dependent physical counts rather
+than assuming A_l remains identical for every variant.
+
+The complete evaluation must also account for relevant leakage, buffering,
+packing/unpacking, and timing overheads.
+
+Use a consistent granularity for n, k, and E_rec:
+- Per weight, only if reconstruction is independent per weight.
+- Per ECC group/codeword, if dependencies span multiple weights.
+
+
+======================================================================
+5. EYERISS V2 — PRIMARY TARGET
+======================================================================
+
+5.1 ACTUAL HIERARCHY
+
+Eyeriss v2 uses:
+- Row-stationary-plus (RS+) dataflow.
+- A hierarchical-mesh network on chip (HM-NoC).
+- PE clusters.
+- Router clusters.
+- Global-buffer clusters.
+- Separate networks for different data types.
+- Communication modes supporting different reuse patterns.
+
+The source discussion describes published PE-local CSC weight storage as:
+- Weight-data scratchpad: 96 x 24 bits.
+- Weight-address scratchpad: 16 x 7 bits.
+- Capacity corresponding to up to 192 12-bit compressed weight entries.
+
+These implementation-specific quantities should be verified before
+hard-coding them into the model.
+
+Important distinction:
+The original Eyeriss-v2 GLB should not automatically be modeled as a
+conventional large global weight SRAM. The source discussion states that
+its GLB SRAM banks serve input activations and partial sums, with dedicated
+weight ports feeding the weight network.
+
+Weight-path abstraction:
+
+DRAM
+  |
+  v
+Memory interface / ECC correction
+  |
+  v
+Weight input port
+  |
+  v
+Hierarchical weight NoC
+  |
+  +--> Mesh between clusters
+  |
+  v
+Router cluster
+  |
+  v
+Local PE-cluster distribution
+  |
+  v
+PE weight address/data SPad
+  |
+  v
+Sparse weight decode / scheduling
+  |
+  v
+MAC datapath
+
+Do not substitute this unconditionally:
+
+DRAM --> Global weight SRAM --> RF --> MAC
+
+The actual weight-residency and bypass behavior must match the architecture
+being modeled.
+
+
+5.2 RECONSTRUCTION FLOW
+
+Candidate placements are alternatives, not a chain of encoders that all
+operate simultaneously.
+
+FULL EMBEDDED-ECC DATA
+        |
+       DRAM
+        |
+        v
+ ECC correction
+        |
+        v
+ Strip ECC-derived bits
+        |
+        | Reduced representation
+        |
+        +---- R1: reconstruct at source                  [2/5]
+        |
+        v
+ Weight HM-NoC ingress
+        |
+        | Reduced representation if not reconstructed
+        v
+ Inter-cluster mesh
+        |
+        +---- R2: reconstruct after global mesh          [4/5]
+        |
+        v
+ Cluster-local router / fanout
+        |
+        v
+ PE weight-SPad input
+        |
+        +---- R3: reconstruct before SPad storage        [4/5]
+        |
+        v
+ Reduced weight SPad, if reconstruction is deferred
+        |
+        +---- R4a: reconstruct on each SPad read          [3/5]
+        |
+        v
+      Encoder
+        |
+        v
+ Reconstructed-weight latch/cache
+        |     R4b: retain reconstructed values for reuse  [5/5]
+        v
+       MAC
+
+Why R2 matters:
+
+Long-distance cluster network
+              |
+              v
+       Cluster-local network
+              |
+              v
+             PEs
+
+A cluster-boundary encoder can preserve reduced-width traffic through the
+long-distance network and reconstruct once near a destination cluster:
+
+4-bit representation
+-------- Long HM-NoC -------->
+                              Encoder
+                                 |
+                                 v
+                               8 bits
+                                 |
+                                 v
+                         Short local fanout
+
+This is a compromise between:
+- One centralized encoder.
+- Many PE-local encoders.
+
+
+5.3 EYERISS V2 PLACEMENT TABLE
+
+| Hardware level | Function | Representation | Reconstruction option | Boundary | Advantages | Disadvantages | Rating |
+|----------------|----------|----------------|-----------------------|----------|------------|---------------|--------|
+| DRAM | Stores protected embedded-ECC weights | Full codeword | No | N/A | Retains off-chip protection | Complete protected representation needed for correction | N/A |
+| Memory interface / ECC | Reads, checks, corrects ECC group | Full to reduced | Strip, not reconstruct | Output | Earliest safe removal of dependent bits | Codeword assembly and correction required | Essential |
+| Weight-NoC source/input | Injects weights | Reduced before encoder | R1 | Source input/output | One or a few encoders; simple | Expands traffic before NoC | 2/5 |
+| Inter-cluster mesh | Routes between clusters | Reduced preferred | R2 | Mesh output | Saves long-distance NoC traffic; fewer encoders than PE-local placement | Local network carries full weights | 4/5 |
+| Cluster router/local distribution | Multicast/unicast to PEs | Reduced preferred | Cluster-local boundary | Output | Keeps much of HM-NoC reduced; localizes reconstruction | Replication and throughput requirements depend on distribution | 4/5 |
+| PE weight-SPad input | Fills local weight memory | Reduced to full | R3 | SPad input | Reduced NoC traffic; reconstruction once per local fill | SPad remains full-width | 4/5 |
+| PE weight SPad | Stores CSC weight data | Reduced | R4a | SPad output | Saves local capacity and access bit-volume | May repeatedly reconstruct the same weight | 3/5 |
+| Post-SPad decoded latch/cache | Holds reconstructed active weight(s) | Full | R4b | Encoder output | Reduced SPad plus amortized reconstruction | Extra register/cache and control | 5/5 |
+| MAC input | Consumes full weight | Full | Very late placement possible | MAC input | Longest reduced-representation lifetime | Timing and throughput risk | 2/5 |
+
+
+5.4 INITIAL EYERISS V2 VARIANTS
+
+EV2-A: RECONSTRUCT AT PE WEIGHT-SPAD INPUT
+
+DRAM/ECC
+   |
+   v
+4 bits ---- HM-NoC ----> Encoder --8 bits--> Weight SPad --> MAC
+
+Expected savings:
+- Memory-interface-to-PE traffic.
+- Hierarchical-mesh bandwidth.
+- NoC switching.
+
+Not reduced by this placement:
+- PE weight-SPad capacity.
+- PE weight-SPad read width.
+
+Reconstruction frequency:
+Approximately once per weight loaded into the local SPad, subject to actual
+ECC-group dependencies and transfers.
+
+
+EV2-B: RECONSTRUCT AT WEIGHT-SPAD OUTPUT
+
+DRAM/ECC
+   |
+   v
+4 bits ---- HM-NoC ----> 4-bit Weight SPad --> Encoder --8 bits--> MAC
+
+Additional potential savings:
+- PE weight-memory capacity.
+- PE weight-memory write bit-volume.
+- PE weight-memory read bit-volume.
+
+Risk:
+Reconstruction count can increase substantially.
+
+
+EV2-C: WEIGHT-SPAD OUTPUT PLUS DECODED-WEIGHT LATCH
+
+4-bit SPad --> XOR encoder --> 8-bit decoded weight register --> MAC
+                  ^                         |
+                  |                         +--> Reuse across MAC uses
+                  |
+           Reload/reconstruct when the required weight changes
+
+Leading hypothesis from the source discussion: 5/5.
+
+Potential benefits:
+- Reduced HM-NoC traffic.
+- Reduced SPad storage.
+- Reduced SPad bit traffic.
+- Amortized reconstruction.
+
+The full-width register may be small compared with the SPad, but its actual
+benefit depends on access order and reuse locality.
+
+
+======================================================================
+6. WEIGHT-STATIONARY
+======================================================================
+
+A weight-stationary dataflow keeps weights in PE-local storage while
+activations stream and partial sums are updated or transferred according
+to the implementation.
+
+Canonical hierarchy:
+
+DRAM
+  |
+  v
+Memory controller
+  |
+  v
+Global/weight buffer
+  |
+  v
+Weight-distribution NoC
+  |
+  v
+PE weight RF
+  |
+  v
+Stationary weight
+  |
+  v
+MAC <--- Streaming activations
+
+
+6.1 RECONSTRUCTION LOCATIONS
+
+DRAM / ECC correction
+        |
+        v
+   Reduced weights
+        |
+        v
+ Global weight SRAM
+        |
+        +--> R1: SRAM output                              [3/5]
+        v
+    Weight NoC
+        |
+        +--> R2: NoC output                               [4/5]
+        v
+ Reduced weight RF
+        |
+        +--> R3a: reconstruct on every read               [2/5]
+        |
+        v
+      Encoder
+        |
+        v
+ Full stationary-weight latch
+        |
+        +--> R3b: reconstruct once, reuse full weight     [5/5]
+        v
+       MAC
+
+Illustrative example: one weight participates in 100 MACs.
+
+Reconstruction before RF:
+- 1 reconstruction.
+- 100 full-width RF reads, under this illustrative access model.
+
+Reduced RF plus reconstruction on every read:
+- 100 reduced-width RF reads.
+- 100 reconstructions.
+
+Reduced RF plus stationary decoded register:
+- 1 reduced RF read.
+- 1 reconstruction.
+- 100 register reuses.
+
+These counts describe alternative access organizations, not a universal
+property of all WS hardware. A fair baseline should include any stationary
+register and reuse mechanism already present.
+
+
+6.2 WEIGHT-STATIONARY TABLE
+
+| Hardware level | Function | Weight representation/behavior | Reconstruction | Boundary | Advantages | Disadvantages | Rating |
+|----------------|----------|--------------------------------|----------------|----------|------------|---------------|--------|
+| DRAM | Stores model weights | Full ECC | No | N/A | Off-chip reliability | Expensive accesses | N/A |
+| Controller/ECC | Corrects and removes reconstructable portion | Full to reduced | Strip | Output | Establishes reduced representation | ECC logic required | Essential |
+| Global/weight buffer | Holds weight tiles | Reduced preferred | R1 | Buffer output | Global storage/access savings | Full-width downstream NoC | 3/5 |
+| Weight NoC | Broadcasts/multicasts weights | Reduced preferred | R2 | NoC output/PE input | Reduced network traffic | Destination encoder replication | 4/5 |
+| PE weight RF | Holds local weights | Reduced preferred | R3a | RF output | Reduced RF storage/read width | Repeated reconstruction without retained full weights | 2/5 |
+| Decoded stationary register | Holds active full weight | Full | R3b | Register input | One reconstruction supports many uses | Small full-width storage/control cost | 5/5 |
+| MAC | Repeatedly consumes weight | Full | Avoid repeated critical-path reconstruction | Input | Reuse opportunity | Timing/throughput risk | 2/5 |
+
+Preferred hypothesis:
+
+Reduced global buffer
+      |
+      v
+Reduced NoC
+      |
+      v
+Reduced PE weight memory
+      |
+      v
+XOR reconstruction
+      |
+      v
+Small full-width stationary register
+      |
+      v
+Repeated reuse
+      |
+      v
+MAC
+
+
+======================================================================
+7. EYERISS V1
+======================================================================
+
+The source discussion describes original Eyeriss as:
+- Row-stationary (RS) dataflow.
+- 168-PE spatial array.
+- 108-kB global buffer.
+- Approximately 0.5 kB of local RF per PE in the fabricated chip.
+
+Important modeling distinction:
+The referenced official Timeloop Eyeriss example contains:
+- ifmap_spad
+- weights_spad
+- psum_spad
+
+The example explicitly bypasses weights at shared_glb.
+
+Therefore, do not assume every Eyeriss model uses:
+
+DRAM --> Global weight buffer --> Weight RF
+
+Useful abstraction:
+
+DRAM
+  |
+  v
+Memory interface / iFIFO
+  |
+  v
+GLB or weight-bypass path, depending on model
+  |
+  v
+Flat multicast/distribution NoC
+  |
+  v
+PE pFIFO
+  |
+  v
+PE weight SPad/RF
+  |
+  v
+MAC
+
+RS seeks reuse of weights, activations, and partial sums across RF and
+array levels instead of optimizing only one tensor.
+
+
+7.1 RECONSTRUCTION DIAGRAM
+
+DRAM
+  |
+  v
+ECC correction / strip
+  |
+  v
+Reduced weights
+  |
+  +--> R1: source-side reconstruction                [3/5]
+  |
+  v
+Flat multicast NoC
+  |
+  +--> R2: after multicast / PE input                [4/5]
+  v
+PE pFIFO
+  |
+  v
+Reduced weight SPad/RF
+  |
+  +--> R3a: reconstruct on every read                [3/5]
+  v
+Encoder
+  |
+  v
+Decoded reuse register
+  |
+  +--> R3b: retain reconstructed weight              [5/5]
+  v
+MAC
+
+Multicast tradeoff:
+
+BEFORE MULTICAST
+
+4 bits
+  |
+  v
+Encoder
+  |
+  v
+8 bits --------------+--> PE
+                     +--> PE
+                     +--> PE
+                     +--> PE
+
+One reconstruction at the source, but full-width network traffic.
+
+
+AFTER MULTICAST
+
+4 bits --------------+--> Encoder --> PE
+                     +--> Encoder --> PE
+                     +--> Encoder --> PE
+                     +--> Encoder --> PE
+
+Replicated reconstruction hardware, but reduced-width shared transport.
+
+Make multicast fanout versus reconstruction multiplicity an experiment
+variable.
+
+
+7.2 EYERISS V1 TABLE
+
+| Level | Function | Reconstruction option | Boundary | Main saving | Main cost | Rating |
+|-------|----------|-----------------------|----------|-------------|-----------|--------|
+| DRAM | Protected weight storage | No | N/A | N/A | Must retain ECC protection | N/A |
+| ECC/interface | Correct and strip | Strip only | Output | Establishes reduced representation | ECC logic | Essential |
+| Weight source/GLB if modeled | Supplies weight tile | Source reconstruction | Output | Potential source-storage saving | Full downstream network | 3/5 |
+| Flat array NoC | Multicasts/distributes weights | Destination reconstruction | Output | Network-width saving | More encoder instances | 4/5 |
+| PE FIFO | Buffers incoming weights | FIFO-output reconstruction | Output | Keeps transport reduced | FIFO-only storage benefit may be small | 3/5 |
+| PE weight RF/SPad | Exploits RS reuse | Local-output reconstruction | Output | Storage/read savings | Repeated encoding without retained full weights | 3/5 |
+| Reconstructed-weight latch | Holds currently reused weight | Reconstruct before latch | Input | Local savings with amortized XOR | Additional state | 5/5 |
+| MAC | Executes products | Very late reconstruction possible | Input | Maximum reduced lifetime | Timing risk | 2/5 |
+
+
+======================================================================
+8. OUTPUT-STATIONARY
+======================================================================
+
+In output-stationary dataflow, partial sums remain local while weights and
+activations are supplied to the PE.
+
+Weights ----> PE: partial sum remains here
+Inputs  ----> PE
+
+Canonical hierarchy:
+
+DRAM
+  |
+  v
+Weight buffer / global SRAM
+  |
+  v
+NoC / systolic injection
+  |
+  v
+PE
+  |
+  +--> Streamed weight
+  +--> Streamed activation
+  +--> Stationary partial-sum RF
+  |
+  v
+Output
+
+Weights are streaming operands in this abstraction.
+
+Reconstructing much earlier than the PE expands the weight representation
+while it is still being transported.
+
+
+8.1 RECONSTRUCTION DIAGRAM
+
+DRAM/ECC
+    |
+    v
+Reduced weights
+    |
+    v
+Reduced global weight SRAM
+    |
+    +--> R1: global SRAM output             [3/5]
+    v
+Reduced weight NoC
+    |
+    +--> R2: destination-side NoC output    [5/5]
+    v
+PE input FIFO
+    |
+    +--> R3: FIFO output                    [4/5]
+    v
+Encoder
+    |
+    v
+MAC
+    |
+    v
+Stationary partial sum
+
+Late reconstruction is promising when weights stream without substantial
+local temporal reuse.
+
+OS alone does not prove that weights have no reuse. Actual mapping,
+multicast, forwarding, and buffering still determine the counts.
+
+
+8.2 OUTPUT-STATIONARY TABLE
+
+| Level | Function | Weight behavior | Reconstruction | Advantages | Disadvantages | Rating |
+|-------|----------|-----------------|----------------|------------|---------------|--------|
+| DRAM | Full embedded-ECC storage | Stored | No | Complete protection | N/A | N/A |
+| ECC/controller | Correct and strip | Full to reduced | Strip | Reduced downstream stream | ECC cost | Essential |
+| Weight SRAM/GLB | Buffers weights | Reduced | Output | SRAM saving | Expands before NoC | 3/5 |
+| Weight NoC | Delivers weights | Reduced | Destination | Reduced bandwidth/switching | Encoder duplication may be needed | 5/5 |
+| PE input FIFO | Buffers incoming weights | Reduced | FIFO output | Narrow local FIFO | Reconstruction per delivered weight/group | 4/5 |
+| MAC operand latch | Holds short-lived operand | Full | Latch input | Very late reconstruction | Must sustain operand demand | 4/5 |
+| Partial-sum RF | Stores outputs | Not weight storage | No | N/A | N/A | N/A |
+
+Promising path:
+
+4-bit weight ---- NoC ----> PE --> XOR --> MAC
+
+Earlier alternative:
+
+4-bit weight --> XOR --> 8-bit weight ---- NoC ----> PE
+
+The earlier alternative sacrifices reduced-width NoC traffic.
+
+High multicast fanout can change the result:
+
+Option 1:
+1 encoder + full-width multicast to 100 PEs.
+
+Option 2:
+100 destination encoders + reduced-width multicast.
+
+Evaluate both rather than assuming late reconstruction always wins.
+
+
+======================================================================
+9. INPUT-STATIONARY
+======================================================================
+
+Input-stationary dataflow retains activations locally while weights are
+supplied to the array.
+
+             Stationary activation
+                     |
+                     v
+Weights -----------> PE -----------> Partial sum
+Weights -----------> PE -----------> Partial sum
+Weights -----------> PE -----------> Partial sum
+
+For weight reconstruction, IS resembles the streaming-weight OS
+abstraction. The difference is which other operand receives stationary
+reuse.
+
+
+9.1 RECONSTRUCTION DIAGRAM
+
+DRAM/ECC
+    |
+    v
+Reduced weights
+    |
+    v
+Reduced global weight buffer
+    |
+    +--> R1: global-buffer output          [3/5]
+    v
+Reduced NoC / systolic stream
+    |
+    +--> R2: destination-side NoC output   [5/5]
+    v
+PE weight input
+    |
+    +--> R3: local input-buffer output     [4/5]
+    v
+XOR reconstruction
+    |
+    v
+MAC <--- Stationary activation RF
+
+Many weights may be applied to the same stationary input, creating
+substantial weight traffic. Reducing weight transport can therefore be
+valuable.
+
+
+9.2 INPUT-STATIONARY TABLE
+
+| Level | Role | Weight behavior | Reconstruction | Benefit | Cost | Rating |
+|-------|------|-----------------|----------------|---------|------|--------|
+| DRAM | Protected model storage | Stored | No | ECC protection | N/A | N/A |
+| ECC/controller | Correct and strip | Full to reduced | Strip | Reduced downstream representation | ECC logic | Essential |
+| Global weight buffer | Supplies changing weights | Reduced | Output | SRAM saving | Full downstream traffic | 3/5 |
+| Weight NoC | Streams filters past activations | Reduced | NoC output | Transport/bandwidth reduction | Replicated encoders | 5/5 |
+| PE weight FIFO/register | Temporary buffering | Reduced | Output | Local-buffer saving | Reconstruction for each new weight/group | 4/5 |
+| MAC input | Supplies weight operand | Full | Input | Latest boundary | Must sustain required operand rate | 4/5 |
+| Activation RF | Holds stationary input | Not weight storage | No | Outside weight-reconstruction path | N/A | N/A |
+
+Leading hypothesis:
+Destination-side NoC reconstruction is a strong IS candidate.
+
+
+======================================================================
+10. SIMBA
+======================================================================
+
+Simba provides a multi-level weight-stationary architecture.
+
+Hierarchy:
+
+Package
+   |
+   v
+Chiplet
+   |
+   v
+PE
+
+Communication:
+- Network on package (NoP) between chiplets.
+- Network on chip (NoC) within a chiplet.
+
+The source discussion describes each PE as containing:
+- Distributed weight buffer.
+- Input buffer.
+- Parallel vector-MAC units.
+- Accumulation buffer.
+- Post-processing hardware.
+
+Key feature:
+Weights remain in vector-MAC registers and are reused while new inputs
+are supplied each cycle.
+
+This aligns with reconstruction immediately before stationary weight
+registers.
+
+
+10.1 FLOW
+
+DRAM
+  |
+  v
+Memory controller / ECC
+  |
+  v
+Global PE / global storage
+  |
+  v
+NoP
+  |
+  v
+Chiplet router
+  |
+  v
+Chiplet NoC
+  |
+  v
+PE router interface
+  |
+  v
+Distributed weight buffer
+  |
+  v
+Vector-MAC weight registers
+  |
+  v
+Vector MACs
+
+Treat this as an abstraction to reconcile with the chosen Simba model.
+Do not invent a storage level merely because it appears in this diagram.
+
+
+10.2 RECONSTRUCTION DIAGRAM
+
+DRAM/ECC
+   |
+   v
+Reduced representation
+   |
+   +--> R1: source/global reconstruction       [2/5]
+   v
+Global PE / package network
+   |
+   v
+NoP
+   |
+   +--> R2: NoP output                         [3/5]
+   v
+Chiplet NoC
+   |
+   +--> R3: chiplet NoC output                 [4/5]
+   v
+PE distributed weight buffer
+   |
+   | Reduced representation
+   |
+   +--> R4: distributed weight-buffer output   [5/5]
+   v
+XOR reconstruction
+   |
+   v
+Full weight
+   |
+   v
+Vector-MAC stationary register
+   |
+   +--> reuse
+   +--> reuse
+   +--> reuse
+   +--> reuse --> Vector MAC
+
+
+10.3 SIMBA TABLE
+
+| Level | Function | Representation | Reconstruction | Advantages | Disadvantages | Rating |
+|-------|----------|----------------|----------------|------------|---------------|--------|
+| DRAM | Stores model | Full ECC | No | Full reliability | No on-chip saving yet | N/A |
+| Memory/ECC controller | Checks, corrects, strips | Full to reduced | Strip | Establishes reduced representation | ECC hardware | Essential |
+| Global PE/source storage | Supplies chiplet-level data | Reduced | R1 | Centralized encoder simplicity | Expands before NoP and NoC | 2/5 |
+| NoP | Package/chiplet communication | Reduced | R2 at output | Saves package communication | Chiplet NoC carries full data | 3/5 |
+| Chiplet NoC | Routes to PEs | Reduced | R3 at output | Saves NoP and NoC traffic | Full PE weight-buffer storage | 4/5 |
+| Distributed weight buffer | Holds local weight tile | Reduced | R4 at output | Saves NoP, NoC, local storage/access | Local encoder needed | 5/5 |
+| Vector-MAC weight register | Retains reconstructed weight | Full | Reconstruction before register | Once per stationary-weight load | Account for register/state costs | 5/5 |
+| Vector MAC | Reuses stationary weight | Full | Avoid encoding every MAC | Strong amortization opportunity | N/A | N/A |
+
+Promising implementation:
+
+Reduced distributed weight buffer
+              |
+              v
+           One read
+              |
+              v
+         XOR encoder
+              |
+              v
+    Vector-MAC weight register
+              |
+      +-------+-------+
+      v       v       v
+     Use     Use     Use ...
+
+Simba already has stationary vector-MAC weight registers. Determine whether
+the proposed implementation can reuse existing registers rather than
+assuming an additional register is necessary.
+
+
+======================================================================
+11. CROSS-ARCHITECTURE COMPARISON
+======================================================================
+
+These rankings are hypotheses.
+
+| Architecture | Early/global reconstruction | After NoC | Local weight-storage output | Local output + decoded reuse register | Likely best candidate |
+|--------------|-----------------------------|-----------|-----------------------------|---------------------------------------|-----------------------|
+| Eyeriss v2 | 2/5 | 4/5 | 3/5 | 5/5 | SPad output plus decoded microcache/latch |
+| Weight stationary | 3/5 | 4/5 | 2/5 for naive repeated encoding | 5/5 | Reduced RF plus decoded stationary register |
+| Eyeriss v1 | 3/5 | 4/5 | 3/5 | 5/5 | PE weight SPad/RF output plus reuse latch |
+| Output stationary | 3/5 | 5/5 | 4/5 | Less central in the streaming abstraction | Destination-side NoC/PE input |
+| Input stationary | 3/5 | 5/5 | 4/5 | Less central in the streaming abstraction | Destination-side NoC/PE input |
+| Simba | 2/5 | 4/5 | 5/5 | 5/5 | Distributed weight-buffer output to vector-MAC registers |
+
+General hypothesis:
+
+Architectures with strong local weight reuse favor reconstruction
+immediately before a small stationary decoded-weight register.
+
+Architectures with streaming weights favor reconstruction after the
+weight-distribution network, subject to fanout, forwarding, and encoder
+throughput costs.
+
+Do not hard-code these rankings as the outcome of the DSE.
+The implementation must measure the relevant counts and costs.
+
+END OF PART 1
+
+Continue with Part 2 for:
+- Temporal reuse and spatial fanout.
+- Break-even analysis.
+- CSC interaction.
+- ECC dependency granularity.
+- Physical memory packing.
+- Experiment variants and metrics.
+- Timeloop/Accelergy and RTL synthesis integration.
+- Initial experiments and research hypotheses.

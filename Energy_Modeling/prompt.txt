@@ -1,0 +1,69 @@
+The code is in /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling
+
+copy the folders in /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/Energy_modeling to /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling as there is a subfolder for the project that is not needed.
+
+You are on UF HiPerGator, logged in on a login node over VS Code Remote-SSH.
+The project is at /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling and
+was copied from a Windows laptop today. Read CLAUDE.md first (especially the
+section "Running on HiPerGator"), then hpc/HIPERGATOR.md, then progress.txt
+and FINDINGS.md for the state of the work.
+
+GOAL OF THIS SESSION: make the existing single-process flow (`bash run.sh ...`)
+work here through Apptainer, exactly as it works on the laptop through Docker,
+and prove it with the five checks in hpc/HIPERGATOR.md section 5. Nothing else.
+
+Do, in order:
+1. Confirm the copy is complete: run `bash tools-fix-eol.sh`, check that
+   ecc_energy_study/timeloop-accelergy-exercises, ecc_energy_study/outputs and
+   results/_raw exist and that `python3 -c "import eccenergy"` works with the
+   system python (it only needs the standard library for that import; pandas,
+   matplotlib and yaml come from the container).
+2. Build the container image once with `module load apptainer` and
+   `apptainer pull` as section 3 describes, into
+   /blue/rewetz/vkamineni/Projects/RECAP/timeloop.sif, with
+   APPTAINER_CACHEDIR and APPTAINER_TMPDIR under /blue (not /home). Do the pull
+   inside an interactive allocation
+   (`srun --account=rewetz --qos=rewetz --cpus-per-task=4 --mem=16gb --time=01:00:00 --pty bash -i`).
+   If the module is named differently (`singularity`), or the group/QOS names
+   differ, find the right ones (`module spider apptainer`, `slurmInfo -g rewetz`,
+   `sacctmgr show assoc user=vkamineni format=account,qos`) and correct
+   hpc/HIPERGATOR.md and hpc/tl.sh accordingly.
+3. Run the five verification checks of section 5 through `bash hpc/tl.sh ...`
+   inside an 18-core interactive allocation
+   (`srun --account=rewetz --qos=rewetz --cpus-per-task=18 --mem=8gb --time=02:00:00 --pty bash -i`).
+   Check 4 must reproduce the laptop numbers EXACTLY from the copied cache
+   without invoking Timeloop: Timeloop energy 401.977 uJ (eyeriss_v2_like),
+   390.110 (eyeriss_like), 469.457 (simple_weight_stationary), 711.872
+   (simple_output_stationary), 508.517 (simple_input_stationary), 446.067
+   (simba_like). Check 5 must map one uncached shape and write a mapping.json
+   sidecar. Use ECC_MAPPER_THREADS=18 always; the thread count is part of the
+   cache key.
+4. If an Apptainer detail breaks something, fix the ENVIRONMENT, not the model:
+   typical causes are /blue not bound (add --bind /blue), the working
+   directory (use --pwd), Accelergy wanting to write ~/.config/accelergy (let
+   it, or set HOME to a writable directory), or the image entrypoint (do not
+   use it; `apptainer exec` runs the command directly). Put every such fix into
+   hpc/tl.sh or hpc/HIPERGATOR.md so the next person does not rediscover it.
+5. Record the outcome: update progress.txt (the MIGRATION section, one of the
+   three emoji per line), add a short "HiPerGator bring-up" section to
+   FINDINGS.md with the exact commands that worked and the numbers check 4
+   produced, and update the header of PROJECT_STATUS.md.
+
+RULES:
+- Never run anything that invokes Timeloop (`bash run.sh map`, a cold
+  `bash run.sh`) on the login node; validate, --eval, --replot, diagnose and the
+  tests are fine there but simpler inside the same allocation.
+- Do NOT design or build parallel (SLURM job-array) execution in this session,
+  even though hpc/HIPERGATOR.md section 7 describes it; that is the next
+  session, after these checks pass.
+- Do NOT change run.sh defaults, any archs/*.yaml, the ECC arms, or the
+  mapper settings; do NOT delete anything under ecc_energy_study/outputs or
+  results/_raw.
+- Every file you write must have LF line endings.
+- Stop and report if check 4 does not reproduce the numbers exactly: that
+  means the cache or the fingerprints did not survive the transfer, and the
+  cause has to be understood before anything is mapped here.
+
+Finish with a short summary: which checks passed, the exact commands that
+work on HiPerGator, anything that differed from hpc/HIPERGATOR.md, and the
+group's concurrent-core limit from slurmInfo (needed for the next session).

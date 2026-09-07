@@ -1,0 +1,176 @@
+architecture:
+  # ============================================================
+  # Eyeriss v2 -- PHYSICAL 8x2 / 3x4 VARIANT (see README)
+  # Eyeriss v2 -- Chen, Yang, Emer, Sze,
+  # "Eyeriss v2: A Flexible Accelerator for Emerging Deep Neural
+  #  Networks on Mobile Devices", IEEE JETCAS 9(2), 2019.
+  #  arXiv:1807.07928
+  #
+  # See README.md in this folder for the paper->Timeloop mapping
+  # of every number below, and for what this tool cannot capture.
+  # ============================================================
+  version: 0.4
+  nodes:
+  - !Container # Top-level system
+    name: system
+
+  - !Component # DRAM main memory
+    name: DRAM
+    class: DRAM
+    attributes:
+      type: "LPDDR4"
+      depth: 1048576
+      width: 64
+      datawidth: 8
+
+  - !Container # Eyeriss v2 accelerator
+    name: eyeriss_v2
+    attributes:
+      technology: "45nm"
+
+  # ------------------------------------------------------------
+  # GLB clusters.  16 GLB clusters x 12 kB = 192 kB total.
+  # Each cluster: 3 iact banks x 1.5 kB  = 4.5 kB  -> 72 kB iact
+  #               4 psum banks x 1.875kB = 7.5 kB  -> 120 kB psum
+  # iacts and psums live in PHYSICALLY SEPARATE SRAM in v2, so
+  # they are two parallel storage levels, not one shared GLB.
+  # Weights are NOT stored in the GLB in v2: they stream from
+  # DRAM through the weight routers straight into the PE spads.
+  # ------------------------------------------------------------
+  - !Parallel
+    nodes:
+    - !Component # iact GLB: 16 clusters x 3 banks x 1.5 kB = 72 kB
+      name: iact_glb
+      class: smartbuffer_SRAM
+      attributes:
+        depth: 9216          # 9216 x 64b = 73728 B = 72 kB
+        width: 64
+        n_banks: 48          # 16 GLB clusters x 3 iact banks
+        datawidth: 8
+        read_bandwidth: 48   # one 8b iact per bank per cycle
+        write_bandwidth: 48
+      constraints:
+        dataspace: {keep: [Inputs], bypass: [Weights, Outputs]}
+
+    - !Component # psum GLB: 16 clusters x 4 banks x 1.875 kB = 120 kB
+      name: psum_glb
+      class: smartbuffer_SRAM
+      attributes:
+        depth: 24576         # 24576 x 40b = 122880 B = 120 kB
+        width: 40            # 2 x 20b psums, matches the 40b psum router port
+        n_banks: 64          # 16 GLB clusters x 4 psum banks
+        datawidth: 20        # psums are 20b fixed point in v2
+        read_bandwidth: 64
+        write_bandwidth: 64
+      constraints:
+        dataspace: {keep: [Outputs], bypass: [Weights, Inputs]}
+
+    - !Nothing # Weights have no GLB level in v2: DRAM -> router -> weight spad
+      constraints:
+        dataspace: {keep: [Weights]}
+
+  # ------------------------------------------------------------
+  # 16 PE clusters (physically an 8x2 array).  Flattened to a
+  # single 16-wide mesh: the hierarchical mesh NoC lets any GLB
+  # cluster reach any PE cluster, so the 8x2 split would only
+  # restrict the mapper without changing anything this tool models.
+  # ------------------------------------------------------------
+  - !Container
+    name: PE_cluster
+    spatial: {meshX: 8, meshY: 2}   # literal 8x2 cluster array
+    constraints:
+      spatial:
+        permutation: [M, C, N, P, Q, R, S]
+        factors: [N=1, R=1, S=1]
+        split: 1                    # M across the 8 columns, C across the 2 rows
+
+  # ------------------------------------------------------------
+  # 12 PEs per cluster (physically a 3x4 array).
+  # RS+ tiles across PEs by filter row (R), channel (C) and
+  # output channel (M) -- the channel-group dimension is what v2
+  # adds over v1, so C is left free here.
+  # ------------------------------------------------------------
+  - !Container
+    name: PE
+    spatial: {meshX: 4, meshY: 3}   # literal 3x4 PE array inside a cluster
+    constraints:
+      spatial:
+        permutation: [C, M, R, S, N, P, Q]
+        factors: [N=1, P=1, Q=1]
+        split: 2                    # C,M across the 4 columns; R,S across the 3 rows
+
+  # ------------------------------------------------------------
+  # Per-PE scratchpads.  Dense-equivalent capacities: the CSC
+  # address registers (iact 9x4b, weight 16x7b) and the CSC
+  # count fields inside each data word carry no traffic in a
+  # dense workload, so only the data bits are modelled.
+  # ------------------------------------------------------------
+  - !Parallel
+    nodes:
+    - !Component # iact spad: paper 16 x 12b (8b iact + 4b CSC run)
+      name: ifmap_spad
+      class: smartbuffer_RF
+      attributes:
+        depth: 16
+        width: 8
+        datawidth: 8
+        read_bandwidth: 1    # one iact feeds both SIMD lanes
+        write_bandwidth: 1
+      constraints:
+        dataspace: {keep: [Inputs]}
+        temporal:
+          permutation: [N, M, C, P, Q, R, S]
+          factors: [N=1, M=1, C=1, P=1, Q=1, R=1, S=1]
+
+    - !Component # weight spad: paper 96 x 24b (2 x 8b SIMD pair + 8b CSC)
+      name: weights_spad
+      class: smartbuffer_RF
+      attributes:
+        depth: 96
+        width: 16            # the 2 x 8b data half of the 24b word
+        datawidth: 8
+        read_bandwidth: 2    # SIMD fetches two weights per cycle
+        write_bandwidth: 2
+      constraints:
+        dataspace: {keep: [Weights]}
+        temporal:
+          permutation: [N, M, P, Q, S, C, R]
+          factors: [N=1, M=1, P=1, Q=1, S=1]
+
+    - !Component # psum spad: paper 32 x 20b (exact, no metadata)
+      name: psum_spad
+      class: smartbuffer_RF
+      attributes:
+        depth: 32
+        width: 20
+        datawidth: 20
+        update_fifo_depth: 2
+        read_bandwidth: 2
+        write_bandwidth: 2
+      constraints:
+        dataspace: {keep: [Outputs]}
+        temporal:
+          permutation: [N, C, P, Q, R, S, M]
+          factors: [N=1, C=1, R=1, S=1, P=1, Q=1]
+
+  # ------------------------------------------------------------
+  # 2-way SIMD inside each PE: two weights are fetched for the
+  # same iact, giving two MACs per cycle on two output channels.
+  # M is left free so the mapper picks 2 when M is even and
+  # falls back to 1 (one idle lane) when it is not.
+  # ------------------------------------------------------------
+  - !Container
+    name: SIMD
+    spatial: {meshX: 2}
+    constraints:
+      spatial:
+        permutation: [M, C, N, P, Q, R, S]
+        factors: [N=1, C=1, P=1, Q=1, R=1, S=1]
+        split: 999
+
+  - !Component # MAC unit
+    name: mac
+    class: intmac
+    attributes:
+      multiplier_width: 8
+      adder_width: 20        # 20b psum accumulation

@@ -1,0 +1,117 @@
+{
+ "config": {
+  "experiment": "sweep",
+  "sweep": "arch",
+  "sweep_archs": [
+   "eyeriss_v2_like",
+   "eyeriss_like",
+   "simple_weight_stationary",
+   "simba_like",
+   "simple_output_stationary"
+  ],
+  "sweep_models": [
+   "resnet18",
+   "resnet50",
+   "densenet121",
+   "squeezenet1_1",
+   "mobilenet_v2",
+   "efficientnet_b0",
+   "convnext_tiny",
+   "xception"
+  ],
+  "sweep_ks": [
+   57,
+   51,
+   45,
+   39,
+   36,
+   30
+  ],
+  "const_arch": "eyeriss_like",
+  "const_model": "resnet18",
+  "const_k": 51,
+  "approaches": [
+   "baseline",
+   "embedded",
+   "recon"
+  ],
+  "weight_bits": 8,
+  "code_n": 63,
+  "emb_weights_per_cw_override": null,
+  "decode_enabled": false,
+  "decode_pj_base": 40.0,
+  "decode_pj_emb": 40.0,
+  "recon_charges_decode": true,
+  "recon_json": "data/dc/BCH_N63_results.json",
+  "recon_include_idle": true,
+  "recon_pj_override": null,
+  "recon_incremental_fallback_pj": 1.8995,
+  "recon_idle_fallback_pj": 2.2301273,
+  "weak_enabled": false,
+  "weak_n": 63,
+  "weak_k": 57,
+  "baseline_inflates_onchip": false,
+  "split_read_write": false,
+  "classify_mode": "instances",
+  "arch_fidelity": "paper",
+  "force_technology": "",
+  "force_datawidth": null,
+  "dram_depth": 1048576,
+  "global_cycle_seconds": "1e-9",
+  "opt_metric": "energy",
+  "victory": 500,
+  "victory_scaling": "levels",
+  "mapper_threads": null,
+  "mapper_timeout": 10000,
+  "mapper_algorithm": "hybrid",
+  "results_dir": "results",
+  "replot_only": false,
+  "from_cache": false,
+  "palette": "house",
+  "dpi": 400,
+  "formats": [
+   "png",
+   "pdf"
+  ],
+  "title_note": "",
+  "nice_labels": true,
+  "archs": [
+   "eyeriss_v2_like",
+   "eyeriss_like",
+   "simple_weight_stationary",
+   "simba_like",
+   "simple_output_stationary"
+  ],
+  "models": [
+   "resnet18"
+  ],
+  "code_k": 51,
+  "code_t": 2,
+  "workload": "cnn",
+  "stem": "ArchitectureSweep",
+  "arch_variant_slug": "opt-energy__vicx__paper",
+  "weights_per_codeword": 6.375,
+  "emb_weights_per_cw": 6.375,
+  "parity_frac": 0.23529411764705888,
+  "sram_scale": 0.8095238095238095,
+  "weak_overhead": 1.0
+ },
+ "mapper_fingerprint": "7e9cd693",
+ "recon_pj_per_codeword": 4.1296273,
+ "recon_provenance": "BCH_N63_results.json [BCH_63_51_t2] n=63 k=51 t=2 (incremental+idle): inc=1.8995000 idle=2.2301273",
+ "workload_meta": {},
+ "swept_axis": "arch",
+ "swept_values": [
+  "eyeriss_v2_like",
+  "eyeriss_like",
+  "simple_weight_stationary",
+  "simba_like",
+  "simple_output_stationary"
+ ],
+ "figures": [
+  "/home/workspace/results/figures/ArchitectureSweep.png",
+  "/home/workspace/results/figures/ArchitectureSweep.pdf"
+ ],
+ "table": "/home/workspace/results/tables/ArchitectureSweep.csv",
+ "notes": []
+}

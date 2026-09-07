@@ -1,0 +1,351 @@
+# =====================================================================
+#  THE INTERCONNECT (NoC) ENERGY CONTRACT
+#
+#  Timeloop instantiates a network between every pair of adjacent
+#  topology levels and tracks, per candidate mapping, the fanout,
+#  multicast factor, hop count and spatial reductions on each one.
+#  Until this file existed every one of those networks was costed at
+#  ZERO, because Timeloop's built-in wire model is a stub:
+#
+#      timeloop/src/pat/pat.cpp:81
+#        double WireEnergy(std::uint64_t bits, double length_mm)
+#        { (void) bits; (void) length_mm; return 0; }
+#
+#  So data movement between PEs was free, in the evaluator AND in the
+#  mapper's objective. This file supplies the coefficients that make it
+#  cost something, and records where every number comes from.
+#
+#  WHY THE VALUES ARE SHAPED THE WAY THEY ARE
+#  ------------------------------------------
+#  The same rule as `standard.yaml`: a cross-architecture gap must be a
+#  statement about the ARCHITECTURE, not about whose paper measured its
+#  interconnect more generously. So:
+#
+#    * `wire_pj_per_bit_mm` is ONE number, applied to every design.
+#      It is a property of 45nm metal, not of a dataflow.
+#    * Per-architecture differences come from things the design itself
+#      determines and Timeloop already measures: the physical hop
+#      distance (`tile_width`, derived by Timeloop from the Accelergy
+#      AREA of the inner level -- see topology.cpp:1716), the number of
+#      hops a mapping needs, and the traffic that flows.
+#    * Only the SWITCHING term is per-architecture, because the
+#      designs genuinely differ there: v2 has real mesh routers, v1 has
+#      a multicast controller, and the generic dataflows have neither.
+#
+#  HOW TIMELOOP SPENDS THESE NUMBERS
+#  ---------------------------------
+#  model/network-legacy.cpp:408 ComputeNetworkEnergy():
+#
+#      energy = total_wire_hops     * energy_per_hop
+#             + total_routers_touch * router_energy
+#             + total_ingresses     * ingress_energy
+#
+#      energy_per_hop = word_bits * (tile_width_um/1000) * wire_energy
+#      total_routers_touched = (1 + floor(num_hops)) * ingresses
+#
+#  All three terms are inside the mapper's objective, so these values
+#  change WHICH MAPPING WINS, not merely what the chosen one reports.
+#  Editing this file therefore invalidates the mapper cache -- correctly,
+#  because `arch_fingerprint()` hashes the patched arch text.
+#
+#  WHERE THEY ARE INJECTED, AND THE TRAP (archs._inject_noc)
+#  --------------------------------------------------------
+#  Timeloop reads a network's specs from the level the network hangs off,
+#  and the network between two levels takes them from the OUTER one. The
+#  inter-PE networks -- the only ones with hops -- hang off the level the
+#  v4 front-end synthesises from a `!Container ... spatial:` block, so the
+#  terms are written as attributes of every spatial container. But a
+#  container's attributes are INHERITED by its child components, and the
+#  two hop-independent terms then reach every scratchpad inside a PE:
+#  `psum_spad <==> mac` was billed 0.40 pJ per operand as if a
+#  register-to-ALU path were a NoC (measured: 94% of a 45% "NoC" share on
+#  eyeriss_like layer4.1.conv2). Every storage component therefore gets an
+#  explicit `router_energy: 0` / `energy-per-ingress: 0`, so switching is
+#  charged ONLY on the synthesised fanout levels. Wire energy needs hops
+#  and is harmless to inherit.
+# =====================================================================
+version: 1
+
+# --------------------------------------------------------------- shared
+# Identical for every architecture. A design that needs a different
+# value here is claiming different METAL, which this study does not model.
+shared:
+
+  # ---- wire -----------------------------------------------------------
+  # Energy to move one bit one millimetre on an on-chip wire, at the
+  # 40/45nm generation.
+  #
+  # SOURCE:
+  #   S. W. Keckler, W. J. Dally, B. Khailany, M. Garland, D. Glasco,
+  #   "GPUs and the Future of Parallel Computing", IEEE Micro 31(5), 2011,
+  #   Table 1 ("Process technology 40 nm"):
+  #     "Wire energy (per transition)      240 fJ per bit per mm"
+  #     "Wire energy (256 bits, 10 mm)     310 pJ"
+  #   https://doi.org/10.1109/MM.2011.89
+  #   (text copy: https://www.cs.toronto.edu/~pekhimenko/courses/csc2224-f19/docs/GPU.pdf)
+  #
+  #   310 pJ / (256 bits x 10 mm) = 0.121 pJ per bit moved per mm. That
+  #   row is the per-transition figure times the transition probability
+  #   of ordinary data (~0.5), and it is the quantity Timeloop charges:
+  #   energy per bit MOVED, not per bit toggled. 0.24 is the worst case
+  #   (every bit toggles every transfer); ECC_NOC_WIRE_PJ_PER_BIT_MM=0.24
+  #   is the pessimistic sensitivity point.
+  #
+  # WHY NOT 0.4. This file first used ~400 pJ/m (0.4 pJ/bit/mm) from
+  #   https://arxiv.org/pdf/1207.6819 ("Device Considerations for
+  #   Nanophotonic CMOS Global Interconnects"), a figure for REPEATED
+  #   GLOBAL wires at full activity -- an upper bound for the 0.1-0.4 mm
+  #   inter-tile links modelled here, and 3.3x the Keckler row. The
+  #   ablation in FINDINGS.md ("Interconnect (NoC) model") shows what it
+  #   did: Eyeriss v2's NoC share went 13.0% (0.4) -> 7.6% (0.2) -> 5.3%
+  #   (0.12) with everything else fixed, wire being 74% of v2's NoC.
+  # CROSS-CHECK (measured 45nm NoC link, router + wire together):
+  #   https://ieeexplore.ieee.org/document/8241443 -- 0.38-0.53 pJ/bit
+  #   over a 0.5 mm serial link (SerDes-dominated, so an upper bound on
+  #   wire + switching for a parallel mux-routed link).
+  wire_pj_per_bit_mm: 0.12
+
+  # ---- router, per FLIT --------------------------------------------------
+  # One switching energy per router traversal per flit, shared by every
+  # router-based design (level playing field); each design's PUBLISHED port
+  # packing turns it into a per-operand charge (`operands_per_flit`). The
+  # v2 routers are "circuit-switched routing, which mainly consists of
+  # muxes and is statically configured" (Sec. III-C) -- no buffering, no
+  # arbitration -- so this is a mux stage plus handshake, not a packet
+  # router. ASSUMPTION, no published pJ: set so a one-router traversal of a
+  # flit costs ~60% of Eyeriss v1's calibrated multicast-controller
+  # switching for one operand. ECC_NOC_ROUTER_PJ overrides it.
+  router_pj_per_flit: 0.25
+
+  # ---- the calibration anchor -----------------------------------------
+  # Eyeriss v1's own paper publishes the cost of one inter-PE transfer,
+  # normalized to a MAC, which is exactly the quantity being modelled:
+  #
+  #   Table IV, "NORMALIZED ENERGY COST RELATIVE TO A MAC OPERATION"
+  #     DRAM 200x | Global Buffer 6x | Array (inter-PE) 2x | RF 1x
+  #   "The numbers are extracted from a commercial 65nm process."
+  #   "The simulations assume 16 bits per word."
+  #
+  # SOURCE:
+  #   https://users.cs.duke.edu/~lkw34/papers/eyeriss-isca2016.pdf
+  #     Y.-H. Chen, J. Emer, V. Sze, "Eyeriss: A Spatial Architecture for
+  #     Energy-Efficient Dataflow for Convolutional Neural Networks",
+  #     ISCA 2016, Table IV.  (Same table in IEEE JSSC 52(1), 2017.)
+  #
+  # Because the table is NORMALIZED TO A MAC it transfers across nodes
+  # without inventing a 65nm->45nm scaling factor: this study's own 45nm
+  # MAC energy is the unit. Accelergy gives, for eyeriss_like
+  # (8b x 8b multiply, 16b accumulate, 45nm):
+  #
+  #     E_MAC = 1.13555 pJ            (timeloop-mapper.ERT_summary.yaml)
+  #
+  # so one inter-PE transfer of a 16b word = 2 x 1.13555 = 2.27110 pJ,
+  # i.e. 0.14194 pJ/bit, i.e. 1.13555 pJ for this study's 8b operands.
+  #
+  # THE SPLIT. That published figure is wire AND switching together. The
+  # wire half is predicted independently by `wire_pj_per_bit_mm` above at
+  # Eyeriss v1's own PE pitch (tile_width = 91.81 um, measured by
+  # Timeloop from the Accelergy area of the PE tile):
+  #
+  #     wire, 8b, 2.5 hops = 2.5 * 8 * 0.09181 mm * 0.12 = 0.2203 pJ
+  #     switching remainder = 1.13555 - 0.2203           = 0.9152 pJ
+  #     (at the former 0.4 pJ/bit/mm: 0.7345 wire, 0.4011 switching)
+  #
+  # That remainder is what `ingress_pj: calibrated` resolves to (in code,
+  # archs.calibrated_ingress(), so it follows the wire constant: a lower
+  # wire constant makes MORE of the published transfer cost switching, and
+  # never makes v1's transfer cheaper than its paper says). Every design
+  # with a plain multicast network reuses it.
+  calibration:
+    reference_arch: eyeriss_like
+    reference_mac_pj: 1.13555
+    published_inter_pe_x_mac: 2          # Eyeriss ISCA 2016 Table IV
+    published_word_bits: 16              # "16 bits per word"
+    reference_tile_width_um: 91.81       # Timeloop, from Accelergy area
+    reference_avg_hops: 2.5
+
+  # ---- why an ingress term exists at all ------------------------------
+  # Timeloop charges wire energy per HOP, and a mapping with no spatial
+  # fanout has no hops -- so a fully serial mapping would move all its
+  # data for free. Under an energy-only objective the mapper finds that
+  # corner: on an FC layer, adding wire energy alone drove PE array
+  # utilization from 23.81% to 0.60% (measured, C1280_M1000 on
+  # eyeriss_like). A real machine still pays to move an operand from the
+  # GLB to one PE. `ingress_pj` is charged per ingress regardless of hop
+  # count and removes that artifact.
+  charge_ingress_when_hops_zero: true
+
+# ------------------------------------------------- per-architecture
+# Only the switching term varies. Every design gets the same wire model.
+#
+#   router_pj   charged per router TRAVERSED, (1+floor(hops)) per
+#               ingress. For designs that contain real routers.
+#   ingress_pj  charged once per ingress. For multicast-network control
+#               and switching that is not a router.
+#   noc_levels  the spatial `!Container`s that ARE the interconnect. Every
+#               spatial container becomes a fanout level in Timeloop, but
+#               not every one is a NoC: Eyeriss v2's `SIMD` (meshX 2) is
+#               the two-MAC datapath inside a PE, and Simba's
+#               `distributed_buffers` / `reg_mac` are the vector-MAC lanes
+#               inside a PE. Charging those as router hops billed v2 750
+#               fJ per MAC (3 operands x 0.25 pJ) for a wire that never
+#               leaves the PE -- measured, smoke run 2. Containers not
+#               listed here get EXPLICIT ZERO terms (wire, router,
+#               ingress): a lane container nested inside a NoC container
+#               inherits the parent's terms onto its synthesised level, so
+#               merely omitting it still billed 750 fJ/MAC (smoke run 3).
+#               Their cost is the PE datapath's, which Accelergy's MAC/RF
+#               energies carry. Omit the key to charge every container.
+#
+# `source` follows standard.yaml: `published` means the structure below
+# is in the cited paper. It never means the paper published a pJ figure
+# -- none of these do for their on-chip NoC, which is precisely why the
+# energy constants are shared and only the STRUCTURE is per-design.
+architectures:
+
+  eyeriss_like:
+    source: published
+    structure: multicast_network_no_routers
+    citation: >-
+      Y.-H. Chen, T. Krishna, J. Emer, V. Sze, "Eyeriss: An
+      Energy-Efficient Reconfigurable Accelerator for Deep Convolutional
+      Neural Networks", IEEE JSSC 52(1), 2017; ISCA 2016 Table IV.
+    citation_url: https://users.cs.duke.edu/~lkw34/papers/eyeriss-isca2016.pdf
+    evidence: >-
+      ISCA 2016 Sec. V: the design uses "separate NoCs for the three data
+      types: global multicast NoCs for the ifmaps and filters, and a
+      local PE-to-PE NoC for the psums". Multicast controllers with ID
+      matching, not routers -- so the switching cost is billed per
+      ingress, not per router hop.
+    noc_levels: [PE_column, PE]   # the 12 x 14 array IS the NoC (Sec. V)
+    router_pj: 0.0
+    ingress_pj: calibrated  # 0.9152 at wire 0.12; see shared.calibration
+
+  eyeriss_like_wglb:
+    source: derived
+    derived_from: eyeriss_like
+    structure: multicast_network_no_routers
+    evidence: >-
+      Differs from eyeriss_like in one storage block (the 8 kB filter
+      GLB allocation), not in its interconnect. Same NoC constants.
+    noc_levels: [PE_column, PE]
+    router_pj: 0.0
+    ingress_pj: calibrated
+
+  eyeriss_v2_like:
+    source: published
+    structure: hierarchical_mesh_with_routers
+    citation: >-
+      Y.-H. Chen, T.-J. Yang, J. Emer, V. Sze, "Eyeriss v2: A Flexible
+      Accelerator for Emerging Deep Neural Networks on Mobile Devices",
+      IEEE JETCAS 9(2), 2019. arXiv:1807.07928.
+    citation_url: https://arxiv.org/pdf/1807.07928
+    evidence: >-
+      Table II / Sec. III-C: 16 PE clusters and 16 GLB clusters in an
+      8x2 array, each PE cluster 3x4 PEs; each ROUTER CLUSTER holds
+      "3 iact routers (4 src/dst ports, 24b/port), 3 weight routers
+      (2 src/dst ports, 24b/port), 4 psum routers (3 src/dst ports,
+      40b/port)" -- 10 real routers per cluster. This is the only design
+      here whose interconnect contains routers as such, so it is the
+      only one charged `router_pj`.
+    validation_target: >-
+      Sec. V / Fig. 18 states the hierarchical mesh accounts for
+      "2.6% of the area" and "6%-10% of the total energy consumption".
+      Every v2 result records the modelled NoC share against that band
+      (check `noc_share_within_published_band_eyeriss_v2`). Two biases
+      pull in opposite directions and neither is small: the paper's share
+      is for SPARSE runs of a sparsity-aware design (fewer transfers than
+      this dense model -> our share should be higher), and it is at 65nm
+      (wire energy per bit-mm falls with the node -- Keckler's Table 1
+      shows 240 -> 150 -> 115 fJ across generations -> our 45nm share
+      should be lower). A dense 45nm share a few points either side of
+      6-10% is consistent with the paper; 15% (the first, mis-scoped
+      model) and 30% were not.
+    noc_levels:
+      PE_cluster: {router_pj: per_flit}   # the 8x2 mesh of router clusters
+      PE:         {router_pj: 0.0}        # router -> PE row: direct wiring
+    noc_levels_evidence: >-
+      Sec. III-C: the hierarchical mesh connects GLB clusters to PE
+      clusters (PE_cluster, meshX 16) through the ROUTER CLUSTERS -- "3 iact
+      routers ... 3 weight routers ... 4 psum routers" per cluster (Table
+      II) -- and each router then "connects to one row of PEs within the
+      cluster": the intra-cluster level (PE, meshY 12) is wiring from a
+      router port to a PE row, so it carries wire energy but no second
+      router traversal. The third spatial level, SIMD (meshX 2), is
+      Sec. III-B's PE datapath -- "two MACs per cycle" sharing one iact --
+      and is not part of the NoC.
+    operands_per_flit: 3
+    operands_per_flit_evidence: >-
+      Sec. III-C: "For iacts and weights, each port has a bitwidth of 24
+      bits such that it can send and receive three 8b uncompressed iact
+      values ... per cycle." One router traversal moves three operands, so
+      the per-flit router energy is charged per operand at one third. (Psum
+      ports are 40b for two 20b psums -- one half -- but Timeloop takes one
+      router energy per network; one third is used for all three.)
+    router_pj: per_flit     # shared.router_pj_per_flit / operands_per_flit
+    ingress_pj: 0.0         # switching is in the routers, not separate
+
+  eyeriss_v2_like_wglb:
+    source: derived
+    derived_from: eyeriss_v2_like
+    structure: hierarchical_mesh_with_routers
+    evidence: >-
+      Differs from eyeriss_v2_like in one storage block, not in its NoC.
+    noc_levels:
+      PE_cluster: {router_pj: per_flit}
+      PE:         {router_pj: 0.0}
+    operands_per_flit: 3
+    router_pj: per_flit
+    ingress_pj: 0.0
+
+  simba_like:
+    source: reference_design
+    structure: mesh_with_routers
+    citation: >-
+      Y. S. Shao et al., "Simba: Scaling Deep-Learning Inference with
+      Multi-Chip-Module-Based Architecture", MICRO-52, 2019.
+    citation_url: https://people.eecs.berkeley.edu/~ysshao/assets/papers/shao2019-micro.pdf
+    evidence: >-
+      Table 1: "Routers Per Global PE: 3"; Sec. 2 -- "Both NoC and NoP
+      use a mesh topology with a hybrid wormhole/cut-through flow
+      control" and the "routing tables use dimension-ordered X-Y routing".
+      A mesh with real routers, so it is charged `router_pj` like v2.
+    not_used: >-
+      The paper's one published interconnect energy, "NoP Interconnect
+      Energy 0.82-1.75 pJ/bit" (Table 1), is the network-on-PACKAGE
+      between chiplets at 16nm FinFET. This study models a single-die
+      reference design, so that number does NOT apply and is recorded
+      here only so a reader does not think it was overlooked.
+    noc_levels: [PE]
+    noc_levels_evidence: >-
+      Sec. 2: the NoC "connects PEs on the same chiplet" (PE, meshX 16).
+      Inside a PE the design has "8 vector MAC units" with per-unit weight
+      and accumulation buffers -- the `distributed_buffers` (meshY 4) and
+      `reg_mac` (meshY 4) containers -- which are datapath, not NoC.
+    operands_per_flit: 1
+    operands_per_flit_evidence: >-
+      The paper gives no NoC port width, so no packing can be claimed:
+      one operand per flit, the conservative reading. This is the one
+      place the router charge is not symmetric with v2, and it is so
+      because v2 publishes its port width and Simba does not.
+    router_pj: per_flit
+    ingress_pj: 0.0
+
+  simple_weight_stationary: &generic_noc
+    source: locally_authored
+    structure: generic_multicast_bus
+    evidence: >-
+      A reference dataflow with no paper, so there is no interconnect to
+      reproduce. Per the comparison contract these designs share ONE
+      explicitly defined interconnect model: the same wire constant as
+      every other design, plus the same per-ingress switching cost as a
+      plain multicast network (eyeriss_like's calibrated value), and no
+      routers -- because nothing in these designs describes any. Stating
+      it here is the point: their NoC cost is an assumption of this
+      study, not a property of a published machine.
+    noc_levels: [PE]        # the single 16 x 16 spatial level
+    router_pj: 0.0
+    ingress_pj: calibrated
+
+  simple_output_stationary: *generic_noc
+  simple_input_stationary: *generic_noc

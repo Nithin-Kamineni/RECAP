@@ -1,0 +1,81 @@
+Design and implement a structured JSON result-saving system for this project. First inspect the existing repository, experiment scripts, Timeloop/Accelergy outputs, configuration files, and current result-saving behavior. Reuse existing conventions where appropriate.
+
+Use this general namespace:
+
+Results/evaluation/{Pre|Post}/{ARCH}/{MODEL}/{BCH_CONFIG}/...
+
+Definitions:
+
+* `Pre`: Results produced before reconstruction-aware mapping optimization. These use the original/vanilla mapping and apply the Embedded-ECC or reconstruction effects only during energy evaluation.
+* `Post`: Results produced after reconstruction-aware mapping optimization, where reduced weight widths and reconstruction placement can affect mapping, capacity, tiling, and reuse.
+
+Each experiment JSON must contain the following variants together in the same file:
+
+* Conventional ECC baseline with external BCH parity.
+* Embedded ECC without reconstruction-related on-chip savings.
+* Every evaluated reconstruction placement.
+* Reconstruction with a decoded-weight reuse register/cache, when applicable.
+
+Extend the namespace only where necessary to prevent collisions between:
+
+* Different quantization/data-width configurations.
+* One-layer, two-layer, and full-model experiments.
+* Mapper configurations or seeds.
+* Multiple runs of the same experiment.
+
+Use filesystem-safe, deterministic names. Do not silently overwrite an existing result. Preserve prior runs or require an explicit overwrite option.
+
+Design the JSON so that the most useful information appears first and increasingly detailed metadata appears later. The important information near the top should include:
+
+* Experiment identity and whether it is `Pre` or `Post`.
+* Architecture, model, selected layers, BCH configuration, and precisions.
+* Reference/baseline variant.
+* Total energy for every variant.
+* Energy savings relative to the conventional-ECC baseline.
+* Energy savings relative to the embedded-ECC-only reference.
+* Best feasible reconstruction placement.
+* Whether the result uses fixed mapping or reconstruction-aware mapping.
+* Units and result validity/status.
+
+Detailed sections should preserve enough information to reproduce and audit the experiment, including when available:
+
+* Input configurations and exact configuration-file paths.
+* Layer information and workload dimensions.
+* Weight, activation, and accumulation widths.
+* BCH parameters, padding, external parity, and embedded representation.
+* Physical storage and transfer assumptions.
+* Per-component energy breakdown.
+* DRAM, SRAM/SPad/RF, NoC, MAC, encoder, register/cache, control, and leakage energy.
+* Access counts, transferred bits, bit-hops, and physical transactions.
+* Reconstruction placement, count, granularity, fanout, temporal reuse, and amortization.
+* Mapping details, mapper settings, seed, mapping identifier, and whether the mapping was cached or newly generated.
+* Encoder characterization source and assumptions.
+* Timeloop and Accelergy versions.
+* Git commit, command used, timestamp, runtime, hostname if useful, and relevant tool versions.
+* Warnings, approximations, unsupported placements, failed variants, and validation results.
+* Paths to raw Timeloop/Accelergy outputs, mappings, plots, and logs rather than unnecessarily copying very large raw outputs into the JSON.
+
+Use explicit units or unit-bearing field names. Define energy savings consistently as:
+
+savings_percent = 100 × (reference_energy − variant_energy) / reference_energy
+
+Allow negative savings when a variant consumes more energy than its reference.
+
+For `Pre` results, record and verify that comparable variants use the same fixed mapping. For `Post` results, allow each reconstruction variant to reference its own optimized mapping.
+
+The system must support the one-layer/two-layer development mode described in `03_staged_implementation_plan.txt`. Layer identity must appear in both the namespace and JSON metadata so development results cannot be confused with full-model results.
+
+Implement:
+
+1. A centralized result-writer rather than separate ad hoc JSON creation in each experiment script.
+2. A documented schema or validation mechanism.
+3. Deterministic namespace generation.
+4. Validation of required fields and units before saving.
+5. Safe handling of missing, failed, unsupported, estimated, or unavailable measurements.
+6. A small automated test proving that a JSON file containing baseline, embedded, and multiple reconstruction variants is written to the correct namespace and can be loaded again.
+7. A concise example command and generated example path.
+8. Documentation explaining the directory convention and the difference between `Pre` and `Post`.
+
+Do not fabricate unavailable measurements. Store unavailable values explicitly and explain why they are unavailable. Do not launch full-model mapping searches while implementing or testing this feature.
+
+Before editing, briefly report the proposed final namespace and the files you expect to change. Then implement the system, run the small test, update `PROJECT_STATUS.md`, and stop for review.

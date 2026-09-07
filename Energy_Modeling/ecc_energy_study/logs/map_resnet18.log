@@ -1,0 +1,91 @@
+==============================================================================
+ecc-energy  |  sweep=arch (architecture)  |  output=ArchitectureSweep__layers3__layer1_0_conv1__layer3_0_downsample_0__layer4_1_conv2
+==============================================================================
+  sweeping              : eyeriss_v2_like, eyeriss_like, eyeriss_like_wglb, simple_weight_stationary, simple_output_stationary, simple_input_stationary, simba_like
+  holding               : model=resnet18   code=BCH(63,51) t=2
+  approaches            : baseline, embedded, recon
+  workload file         : cnn
+  layer scope           : 3-layer: layer1.0.conv1, layer3.0.downsample.0, layer4.1.conv2
+  weight precision      : 8b (the protected payload)
+  activation precision  : 8b
+  accumulator precision : per architecture, as published (v1 16b, v2 20b, Simba 24b, simple designs 16b)  [primary]
+  result phase          : Pre   (mapping is ECC-unaware; the ECC effect is applied during evaluation)
+  code                  : BCH(63,51)  t=2  r=12
+  weights / codeword    : 6.0000
+  DRAM weight inflation : baseline x1.2353 (+23.5%), embedded/recon x1.0
+  recon on-chip scale   : 0.8095 (weights only)
+  reconstruction        : 4.1296273 pJ per codeword
+  recon provenance      : BCH_N63_results.json [BCH_63_51_t2] n=63 k=51 t=2 (incremental+idle): inc=1.8995000 idle=2.2301273
+  parity accounting     : grouping=layer, message padding charged
+  decode                : 0 pJ for every arm (ECC_DECODE=0; category hidden)
+  weak ECC overlay      : off
+  arch fidelity         : paper   (archs/<name>/arch_paper.yaml where present)
+  arch treatment        : opt-energy__vic2000__vicx__alg-random_pruned__ss20000__to2000__paper   (separate mapper cache)
+  level classifier      : instances
+  mapper objective      : energy
+  mapper                : victory=2000 scaling=levels algorithm=random_pruned timeout=2000 perms/if=16 search_size=20000
+  palette / formats     : house / png, pdf @ 400 dpi
+  replot only           : False
+  cached mapper only    : False
+==============================================================================
+  globals.yaml: technology=45nm cycle=1e-9 -> globals.yaml
+  [layers] resnet18: 3 of 21 layers  (2,428,928 of 11,678,912 weights, 20.80% of the model)
+           layer1.0.conv1           C64_M64_R3_S3_P56_Q56_ws1_hs1  weights=36,864
+           layer3.0.downsample.0    C128_M256_R1_S1_P14_Q14_ws2_hs2  weights=32,768
+           layer4.1.conv2           C512_M512_R3_S3_P7_Q7_ws1_hs1  weights=2,359,296
+  [scope] 3-layer run -- results are written under layers3__layer1_0_conv1__layer3_0_downsample_0__layer4_1_conv2/ and are NOT full-model numbers
+
+########## architecture: eyeriss_v2_like ##########
+  source arch_paper.yaml  (paper fidelity, 9 loop levels)  -> victory 4000, objective energy
+  resnet18           3/3 layers ok, 0 skipped
+  eyeriss_v2_like: 3 cached, 0 newly mapped, 0 failed  [objective=energy victory=4000 (9 loop levels) fp=0fbd82534a90]
+  resnet18           raw       716.68 uJ   DRAM weight reads      3,014,656
+
+########## architecture: eyeriss_like ##########
+  source arch_paper.yaml  (paper fidelity, 8 loop levels)  -> victory 2000, objective energy
+  resnet18           3/3 layers ok, 0 skipped
+  eyeriss_like: 3 cached, 0 newly mapped, 0 failed  [objective=energy victory=2000 (8 loop levels) fp=65833ebb89d3]
+  resnet18           raw       696.83 uJ   DRAM weight reads      2,682,880
+
+########## architecture: eyeriss_like_wglb ##########
+  source arch_paper.yaml  (paper fidelity, 9 loop levels)  -> victory 4000, objective energy
+      mapping C64_M64_R3_S3_P56_Q56_ws1_hs1 (victory 4000, 18 threads) ...
+          386.0s   (this architecture: 1 mapped, 6.4 min so far)
+      mapping C128_M256_R1_S1_P14_Q14_ws2_hs2 (victory 4000, 18 threads) ...
+           48.6s   (this architecture: 2 mapped, 7.2 min so far)
+      mapping C512_M512_R3_S3_P7_Q7_ws1_hs1 (victory 4000, 18 threads) ...
+           70.5s   (this architecture: 3 mapped, 8.4 min so far)
+  resnet18           3/3 layers ok, 0 skipped
+  eyeriss_like_wglb: 0 cached, 3 newly mapped, 0 failed  [objective=energy victory=4000 (9 loop levels) fp=79268a97584f]
+  resnet18           raw       778.24 uJ   DRAM weight reads      2,940,928
+
+########## architecture: simple_weight_stationary ##########
+  source arch_paper.yaml  (paper fidelity, 8 loop levels)  -> victory 2000, objective energy
+      mapping C64_M64_R3_S3_P56_Q56_ws1_hs1 (victory 2000, 18 threads) ...
+          259.2s   (this architecture: 1 mapped, 4.3 min so far)
+  resnet18           3/3 layers ok, 0 skipped
+  simple_weight_stationary: 2 cached, 1 newly mapped, 0 failed  [objective=energy victory=2000 (8 loop levels) fp=8105bd1732ad]
+  resnet18           raw       871.88 uJ   DRAM weight reads      2,428,928
+
+########## architecture: simple_output_stationary ##########
+  source arch_paper.yaml  (paper fidelity, 8 loop levels)  -> victory 2000, objective energy
+      mapping C64_M64_R3_S3_P56_Q56_ws1_hs1 (victory 2000, 18 threads) ...
+          261.3s   (this architecture: 1 mapped, 4.4 min so far)
+  resnet18           3/3 layers ok, 0 skipped
+  simple_output_stationary: 2 cached, 1 newly mapped, 0 failed  [objective=energy victory=2000 (8 loop levels) fp=4742779c086e]
+  resnet18           raw     1,223.76 uJ   DRAM weight reads      2,428,928
+
+########## architecture: simple_input_stationary ##########
+  source arch_paper.yaml  (paper fidelity, 8 loop levels)  -> victory 2000, objective energy
+      mapping C64_M64_R3_S3_P56_Q56_ws1_hs1 (victory 2000, 18 threads) ...
+          235.0s   (this architecture: 1 mapped, 3.9 min so far)
+  resnet18           3/3 layers ok, 0 skipped
+  simple_input_stationary: 2 cached, 1 newly mapped, 0 failed  [objective=energy victory=2000 (8 loop levels) fp=3af5f944744d]
+  resnet18           raw       860.36 uJ   DRAM weight reads      2,539,520
+
+########## architecture: simba_like ##########
+  source arch_paper.yaml  (paper fidelity, 9 loop levels)  -> victory 4000, objective energy
+      mapping C64_M64_R3_S3_P56_Q56_ws1_hs1 (victory 4000, 18 threads) ...
+WARNING:root:Factors given as string "R=1 S=1 P=1 Q=1 N=1". Trying to turn into a list.
+WARNING:root:Factors given as string "P=1 Q=1 R=1 S=1 C=1 N=1". Trying to turn into a list.
+WARNING:root:Factors given as string "P=1 Q=1 R=1 S=1 M=1 N=1". Trying to turn into a list.

@@ -1,0 +1,2676 @@
+{
+ "schema_version": "1.0",
+ "experiment": {
+  "name": "task1_conventional_ecc_baseline",
+  "phase": "Pre",
+  "phase_meaning": "Pre: the mapping is ECC-unaware and the ECC effect is applied during energy evaluation only",
+  "mapping_mode": "fixed-mapping",
+  "run_id": "20260907T005358Z__1ded3fda",
+  "status": "ok",
+  "units": {
+   "energy": "pJ unless a field name says otherwise",
+   "savings": "percent",
+   "capacity": "bits or bytes as the field name says"
+  }
+ },
+ "identity": {
+  "architecture": "simple_weight_stationary",
+  "architecture_label": "Weight stationary",
+  "model": "mobilenet_v2",
+  "layer_scope": "full",
+  "layers": "full model",
+  "bch": {
+   "n": 63,
+   "k": 51,
+   "t": 2,
+   "label": "BCH(63,51)"
+  },
+  "precisions_bits": {
+   "weight": 8,
+   "activation": 8,
+   "accumulator": 16,
+   "accumulator_policy": "paper-native (per architecture)",
+   "accumulator_evidence": "The design's own mac.adder_width. Not a published number -- it is the reference design's declaration, kept because changing it would be inventing a design point."
+  }
+ },
+ "reference_variants": {
+  "conventional_ecc": "baseline_external_parity",
+  "embedded_only": "embedded_ecc"
+ },
+ "summary": [
+  {
+   "variant": "baseline_external_parity",
+   "kind": "baseline",
+   "status": "evaluated",
+   "total_energy_pJ": 2283201161.75,
+   "total_energy_uJ": 2283.20116175,
+   "savings_vs_conventional_ecc_percent": 0.0,
+   "savings_vs_embedded_only_percent": null,
+   "unavailable_reason": null
+  },
+  {
+   "variant": "embedded_ecc",
+   "kind": "embedded",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "savings_vs_conventional_ecc_percent": null,
+   "savings_vs_embedded_only_percent": null,
+   "unavailable_reason": "Task 2 has not been implemented. Embedded ECC needs the actual embedded-codeword layout and a DRAM-only comparison against this baseline; nothing in Task 1 models it, so no number is written."
+  },
+  {
+   "variant": "recon_source_noc_ingress",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "savings_vs_conventional_ecc_percent": null,
+   "savings_vs_embedded_only_percent": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the source / NoC ingress) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated."
+  },
+  {
+   "variant": "recon_destination_cluster",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "savings_vs_conventional_ecc_percent": null,
+   "savings_vs_embedded_only_percent": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the destination-cluster boundary) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated."
+  },
+  {
+   "variant": "recon_pe_spad_input",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "savings_vs_conventional_ecc_percent": null,
+   "savings_vs_embedded_only_percent": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the PE weight-SPad input) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated."
+  },
+  {
+   "variant": "recon_pe_spad_output",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "savings_vs_conventional_ecc_percent": null,
+   "savings_vs_embedded_only_percent": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the weight-SPad output, repeated) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated."
+  },
+  {
+   "variant": "recon_pe_spad_output_reuse_reg",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "savings_vs_conventional_ecc_percent": null,
+   "savings_vs_embedded_only_percent": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the SPad output with a reconstructed-weight reuse register) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated."
+  }
+ ],
+ "best_reconstruction_placement": {
+  "variant": null,
+  "reason": "no reconstruction placement has been evaluated in this run"
+ },
+ "validation": [
+  {
+   "check": "parity_payload_hand_check",
+   "passed": true,
+   "detail": {
+    "method": "codeword-by-codeword walk compared against the closed form; both must agree exactly",
+    "code": "BCH(63,51) over 8-bit weights",
+    "weights_checked": 3469760,
+    "weights_per_codeword": 6,
+    "message_pad_bits_per_codeword": 3,
+    "checks": {
+     "codewords": {
+      "walked": 578294,
+      "closed_form": 578294
+     },
+     "payload_bits": {
+      "walked": 27758080,
+      "closed_form": 27758080
+     },
+     "padding_bits_total": {
+      "walked": 1734914,
+      "closed_form": 1734914
+     },
+     "parity_bits": {
+      "walked": 6939528,
+      "closed_form": 6939528
+     },
+     "parity_dram_words": {
+      "walked": 108431,
+      "closed_form": 108431
+     }
+    },
+    "mismatches": {},
+    "passed": true
+   }
+  },
+  {
+   "check": "all_layers_mapped",
+   "passed": true,
+   "detail": "53 mapped, 0 skipped"
+  },
+  {
+   "check": "mapping_ids_recorded",
+   "passed": true,
+   "detail": "31 distinct mapping(s) behind this result"
+  },
+  {
+   "check": "architecture_obeys_shared_contract",
+   "passed": true,
+   "detail": {
+    "violations": [],
+    "notes": [
+     "locally authored reference dataflow -- reproduces no paper, so its geometry is a design choice, not a citation."
+    ]
+   }
+  },
+  {
+   "check": "components_sum_to_total[baseline_external_parity]",
+   "passed": true,
+   "detail": "components sum to 2283201161.750000 pJ, total is 2283201161.750000 pJ"
+  },
+  {
+   "check": "fixed_mapping_shared_across_variants",
+   "passed": true,
+   "detail": "all evaluated variants reference the same mapping set"
+  }
+ ],
+ "warnings": [
+  "BOUNDED MAPPER SEARCH (search_size=20000, max_permutations_per_if_visit=16). The search was cut short for speed, so these mappings are upper bounds on energy, not converged optima, and the shortfall is LARGER for deeper hierarchies. Development only -- do not publish or rank architectures from this."
+ ],
+ "approximations": [
+  "exact stored codeword count x measured DRAM refetch factor; parity + message padding; rounded up to whole DRAM words once",
+  "External parity is billed at the measured per-access energy of a DRAM weight read on this architecture, not at an independently modelled parity-region access cost. That is exact if parity is read from the same DRAM by the same controller, which is the conventional-ECC assumption."
+ ],
+ "variants": [
+  {
+   "name": "baseline_external_parity",
+   "label": "Conventional ECC, BCH parity external in DRAM",
+   "kind": "baseline",
+   "status": "evaluated",
+   "total_energy_pJ": 2283201161.75,
+   "total_energy_uJ": 2283.20116175,
+   "unavailable_reason": null,
+   "energy_by_component_pJ": {
+    "DRAM": 1134430208.0,
+    "Global buffer": 536308756.28000015,
+    "Local (spads/RF/NoC)": 195486036.88999996,
+    "Compute": 341544224.5799998,
+    "DRAM external BCH parity": 75431936.0
+   },
+   "mapping_ids": [
+    "0341d6472b5192be",
+    "19e3739aac476de3",
+    "1c3a8ebdb9a93605",
+    "228daa124663d37b",
+    "256929ad4a36e549",
+    "2ab385d8a34bff07",
+    "3c7f3ea6086d8cbd",
+    "3dacd93361c2b58a",
+    "3dd77fbf403af5cd",
+    "405b1eeafd9edd18",
+    "40b04b79af5c749a",
+    "45641d1781d564a3",
+    "4799a557091ba2a1",
+    "4918f0a9730a8bbd",
+    "4d5290b23e276e38",
+    "57cec1c08157c9e8",
+    "67ab806d90cd7067",
+    "752977351c4c1407",
+    "84433d2cb9310948",
+    "84c90a6c881411cd",
+    "97d53b81e9c6480a",
+    "c22875fa65f72080",
+    "c5462365c85c9664",
+    "d44ecd31d0ad1e7e",
+    "d6b11e64ce7bb3f6",
+    "de187366def642f3",
+    "df602f35b858eed0",
+    "e15ddb61fe5cddca",
+    "e6d8292860d0c572",
+    "f0292187b96b3f92",
+    "ffeea0f985fb6763"
+   ],
+   "detail": {
+    "external_parity_accounting": {
+     "code": {
+      "n": 63,
+      "k": 51,
+      "weight_bits": 8,
+      "parity_bits_per_codeword": 12,
+      "weights_per_codeword": 6,
+      "message_used_bits": 48,
+      "message_pad_bits_per_codeword": 3,
+      "parity_overhead_frac": 0.25,
+      "parity_overhead_ideal_frac": 0.23529411764705888
+     },
+     "grouping": "layer",
+     "charge_message_padding": true,
+     "dram_word_bits": 64,
+     "stored": {
+      "weights": 3469760,
+      "payload_bits": 27758080,
+      "codewords": 578295,
+      "message_pad_bits": 1734885,
+      "tail_pad_bits": 80,
+      "parity_bits": 6939540,
+      "parity_dram_words": 108434,
+      "parity_dram_scalars": 867472.0,
+      "dram_word_bits": 64,
+      "stored_bits": 36432585,
+      "overhead_frac": 0.3125037826823757,
+      "payload_bytes": 3469760.0,
+      "parity_bytes": 867442.5,
+      "stored_bytes": 4554073.125
+     },
+     "traffic": {
+      "refetch_factor": 1.0869869962187586,
+      "codeword_reads": 628599.144978327,
+      "parity_bits": 7543189.739739924,
+      "message_pad_bits": 1885797.434934981,
+      "external_bits": 9428987.174674904,
+      "external_dram_words": 147328.0,
+      "external_dram_scalars": 1178624.0,
+      "charge_padding": true,
+      "overhead_vs_payload_frac": 0.3125,
+      "method": "exact stored codeword count x measured DRAM refetch factor; parity + message padding; rounded up to whole DRAM words once"
+     },
+     "energy_pJ": 75431936.0,
+     "pJ_per_dram_weight_scalar": 64.0,
+     "hand_check": {
+      "method": "codeword-by-codeword walk compared against the closed form; both must agree exactly",
+      "code": "BCH(63,51) over 8-bit weights",
+      "weights_checked": 3469760,
+      "weights_per_codeword": 6,
+      "message_pad_bits_per_codeword": 3,
+      "checks": {
+       "codewords": {
+        "walked": 578294,
+        "closed_form": 578294
+       },
+       "payload_bits": {
+        "walked": 27758080,
+        "closed_form": 27758080
+       },
+       "padding_bits_total": {
+        "walked": 1734914,
+        "closed_form": 1734914
+       },
+       "parity_bits": {
+        "walked": 6939528,
+        "closed_form": 6939528
+       },
+       "parity_dram_words": {
+        "walked": 108431,
+        "closed_form": 108431
+       }
+      },
+      "mismatches": {},
+      "passed": true
+     },
+     "hand_check_passed": true,
+     "comparison_to_flat_model": {
+      "flat_n_over_k_minus_1": 0.23529411764705888,
+      "accounted_overhead": 0.3125,
+      "note": "the flat model assumes the k-bit message field is fully packed with weights; it is not, because a weight cannot straddle a codeword"
+     }
+    },
+    "timeloop_energy_pJ": 2207769225.75,
+    "dram_weight_reads": 3771584.0,
+    "dram_weight_energy_pJ": 241381376.0
+   }
+  },
+  {
+   "name": "embedded_ecc",
+   "label": "Embedded ECC (no external parity)",
+   "kind": "embedded",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "unavailable_reason": "Task 2 has not been implemented. Embedded ECC needs the actual embedded-codeword layout and a DRAM-only comparison against this baseline; nothing in Task 1 models it, so no number is written.",
+   "energy_by_component_pJ": {},
+   "mapping_ids": [],
+   "detail": {}
+  },
+  {
+   "name": "recon_source_noc_ingress",
+   "label": "reconstruct at the source / NoC ingress",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the source / NoC ingress) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated.",
+   "energy_by_component_pJ": {},
+   "mapping_ids": [],
+   "detail": {}
+  },
+  {
+   "name": "recon_destination_cluster",
+   "label": "reconstruct at the destination-cluster boundary",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the destination-cluster boundary) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated.",
+   "energy_by_component_pJ": {},
+   "mapping_ids": [],
+   "detail": {}
+  },
+  {
+   "name": "recon_pe_spad_input",
+   "label": "reconstruct at the PE weight-SPad input",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the PE weight-SPad input) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated.",
+   "energy_by_component_pJ": {},
+   "mapping_ids": [],
+   "detail": {}
+  },
+  {
+   "name": "recon_pe_spad_output",
+   "label": "reconstruct at the weight-SPad output, repeated",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the weight-SPad output, repeated) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated.",
+   "energy_by_component_pJ": {},
+   "mapping_ids": [],
+   "detail": {}
+  },
+  {
+   "name": "recon_pe_spad_output_reuse_reg",
+   "label": "reconstruct at the SPad output with a reconstructed-weight reuse register",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the SPad output with a reconstructed-weight reuse register) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated.",
+   "energy_by_component_pJ": {},
+   "mapping_ids": [],
+   "detail": {}
+  }
+ ],
+ "detail": {
+  "architecture": {
+   "source_yaml": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/archs/simple_weight_stationary/arch_paper.yaml",
+   "fingerprint": "8105bd1732ad",
+   "accumulator_bits": 16,
+   "accumulator_evidence": "The design's own mac.adder_width. Not a published number -- it is the reference design's declaration, kept because changing it would be inventing a design point.",
+   "contract_report": {
+    "arch": "simple_weight_stationary",
+    "violations": [],
+    "notes": [
+     "locally authored reference dataflow -- reproduces no paper, so its geometry is a design choice, not a citation."
+    ],
+    "facts": {
+     "source": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/archs/simple_weight_stationary/arch_paper.yaml",
+     "origin": "locally_authored",
+     "label": "Weight stationary",
+     "accumulator_bits": 16,
+     "accumulator_evidence": "The design's own mac.adder_width. Not a published number -- it is the reference design's declaration, kept because changing it would be inventing a design point.",
+     "citation": "Textbook weight-stationary reference shipped with timeloop-accelergy-exercises.  No paper; there is nothing to reproduce and nothing to cite beyond the exercises repo.",
+     "technology_declared": [
+      "45nm"
+     ],
+     "dram": {
+      "width": 64,
+      "datawidth": 8,
+      "depth": 1048576
+     },
+     "mac": {
+      "multiplier_width": 8,
+      "adder_width": 16
+     },
+     "levels": [
+      {
+       "name": "operand_glb",
+       "class": "smartbuffer_SRAM",
+       "depth": 8192,
+       "width": 64,
+       "datawidth": 8,
+       "entries_each": 65536,
+       "instances": 1,
+       "keep": [
+        "Inputs",
+        "Weights"
+       ],
+       "bypass": [
+        "Outputs"
+       ]
+      },
+      {
+       "name": "psum_glb",
+       "class": "smartbuffer_SRAM",
+       "depth": 8192,
+       "width": 64,
+       "datawidth": 16,
+       "entries_each": 32768,
+       "instances": 1,
+       "keep": [
+        "Outputs"
+       ],
+       "bypass": [
+        "Inputs",
+        "Weights"
+       ]
+      },
+      {
+       "name": "pe_spad",
+       "class": "smartbuffer_SRAM",
+       "depth": 192,
+       "width": 16,
+       "datawidth": 8,
+       "entries_each": 384,
+       "instances": 256,
+       "keep": [
+        "Weights"
+       ],
+       "bypass": [
+        "Inputs",
+        "Outputs"
+       ]
+      },
+      {
+       "name": "weight_reg",
+       "class": "storage",
+       "depth": 1,
+       "width": 8,
+       "datawidth": 8,
+       "entries_each": 1,
+       "instances": 256,
+       "keep": [
+        "Weights"
+       ],
+       "bypass": []
+      },
+      {
+       "name": "input_activation_reg",
+       "class": "storage",
+       "depth": 1,
+       "width": 8,
+       "datawidth": 8,
+       "entries_each": 1,
+       "instances": 256,
+       "keep": [
+        "Inputs"
+       ],
+       "bypass": []
+      },
+      {
+       "name": "output_activation_reg",
+       "class": "storage",
+       "depth": 1,
+       "width": 16,
+       "datawidth": 16,
+       "entries_each": 1,
+       "instances": 256,
+       "keep": [
+        "Outputs"
+       ],
+       "bypass": []
+      }
+     ],
+     "total_fanout": 256,
+     "weight_levels": [
+      {
+       "name": "operand_glb",
+       "entries_each": 65536,
+       "instances": 1,
+       "entries_total": 65536
+      },
+      {
+       "name": "pe_spad",
+       "entries_each": 384,
+       "instances": 256,
+       "entries_total": 98304
+      },
+      {
+       "name": "weight_reg",
+       "entries_each": 1,
+       "instances": 256,
+       "entries_total": 256
+      }
+     ],
+     "weight_capacity": 164096,
+     "glb_keeps_weights": true
+    }
+   },
+   "provenance": {
+    "source_document": "timeloop-accelergy-exercises reference design; NO paper",
+    "verified": "2026-09-06",
+    "levels": {
+     "operand_glb + psum_glb": {
+      "modelled": "the stock 128 kB shared_glb split 64 kB operand (8b) / 64 kB psum (16b)",
+      "rationale": "The stock file declares datawidth 16 on EVERY level while declaring an 8-bit multiplier, so an 8-bit-weight study charged it twice the DRAM energy per weight. Timeloop allows one datawidth per level, so the shared buffer had to be split to give operands and psums their own. Total capacity, word width and bank geometry are unchanged."
+     },
+     "pe_spad": {
+      "modelled": "192 x 16b at datawidth 8 -> 384 weights"
+     },
+     "mac": {
+      "modelled": "multiplier_width 8, adder_width 16 -- the design's own declaration",
+      "not_verified": "not a published number; there is no paper to check it against"
+     }
+    }
+   }
+  },
+  "workload": {
+   "file": "cnn",
+   "layers": [
+    {
+     "name": "features.0.0",
+     "shape_signature": "C3_M32_R3_S3_P112_Q112_ws2_hs2",
+     "dims": {
+      "C": 3,
+      "M": 32,
+      "R": 3,
+      "S": 3,
+      "P": 112,
+      "Q": 112,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 864,
+     "macs": 10838016
+    },
+    {
+     "name": "features.1.conv.0.0",
+     "shape_signature": "C1_M1_R3_S3_P112_Q112_ws1_hs1_G32",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 112,
+      "Q": 112,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 32
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 288,
+     "macs": 3612672
+    },
+    {
+     "name": "features.1.conv.1",
+     "shape_signature": "C32_M16_R1_S1_P112_Q112_ws1_hs1",
+     "dims": {
+      "C": 32,
+      "M": 16,
+      "R": 1,
+      "S": 1,
+      "P": 112,
+      "Q": 112,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 512,
+     "macs": 6422528
+    },
+    {
+     "name": "features.2.conv.0.0",
+     "shape_signature": "C16_M96_R1_S1_P112_Q112_ws1_hs1",
+     "dims": {
+      "C": 16,
+      "M": 96,
+      "R": 1,
+      "S": 1,
+      "P": 112,
+      "Q": 112,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 1536,
+     "macs": 19267584
+    },
+    {
+     "name": "features.2.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P56_Q56_ws2_hs2_G96",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 56,
+      "Q": 56,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 96
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 864,
+     "macs": 2709504
+    },
+    {
+     "name": "features.2.conv.2",
+     "shape_signature": "C96_M24_R1_S1_P56_Q56_ws1_hs1",
+     "dims": {
+      "C": 96,
+      "M": 24,
+      "R": 1,
+      "S": 1,
+      "P": 56,
+      "Q": 56,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 2304,
+     "macs": 7225344
+    },
+    {
+     "name": "features.3.conv.0.0",
+     "shape_signature": "C24_M144_R1_S1_P56_Q56_ws1_hs1",
+     "dims": {
+      "C": 24,
+      "M": 144,
+      "R": 1,
+      "S": 1,
+      "P": 56,
+      "Q": 56,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 3456,
+     "macs": 10838016
+    },
+    {
+     "name": "features.3.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P56_Q56_ws1_hs1_G144",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 56,
+      "Q": 56,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 144
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 1296,
+     "macs": 4064256
+    },
+    {
+     "name": "features.3.conv.2",
+     "shape_signature": "C144_M24_R1_S1_P56_Q56_ws1_hs1",
+     "dims": {
+      "C": 144,
+      "M": 24,
+      "R": 1,
+      "S": 1,
+      "P": 56,
+      "Q": 56,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 3456,
+     "macs": 10838016
+    },
+    {
+     "name": "features.4.conv.0.0",
+     "shape_signature": "C24_M144_R1_S1_P56_Q56_ws1_hs1",
+     "dims": {
+      "C": 24,
+      "M": 144,
+      "R": 1,
+      "S": 1,
+      "P": 56,
+      "Q": 56,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 3456,
+     "macs": 10838016
+    },
+    {
+     "name": "features.4.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P28_Q28_ws2_hs2_G144",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 144
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 1296,
+     "macs": 1016064
+    },
+    {
+     "name": "features.4.conv.2",
+     "shape_signature": "C144_M32_R1_S1_P28_Q28_ws1_hs1",
+     "dims": {
+      "C": 144,
+      "M": 32,
+      "R": 1,
+      "S": 1,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 4608,
+     "macs": 3612672
+    },
+    {
+     "name": "features.5.conv.0.0",
+     "shape_signature": "C32_M192_R1_S1_P28_Q28_ws1_hs1",
+     "dims": {
+      "C": 32,
+      "M": 192,
+      "R": 1,
+      "S": 1,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 6144,
+     "macs": 4816896
+    },
+    {
+     "name": "features.5.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P28_Q28_ws1_hs1_G192",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 192
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 1728,
+     "macs": 1354752
+    },
+    {
+     "name": "features.5.conv.2",
+     "shape_signature": "C192_M32_R1_S1_P28_Q28_ws1_hs1",
+     "dims": {
+      "C": 192,
+      "M": 32,
+      "R": 1,
+      "S": 1,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 6144,
+     "macs": 4816896
+    },
+    {
+     "name": "features.6.conv.0.0",
+     "shape_signature": "C32_M192_R1_S1_P28_Q28_ws1_hs1",
+     "dims": {
+      "C": 32,
+      "M": 192,
+      "R": 1,
+      "S": 1,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 6144,
+     "macs": 4816896
+    },
+    {
+     "name": "features.6.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P28_Q28_ws1_hs1_G192",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 192
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 1728,
+     "macs": 1354752
+    },
+    {
+     "name": "features.6.conv.2",
+     "shape_signature": "C192_M32_R1_S1_P28_Q28_ws1_hs1",
+     "dims": {
+      "C": 192,
+      "M": 32,
+      "R": 1,
+      "S": 1,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 6144,
+     "macs": 4816896
+    },
+    {
+     "name": "features.7.conv.0.0",
+     "shape_signature": "C32_M192_R1_S1_P28_Q28_ws1_hs1",
+     "dims": {
+      "C": 32,
+      "M": 192,
+      "R": 1,
+      "S": 1,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 6144,
+     "macs": 4816896
+    },
+    {
+     "name": "features.7.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P14_Q14_ws2_hs2_G192",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 192
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 1728,
+     "macs": 338688
+    },
+    {
+     "name": "features.7.conv.2",
+     "shape_signature": "C192_M64_R1_S1_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 192,
+      "M": 64,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 12288,
+     "macs": 2408448
+    },
+    {
+     "name": "features.8.conv.0.0",
+     "shape_signature": "C64_M384_R1_S1_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 64,
+      "M": 384,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 24576,
+     "macs": 4816896
+    },
+    {
+     "name": "features.8.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P14_Q14_ws1_hs1_G384",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 384
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 3456,
+     "macs": 677376
+    },
+    {
+     "name": "features.8.conv.2",
+     "shape_signature": "C384_M64_R1_S1_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 384,
+      "M": 64,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 24576,
+     "macs": 4816896
+    },
+    {
+     "name": "features.9.conv.0.0",
+     "shape_signature": "C64_M384_R1_S1_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 64,
+      "M": 384,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 24576,
+     "macs": 4816896
+    },
+    {
+     "name": "features.9.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P14_Q14_ws1_hs1_G384",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 384
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 3456,
+     "macs": 677376
+    },
+    {
+     "name": "features.9.conv.2",
+     "shape_signature": "C384_M64_R1_S1_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 384,
+      "M": 64,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 24576,
+     "macs": 4816896
+    },
+    {
+     "name": "features.10.conv.0.0",
+     "shape_signature": "C64_M384_R1_S1_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 64,
+      "M": 384,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 24576,
+     "macs": 4816896
+    },
+    {
+     "name": "features.10.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P14_Q14_ws1_hs1_G384",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 384
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 3456,
+     "macs": 677376
+    },
+    {
+     "name": "features.10.conv.2",
+     "shape_signature": "C384_M64_R1_S1_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 384,
+      "M": 64,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 24576,
+     "macs": 4816896
+    },
+    {
+     "name": "features.11.conv.0.0",
+     "shape_signature": "C64_M384_R1_S1_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 64,
+      "M": 384,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 24576,
+     "macs": 4816896
+    },
+    {
+     "name": "features.11.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P14_Q14_ws1_hs1_G384",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 384
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 3456,
+     "macs": 677376
+    },
+    {
+     "name": "features.11.conv.2",
+     "shape_signature": "C384_M96_R1_S1_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 384,
+      "M": 96,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 36864,
+     "macs": 7225344
+    },
+    {
+     "name": "features.12.conv.0.0",
+     "shape_signature": "C96_M576_R1_S1_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 96,
+      "M": 576,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 55296,
+     "macs": 10838016
+    },
+    {
+     "name": "features.12.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P14_Q14_ws1_hs1_G576",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 576
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 5184,
+     "macs": 1016064
+    },
+    {
+     "name": "features.12.conv.2",
+     "shape_signature": "C576_M96_R1_S1_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 576,
+      "M": 96,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 55296,
+     "macs": 10838016
+    },
+    {
+     "name": "features.13.conv.0.0",
+     "shape_signature": "C96_M576_R1_S1_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 96,
+      "M": 576,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 55296,
+     "macs": 10838016
+    },
+    {
+     "name": "features.13.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P14_Q14_ws1_hs1_G576",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 576
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 5184,
+     "macs": 1016064
+    },
+    {
+     "name": "features.13.conv.2",
+     "shape_signature": "C576_M96_R1_S1_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 576,
+      "M": 96,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 55296,
+     "macs": 10838016
+    },
+    {
+     "name": "features.14.conv.0.0",
+     "shape_signature": "C96_M576_R1_S1_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 96,
+      "M": 576,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 55296,
+     "macs": 10838016
+    },
+    {
+     "name": "features.14.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P7_Q7_ws2_hs2_G576",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 576
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 5184,
+     "macs": 254016
+    },
+    {
+     "name": "features.14.conv.2",
+     "shape_signature": "C576_M160_R1_S1_P7_Q7_ws1_hs1",
+     "dims": {
+      "C": 576,
+      "M": 160,
+      "R": 1,
+      "S": 1,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 92160,
+     "macs": 4515840
+    },
+    {
+     "name": "features.15.conv.0.0",
+     "shape_signature": "C160_M960_R1_S1_P7_Q7_ws1_hs1",
+     "dims": {
+      "C": 160,
+      "M": 960,
+      "R": 1,
+      "S": 1,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 153600,
+     "macs": 7526400
+    },
+    {
+     "name": "features.15.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P7_Q7_ws1_hs1_G960",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 960
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 8640,
+     "macs": 423360
+    },
+    {
+     "name": "features.15.conv.2",
+     "shape_signature": "C960_M160_R1_S1_P7_Q7_ws1_hs1",
+     "dims": {
+      "C": 960,
+      "M": 160,
+      "R": 1,
+      "S": 1,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 153600,
+     "macs": 7526400
+    },
+    {
+     "name": "features.16.conv.0.0",
+     "shape_signature": "C160_M960_R1_S1_P7_Q7_ws1_hs1",
+     "dims": {
+      "C": 160,
+      "M": 960,
+      "R": 1,
+      "S": 1,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 153600,
+     "macs": 7526400
+    },
+    {
+     "name": "features.16.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P7_Q7_ws1_hs1_G960",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 960
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 8640,
+     "macs": 423360
+    },
+    {
+     "name": "features.16.conv.2",
+     "shape_signature": "C960_M160_R1_S1_P7_Q7_ws1_hs1",
+     "dims": {
+      "C": 960,
+      "M": 160,
+      "R": 1,
+      "S": 1,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 153600,
+     "macs": 7526400
+    },
+    {
+     "name": "features.17.conv.0.0",
+     "shape_signature": "C160_M960_R1_S1_P7_Q7_ws1_hs1",
+     "dims": {
+      "C": 160,
+      "M": 960,
+      "R": 1,
+      "S": 1,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 153600,
+     "macs": 7526400
+    },
+    {
+     "name": "features.17.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P7_Q7_ws1_hs1_G960",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 960
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 8640,
+     "macs": 423360
+    },
+    {
+     "name": "features.17.conv.2",
+     "shape_signature": "C960_M320_R1_S1_P7_Q7_ws1_hs1",
+     "dims": {
+      "C": 960,
+      "M": 320,
+      "R": 1,
+      "S": 1,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 307200,
+     "macs": 15052800
+    },
+    {
+     "name": "features.18.0",
+     "shape_signature": "C320_M1280_R1_S1_P7_Q7_ws1_hs1",
+     "dims": {
+      "C": 320,
+      "M": 1280,
+      "R": 1,
+      "S": 1,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 409600,
+     "macs": 20070400
+    },
+    {
+     "name": "classifier.1",
+     "shape_signature": "C1280_M1000_R1_S1_P1_Q1_ws1_hs1",
+     "dims": {
+      "C": 1280,
+      "M": 1000,
+      "R": 1,
+      "S": 1,
+      "P": 1,
+      "Q": 1,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 1280000,
+     "macs": 1280000
+    }
+   ],
+   "layer_scope": "full",
+   "total_weights": 3469760
+  },
+  "per_layer": [
+   {
+    "layer": "features.0.0",
+    "shape": "C3_M32_R3_S3_P112_Q112_ws2_hs2",
+    "status": "ok",
+    "weights": 864,
+    "macs": 10838016,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "84433d2cb9310948",
+    "mapping_cached": false,
+    "total_energy_pJ": 84346166.12,
+    "dram_weight_reads": 864.0,
+    "dram_weight_energy_pJ": 55296.0
+   },
+   {
+    "layer": "features.1.conv.0.0",
+    "shape": "C1_M1_R3_S3_P112_Q112_ws1_hs1_G32",
+    "status": "ok",
+    "weights": 288,
+    "macs": 3612672,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "97d53b81e9c6480a",
+    "mapping_cached": false,
+    "total_energy_pJ": 73516955.84,
+    "dram_weight_reads": 288.0,
+    "dram_weight_energy_pJ": 18432.0
+   },
+   {
+    "layer": "features.1.conv.1",
+    "shape": "C32_M16_R1_S1_P112_Q112_ws1_hs1",
+    "status": "ok",
+    "weights": 512,
+    "macs": 6422528,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "57cec1c08157c9e8",
+    "mapping_cached": false,
+    "total_energy_pJ": 67159945.97,
+    "dram_weight_reads": 512.0,
+    "dram_weight_energy_pJ": 32768.0
+   },
+   {
+    "layer": "features.2.conv.0.0",
+    "shape": "C16_M96_R1_S1_P112_Q112_ws1_hs1",
+    "status": "ok",
+    "weights": 1536,
+    "macs": 19267584,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "4799a557091ba2a1",
+    "mapping_cached": false,
+    "total_energy_pJ": 168535687.86,
+    "dram_weight_reads": 1536.0,
+    "dram_weight_energy_pJ": 98304.0
+   },
+   {
+    "layer": "features.2.conv.1.0",
+    "shape": "C1_M1_R3_S3_P56_Q56_ws2_hs2_G96",
+    "status": "ok",
+    "weights": 864,
+    "macs": 2709504,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "228daa124663d37b",
+    "mapping_cached": false,
+    "total_energy_pJ": 116626233.47,
+    "dram_weight_reads": 864.0,
+    "dram_weight_energy_pJ": 55296.0
+   },
+   {
+    "layer": "features.2.conv.2",
+    "shape": "C96_M24_R1_S1_P56_Q56_ws1_hs1",
+    "status": "ok",
+    "weights": 2304,
+    "macs": 7225344,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "405b1eeafd9edd18",
+    "mapping_cached": false,
+    "total_energy_pJ": 57278569.53,
+    "dram_weight_reads": 2304.0,
+    "dram_weight_energy_pJ": 147456.0
+   },
+   {
+    "layer": "features.3.conv.0.0",
+    "shape": "C24_M144_R1_S1_P56_Q56_ws1_hs1",
+    "status": "ok",
+    "weights": 3456,
+    "macs": 10838016,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "1c3a8ebdb9a93605",
+    "mapping_cached": false,
+    "total_energy_pJ": 73762710.35,
+    "dram_weight_reads": 96768.0,
+    "dram_weight_energy_pJ": 6193152.0
+   },
+   {
+    "layer": "features.3.conv.1.0",
+    "shape": "C1_M1_R3_S3_P56_Q56_ws1_hs1_G144",
+    "status": "ok",
+    "weights": 1296,
+    "macs": 4064256,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "ffeea0f985fb6763",
+    "mapping_cached": false,
+    "total_energy_pJ": 84127475.5,
+    "dram_weight_reads": 1296.0,
+    "dram_weight_energy_pJ": 82944.0
+   },
+   {
+    "layer": "features.3.conv.2",
+    "shape": "C144_M24_R1_S1_P56_Q56_ws1_hs1",
+    "status": "ok",
+    "weights": 3456,
+    "macs": 10838016,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "df602f35b858eed0",
+    "mapping_cached": false,
+    "total_energy_pJ": 82525938.65,
+    "dram_weight_reads": 3456.0,
+    "dram_weight_energy_pJ": 221184.0
+   },
+   {
+    "layer": "features.4.conv.0.0",
+    "shape": "C24_M144_R1_S1_P56_Q56_ws1_hs1",
+    "status": "ok",
+    "weights": 3456,
+    "macs": 10838016,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "1c3a8ebdb9a93605",
+    "mapping_cached": false,
+    "total_energy_pJ": 73762710.35,
+    "dram_weight_reads": 96768.0,
+    "dram_weight_energy_pJ": 6193152.0
+   },
+   {
+    "layer": "features.4.conv.1.0",
+    "shape": "C1_M1_R3_S3_P28_Q28_ws2_hs2_G144",
+    "status": "ok",
+    "weights": 1296,
+    "macs": 1016064,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "de187366def642f3",
+    "mapping_cached": false,
+    "total_energy_pJ": 44107433.660000004,
+    "dram_weight_reads": 1296.0,
+    "dram_weight_energy_pJ": 82944.0
+   },
+   {
+    "layer": "features.4.conv.2",
+    "shape": "C144_M32_R1_S1_P28_Q28_ws1_hs1",
+    "status": "ok",
+    "weights": 4608,
+    "macs": 3612672,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "c22875fa65f72080",
+    "mapping_cached": false,
+    "total_energy_pJ": 24106467.080000002,
+    "dram_weight_reads": 9216.0,
+    "dram_weight_energy_pJ": 589824.0
+   },
+   {
+    "layer": "features.5.conv.0.0",
+    "shape": "C32_M192_R1_S1_P28_Q28_ws1_hs1",
+    "status": "ok",
+    "weights": 6144,
+    "macs": 4816896,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "c5462365c85c9664",
+    "mapping_cached": false,
+    "total_energy_pJ": 25662839.04,
+    "dram_weight_reads": 6144.0,
+    "dram_weight_energy_pJ": 393216.0
+   },
+   {
+    "layer": "features.5.conv.1.0",
+    "shape": "C1_M1_R3_S3_P28_Q28_ws1_hs1_G192",
+    "status": "ok",
+    "weights": 1728,
+    "macs": 1354752,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "40b04b79af5c749a",
+    "mapping_cached": false,
+    "total_energy_pJ": 29173688.310000002,
+    "dram_weight_reads": 1728.0,
+    "dram_weight_energy_pJ": 110592.0
+   },
+   {
+    "layer": "features.5.conv.2",
+    "shape": "C192_M32_R1_S1_P28_Q28_ws1_hs1",
+    "status": "ok",
+    "weights": 6144,
+    "macs": 4816896,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "f0292187b96b3f92",
+    "mapping_cached": false,
+    "total_energy_pJ": 32706197.21,
+    "dram_weight_reads": 6144.0,
+    "dram_weight_energy_pJ": 393216.0
+   },
+   {
+    "layer": "features.6.conv.0.0",
+    "shape": "C32_M192_R1_S1_P28_Q28_ws1_hs1",
+    "status": "ok",
+    "weights": 6144,
+    "macs": 4816896,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "c5462365c85c9664",
+    "mapping_cached": false,
+    "total_energy_pJ": 25662839.04,
+    "dram_weight_reads": 6144.0,
+    "dram_weight_energy_pJ": 393216.0
+   },
+   {
+    "layer": "features.6.conv.1.0",
+    "shape": "C1_M1_R3_S3_P28_Q28_ws1_hs1_G192",
+    "status": "ok",
+    "weights": 1728,
+    "macs": 1354752,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "40b04b79af5c749a",
+    "mapping_cached": false,
+    "total_energy_pJ": 29173688.310000002,
+    "dram_weight_reads": 1728.0,
+    "dram_weight_energy_pJ": 110592.0
+   },
+   {
+    "layer": "features.6.conv.2",
+    "shape": "C192_M32_R1_S1_P28_Q28_ws1_hs1",
+    "status": "ok",
+    "weights": 6144,
+    "macs": 4816896,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "f0292187b96b3f92",
+    "mapping_cached": false,
+    "total_energy_pJ": 32706197.21,
+    "dram_weight_reads": 6144.0,
+    "dram_weight_energy_pJ": 393216.0
+   },
+   {
+    "layer": "features.7.conv.0.0",
+    "shape": "C32_M192_R1_S1_P28_Q28_ws1_hs1",
+    "status": "ok",
+    "weights": 6144,
+    "macs": 4816896,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "c5462365c85c9664",
+    "mapping_cached": false,
+    "total_energy_pJ": 25662839.04,
+    "dram_weight_reads": 6144.0,
+    "dram_weight_energy_pJ": 393216.0
+   },
+   {
+    "layer": "features.7.conv.1.0",
+    "shape": "C1_M1_R3_S3_P14_Q14_ws2_hs2_G192",
+    "status": "ok",
+    "weights": 1728,
+    "macs": 338688,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "0341d6472b5192be",
+    "mapping_cached": false,
+    "total_energy_pJ": 15150298.74,
+    "dram_weight_reads": 1728.0,
+    "dram_weight_energy_pJ": 110592.0
+   },
+   {
+    "layer": "features.7.conv.2",
+    "shape": "C192_M64_R1_S1_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 12288,
+    "macs": 2408448,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "d6b11e64ce7bb3f6",
+    "mapping_cached": false,
+    "total_energy_pJ": 10980063.719999999,
+    "dram_weight_reads": 12288.0,
+    "dram_weight_energy_pJ": 786432.0
+   },
+   {
+    "layer": "features.8.conv.0.0",
+    "shape": "C64_M384_R1_S1_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 24576,
+    "macs": 4816896,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "752977351c4c1407",
+    "mapping_cached": false,
+    "total_energy_pJ": 22264664.67,
+    "dram_weight_reads": 24576.0,
+    "dram_weight_energy_pJ": 1572864.0
+   },
+   {
+    "layer": "features.8.conv.1.0",
+    "shape": "C1_M1_R3_S3_P14_Q14_ws1_hs1_G384",
+    "status": "ok",
+    "weights": 3456,
+    "macs": 677376,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "45641d1781d564a3",
+    "mapping_cached": false,
+    "total_energy_pJ": 15383420.05,
+    "dram_weight_reads": 3456.0,
+    "dram_weight_energy_pJ": 221184.0
+   },
+   {
+    "layer": "features.8.conv.2",
+    "shape": "C384_M64_R1_S1_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 24576,
+    "macs": 4816896,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "3c7f3ea6086d8cbd",
+    "mapping_cached": false,
+    "total_energy_pJ": 21134929.61,
+    "dram_weight_reads": 24576.0,
+    "dram_weight_energy_pJ": 1572864.0
+   },
+   {
+    "layer": "features.9.conv.0.0",
+    "shape": "C64_M384_R1_S1_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 24576,
+    "macs": 4816896,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "752977351c4c1407",
+    "mapping_cached": false,
+    "total_energy_pJ": 22264664.67,
+    "dram_weight_reads": 24576.0,
+    "dram_weight_energy_pJ": 1572864.0
+   },
+   {
+    "layer": "features.9.conv.1.0",
+    "shape": "C1_M1_R3_S3_P14_Q14_ws1_hs1_G384",
+    "status": "ok",
+    "weights": 3456,
+    "macs": 677376,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "45641d1781d564a3",
+    "mapping_cached": false,
+    "total_energy_pJ": 15383420.05,
+    "dram_weight_reads": 3456.0,
+    "dram_weight_energy_pJ": 221184.0
+   },
+   {
+    "layer": "features.9.conv.2",
+    "shape": "C384_M64_R1_S1_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 24576,
+    "macs": 4816896,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "3c7f3ea6086d8cbd",
+    "mapping_cached": false,
+    "total_energy_pJ": 21134929.61,
+    "dram_weight_reads": 24576.0,
+    "dram_weight_energy_pJ": 1572864.0
+   },
+   {
+    "layer": "features.10.conv.0.0",
+    "shape": "C64_M384_R1_S1_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 24576,
+    "macs": 4816896,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "752977351c4c1407",
+    "mapping_cached": false,
+    "total_energy_pJ": 22264664.67,
+    "dram_weight_reads": 24576.0,
+    "dram_weight_energy_pJ": 1572864.0
+   },
+   {
+    "layer": "features.10.conv.1.0",
+    "shape": "C1_M1_R3_S3_P14_Q14_ws1_hs1_G384",
+    "status": "ok",
+    "weights": 3456,
+    "macs": 677376,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "45641d1781d564a3",
+    "mapping_cached": false,
+    "total_energy_pJ": 15383420.05,
+    "dram_weight_reads": 3456.0,
+    "dram_weight_energy_pJ": 221184.0
+   },
+   {
+    "layer": "features.10.conv.2",
+    "shape": "C384_M64_R1_S1_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 24576,
+    "macs": 4816896,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "3c7f3ea6086d8cbd",
+    "mapping_cached": false,
+    "total_energy_pJ": 21134929.61,
+    "dram_weight_reads": 24576.0,
+    "dram_weight_energy_pJ": 1572864.0
+   },
+   {
+    "layer": "features.11.conv.0.0",
+    "shape": "C64_M384_R1_S1_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 24576,
+    "macs": 4816896,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "752977351c4c1407",
+    "mapping_cached": false,
+    "total_energy_pJ": 22264664.67,
+    "dram_weight_reads": 24576.0,
+    "dram_weight_energy_pJ": 1572864.0
+   },
+   {
+    "layer": "features.11.conv.1.0",
+    "shape": "C1_M1_R3_S3_P14_Q14_ws1_hs1_G384",
+    "status": "ok",
+    "weights": 3456,
+    "macs": 677376,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "45641d1781d564a3",
+    "mapping_cached": false,
+    "total_energy_pJ": 15383420.05,
+    "dram_weight_reads": 3456.0,
+    "dram_weight_energy_pJ": 221184.0
+   },
+   {
+    "layer": "features.11.conv.2",
+    "shape": "C384_M96_R1_S1_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 36864,
+    "macs": 7225344,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "19e3739aac476de3",
+    "mapping_cached": false,
+    "total_energy_pJ": 32166748.03,
+    "dram_weight_reads": 36864.0,
+    "dram_weight_energy_pJ": 2359296.0
+   },
+   {
+    "layer": "features.12.conv.0.0",
+    "shape": "C96_M576_R1_S1_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 55296,
+    "macs": 10838016,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "256929ad4a36e549",
+    "mapping_cached": false,
+    "total_energy_pJ": 45226715.269999996,
+    "dram_weight_reads": 55296.0,
+    "dram_weight_energy_pJ": 3538944.0
+   },
+   {
+    "layer": "features.12.conv.1.0",
+    "shape": "C1_M1_R3_S3_P14_Q14_ws1_hs1_G576",
+    "status": "ok",
+    "weights": 5184,
+    "macs": 1016064,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "67ab806d90cd7067",
+    "mapping_cached": false,
+    "total_energy_pJ": 24550633.9,
+    "dram_weight_reads": 5184.0,
+    "dram_weight_energy_pJ": 331776.0
+   },
+   {
+    "layer": "features.12.conv.2",
+    "shape": "C576_M96_R1_S1_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 55296,
+    "macs": 10838016,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "e15ddb61fe5cddca",
+    "mapping_cached": false,
+    "total_energy_pJ": 54373840.46,
+    "dram_weight_reads": 110592.0,
+    "dram_weight_energy_pJ": 7077888.0
+   },
+   {
+    "layer": "features.13.conv.0.0",
+    "shape": "C96_M576_R1_S1_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 55296,
+    "macs": 10838016,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "256929ad4a36e549",
+    "mapping_cached": false,
+    "total_energy_pJ": 45226715.269999996,
+    "dram_weight_reads": 55296.0,
+    "dram_weight_energy_pJ": 3538944.0
+   },
+   {
+    "layer": "features.13.conv.1.0",
+    "shape": "C1_M1_R3_S3_P14_Q14_ws1_hs1_G576",
+    "status": "ok",
+    "weights": 5184,
+    "macs": 1016064,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "67ab806d90cd7067",
+    "mapping_cached": false,
+    "total_energy_pJ": 24550633.9,
+    "dram_weight_reads": 5184.0,
+    "dram_weight_energy_pJ": 331776.0
+   },
+   {
+    "layer": "features.13.conv.2",
+    "shape": "C576_M96_R1_S1_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 55296,
+    "macs": 10838016,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "e15ddb61fe5cddca",
+    "mapping_cached": false,
+    "total_energy_pJ": 54373840.46,
+    "dram_weight_reads": 110592.0,
+    "dram_weight_energy_pJ": 7077888.0
+   },
+   {
+    "layer": "features.14.conv.0.0",
+    "shape": "C96_M576_R1_S1_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 55296,
+    "macs": 10838016,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "256929ad4a36e549",
+    "mapping_cached": false,
+    "total_energy_pJ": 45226715.269999996,
+    "dram_weight_reads": 55296.0,
+    "dram_weight_energy_pJ": 3538944.0
+   },
+   {
+    "layer": "features.14.conv.1.0",
+    "shape": "C1_M1_R3_S3_P7_Q7_ws2_hs2_G576",
+    "status": "ok",
+    "weights": 5184,
+    "macs": 254016,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "2ab385d8a34bff07",
+    "mapping_cached": false,
+    "total_energy_pJ": 12201497.43,
+    "dram_weight_reads": 5184.0,
+    "dram_weight_energy_pJ": 331776.0
+   },
+   {
+    "layer": "features.14.conv.2",
+    "shape": "C576_M160_R1_S1_P7_Q7_ws1_hs1",
+    "status": "ok",
+    "weights": 92160,
+    "macs": 4515840,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "4918f0a9730a8bbd",
+    "mapping_cached": false,
+    "total_energy_pJ": 23736540.09,
+    "dram_weight_reads": 92160.0,
+    "dram_weight_energy_pJ": 5898240.0
+   },
+   {
+    "layer": "features.15.conv.0.0",
+    "shape": "C160_M960_R1_S1_P7_Q7_ws1_hs1",
+    "status": "ok",
+    "weights": 153600,
+    "macs": 7526400,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "d44ecd31d0ad1e7e",
+    "mapping_cached": false,
+    "total_energy_pJ": 34317644.6,
+    "dram_weight_reads": 153600.0,
+    "dram_weight_energy_pJ": 9830400.0
+   },
+   {
+    "layer": "features.15.conv.1.0",
+    "shape": "C1_M1_R3_S3_P7_Q7_ws1_hs1_G960",
+    "status": "ok",
+    "weights": 8640,
+    "macs": 423360,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "3dd77fbf403af5cd",
+    "mapping_cached": false,
+    "total_energy_pJ": 11147467.280000001,
+    "dram_weight_reads": 8640.0,
+    "dram_weight_energy_pJ": 552960.0
+   },
+   {
+    "layer": "features.15.conv.2",
+    "shape": "C960_M160_R1_S1_P7_Q7_ws1_hs1",
+    "status": "ok",
+    "weights": 153600,
+    "macs": 7526400,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "4d5290b23e276e38",
+    "mapping_cached": false,
+    "total_energy_pJ": 34492287.66,
+    "dram_weight_reads": 153600.0,
+    "dram_weight_energy_pJ": 9830400.0
+   },
+   {
+    "layer": "features.16.conv.0.0",
+    "shape": "C160_M960_R1_S1_P7_Q7_ws1_hs1",
+    "status": "ok",
+    "weights": 153600,
+    "macs": 7526400,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "d44ecd31d0ad1e7e",
+    "mapping_cached": false,
+    "total_energy_pJ": 34317644.6,
+    "dram_weight_reads": 153600.0,
+    "dram_weight_energy_pJ": 9830400.0
+   },
+   {
+    "layer": "features.16.conv.1.0",
+    "shape": "C1_M1_R3_S3_P7_Q7_ws1_hs1_G960",
+    "status": "ok",
+    "weights": 8640,
+    "macs": 423360,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "3dd77fbf403af5cd",
+    "mapping_cached": false,
+    "total_energy_pJ": 11147467.280000001,
+    "dram_weight_reads": 8640.0,
+    "dram_weight_energy_pJ": 552960.0
+   },
+   {
+    "layer": "features.16.conv.2",
+    "shape": "C960_M160_R1_S1_P7_Q7_ws1_hs1",
+    "status": "ok",
+    "weights": 153600,
+    "macs": 7526400,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "4d5290b23e276e38",
+    "mapping_cached": false,
+    "total_energy_pJ": 34492287.66,
+    "dram_weight_reads": 153600.0,
+    "dram_weight_energy_pJ": 9830400.0
+   },
+   {
+    "layer": "features.17.conv.0.0",
+    "shape": "C160_M960_R1_S1_P7_Q7_ws1_hs1",
+    "status": "ok",
+    "weights": 153600,
+    "macs": 7526400,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "d44ecd31d0ad1e7e",
+    "mapping_cached": false,
+    "total_energy_pJ": 34317644.6,
+    "dram_weight_reads": 153600.0,
+    "dram_weight_energy_pJ": 9830400.0
+   },
+   {
+    "layer": "features.17.conv.1.0",
+    "shape": "C1_M1_R3_S3_P7_Q7_ws1_hs1_G960",
+    "status": "ok",
+    "weights": 8640,
+    "macs": 423360,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "3dd77fbf403af5cd",
+    "mapping_cached": false,
+    "total_energy_pJ": 11147467.280000001,
+    "dram_weight_reads": 8640.0,
+    "dram_weight_energy_pJ": 552960.0
+   },
+   {
+    "layer": "features.17.conv.2",
+    "shape": "C960_M320_R1_S1_P7_Q7_ws1_hs1",
+    "status": "ok",
+    "weights": 307200,
+    "macs": 15052800,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "84c90a6c881411cd",
+    "mapping_cached": false,
+    "total_energy_pJ": 70083213.94,
+    "dram_weight_reads": 307200.0,
+    "dram_weight_energy_pJ": 19660800.0
+   },
+   {
+    "layer": "features.18.0",
+    "shape": "C320_M1280_R1_S1_P7_Q7_ws1_hs1",
+    "status": "ok",
+    "weights": 409600,
+    "macs": 20070400,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "e6d8292860d0c572",
+    "mapping_cached": false,
+    "total_energy_pJ": 86821294.87,
+    "dram_weight_reads": 409600.0,
+    "dram_weight_energy_pJ": 26214400.0
+   },
+   {
+    "layer": "classifier.1",
+    "shape": "C1280_M1000_R1_S1_P1_Q1_ws1_hs1",
+    "status": "ok",
+    "weights": 1280000,
+    "macs": 1280000,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "3dacd93361c2b58a",
+    "mapping_cached": false,
+    "total_energy_pJ": 93118853.19,
+    "dram_weight_reads": 1280000.0,
+    "dram_weight_energy_pJ": 81920000.0
+   }
+  ],
+  "per_level": [
+   {
+    "level": "DRAM",
+    "dataspace": "Inputs",
+    "category": "DRAM",
+    "instances": 1,
+    "energy_pJ": 462575104.0,
+    "reads": 7227734.0,
+    "writes": 0.0
+   },
+   {
+    "level": "DRAM",
+    "dataspace": "Outputs",
+    "category": "DRAM",
+    "instances": 1,
+    "energy_pJ": 430473728.0,
+    "reads": 23520.0,
+    "writes": 6702632.0
+   },
+   {
+    "level": "DRAM",
+    "dataspace": "Weights",
+    "category": "DRAM",
+    "instances": 1,
+    "energy_pJ": 241381376.0,
+    "reads": 3771584.0,
+    "writes": 0.0
+   },
+   {
+    "level": "input_activation_reg",
+    "dataspace": "Inputs",
+    "category": "Local (spads/RF/NoC)",
+    "instances": 256,
+    "energy_pJ": 27399754.15,
+    "reads": 32175960.0,
+    "writes": 28262232.0
+   },
+   {
+    "level": "mac",
+    "dataspace": "Compute",
+    "category": "Compute",
+    "instances": 256,
+    "energy_pJ": 341544224.58,
+    "reads": 0.0,
+    "writes": 0.0
+   },
+   {
+    "level": "operand_glb",
+    "dataspace": "Inputs",
+    "category": "Global buffer",
+    "instances": 1,
+    "energy_pJ": 310197738.21,
+    "reads": 90413440.0,
+    "writes": 7227734.0
+   },
+   {
+    "level": "operand_glb",
+    "dataspace": "Weights",
+    "category": "Global buffer",
+    "instances": 1,
+    "energy_pJ": 41859393.83,
+    "reads": 10067728.0,
+    "writes": 3771584.0
+   },
+   {
+    "level": "output_activation_reg",
+    "dataspace": "Outputs",
+    "category": "Local (spads/RF/NoC)",
+    "instances": 256,
+    "energy_pJ": 48607234.12,
+    "reads": 29030060.0,
+    "writes": 38364856.0
+   },
+   {
+    "level": "pe_spad",
+    "dataspace": "Weights",
+    "category": "Local (spads/RF/NoC)",
+    "instances": 256,
+    "energy_pJ": 92079294.47,
+    "reads": 30126680.0,
+    "writes": 1150292.0
+   },
+   {
+    "level": "psum_glb",
+    "dataspace": "Outputs",
+    "category": "Global buffer",
+    "instances": 1,
+    "energy_pJ": 184251624.24,
+    "reads": 13298208.0,
+    "writes": 20000840.0
+   },
+   {
+    "level": "weight_reg",
+    "dataspace": "Weights",
+    "category": "Local (spads/RF/NoC)",
+    "instances": 256,
+    "energy_pJ": 27399754.15,
+    "reads": 32175960.0,
+    "writes": 30126680.0
+   }
+  ],
+  "mappings": [
+   {}
+  ],
+  "raw_energy_cache": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/results/_raw/simple_weight_stationary/opt-energy__vic2000__vicx__alg-random_pruned__ss20000__to2000__paper/fp-8105bd1732ad/cnn/layers-full/cls-instances/rw-joint/mobilenet_v2.json",
+  "mapper_cache": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/ecc_energy_study/outputs/simple_weight_stationary/multimodel__opt-energy__vic2000__vicx__alg-random_pruned__ss20000__to2000__paper/fp-8105bd1732ad"
+ },
+ "provenance": {
+  "config": {
+   "experiment": "baseline",
+   "sweep": "arch",
+   "sweep_archs": [
+    "eyeriss_v2_like",
+    "eyeriss_like",
+    "simple_weight_stationary",
+    "simple_output_stationary",
+    "simple_input_stationary",
+    "simba_like"
+   ],
+   "sweep_models": [
+    "resnet18",
+    "resnet50",
+    "densenet121",
+    "squeezenet1_1",
+    "mobilenet_v2",
+    "efficientnet_b0",
+    "convnext_tiny",
+    "xception"
+   ],
+   "sweep_ks": [
+    57,
+    51,
+    45,
+    39,
+    36,
+    30
+   ],
+   "panel_models": [
+    "resnet18",
+    "mobilenet_v2"
+   ],
+   "const_arch": "eyeriss_like",
+   "const_model": "mobilenet_v2",
+   "const_k": 51,
+   "approaches": [
+    "baseline",
+    "embedded",
+    "recon"
+   ],
+   "weight_bits": 8,
+   "activation_bits": 8,
+   "acc_bits_override": null,
+   "code_n": 63,
+   "emb_weights_per_cw_override": null,
+   "parity_grouping": "layer",
+   "parity_charge_padding": true,
+   "decode_enabled": false,
+   "decode_pj_base": 40.0,
+   "decode_pj_emb": 40.0,
+   "recon_charges_decode": true,
+   "recon_json": "data/dc/BCH_N63_results.json",
+   "recon_include_idle": true,
+   "recon_pj_override": null,
+   "recon_incremental_fallback_pj": 1.8995,
+   "recon_idle_fallback_pj": 2.2301273,
+   "weak_enabled": false,
+   "weak_n": 63,
+   "weak_k": 57,
+   "baseline_inflates_onchip": false,
+   "split_read_write": false,
+   "classify_mode": "instances",
+   "arch_fidelity": "paper",
+   "force_technology": "",
+   "force_datawidth": null,
+   "dram_depth": 1048576,
+   "global_cycle_seconds": "1e-9",
+   "layers": [],
+   "phase": "Pre",
+   "overwrite": false,
+   "cache_strict": true,
+   "run_note": "",
+   "opt_metric": "energy",
+   "victory": 2000,
+   "victory_scaling": "levels",
+   "mapper_threads": 18,
+   "mapper_timeout": 2000,
+   "mapper_algorithm": "random_pruned",
+   "mapper_seed": null,
+   "mapper_search_size": 20000,
+   "mapper_max_permutations": 16,
+   "results_dir": "results",
+   "replot_only": false,
+   "from_cache": true,
+   "palette": "house",
+   "dpi": 400,
+   "formats": [
+    "png",
+    "pdf"
+   ],
+   "title_note": "",
+   "nice_labels": true,
+   "archs": [
+    "eyeriss_v2_like",
+    "eyeriss_like",
+    "simple_weight_stationary",
+    "simple_output_stationary",
+    "simple_input_stationary",
+    "simba_like"
+   ],
+   "models": [
+    "mobilenet_v2"
+   ],
+   "code_k": 51,
+   "code_t": 2,
+   "workload": "cnn",
+   "stem": "ArchitectureSweep",
+   "arch_variant_slug": "opt-energy__vic2000__vicx__alg-random_pruned__ss20000__to2000__paper",
+   "weights_per_codeword": 6,
+   "emb_weights_per_cw": 6,
+   "parity_frac": 0.23529411764705888,
+   "sram_scale": 0.8095238095238095,
+   "weak_overhead": 1.0
+  },
+  "config_hash": "1ded3fda",
+  "mapper_settings": {
+   "optimization_metric": "energy",
+   "victory_condition_base": 2000,
+   "victory_scaling": "levels",
+   "algorithm": "random_pruned",
+   "timeout": 2000,
+   "search_size": 20000,
+   "max_permutations_per_if_visit": 16,
+   "num_threads": 18,
+   "seed": null,
+   "seed_supported": false,
+   "seed_note": "timeloop-mapper v4 exposes no random seed; pytimeloop's Mapper spec has no `random_seed` attribute. ECC_MAPPER_SEED is RECORDED so a result says which value was asked for, but it does not make the search deterministic. What does bound it is the thread count and victory condition, both of which are in the fingerprint -- so pin ECC_MAPPER_THREADS for a reproducible run rather than leaving it at 'all cores', which differs per machine."
+  },
+  "mapper_fingerprint": "9b201567",
+  "command": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/eccenergy/__main__.py baseline --eval",
+  "git_commit": "bb39e96f924befe1ffa6f15447955fb4fe06d7b2",
+  "started_utc": "2026-09-07T00:53:58+00:00",
+  "finished_utc": "2026-09-07T00:53:58+00:00",
+  "runtime_seconds": 0.0,
+  "host": "login11.ufhpc",
+  "user": "vkamineni",
+  "platform": "Linux-5.14.0-687.36.1.el9_8.x86_64-x86_64-with-glibc2.35",
+  "project_root": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling"
+ }
+}

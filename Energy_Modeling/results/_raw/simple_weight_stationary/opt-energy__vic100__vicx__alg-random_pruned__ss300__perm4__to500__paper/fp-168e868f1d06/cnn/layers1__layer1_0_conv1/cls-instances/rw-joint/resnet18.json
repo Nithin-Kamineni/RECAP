@@ -1,0 +1,146 @@
+{
+ "base": {
+  "DRAM": 43139072.0,
+  "Global buffer": 429844408.1,
+  "Local (spads/RF/NoC)": 46317803.86,
+  "Compute": 131275830.07,
+  "ECC decode": 0.0,
+  "Reconstruction": 0.0
+ },
+ "base_w": {
+  "DRAM": 16515072.0,
+  "Global buffer": 7324598.94,
+  "Local (spads/RF/NoC)": 14869967.280000001,
+  "Compute": 0.0,
+  "ECC decode": 0.0,
+  "Reconstruction": 0.0
+ },
+ "base_i": {
+  "DRAM": 13778944.0,
+  "Global buffer": 94177879.59,
+  "Local (spads/RF/NoC)": 10531360.84,
+  "Compute": 0.0,
+  "ECC decode": 0.0,
+  "Reconstruction": 0.0
+ },
+ "e_dram_w": 16515072.0,
+ "dram_w_reads": 258048.0,
+ "layers_ok": 1,
+ "layers_skipped": 0,
+ "weights": 36864,
+ "per_layer": [
+  {
+   "layer": "layer1.0.conv1",
+   "shape": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+   "status": "ok",
+   "weights": 36864,
+   "repeat_count": 1,
+   "mapping_id": "98dfce1ac8334ed2",
+   "mapping_cached": false,
+   "total_energy_pJ": 650577114.03,
+   "dram_weight_reads": 258048.0,
+   "dram_weight_energy_pJ": 16515072.0
+  }
+ ],
+ "levels": [
+  {
+   "level": "DRAM",
+   "dataspace": "Inputs",
+   "category": "DRAM",
+   "instances": 1,
+   "energy_pJ": 13778944.0,
+   "reads": 215296.0,
+   "writes": 0.0
+  },
+  {
+   "level": "DRAM",
+   "dataspace": "Outputs",
+   "category": "DRAM",
+   "instances": 1,
+   "energy_pJ": 12845056.0,
+   "reads": 0.0,
+   "writes": 200704.0
+  },
+  {
+   "level": "DRAM",
+   "dataspace": "Weights",
+   "category": "DRAM",
+   "instances": 1,
+   "energy_pJ": 16515072.0,
+   "reads": 258048.0,
+   "writes": 0.0
+  },
+  {
+   "level": "input_activation_reg",
+   "dataspace": "Inputs",
+   "category": "Local (spads/RF/NoC)",
+   "instances": 256,
+   "energy_pJ": 10531360.84,
+   "reads": 7225344.0,
+   "writes": 7225344.0
+  },
+  {
+   "level": "mac",
+   "dataspace": "Compute",
+   "category": "Compute",
+   "instances": 256,
+   "energy_pJ": 131275830.07,
+   "reads": 0.0,
+   "writes": 0.0
+  },
+  {
+   "level": "operand_glb",
+   "dataspace": "Inputs",
+   "category": "Global buffer",
+   "instances": 1,
+   "energy_pJ": 94177879.59,
+   "reads": 28901376.0,
+   "writes": 215296.0
+  },
+  {
+   "level": "operand_glb",
+   "dataspace": "Weights",
+   "category": "Global buffer",
+   "instances": 1,
+   "energy_pJ": 7324598.94,
+   "reads": 2064384.0,
+   "writes": 258048.0
+  },
+  {
+   "level": "output_activation_reg",
+   "dataspace": "Outputs",
+   "category": "Local (spads/RF/NoC)",
+   "instances": 256,
+   "energy_pJ": 20916475.74,
+   "reads": 7175168.0,
+   "writes": 14400512.0
+  },
+  {
+   "level": "pe_spad",
+   "dataspace": "Weights",
+   "category": "Local (spads/RF/NoC)",
+   "instances": 256,
+   "energy_pJ": 4338606.44,
+   "reads": 516096.0,
+   "writes": 129024.0
+  },
+  {
+   "level": "psum_glb",
+   "dataspace": "Outputs",
+   "category": "Global buffer",
+   "instances": 1,
+   "energy_pJ": 328341929.57,
+   "reads": 28700672.0,
+   "writes": 28901376.0
+  },
+  {
+   "level": "weight_reg",
+   "dataspace": "Weights",
+   "category": "Local (spads/RF/NoC)",
+   "instances": 256,
+   "energy_pJ": 10531360.84,
+   "reads": 7225344.0,
+   "writes": 516096.0
+  }
+ ]
+}

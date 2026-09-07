@@ -1,0 +1,2654 @@
+{
+ "schema_version": "1.0",
+ "experiment": {
+  "name": "task1_conventional_ecc_baseline",
+  "phase": "Pre",
+  "phase_meaning": "Pre: the mapping is ECC-unaware and the ECC effect is applied during energy evaluation only",
+  "mapping_mode": "fixed-mapping",
+  "run_id": "20260907T005358Z__1d9e36f2",
+  "status": "ok",
+  "units": {
+   "energy": "pJ unless a field name says otherwise",
+   "savings": "percent",
+   "capacity": "bits or bytes as the field name says"
+  }
+ },
+ "identity": {
+  "architecture": "eyeriss_like",
+  "architecture_label": "Eyeriss v1",
+  "model": "mobilenet_v2",
+  "layer_scope": "full",
+  "layers": "full model",
+  "bch": {
+   "n": 63,
+   "k": 51,
+   "t": 2,
+   "label": "BCH(63,51)"
+  },
+  "precisions_bits": {
+   "weight": 8,
+   "activation": 8,
+   "accumulator": 16,
+   "accumulator_policy": "paper-native (per architecture)",
+   "accumulator_evidence": "Sec. IV: \"The computation consists of a 16-b two-stage pipelined multiplier and adder. Since the multiplication results are truncated from 32 to 16 b...\"  Verified against the JSSC PDF, 2026-09-06."
+  }
+ },
+ "reference_variants": {
+  "conventional_ecc": "baseline_external_parity",
+  "embedded_only": "embedded_ecc"
+ },
+ "summary": [
+  {
+   "variant": "baseline_external_parity",
+   "kind": "baseline",
+   "status": "evaluated",
+   "total_energy_pJ": 1915461726.2399998,
+   "total_energy_uJ": 1915.4617262399997,
+   "savings_vs_conventional_ecc_percent": 0.0,
+   "savings_vs_embedded_only_percent": null,
+   "unavailable_reason": null
+  },
+  {
+   "variant": "embedded_ecc",
+   "kind": "embedded",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "savings_vs_conventional_ecc_percent": null,
+   "savings_vs_embedded_only_percent": null,
+   "unavailable_reason": "Task 2 has not been implemented. Embedded ECC needs the actual embedded-codeword layout and a DRAM-only comparison against this baseline; nothing in Task 1 models it, so no number is written."
+  },
+  {
+   "variant": "recon_source_noc_ingress",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "savings_vs_conventional_ecc_percent": null,
+   "savings_vs_embedded_only_percent": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the source / NoC ingress) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated."
+  },
+  {
+   "variant": "recon_destination_cluster",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "savings_vs_conventional_ecc_percent": null,
+   "savings_vs_embedded_only_percent": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the destination-cluster boundary) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated."
+  },
+  {
+   "variant": "recon_pe_spad_input",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "savings_vs_conventional_ecc_percent": null,
+   "savings_vs_embedded_only_percent": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the PE weight-SPad input) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated."
+  },
+  {
+   "variant": "recon_pe_spad_output",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "savings_vs_conventional_ecc_percent": null,
+   "savings_vs_embedded_only_percent": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the weight-SPad output, repeated) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated."
+  },
+  {
+   "variant": "recon_pe_spad_output_reuse_reg",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "savings_vs_conventional_ecc_percent": null,
+   "savings_vs_embedded_only_percent": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the SPad output with a reconstructed-weight reuse register) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated."
+  }
+ ],
+ "best_reconstruction_placement": {
+  "variant": null,
+  "reason": "no reconstruction placement has been evaluated in this run"
+ },
+ "validation": [
+  {
+   "check": "parity_payload_hand_check",
+   "passed": true,
+   "detail": {
+    "method": "codeword-by-codeword walk compared against the closed form; both must agree exactly",
+    "code": "BCH(63,51) over 8-bit weights",
+    "weights_checked": 3469760,
+    "weights_per_codeword": 6,
+    "message_pad_bits_per_codeword": 3,
+    "checks": {
+     "codewords": {
+      "walked": 578294,
+      "closed_form": 578294
+     },
+     "payload_bits": {
+      "walked": 27758080,
+      "closed_form": 27758080
+     },
+     "padding_bits_total": {
+      "walked": 1734914,
+      "closed_form": 1734914
+     },
+     "parity_bits": {
+      "walked": 6939528,
+      "closed_form": 6939528
+     },
+     "parity_dram_words": {
+      "walked": 108431,
+      "closed_form": 108431
+     }
+    },
+    "mismatches": {},
+    "passed": true
+   }
+  },
+  {
+   "check": "all_layers_mapped",
+   "passed": true,
+   "detail": "53 mapped, 0 skipped"
+  },
+  {
+   "check": "mapping_ids_recorded",
+   "passed": true,
+   "detail": "31 distinct mapping(s) behind this result"
+  },
+  {
+   "check": "architecture_obeys_shared_contract",
+   "passed": true,
+   "detail": {
+    "violations": [],
+    "notes": [
+     "published at 65nm, modelled at 45nm. Deliberate: a mixed-node comparison would report silicon as architecture."
+    ]
+   }
+  },
+  {
+   "check": "components_sum_to_total[baseline_external_parity]",
+   "passed": true,
+   "detail": "components sum to 1915461726.240000 pJ, total is 1915461726.240000 pJ"
+  },
+  {
+   "check": "fixed_mapping_shared_across_variants",
+   "passed": true,
+   "detail": "all evaluated variants reference the same mapping set"
+  }
+ ],
+ "warnings": [
+  "BOUNDED MAPPER SEARCH (search_size=20000, max_permutations_per_if_visit=16). The search was cut short for speed, so these mappings are upper bounds on energy, not converged optima, and the shortfall is LARGER for deeper hierarchies. Development only -- do not publish or rank architectures from this."
+ ],
+ "approximations": [
+  "exact stored codeword count x measured DRAM refetch factor; parity + message padding; rounded up to whole DRAM words once",
+  "External parity is billed at the measured per-access energy of a DRAM weight read on this architecture, not at an independently modelled parity-region access cost. That is exact if parity is read from the same DRAM by the same controller, which is the conventional-ECC assumption."
+ ],
+ "variants": [
+  {
+   "name": "baseline_external_parity",
+   "label": "Conventional ECC, BCH parity external in DRAM",
+   "kind": "baseline",
+   "status": "evaluated",
+   "total_energy_pJ": 1915461726.2399998,
+   "total_energy_uJ": 1915.4617262399997,
+   "unavailable_reason": null,
+   "energy_by_component_pJ": {
+    "DRAM": 1171651584.0,
+    "Global buffer": 167645344.62999985,
+    "Local (spads/RF/NoC)": 153412253.03000012,
+    "Compute": 341544224.5799998,
+    "DRAM external BCH parity": 81208320.0
+   },
+   "mapping_ids": [
+    "0ce8019166ff8080",
+    "1264ef46ede1e67a",
+    "12651a0100b0f25a",
+    "15e6f41432898f2e",
+    "1f1d2d6fe9a9dad6",
+    "2483a3c6abf0978c",
+    "30a6c9302d3f8912",
+    "515af27757e6d669",
+    "5a06406d9c16c285",
+    "5ea989c092fd293b",
+    "5ed602739f5c6de6",
+    "65145fe9d155d95e",
+    "671beb5f3fb88e65",
+    "6eeded83e3656fe3",
+    "87783b842f4ede88",
+    "91b64ed8149ad6ee",
+    "96f67dd38cfdb57c",
+    "9c210dd60eafd59d",
+    "a81788a6b19d895c",
+    "b8c57871e5333b5d",
+    "bbb7ba3688d45680",
+    "bda316b5ae95501c",
+    "bffbf935284d5002",
+    "cd0c0d974950312b",
+    "d3ee492ec7b36d27",
+    "d65fef5eb18f57e0",
+    "de90db15d011c232",
+    "e1186ed329b1748d",
+    "ef777cb5884a6b32",
+    "f0cfc6109084084e",
+    "f5fe82b30dcb2900"
+   ],
+   "detail": {
+    "external_parity_accounting": {
+     "code": {
+      "n": 63,
+      "k": 51,
+      "weight_bits": 8,
+      "parity_bits_per_codeword": 12,
+      "weights_per_codeword": 6,
+      "message_used_bits": 48,
+      "message_pad_bits_per_codeword": 3,
+      "parity_overhead_frac": 0.25,
+      "parity_overhead_ideal_frac": 0.23529411764705888
+     },
+     "grouping": "layer",
+     "charge_message_padding": true,
+     "dram_word_bits": 64,
+     "stored": {
+      "weights": 3469760,
+      "payload_bits": 27758080,
+      "codewords": 578295,
+      "message_pad_bits": 1734885,
+      "tail_pad_bits": 80,
+      "parity_bits": 6939540,
+      "parity_dram_words": 108434,
+      "parity_dram_scalars": 867472.0,
+      "dram_word_bits": 64,
+      "stored_bits": 36432585,
+      "overhead_frac": 0.3125037826823757,
+      "payload_bytes": 3469760.0,
+      "parity_bytes": 867442.5,
+      "stored_bytes": 4554073.125
+     },
+     "traffic": {
+      "refetch_factor": 1.1702250299732546,
+      "codeword_reads": 676735.2837083833,
+      "parity_bits": 8120823.4045006,
+      "message_pad_bits": 2030205.85112515,
+      "external_bits": 10151029.25562575,
+      "external_dram_words": 158610.0,
+      "external_dram_scalars": 1268880.0,
+      "charge_padding": true,
+      "overhead_vs_payload_frac": 0.31250000000000006,
+      "method": "exact stored codeword count x measured DRAM refetch factor; parity + message padding; rounded up to whole DRAM words once"
+     },
+     "energy_pJ": 81208320.0,
+     "pJ_per_dram_weight_scalar": 64.0,
+     "hand_check": {
+      "method": "codeword-by-codeword walk compared against the closed form; both must agree exactly",
+      "code": "BCH(63,51) over 8-bit weights",
+      "weights_checked": 3469760,
+      "weights_per_codeword": 6,
+      "message_pad_bits_per_codeword": 3,
+      "checks": {
+       "codewords": {
+        "walked": 578294,
+        "closed_form": 578294
+       },
+       "payload_bits": {
+        "walked": 27758080,
+        "closed_form": 27758080
+       },
+       "padding_bits_total": {
+        "walked": 1734914,
+        "closed_form": 1734914
+       },
+       "parity_bits": {
+        "walked": 6939528,
+        "closed_form": 6939528
+       },
+       "parity_dram_words": {
+        "walked": 108431,
+        "closed_form": 108431
+       }
+      },
+      "mismatches": {},
+      "passed": true
+     },
+     "hand_check_passed": true,
+     "comparison_to_flat_model": {
+      "flat_n_over_k_minus_1": 0.23529411764705888,
+      "accounted_overhead": 0.31250000000000006,
+      "note": "the flat model assumes the k-bit message field is fully packed with weights; it is not, because a weight cannot straddle a codeword"
+     }
+    },
+    "timeloop_energy_pJ": 1834253406.2399998,
+    "dram_weight_reads": 4060400.0,
+    "dram_weight_energy_pJ": 259865600.0
+   }
+  },
+  {
+   "name": "embedded_ecc",
+   "label": "Embedded ECC (no external parity)",
+   "kind": "embedded",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "unavailable_reason": "Task 2 has not been implemented. Embedded ECC needs the actual embedded-codeword layout and a DRAM-only comparison against this baseline; nothing in Task 1 models it, so no number is written.",
+   "energy_by_component_pJ": {},
+   "mapping_ids": [],
+   "detail": {}
+  },
+  {
+   "name": "recon_source_noc_ingress",
+   "label": "reconstruct at the source / NoC ingress",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the source / NoC ingress) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated.",
+   "energy_by_component_pJ": {},
+   "mapping_ids": [],
+   "detail": {}
+  },
+  {
+   "name": "recon_destination_cluster",
+   "label": "reconstruct at the destination-cluster boundary",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the destination-cluster boundary) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated.",
+   "energy_by_component_pJ": {},
+   "mapping_ids": [],
+   "detail": {}
+  },
+  {
+   "name": "recon_pe_spad_input",
+   "label": "reconstruct at the PE weight-SPad input",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the PE weight-SPad input) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated.",
+   "energy_by_component_pJ": {},
+   "mapping_ids": [],
+   "detail": {}
+  },
+  {
+   "name": "recon_pe_spad_output",
+   "label": "reconstruct at the weight-SPad output, repeated",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the weight-SPad output, repeated) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated.",
+   "energy_by_component_pJ": {},
+   "mapping_ids": [],
+   "detail": {}
+  },
+  {
+   "name": "recon_pe_spad_output_reuse_reg",
+   "label": "reconstruct at the SPad output with a reconstructed-weight reuse register",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the SPad output with a reconstructed-weight reuse register) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated.",
+   "energy_by_component_pJ": {},
+   "mapping_ids": [],
+   "detail": {}
+  }
+ ],
+ "detail": {
+  "architecture": {
+   "source_yaml": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/archs/eyeriss_like/arch_paper.yaml",
+   "fingerprint": "65833ebb89d3",
+   "accumulator_bits": 16,
+   "accumulator_evidence": "Sec. IV: \"The computation consists of a 16-b two-stage pipelined multiplier and adder. Since the multiplication results are truncated from 32 to 16 b...\"  Verified against the JSSC PDF, 2026-09-06.",
+   "contract_report": {
+    "arch": "eyeriss_like",
+    "violations": [],
+    "notes": [
+     "published at 65nm, modelled at 45nm. Deliberate: a mixed-node comparison would report silicon as architecture."
+    ],
+    "facts": {
+     "source": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/archs/eyeriss_like/arch_paper.yaml",
+     "origin": "published",
+     "label": "Eyeriss v1",
+     "accumulator_bits": 16,
+     "accumulator_evidence": "Sec. IV: \"The computation consists of a 16-b two-stage pipelined multiplier and adder. Since the multiplication results are truncated from 32 to 16 b...\"  Verified against the JSSC PDF, 2026-09-06.",
+     "citation": "Y.-H. Chen, T. Krishna, J. Emer, V. Sze, \"Eyeriss: An Energy-Efficient Reconfigurable Accelerator for Deep Convolutional Neural Networks\", IEEE JSSC 52(1), 2017.",
+     "technology_declared": [
+      "45nm"
+     ],
+     "dram": {
+      "width": 64,
+      "datawidth": 8,
+      "depth": 1048576
+     },
+     "mac": {
+      "multiplier_width": 8,
+      "adder_width": 16
+     },
+     "levels": [
+      {
+       "name": "ifmap_glb",
+       "class": "smartbuffer_SRAM",
+       "depth": 6656,
+       "width": 64,
+       "datawidth": 8,
+       "entries_each": 53248,
+       "instances": 1,
+       "keep": [
+        "Inputs"
+       ],
+       "bypass": [
+        "Weights",
+        "Outputs"
+       ]
+      },
+      {
+       "name": "psum_glb",
+       "class": "smartbuffer_SRAM",
+       "depth": 6144,
+       "width": 64,
+       "datawidth": 16,
+       "entries_each": 24576,
+       "instances": 1,
+       "keep": [
+        "Outputs"
+       ],
+       "bypass": [
+        "Weights",
+        "Inputs"
+       ]
+      },
+      {
+       "name": "ifmap_spad",
+       "class": "smartbuffer_RF_decoded",
+       "depth": 12,
+       "width": 16,
+       "datawidth": 8,
+       "entries_each": 24,
+       "instances": 168,
+       "keep": [
+        "Inputs"
+       ],
+       "bypass": []
+      },
+      {
+       "name": "weights_spad",
+       "class": "smartbuffer_SRAM",
+       "depth": 224,
+       "width": 16,
+       "datawidth": 8,
+       "entries_each": 448,
+       "instances": 168,
+       "keep": [
+        "Weights"
+       ],
+       "bypass": []
+      },
+      {
+       "name": "psum_spad",
+       "class": "smartbuffer_RF_decoded",
+       "depth": 24,
+       "width": 16,
+       "datawidth": 16,
+       "entries_each": 24,
+       "instances": 168,
+       "keep": [
+        "Outputs"
+       ],
+       "bypass": []
+      }
+     ],
+     "total_fanout": 168,
+     "weight_levels": [
+      {
+       "name": "weights_spad",
+       "entries_each": 448,
+       "instances": 168,
+       "entries_total": 75264
+      }
+     ],
+     "weight_capacity": 75264,
+     "glb_keeps_weights": false
+    }
+   },
+   "provenance": {
+    "source_document": "Chen, Krishna, Emer, Sze, IEEE JSSC 52(1), 2017",
+    "url": "https://eems.mit.edu/wp-content/uploads/2016/11/eyeriss_jssc_2017.pdf",
+    "verified": "2026-09-06",
+    "levels": {
+     "DRAM": {
+      "quote": "study-wide DRAM model, not from the paper",
+      "note": "LPDDR4 64b word at 8b operands; identical for every design."
+     },
+     "ifmap_glb + psum_glb": {
+      "quote": "\"The Eyeriss accelerator has a GLB of 108 kB ... 100 kB of the GLB is allocated for ifmaps and psums as required by the RS dataflow for reuse. ... the space is divided into 25 banks, each of which is a 512-b x 64-b (4 kB) SRAM. Each bank is assigned entirely to ifmaps or psums, and the assignment is reconfigurable\"",
+      "modelled": "13 banks ifmap (52 kB) + 12 banks psum (48 kB) = the 100 kB",
+      "approximation": "Timeloop has no dynamic repartitioning, so the reconfigurable 25-bank split is frozen at 13/12. Bank GEOMETRY (512 x 64b) is exact, which is what sets per-access energy; only the ifmap:psum ratio is fixed."
+     },
+     "filter_glb_8kB": {
+      "quote": "\"Even though it is not required by the dataflow, the remaining 8 kB (two banks of 512-b x 64-b SRAMs) of the GLB is allocated for filter weights to compensate for insufficient off-chip traffic bandwidth.\"",
+      "modelled": "NOT modelled as a reuse level (!Nothing on the Weights branch)",
+      "rationale": "The paper is explicit that it is a prefetch buffer the RS dataflow does not need. Declaring it as a Timeloop storage level would hand v1 a full extra stage of weight reuse the dataflow does not actually have, which is exactly the quantity this study measures."
+     },
+     "weights_spad": {
+      "quote": "The filter spad is implemented in a 224-b x 16-b SRAM due to its large size",
+      "modelled": "depth 224, width 16, datawidth 8 -> 448 8-bit weights per PE"
+     },
+     "ifmap_spad": {
+      "quote": "the ifmap and psum spads of size 12 b x 16 b and 24 b x 16 b, respectively, are implemented using registers",
+      "modelled": "depth 12, width 16, datawidth 8 -> 24 8-bit iacts per PE"
+     },
+     "psum_spad": {
+      "quote": "the ifmap and psum spads of size 12 b x 16 b and 24 b x 16 b",
+      "modelled": "depth 24, width 16, datawidth 16 -> 24 psums at the accumulator width"
+     },
+     "mac": {
+      "quote": "\"The computation consists of a 16-b two-stage pipelined multiplier and adder. Since the multiplication results are truncated from 32 to 16 b\"",
+      "modelled": "multiplier_width 8 (study quantization), adder_width 16 (published)"
+     },
+     "PE_array": {
+      "quote": "Sec. V-B describes a broadcast tag \"of the same size of the PE array (i.e., 168 b)\", fixing the array at 168 PEs.",
+      "modelled": "meshX 14 x meshY 12 = 168 PEs"
+     }
+    }
+   }
+  },
+  "workload": {
+   "file": "cnn",
+   "layers": [
+    {
+     "name": "features.0.0",
+     "shape_signature": "C3_M32_R3_S3_P112_Q112_ws2_hs2",
+     "dims": {
+      "C": 3,
+      "M": 32,
+      "R": 3,
+      "S": 3,
+      "P": 112,
+      "Q": 112,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 864,
+     "macs": 10838016
+    },
+    {
+     "name": "features.1.conv.0.0",
+     "shape_signature": "C1_M1_R3_S3_P112_Q112_ws1_hs1_G32",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 112,
+      "Q": 112,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 32
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 288,
+     "macs": 3612672
+    },
+    {
+     "name": "features.1.conv.1",
+     "shape_signature": "C32_M16_R1_S1_P112_Q112_ws1_hs1",
+     "dims": {
+      "C": 32,
+      "M": 16,
+      "R": 1,
+      "S": 1,
+      "P": 112,
+      "Q": 112,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 512,
+     "macs": 6422528
+    },
+    {
+     "name": "features.2.conv.0.0",
+     "shape_signature": "C16_M96_R1_S1_P112_Q112_ws1_hs1",
+     "dims": {
+      "C": 16,
+      "M": 96,
+      "R": 1,
+      "S": 1,
+      "P": 112,
+      "Q": 112,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 1536,
+     "macs": 19267584
+    },
+    {
+     "name": "features.2.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P56_Q56_ws2_hs2_G96",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 56,
+      "Q": 56,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 96
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 864,
+     "macs": 2709504
+    },
+    {
+     "name": "features.2.conv.2",
+     "shape_signature": "C96_M24_R1_S1_P56_Q56_ws1_hs1",
+     "dims": {
+      "C": 96,
+      "M": 24,
+      "R": 1,
+      "S": 1,
+      "P": 56,
+      "Q": 56,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 2304,
+     "macs": 7225344
+    },
+    {
+     "name": "features.3.conv.0.0",
+     "shape_signature": "C24_M144_R1_S1_P56_Q56_ws1_hs1",
+     "dims": {
+      "C": 24,
+      "M": 144,
+      "R": 1,
+      "S": 1,
+      "P": 56,
+      "Q": 56,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 3456,
+     "macs": 10838016
+    },
+    {
+     "name": "features.3.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P56_Q56_ws1_hs1_G144",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 56,
+      "Q": 56,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 144
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 1296,
+     "macs": 4064256
+    },
+    {
+     "name": "features.3.conv.2",
+     "shape_signature": "C144_M24_R1_S1_P56_Q56_ws1_hs1",
+     "dims": {
+      "C": 144,
+      "M": 24,
+      "R": 1,
+      "S": 1,
+      "P": 56,
+      "Q": 56,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 3456,
+     "macs": 10838016
+    },
+    {
+     "name": "features.4.conv.0.0",
+     "shape_signature": "C24_M144_R1_S1_P56_Q56_ws1_hs1",
+     "dims": {
+      "C": 24,
+      "M": 144,
+      "R": 1,
+      "S": 1,
+      "P": 56,
+      "Q": 56,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 3456,
+     "macs": 10838016
+    },
+    {
+     "name": "features.4.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P28_Q28_ws2_hs2_G144",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 144
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 1296,
+     "macs": 1016064
+    },
+    {
+     "name": "features.4.conv.2",
+     "shape_signature": "C144_M32_R1_S1_P28_Q28_ws1_hs1",
+     "dims": {
+      "C": 144,
+      "M": 32,
+      "R": 1,
+      "S": 1,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 4608,
+     "macs": 3612672
+    },
+    {
+     "name": "features.5.conv.0.0",
+     "shape_signature": "C32_M192_R1_S1_P28_Q28_ws1_hs1",
+     "dims": {
+      "C": 32,
+      "M": 192,
+      "R": 1,
+      "S": 1,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 6144,
+     "macs": 4816896
+    },
+    {
+     "name": "features.5.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P28_Q28_ws1_hs1_G192",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 192
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 1728,
+     "macs": 1354752
+    },
+    {
+     "name": "features.5.conv.2",
+     "shape_signature": "C192_M32_R1_S1_P28_Q28_ws1_hs1",
+     "dims": {
+      "C": 192,
+      "M": 32,
+      "R": 1,
+      "S": 1,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 6144,
+     "macs": 4816896
+    },
+    {
+     "name": "features.6.conv.0.0",
+     "shape_signature": "C32_M192_R1_S1_P28_Q28_ws1_hs1",
+     "dims": {
+      "C": 32,
+      "M": 192,
+      "R": 1,
+      "S": 1,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 6144,
+     "macs": 4816896
+    },
+    {
+     "name": "features.6.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P28_Q28_ws1_hs1_G192",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 192
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 1728,
+     "macs": 1354752
+    },
+    {
+     "name": "features.6.conv.2",
+     "shape_signature": "C192_M32_R1_S1_P28_Q28_ws1_hs1",
+     "dims": {
+      "C": 192,
+      "M": 32,
+      "R": 1,
+      "S": 1,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 6144,
+     "macs": 4816896
+    },
+    {
+     "name": "features.7.conv.0.0",
+     "shape_signature": "C32_M192_R1_S1_P28_Q28_ws1_hs1",
+     "dims": {
+      "C": 32,
+      "M": 192,
+      "R": 1,
+      "S": 1,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 6144,
+     "macs": 4816896
+    },
+    {
+     "name": "features.7.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P14_Q14_ws2_hs2_G192",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 192
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 1728,
+     "macs": 338688
+    },
+    {
+     "name": "features.7.conv.2",
+     "shape_signature": "C192_M64_R1_S1_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 192,
+      "M": 64,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 12288,
+     "macs": 2408448
+    },
+    {
+     "name": "features.8.conv.0.0",
+     "shape_signature": "C64_M384_R1_S1_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 64,
+      "M": 384,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 24576,
+     "macs": 4816896
+    },
+    {
+     "name": "features.8.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P14_Q14_ws1_hs1_G384",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 384
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 3456,
+     "macs": 677376
+    },
+    {
+     "name": "features.8.conv.2",
+     "shape_signature": "C384_M64_R1_S1_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 384,
+      "M": 64,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 24576,
+     "macs": 4816896
+    },
+    {
+     "name": "features.9.conv.0.0",
+     "shape_signature": "C64_M384_R1_S1_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 64,
+      "M": 384,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 24576,
+     "macs": 4816896
+    },
+    {
+     "name": "features.9.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P14_Q14_ws1_hs1_G384",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 384
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 3456,
+     "macs": 677376
+    },
+    {
+     "name": "features.9.conv.2",
+     "shape_signature": "C384_M64_R1_S1_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 384,
+      "M": 64,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 24576,
+     "macs": 4816896
+    },
+    {
+     "name": "features.10.conv.0.0",
+     "shape_signature": "C64_M384_R1_S1_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 64,
+      "M": 384,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 24576,
+     "macs": 4816896
+    },
+    {
+     "name": "features.10.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P14_Q14_ws1_hs1_G384",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 384
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 3456,
+     "macs": 677376
+    },
+    {
+     "name": "features.10.conv.2",
+     "shape_signature": "C384_M64_R1_S1_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 384,
+      "M": 64,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 24576,
+     "macs": 4816896
+    },
+    {
+     "name": "features.11.conv.0.0",
+     "shape_signature": "C64_M384_R1_S1_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 64,
+      "M": 384,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 24576,
+     "macs": 4816896
+    },
+    {
+     "name": "features.11.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P14_Q14_ws1_hs1_G384",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 384
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 3456,
+     "macs": 677376
+    },
+    {
+     "name": "features.11.conv.2",
+     "shape_signature": "C384_M96_R1_S1_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 384,
+      "M": 96,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 36864,
+     "macs": 7225344
+    },
+    {
+     "name": "features.12.conv.0.0",
+     "shape_signature": "C96_M576_R1_S1_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 96,
+      "M": 576,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 55296,
+     "macs": 10838016
+    },
+    {
+     "name": "features.12.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P14_Q14_ws1_hs1_G576",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 576
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 5184,
+     "macs": 1016064
+    },
+    {
+     "name": "features.12.conv.2",
+     "shape_signature": "C576_M96_R1_S1_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 576,
+      "M": 96,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 55296,
+     "macs": 10838016
+    },
+    {
+     "name": "features.13.conv.0.0",
+     "shape_signature": "C96_M576_R1_S1_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 96,
+      "M": 576,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 55296,
+     "macs": 10838016
+    },
+    {
+     "name": "features.13.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P14_Q14_ws1_hs1_G576",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 576
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 5184,
+     "macs": 1016064
+    },
+    {
+     "name": "features.13.conv.2",
+     "shape_signature": "C576_M96_R1_S1_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 576,
+      "M": 96,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 55296,
+     "macs": 10838016
+    },
+    {
+     "name": "features.14.conv.0.0",
+     "shape_signature": "C96_M576_R1_S1_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 96,
+      "M": 576,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 55296,
+     "macs": 10838016
+    },
+    {
+     "name": "features.14.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P7_Q7_ws2_hs2_G576",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 576
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 5184,
+     "macs": 254016
+    },
+    {
+     "name": "features.14.conv.2",
+     "shape_signature": "C576_M160_R1_S1_P7_Q7_ws1_hs1",
+     "dims": {
+      "C": 576,
+      "M": 160,
+      "R": 1,
+      "S": 1,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 92160,
+     "macs": 4515840
+    },
+    {
+     "name": "features.15.conv.0.0",
+     "shape_signature": "C160_M960_R1_S1_P7_Q7_ws1_hs1",
+     "dims": {
+      "C": 160,
+      "M": 960,
+      "R": 1,
+      "S": 1,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 153600,
+     "macs": 7526400
+    },
+    {
+     "name": "features.15.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P7_Q7_ws1_hs1_G960",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 960
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 8640,
+     "macs": 423360
+    },
+    {
+     "name": "features.15.conv.2",
+     "shape_signature": "C960_M160_R1_S1_P7_Q7_ws1_hs1",
+     "dims": {
+      "C": 960,
+      "M": 160,
+      "R": 1,
+      "S": 1,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 153600,
+     "macs": 7526400
+    },
+    {
+     "name": "features.16.conv.0.0",
+     "shape_signature": "C160_M960_R1_S1_P7_Q7_ws1_hs1",
+     "dims": {
+      "C": 160,
+      "M": 960,
+      "R": 1,
+      "S": 1,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 153600,
+     "macs": 7526400
+    },
+    {
+     "name": "features.16.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P7_Q7_ws1_hs1_G960",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 960
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 8640,
+     "macs": 423360
+    },
+    {
+     "name": "features.16.conv.2",
+     "shape_signature": "C960_M160_R1_S1_P7_Q7_ws1_hs1",
+     "dims": {
+      "C": 960,
+      "M": 160,
+      "R": 1,
+      "S": 1,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 153600,
+     "macs": 7526400
+    },
+    {
+     "name": "features.17.conv.0.0",
+     "shape_signature": "C160_M960_R1_S1_P7_Q7_ws1_hs1",
+     "dims": {
+      "C": 160,
+      "M": 960,
+      "R": 1,
+      "S": 1,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 153600,
+     "macs": 7526400
+    },
+    {
+     "name": "features.17.conv.1.0",
+     "shape_signature": "C1_M1_R3_S3_P7_Q7_ws1_hs1_G960",
+     "dims": {
+      "C": 1,
+      "M": 1,
+      "R": 3,
+      "S": 3,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 960
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": true,
+     "repeat_count": 1,
+     "weights": 8640,
+     "macs": 423360
+    },
+    {
+     "name": "features.17.conv.2",
+     "shape_signature": "C960_M320_R1_S1_P7_Q7_ws1_hs1",
+     "dims": {
+      "C": 960,
+      "M": 320,
+      "R": 1,
+      "S": 1,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 307200,
+     "macs": 15052800
+    },
+    {
+     "name": "features.18.0",
+     "shape_signature": "C320_M1280_R1_S1_P7_Q7_ws1_hs1",
+     "dims": {
+      "C": 320,
+      "M": 1280,
+      "R": 1,
+      "S": 1,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 409600,
+     "macs": 20070400
+    },
+    {
+     "name": "classifier.1",
+     "shape_signature": "C1280_M1000_R1_S1_P1_Q1_ws1_hs1",
+     "dims": {
+      "C": 1280,
+      "M": 1000,
+      "R": 1,
+      "S": 1,
+      "P": 1,
+      "Q": 1,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 1280000,
+     "macs": 1280000
+    }
+   ],
+   "layer_scope": "full",
+   "total_weights": 3469760
+  },
+  "per_layer": [
+   {
+    "layer": "features.0.0",
+    "shape": "C3_M32_R3_S3_P112_Q112_ws2_hs2",
+    "status": "ok",
+    "weights": 864,
+    "macs": 10838016,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "cd0c0d974950312b",
+    "mapping_cached": false,
+    "total_energy_pJ": 58794086.52,
+    "dram_weight_reads": 12096.0,
+    "dram_weight_energy_pJ": 774144.0
+   },
+   {
+    "layer": "features.1.conv.0.0",
+    "shape": "C1_M1_R3_S3_P112_Q112_ws1_hs1_G32",
+    "status": "ok",
+    "weights": 288,
+    "macs": 3612672,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "1264ef46ede1e67a",
+    "mapping_cached": false,
+    "total_energy_pJ": 65183982.2,
+    "dram_weight_reads": 288.0,
+    "dram_weight_energy_pJ": 18432.0
+   },
+   {
+    "layer": "features.1.conv.1",
+    "shape": "C32_M16_R1_S1_P112_Q112_ws1_hs1",
+    "status": "ok",
+    "weights": 512,
+    "macs": 6422528,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "96f67dd38cfdb57c",
+    "mapping_cached": false,
+    "total_energy_pJ": 52072881.870000005,
+    "dram_weight_reads": 512.0,
+    "dram_weight_energy_pJ": 32768.0
+   },
+   {
+    "layer": "features.2.conv.0.0",
+    "shape": "C16_M96_R1_S1_P112_Q112_ws1_hs1",
+    "status": "ok",
+    "weights": 1536,
+    "macs": 19267584,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "15e6f41432898f2e",
+    "mapping_cached": false,
+    "total_energy_pJ": 127985891.09,
+    "dram_weight_reads": 1536.0,
+    "dram_weight_energy_pJ": 98304.0
+   },
+   {
+    "layer": "features.2.conv.1.0",
+    "shape": "C1_M1_R3_S3_P56_Q56_ws2_hs2_G96",
+    "status": "ok",
+    "weights": 864,
+    "macs": 2709504,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "e1186ed329b1748d",
+    "mapping_cached": false,
+    "total_energy_pJ": 112454503.1,
+    "dram_weight_reads": 864.0,
+    "dram_weight_energy_pJ": 55296.0
+   },
+   {
+    "layer": "features.2.conv.2",
+    "shape": "C96_M24_R1_S1_P56_Q56_ws1_hs1",
+    "status": "ok",
+    "weights": 2304,
+    "macs": 7225344,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "d65fef5eb18f57e0",
+    "mapping_cached": false,
+    "total_energy_pJ": 42322783.0,
+    "dram_weight_reads": 16128.0,
+    "dram_weight_energy_pJ": 1032192.0
+   },
+   {
+    "layer": "features.3.conv.0.0",
+    "shape": "C24_M144_R1_S1_P56_Q56_ws1_hs1",
+    "status": "ok",
+    "weights": 3456,
+    "macs": 10838016,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "bda316b5ae95501c",
+    "mapping_cached": false,
+    "total_energy_pJ": 58006507.15,
+    "dram_weight_reads": 27648.0,
+    "dram_weight_energy_pJ": 1769472.0
+   },
+   {
+    "layer": "features.3.conv.1.0",
+    "shape": "C1_M1_R3_S3_P56_Q56_ws1_hs1_G144",
+    "status": "ok",
+    "weights": 1296,
+    "macs": 4064256,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "0ce8019166ff8080",
+    "mapping_cached": false,
+    "total_energy_pJ": 74804474.77,
+    "dram_weight_reads": 1296.0,
+    "dram_weight_energy_pJ": 82944.0
+   },
+   {
+    "layer": "features.3.conv.2",
+    "shape": "C144_M24_R1_S1_P56_Q56_ws1_hs1",
+    "status": "ok",
+    "weights": 3456,
+    "macs": 10838016,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "91b64ed8149ad6ee",
+    "mapping_cached": false,
+    "total_energy_pJ": 59865282.760000005,
+    "dram_weight_reads": 27648.0,
+    "dram_weight_energy_pJ": 1769472.0
+   },
+   {
+    "layer": "features.4.conv.0.0",
+    "shape": "C24_M144_R1_S1_P56_Q56_ws1_hs1",
+    "status": "ok",
+    "weights": 3456,
+    "macs": 10838016,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "bda316b5ae95501c",
+    "mapping_cached": false,
+    "total_energy_pJ": 58006507.15,
+    "dram_weight_reads": 27648.0,
+    "dram_weight_energy_pJ": 1769472.0
+   },
+   {
+    "layer": "features.4.conv.1.0",
+    "shape": "C1_M1_R3_S3_P28_Q28_ws2_hs2_G144",
+    "status": "ok",
+    "weights": 1296,
+    "macs": 1016064,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "a81788a6b19d895c",
+    "mapping_cached": false,
+    "total_energy_pJ": 43819608.050000004,
+    "dram_weight_reads": 18144.0,
+    "dram_weight_energy_pJ": 1161216.0
+   },
+   {
+    "layer": "features.4.conv.2",
+    "shape": "C144_M32_R1_S1_P28_Q28_ws1_hs1",
+    "status": "ok",
+    "weights": 4608,
+    "macs": 3612672,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "b8c57871e5333b5d",
+    "mapping_cached": false,
+    "total_energy_pJ": 20983064.049999997,
+    "dram_weight_reads": 36864.0,
+    "dram_weight_energy_pJ": 2359296.0
+   },
+   {
+    "layer": "features.5.conv.0.0",
+    "shape": "C32_M192_R1_S1_P28_Q28_ws1_hs1",
+    "status": "ok",
+    "weights": 6144,
+    "macs": 4816896,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "f5fe82b30dcb2900",
+    "mapping_cached": false,
+    "total_energy_pJ": 23419362.78,
+    "dram_weight_reads": 12288.0,
+    "dram_weight_energy_pJ": 786432.0
+   },
+   {
+    "layer": "features.5.conv.1.0",
+    "shape": "C1_M1_R3_S3_P28_Q28_ws1_hs1_G192",
+    "status": "ok",
+    "weights": 1728,
+    "macs": 1354752,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "1f1d2d6fe9a9dad6",
+    "mapping_cached": false,
+    "total_energy_pJ": 25691152.27,
+    "dram_weight_reads": 3456.0,
+    "dram_weight_energy_pJ": 221184.0
+   },
+   {
+    "layer": "features.5.conv.2",
+    "shape": "C192_M32_R1_S1_P28_Q28_ws1_hs1",
+    "status": "ok",
+    "weights": 6144,
+    "macs": 4816896,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "5ed602739f5c6de6",
+    "mapping_cached": false,
+    "total_energy_pJ": 24424522.87,
+    "dram_weight_reads": 49152.0,
+    "dram_weight_energy_pJ": 3145728.0
+   },
+   {
+    "layer": "features.6.conv.0.0",
+    "shape": "C32_M192_R1_S1_P28_Q28_ws1_hs1",
+    "status": "ok",
+    "weights": 6144,
+    "macs": 4816896,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "f5fe82b30dcb2900",
+    "mapping_cached": false,
+    "total_energy_pJ": 23419362.78,
+    "dram_weight_reads": 12288.0,
+    "dram_weight_energy_pJ": 786432.0
+   },
+   {
+    "layer": "features.6.conv.1.0",
+    "shape": "C1_M1_R3_S3_P28_Q28_ws1_hs1_G192",
+    "status": "ok",
+    "weights": 1728,
+    "macs": 1354752,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "1f1d2d6fe9a9dad6",
+    "mapping_cached": false,
+    "total_energy_pJ": 25691152.27,
+    "dram_weight_reads": 3456.0,
+    "dram_weight_energy_pJ": 221184.0
+   },
+   {
+    "layer": "features.6.conv.2",
+    "shape": "C192_M32_R1_S1_P28_Q28_ws1_hs1",
+    "status": "ok",
+    "weights": 6144,
+    "macs": 4816896,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "5ed602739f5c6de6",
+    "mapping_cached": false,
+    "total_energy_pJ": 24424522.87,
+    "dram_weight_reads": 49152.0,
+    "dram_weight_energy_pJ": 3145728.0
+   },
+   {
+    "layer": "features.7.conv.0.0",
+    "shape": "C32_M192_R1_S1_P28_Q28_ws1_hs1",
+    "status": "ok",
+    "weights": 6144,
+    "macs": 4816896,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "f5fe82b30dcb2900",
+    "mapping_cached": false,
+    "total_energy_pJ": 23419362.78,
+    "dram_weight_reads": 12288.0,
+    "dram_weight_energy_pJ": 786432.0
+   },
+   {
+    "layer": "features.7.conv.1.0",
+    "shape": "C1_M1_R3_S3_P14_Q14_ws2_hs2_G192",
+    "status": "ok",
+    "weights": 1728,
+    "macs": 338688,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "5a06406d9c16c285",
+    "mapping_cached": false,
+    "total_energy_pJ": 14636625.52,
+    "dram_weight_reads": 1728.0,
+    "dram_weight_energy_pJ": 110592.0
+   },
+   {
+    "layer": "features.7.conv.2",
+    "shape": "C192_M64_R1_S1_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 12288,
+    "macs": 2408448,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "65145fe9d155d95e",
+    "mapping_cached": false,
+    "total_energy_pJ": 11355443.6,
+    "dram_weight_reads": 24576.0,
+    "dram_weight_energy_pJ": 1572864.0
+   },
+   {
+    "layer": "features.8.conv.0.0",
+    "shape": "C64_M384_R1_S1_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 24576,
+    "macs": 4816896,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "12651a0100b0f25a",
+    "mapping_cached": false,
+    "total_energy_pJ": 15729955.23,
+    "dram_weight_reads": 24576.0,
+    "dram_weight_energy_pJ": 1572864.0
+   },
+   {
+    "layer": "features.8.conv.1.0",
+    "shape": "C1_M1_R3_S3_P14_Q14_ws1_hs1_G384",
+    "status": "ok",
+    "weights": 3456,
+    "macs": 677376,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "87783b842f4ede88",
+    "mapping_cached": false,
+    "total_energy_pJ": 13759577.45,
+    "dram_weight_reads": 3456.0,
+    "dram_weight_energy_pJ": 221184.0
+   },
+   {
+    "layer": "features.8.conv.2",
+    "shape": "C384_M64_R1_S1_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 24576,
+    "macs": 4816896,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "de90db15d011c232",
+    "mapping_cached": false,
+    "total_energy_pJ": 19123204.94,
+    "dram_weight_reads": 24576.0,
+    "dram_weight_energy_pJ": 1572864.0
+   },
+   {
+    "layer": "features.9.conv.0.0",
+    "shape": "C64_M384_R1_S1_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 24576,
+    "macs": 4816896,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "12651a0100b0f25a",
+    "mapping_cached": false,
+    "total_energy_pJ": 15729955.23,
+    "dram_weight_reads": 24576.0,
+    "dram_weight_energy_pJ": 1572864.0
+   },
+   {
+    "layer": "features.9.conv.1.0",
+    "shape": "C1_M1_R3_S3_P14_Q14_ws1_hs1_G384",
+    "status": "ok",
+    "weights": 3456,
+    "macs": 677376,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "87783b842f4ede88",
+    "mapping_cached": false,
+    "total_energy_pJ": 13759577.45,
+    "dram_weight_reads": 3456.0,
+    "dram_weight_energy_pJ": 221184.0
+   },
+   {
+    "layer": "features.9.conv.2",
+    "shape": "C384_M64_R1_S1_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 24576,
+    "macs": 4816896,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "de90db15d011c232",
+    "mapping_cached": false,
+    "total_energy_pJ": 19123204.94,
+    "dram_weight_reads": 24576.0,
+    "dram_weight_energy_pJ": 1572864.0
+   },
+   {
+    "layer": "features.10.conv.0.0",
+    "shape": "C64_M384_R1_S1_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 24576,
+    "macs": 4816896,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "12651a0100b0f25a",
+    "mapping_cached": false,
+    "total_energy_pJ": 15729955.23,
+    "dram_weight_reads": 24576.0,
+    "dram_weight_energy_pJ": 1572864.0
+   },
+   {
+    "layer": "features.10.conv.1.0",
+    "shape": "C1_M1_R3_S3_P14_Q14_ws1_hs1_G384",
+    "status": "ok",
+    "weights": 3456,
+    "macs": 677376,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "87783b842f4ede88",
+    "mapping_cached": false,
+    "total_energy_pJ": 13759577.45,
+    "dram_weight_reads": 3456.0,
+    "dram_weight_energy_pJ": 221184.0
+   },
+   {
+    "layer": "features.10.conv.2",
+    "shape": "C384_M64_R1_S1_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 24576,
+    "macs": 4816896,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "de90db15d011c232",
+    "mapping_cached": false,
+    "total_energy_pJ": 19123204.94,
+    "dram_weight_reads": 24576.0,
+    "dram_weight_energy_pJ": 1572864.0
+   },
+   {
+    "layer": "features.11.conv.0.0",
+    "shape": "C64_M384_R1_S1_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 24576,
+    "macs": 4816896,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "12651a0100b0f25a",
+    "mapping_cached": false,
+    "total_energy_pJ": 15729955.23,
+    "dram_weight_reads": 24576.0,
+    "dram_weight_energy_pJ": 1572864.0
+   },
+   {
+    "layer": "features.11.conv.1.0",
+    "shape": "C1_M1_R3_S3_P14_Q14_ws1_hs1_G384",
+    "status": "ok",
+    "weights": 3456,
+    "macs": 677376,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "87783b842f4ede88",
+    "mapping_cached": false,
+    "total_energy_pJ": 13759577.45,
+    "dram_weight_reads": 3456.0,
+    "dram_weight_energy_pJ": 221184.0
+   },
+   {
+    "layer": "features.11.conv.2",
+    "shape": "C384_M96_R1_S1_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 36864,
+    "macs": 7225344,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "515af27757e6d669",
+    "mapping_cached": false,
+    "total_energy_pJ": 27597064.9,
+    "dram_weight_reads": 73728.0,
+    "dram_weight_energy_pJ": 4718592.0
+   },
+   {
+    "layer": "features.12.conv.0.0",
+    "shape": "C96_M576_R1_S1_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 55296,
+    "macs": 10838016,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "bbb7ba3688d45680",
+    "mapping_cached": false,
+    "total_energy_pJ": 37839504.57,
+    "dram_weight_reads": 110592.0,
+    "dram_weight_energy_pJ": 7077888.0
+   },
+   {
+    "layer": "features.12.conv.1.0",
+    "shape": "C1_M1_R3_S3_P14_Q14_ws1_hs1_G576",
+    "status": "ok",
+    "weights": 5184,
+    "macs": 1016064,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "671beb5f3fb88e65",
+    "mapping_cached": false,
+    "total_energy_pJ": 21100319.0,
+    "dram_weight_reads": 10368.0,
+    "dram_weight_energy_pJ": 663552.0
+   },
+   {
+    "layer": "features.12.conv.2",
+    "shape": "C576_M96_R1_S1_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 55296,
+    "macs": 10838016,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "6eeded83e3656fe3",
+    "mapping_cached": false,
+    "total_energy_pJ": 40436482.06,
+    "dram_weight_reads": 110592.0,
+    "dram_weight_energy_pJ": 7077888.0
+   },
+   {
+    "layer": "features.13.conv.0.0",
+    "shape": "C96_M576_R1_S1_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 55296,
+    "macs": 10838016,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "bbb7ba3688d45680",
+    "mapping_cached": false,
+    "total_energy_pJ": 37839504.57,
+    "dram_weight_reads": 110592.0,
+    "dram_weight_energy_pJ": 7077888.0
+   },
+   {
+    "layer": "features.13.conv.1.0",
+    "shape": "C1_M1_R3_S3_P14_Q14_ws1_hs1_G576",
+    "status": "ok",
+    "weights": 5184,
+    "macs": 1016064,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "671beb5f3fb88e65",
+    "mapping_cached": false,
+    "total_energy_pJ": 21100319.0,
+    "dram_weight_reads": 10368.0,
+    "dram_weight_energy_pJ": 663552.0
+   },
+   {
+    "layer": "features.13.conv.2",
+    "shape": "C576_M96_R1_S1_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 55296,
+    "macs": 10838016,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "6eeded83e3656fe3",
+    "mapping_cached": false,
+    "total_energy_pJ": 40436482.06,
+    "dram_weight_reads": 110592.0,
+    "dram_weight_energy_pJ": 7077888.0
+   },
+   {
+    "layer": "features.14.conv.0.0",
+    "shape": "C96_M576_R1_S1_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 55296,
+    "macs": 10838016,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "bbb7ba3688d45680",
+    "mapping_cached": false,
+    "total_energy_pJ": 37839504.57,
+    "dram_weight_reads": 110592.0,
+    "dram_weight_energy_pJ": 7077888.0
+   },
+   {
+    "layer": "features.14.conv.1.0",
+    "shape": "C1_M1_R3_S3_P7_Q7_ws2_hs2_G576",
+    "status": "ok",
+    "weights": 5184,
+    "macs": 254016,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "5ea989c092fd293b",
+    "mapping_cached": false,
+    "total_energy_pJ": 12598873.569999998,
+    "dram_weight_reads": 5184.0,
+    "dram_weight_energy_pJ": 331776.0
+   },
+   {
+    "layer": "features.14.conv.2",
+    "shape": "C576_M160_R1_S1_P7_Q7_ws1_hs1",
+    "status": "ok",
+    "weights": 92160,
+    "macs": 4515840,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "bffbf935284d5002",
+    "mapping_cached": false,
+    "total_energy_pJ": 18662487.37,
+    "dram_weight_reads": 92160.0,
+    "dram_weight_energy_pJ": 5898240.0
+   },
+   {
+    "layer": "features.15.conv.0.0",
+    "shape": "C160_M960_R1_S1_P7_Q7_ws1_hs1",
+    "status": "ok",
+    "weights": 153600,
+    "macs": 7526400,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "30a6c9302d3f8912",
+    "mapping_cached": false,
+    "total_energy_pJ": 29441135.029999997,
+    "dram_weight_reads": 153600.0,
+    "dram_weight_energy_pJ": 9830400.0
+   },
+   {
+    "layer": "features.15.conv.1.0",
+    "shape": "C1_M1_R3_S3_P7_Q7_ws1_hs1_G960",
+    "status": "ok",
+    "weights": 8640,
+    "macs": 423360,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "d3ee492ec7b36d27",
+    "mapping_cached": false,
+    "total_energy_pJ": 10151988.11,
+    "dram_weight_reads": 8640.0,
+    "dram_weight_energy_pJ": 552960.0
+   },
+   {
+    "layer": "features.15.conv.2",
+    "shape": "C960_M160_R1_S1_P7_Q7_ws1_hs1",
+    "status": "ok",
+    "weights": 153600,
+    "macs": 7526400,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "2483a3c6abf0978c",
+    "mapping_cached": false,
+    "total_energy_pJ": 31321512.65,
+    "dram_weight_reads": 153600.0,
+    "dram_weight_energy_pJ": 9830400.0
+   },
+   {
+    "layer": "features.16.conv.0.0",
+    "shape": "C160_M960_R1_S1_P7_Q7_ws1_hs1",
+    "status": "ok",
+    "weights": 153600,
+    "macs": 7526400,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "30a6c9302d3f8912",
+    "mapping_cached": false,
+    "total_energy_pJ": 29441135.029999997,
+    "dram_weight_reads": 153600.0,
+    "dram_weight_energy_pJ": 9830400.0
+   },
+   {
+    "layer": "features.16.conv.1.0",
+    "shape": "C1_M1_R3_S3_P7_Q7_ws1_hs1_G960",
+    "status": "ok",
+    "weights": 8640,
+    "macs": 423360,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "d3ee492ec7b36d27",
+    "mapping_cached": false,
+    "total_energy_pJ": 10151988.11,
+    "dram_weight_reads": 8640.0,
+    "dram_weight_energy_pJ": 552960.0
+   },
+   {
+    "layer": "features.16.conv.2",
+    "shape": "C960_M160_R1_S1_P7_Q7_ws1_hs1",
+    "status": "ok",
+    "weights": 153600,
+    "macs": 7526400,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "2483a3c6abf0978c",
+    "mapping_cached": false,
+    "total_energy_pJ": 31321512.65,
+    "dram_weight_reads": 153600.0,
+    "dram_weight_energy_pJ": 9830400.0
+   },
+   {
+    "layer": "features.17.conv.0.0",
+    "shape": "C160_M960_R1_S1_P7_Q7_ws1_hs1",
+    "status": "ok",
+    "weights": 153600,
+    "macs": 7526400,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "30a6c9302d3f8912",
+    "mapping_cached": false,
+    "total_energy_pJ": 29441135.029999997,
+    "dram_weight_reads": 153600.0,
+    "dram_weight_energy_pJ": 9830400.0
+   },
+   {
+    "layer": "features.17.conv.1.0",
+    "shape": "C1_M1_R3_S3_P7_Q7_ws1_hs1_G960",
+    "status": "ok",
+    "weights": 8640,
+    "macs": 423360,
+    "grouped": true,
+    "repeat_count": 1,
+    "mapping_id": "d3ee492ec7b36d27",
+    "mapping_cached": false,
+    "total_energy_pJ": 10151988.11,
+    "dram_weight_reads": 8640.0,
+    "dram_weight_energy_pJ": 552960.0
+   },
+   {
+    "layer": "features.17.conv.2",
+    "shape": "C960_M320_R1_S1_P7_Q7_ws1_hs1",
+    "status": "ok",
+    "weights": 307200,
+    "macs": 15052800,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "ef777cb5884a6b32",
+    "mapping_cached": false,
+    "total_energy_pJ": 55078303.39,
+    "dram_weight_reads": 307200.0,
+    "dram_weight_energy_pJ": 19660800.0
+   },
+   {
+    "layer": "features.18.0",
+    "shape": "C320_M1280_R1_S1_P7_Q7_ws1_hs1",
+    "status": "ok",
+    "weights": 409600,
+    "macs": 20070400,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "f0cfc6109084084e",
+    "mapping_cached": false,
+    "total_energy_pJ": 71204396.14,
+    "dram_weight_reads": 409600.0,
+    "dram_weight_energy_pJ": 26214400.0
+   },
+   {
+    "layer": "classifier.1",
+    "shape": "C1280_M1000_R1_S1_P1_Q1_ws1_hs1",
+    "status": "ok",
+    "weights": 1280000,
+    "macs": 1280000,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "9c210dd60eafd59d",
+    "mapping_cached": false,
+    "total_energy_pJ": 84988945.33,
+    "dram_weight_reads": 1280000.0,
+    "dram_weight_energy_pJ": 81920000.0
+   }
+  ],
+  "per_level": [
+   {
+    "level": "DRAM",
+    "dataspace": "Inputs",
+    "category": "DRAM",
+    "instances": 1,
+    "energy_pJ": 460639744.0,
+    "reads": 7197491.0,
+    "writes": 0.0
+   },
+   {
+    "level": "DRAM",
+    "dataspace": "Outputs",
+    "category": "DRAM",
+    "instances": 1,
+    "energy_pJ": 451146240.0,
+    "reads": 185024.0,
+    "writes": 6864136.0
+   },
+   {
+    "level": "DRAM",
+    "dataspace": "Weights",
+    "category": "DRAM",
+    "instances": 1,
+    "energy_pJ": 259865600.0,
+    "reads": 4060400.0,
+    "writes": 0.0
+   },
+   {
+    "level": "ifmap_glb",
+    "dataspace": "Inputs",
+    "category": "Global buffer",
+    "instances": 1,
+    "energy_pJ": 96596846.9,
+    "reads": 27245312.0,
+    "writes": 7197491.0
+   },
+   {
+    "level": "ifmap_spad",
+    "dataspace": "Inputs",
+    "category": "Local (spads/RF/NoC)",
+    "instances": 168,
+    "energy_pJ": 8734889.61,
+    "reads": 17122736.0,
+    "writes": 4537624.0
+   },
+   {
+    "level": "mac",
+    "dataspace": "Compute",
+    "category": "Compute",
+    "instances": 168,
+    "energy_pJ": 341544224.58,
+    "reads": 0.0,
+    "writes": 0.0
+   },
+   {
+    "level": "psum_glb",
+    "dataspace": "Outputs",
+    "category": "Global buffer",
+    "instances": 1,
+    "energy_pJ": 71048497.73,
+    "reads": 3965472.0,
+    "writes": 10829608.0
+   },
+   {
+    "level": "psum_spad",
+    "dataspace": "Outputs",
+    "category": "Local (spads/RF/NoC)",
+    "instances": 168,
+    "energy_pJ": 23831150.88,
+    "reads": 16140826.0,
+    "writes": 17570246.0
+   },
+   {
+    "level": "weights_spad",
+    "dataspace": "Weights",
+    "category": "Local (spads/RF/NoC)",
+    "instances": 168,
+    "energy_pJ": 120846212.54,
+    "reads": 17120720.0,
+    "writes": 216570.0
+   }
+  ],
+  "mappings": [
+   {}
+  ],
+  "raw_energy_cache": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/results/_raw/eyeriss_like/opt-energy__vic2000__vicx__alg-random_pruned__ss20000__to2000__paper/fp-65833ebb89d3/cnn/layers-full/cls-instances/rw-joint/mobilenet_v2.json",
+  "mapper_cache": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/ecc_energy_study/outputs/eyeriss_like/multimodel__opt-energy__vic2000__vicx__alg-random_pruned__ss20000__to2000__paper/fp-65833ebb89d3"
+ },
+ "provenance": {
+  "config": {
+   "experiment": "baseline",
+   "sweep": "arch",
+   "sweep_archs": [
+    "eyeriss_v2_like",
+    "eyeriss_like",
+    "simple_weight_stationary",
+    "simple_output_stationary",
+    "simple_input_stationary",
+    "simba_like"
+   ],
+   "sweep_models": [
+    "resnet18",
+    "resnet50",
+    "densenet121",
+    "squeezenet1_1",
+    "mobilenet_v2",
+    "efficientnet_b0",
+    "convnext_tiny",
+    "xception"
+   ],
+   "sweep_ks": [
+    57,
+    51,
+    45,
+    39,
+    36,
+    30
+   ],
+   "panel_models": [
+    "resnet18",
+    "mobilenet_v2"
+   ],
+   "const_arch": "eyeriss_like",
+   "const_model": "mobilenet_v2",
+   "const_k": 51,
+   "approaches": [
+    "baseline",
+    "embedded",
+    "recon"
+   ],
+   "weight_bits": 8,
+   "activation_bits": 8,
+   "acc_bits_override": null,
+   "code_n": 63,
+   "emb_weights_per_cw_override": null,
+   "parity_grouping": "layer",
+   "parity_charge_padding": true,
+   "decode_enabled": false,
+   "decode_pj_base": 40.0,
+   "decode_pj_emb": 40.0,
+   "recon_charges_decode": true,
+   "recon_json": "data/dc/BCH_N63_results.json",
+   "recon_include_idle": true,
+   "recon_pj_override": null,
+   "recon_incremental_fallback_pj": 1.8995,
+   "recon_idle_fallback_pj": 2.2301273,
+   "weak_enabled": false,
+   "weak_n": 63,
+   "weak_k": 57,
+   "baseline_inflates_onchip": false,
+   "split_read_write": false,
+   "classify_mode": "instances",
+   "arch_fidelity": "paper",
+   "force_technology": "",
+   "force_datawidth": null,
+   "dram_depth": 1048576,
+   "global_cycle_seconds": "1e-9",
+   "layers": [],
+   "phase": "Pre",
+   "overwrite": false,
+   "cache_strict": true,
+   "run_note": "",
+   "opt_metric": "energy",
+   "victory": 2000,
+   "victory_scaling": "levels",
+   "mapper_threads": 18,
+   "mapper_timeout": 2000,
+   "mapper_algorithm": "random_pruned",
+   "mapper_seed": null,
+   "mapper_search_size": 20000,
+   "mapper_max_permutations": 16,
+   "results_dir": "results",
+   "replot_only": false,
+   "from_cache": true,
+   "palette": "house",
+   "dpi": 400,
+   "formats": [
+    "png",
+    "pdf"
+   ],
+   "title_note": "",
+   "nice_labels": true,
+   "archs": [
+    "eyeriss_v2_like",
+    "eyeriss_like",
+    "simple_weight_stationary",
+    "simple_output_stationary",
+    "simple_input_stationary",
+    "simba_like"
+   ],
+   "models": [
+    "mobilenet_v2"
+   ],
+   "code_k": 51,
+   "code_t": 2,
+   "workload": "cnn",
+   "stem": "ArchitectureSweep",
+   "arch_variant_slug": "opt-energy__vic2000__vicx__alg-random_pruned__ss20000__to2000__paper",
+   "weights_per_codeword": 6,
+   "emb_weights_per_cw": 6,
+   "parity_frac": 0.23529411764705888,
+   "sram_scale": 0.8095238095238095,
+   "weak_overhead": 1.0
+  },
+  "config_hash": "1d9e36f2",
+  "mapper_settings": {
+   "optimization_metric": "energy",
+   "victory_condition_base": 2000,
+   "victory_scaling": "levels",
+   "algorithm": "random_pruned",
+   "timeout": 2000,
+   "search_size": 20000,
+   "max_permutations_per_if_visit": 16,
+   "num_threads": 18,
+   "seed": null,
+   "seed_supported": false,
+   "seed_note": "timeloop-mapper v4 exposes no random seed; pytimeloop's Mapper spec has no `random_seed` attribute. ECC_MAPPER_SEED is RECORDED so a result says which value was asked for, but it does not make the search deterministic. What does bound it is the thread count and victory condition, both of which are in the fingerprint -- so pin ECC_MAPPER_THREADS for a reproducible run rather than leaving it at 'all cores', which differs per machine."
+  },
+  "mapper_fingerprint": "9b201567",
+  "command": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/eccenergy/__main__.py baseline --eval",
+  "git_commit": "bb39e96f924befe1ffa6f15447955fb4fe06d7b2",
+  "started_utc": "2026-09-07T00:53:58+00:00",
+  "finished_utc": "2026-09-07T00:53:58+00:00",
+  "runtime_seconds": 0.0,
+  "host": "login11.ufhpc",
+  "user": "vkamineni",
+  "platform": "Linux-5.14.0-687.36.1.el9_8.x86_64-x86_64-with-glibc2.35",
+  "project_root": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling"
+ }
+}

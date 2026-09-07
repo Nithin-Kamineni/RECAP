@@ -1,0 +1,162 @@
+==============================================================================
+ecc-energy  |  sweep=arch (architecture)  |  output=ArchitectureSweep__layers2__layer3_0_downsample_0__layer4_1_conv2
+==============================================================================
+  sweeping              : eyeriss_v2_like, eyeriss_like, simple_weight_stationary, simple_output_stationary, simple_input_stationary, simba_like
+  holding               : model=resnet18   code=BCH(63,51) t=2
+  approaches            : baseline, embedded, recon
+  workload file         : cnn
+  layer scope           : two-layer: layer3.0.downsample.0, layer4.1.conv2
+  weight precision      : 8b (the protected payload)
+  activation precision  : 8b
+  accumulator precision : per architecture, as published (v1 16b, v2 20b, Simba 24b, simple designs 16b)  [primary]
+  result phase          : Pre   (mapping is ECC-unaware; the ECC effect is applied during evaluation)
+  code                  : BCH(63,51)  t=2  r=12
+  weights / codeword    : 6.0000
+  DRAM weight inflation : baseline x1.2353 (+23.5%), embedded/recon x1.0
+  recon on-chip scale   : 0.8095 (weights only)
+  reconstruction        : 4.1296273 pJ per codeword
+  recon provenance      : BCH_N63_results.json [BCH_63_51_t2] n=63 k=51 t=2 (incremental+idle): inc=1.8995000 idle=2.2301273
+  parity accounting     : grouping=layer, message padding charged
+  decode                : 0 pJ for every arm (ECC_DECODE=0; category hidden)
+  weak ECC overlay      : off
+  arch fidelity         : paper   (archs/<name>/arch_paper.yaml where present)
+  arch treatment        : opt-energy__vic2000__vicx__alg-random_pruned__ss20000__to2000__paper   (separate mapper cache)
+  level classifier      : instances
+  mapper objective      : energy
+  mapper                : victory=2000 scaling=levels algorithm=random_pruned timeout=2000 perms/if=16 search_size=20000
+  palette / formats     : house / png, pdf @ 400 dpi
+  replot only           : False
+  cached mapper only    : True   (never invokes Timeloop)
+==============================================================================
+  ECC_FROM_CACHE=1: reading solved mappings only, Timeloop will not be invoked
+  [layers] resnet18: 2 of 21 layers  (2,392,064 of 11,678,912 weights, 20.48% of the model)
+           layer3.0.downsample.0    C128_M256_R1_S1_P14_Q14_ws2_hs2  weights=32,768
+           layer4.1.conv2           C512_M512_R3_S3_P7_Q7_ws1_hs1  weights=2,359,296
+  [scope] two-layer run -- results are written under layers2__layer3_0_downsample_0__layer4_1_conv2/ and are NOT full-model numbers
+  [bound] eyeriss_like: the 8 kB filter GLB that JSSC 2017 publishes is NOT modelled as a reuse level, so DRAM weight traffic and the ECC saving are UPPER bounds. Add eyeriss_like_wglb to the run to bracket it -- see archs/eyeriss_like_wglb/README.md.
+
+########## architecture: eyeriss_v2_like ##########
+  raw cache hit: resnet18
+  resnet18           raw       401.98 uJ   DRAM weight reads      2,424,832
+
+########## architecture: eyeriss_like ##########
+  raw cache hit: resnet18
+  resnet18           raw       390.11 uJ   DRAM weight reads      2,424,832
+
+########## architecture: simple_weight_stationary ##########
+  raw cache hit: resnet18
+  resnet18           raw       469.46 uJ   DRAM weight reads      2,392,064
+
+########## architecture: simple_output_stationary ##########
+  raw cache hit: resnet18
+  resnet18           raw       711.87 uJ   DRAM weight reads      2,392,064
+
+########## architecture: simple_input_stationary ##########
+  raw cache hit: resnet18
+  resnet18           raw       508.52 uJ   DRAM weight reads      2,392,064
+
+########## architecture: simba_like ##########
+  raw cache hit: resnet18
+  resnet18           raw       446.07 uJ   DRAM weight reads      2,424,832
+
+  --- eyeriss_v2_like / resnet18 : conventional ECC, external BCH parity ---
+    precisions            : weight 8b   activation 8b   accumulator 20b (published)
+    code                  : BCH(63,51) t=2   6 whole weights/codeword   3b message padding   12b parity
+    payload               : 2,392,064 weights = 2,392,064 B
+    codewords             : 398,678
+    parity stored         : 598,017 B   padding 149,508 B   -> 31.25% over payload
+    (a flat n/k model would have charged 23.53%)
+    DRAM weight reads     : 2,424,832   refetch x1.01
+    parity DRAM words     : 94,721  (757,768 weight-sized accesses)
+    pJ per DRAM weight    : 64.0000   <- must match across architectures at the same node/datawidth
+    Timeloop energy       :      401.977 uJ
+    + external parity     :       48.497 uJ
+    = conventional ECC    :      450.474 uJ
+    hand check            : PASS
+    -> /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/results/evaluation/Pre/eyeriss_v2_like/resnet18/bch63_51/w8a8/layers2__layer3_0_downsample_0__layer4_1_conv2/map-energy-vic2000l-random_pruned-seednone-ss20000-perm16/20260906T213949Z__b70837ec.json
+
+  --- eyeriss_like / resnet18 : conventional ECC, external BCH parity ---
+    precisions            : weight 8b   activation 8b   accumulator 16b (published)
+    code                  : BCH(63,51) t=2   6 whole weights/codeword   3b message padding   12b parity
+    payload               : 2,392,064 weights = 2,392,064 B
+    codewords             : 398,678
+    parity stored         : 598,017 B   padding 149,508 B   -> 31.25% over payload
+    (a flat n/k model would have charged 23.53%)
+    DRAM weight reads     : 2,424,832   refetch x1.01
+    parity DRAM words     : 94,721  (757,768 weight-sized accesses)
+    pJ per DRAM weight    : 64.0000   <- must match across architectures at the same node/datawidth
+    Timeloop energy       :      390.110 uJ
+    + external parity     :       48.497 uJ
+    = conventional ECC    :      438.607 uJ
+    hand check            : PASS
+    -> /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/results/evaluation/Pre/eyeriss_like/resnet18/bch63_51/w8a8/layers2__layer3_0_downsample_0__layer4_1_conv2/map-energy-vic2000l-random_pruned-seednone-ss20000-perm16/20260906T213949Z__f553fc2e.json
+
+  --- simple_weight_stationary / resnet18 : conventional ECC, external BCH parity ---
+    precisions            : weight 8b   activation 8b   accumulator 16b (published)
+    code                  : BCH(63,51) t=2   6 whole weights/codeword   3b message padding   12b parity
+    payload               : 2,392,064 weights = 2,392,064 B
+    codewords             : 398,678
+    parity stored         : 598,017 B   padding 149,508 B   -> 31.25% over payload
+    (a flat n/k model would have charged 23.53%)
+    DRAM weight reads     : 2,392,064   refetch x1.00
+    parity DRAM words     : 93,441  (747,528 weight-sized accesses)
+    pJ per DRAM weight    : 64.0000   <- must match across architectures at the same node/datawidth
+    Timeloop energy       :      469.457 uJ
+    + external parity     :       47.842 uJ
+    = conventional ECC    :      517.298 uJ
+    hand check            : PASS
+    -> /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/results/evaluation/Pre/simple_weight_stationary/resnet18/bch63_51/w8a8/layers2__layer3_0_downsample_0__layer4_1_conv2/map-energy-vic2000l-random_pruned-seednone-ss20000-perm16/20260906T213950Z__5d6f19fa.json
+
+  --- simple_output_stationary / resnet18 : conventional ECC, external BCH parity ---
+    precisions            : weight 8b   activation 8b   accumulator 16b (published)
+    code                  : BCH(63,51) t=2   6 whole weights/codeword   3b message padding   12b parity
+    payload               : 2,392,064 weights = 2,392,064 B
+    codewords             : 398,678
+    parity stored         : 598,017 B   padding 149,508 B   -> 31.25% over payload
+    (a flat n/k model would have charged 23.53%)
+    DRAM weight reads     : 2,392,064   refetch x1.00
+    parity DRAM words     : 93,441  (747,528 weight-sized accesses)
+    pJ per DRAM weight    : 64.0000   <- must match across architectures at the same node/datawidth
+    Timeloop energy       :      711.872 uJ
+    + external parity     :       47.842 uJ
+    = conventional ECC    :      759.714 uJ
+    hand check            : PASS
+    -> /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/results/evaluation/Pre/simple_output_stationary/resnet18/bch63_51/w8a8/layers2__layer3_0_downsample_0__layer4_1_conv2/map-energy-vic2000l-random_pruned-seednone-ss20000-perm16/20260906T213950Z__2e5b7e7e.json
+
+  --- simple_input_stationary / resnet18 : conventional ECC, external BCH parity ---
+    precisions            : weight 8b   activation 8b   accumulator 16b (published)
+    code                  : BCH(63,51) t=2   6 whole weights/codeword   3b message padding   12b parity
+    payload               : 2,392,064 weights = 2,392,064 B
+    codewords             : 398,678
+    parity stored         : 598,017 B   padding 149,508 B   -> 31.25% over payload
+    (a flat n/k model would have charged 23.53%)
+    DRAM weight reads     : 2,392,064   refetch x1.00
+    parity DRAM words     : 93,441  (747,528 weight-sized accesses)
+    pJ per DRAM weight    : 64.0000   <- must match across architectures at the same node/datawidth
+    Timeloop energy       :      508.517 uJ
+    + external parity     :       47.842 uJ
+    = conventional ECC    :      556.359 uJ
+    hand check            : PASS
+    -> /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/results/evaluation/Pre/simple_input_stationary/resnet18/bch63_51/w8a8/layers2__layer3_0_downsample_0__layer4_1_conv2/map-energy-vic2000l-random_pruned-seednone-ss20000-perm16/20260906T213950Z__a12c9791.json
+
+  --- simba_like / resnet18 : conventional ECC, external BCH parity ---
+    precisions            : weight 8b   activation 8b   accumulator 24b (published)
+    code                  : BCH(63,51) t=2   6 whole weights/codeword   3b message padding   12b parity
+    payload               : 2,392,064 weights = 2,392,064 B
+    codewords             : 398,678
+    parity stored         : 598,017 B   padding 149,508 B   -> 31.25% over payload
+    (a flat n/k model would have charged 23.53%)
+    DRAM weight reads     : 2,424,832   refetch x1.01
+    parity DRAM words     : 94,721  (757,768 weight-sized accesses)
+    pJ per DRAM weight    : 64.0000   <- must match across architectures at the same node/datawidth
+    Timeloop energy       :      446.067 uJ
+    + external parity     :       48.497 uJ
+    = conventional ECC    :      494.564 uJ
+    hand check            : PASS
+    -> /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/results/evaluation/Pre/simba_like/resnet18/bch63_51/w8a8/layers2__layer3_0_downsample_0__layer4_1_conv2/map-energy-vic2000l-random_pruned-seednone-ss20000-perm16/20260906T213950Z__702ce327.json
+
+==============================================================================
+Task 1 baseline: 6 result file(s) written under /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/results/evaluation
+Every file also carries `embedded_ecc` and the five reconstruction
+placements as status=not_implemented, with no energy number.
+==============================================================================

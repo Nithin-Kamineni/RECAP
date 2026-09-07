@@ -1,0 +1,1515 @@
+{
+ "schema_version": "1.0",
+ "experiment": {
+  "name": "task1_conventional_ecc_baseline",
+  "phase": "Pre",
+  "phase_meaning": "Pre: the mapping is ECC-unaware and the ECC effect is applied during energy evaluation only",
+  "mapping_mode": "fixed-mapping",
+  "run_id": "20260907T003635Z__d1eb35ef",
+  "status": "ok",
+  "units": {
+   "energy": "pJ unless a field name says otherwise",
+   "savings": "percent",
+   "capacity": "bits or bytes as the field name says"
+  }
+ },
+ "identity": {
+  "architecture": "eyeriss_like",
+  "architecture_label": "Eyeriss v1",
+  "model": "resnet18",
+  "layer_scope": "full",
+  "layers": "full model",
+  "bch": {
+   "n": 63,
+   "k": 51,
+   "t": 2,
+   "label": "BCH(63,51)"
+  },
+  "precisions_bits": {
+   "weight": 8,
+   "activation": 8,
+   "accumulator": 16,
+   "accumulator_policy": "paper-native (per architecture)",
+   "accumulator_evidence": "Sec. IV: \"The computation consists of a 16-b two-stage pipelined multiplier and adder. Since the multiplication results are truncated from 32 to 16 b...\"  Verified against the JSSC PDF, 2026-09-06."
+  }
+ },
+ "reference_variants": {
+  "conventional_ecc": "baseline_external_parity",
+  "embedded_only": "embedded_ecc"
+ },
+ "summary": [
+  {
+   "variant": "baseline_external_parity",
+   "kind": "baseline",
+   "status": "evaluated",
+   "total_energy_pJ": 5298855412.949999,
+   "total_energy_uJ": 5298.855412949999,
+   "savings_vs_conventional_ecc_percent": 0.0,
+   "savings_vs_embedded_only_percent": null,
+   "unavailable_reason": null
+  },
+  {
+   "variant": "embedded_ecc",
+   "kind": "embedded",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "savings_vs_conventional_ecc_percent": null,
+   "savings_vs_embedded_only_percent": null,
+   "unavailable_reason": "Task 2 has not been implemented. Embedded ECC needs the actual embedded-codeword layout and a DRAM-only comparison against this baseline; nothing in Task 1 models it, so no number is written."
+  },
+  {
+   "variant": "recon_source_noc_ingress",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "savings_vs_conventional_ecc_percent": null,
+   "savings_vs_embedded_only_percent": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the source / NoC ingress) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated."
+  },
+  {
+   "variant": "recon_destination_cluster",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "savings_vs_conventional_ecc_percent": null,
+   "savings_vs_embedded_only_percent": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the destination-cluster boundary) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated."
+  },
+  {
+   "variant": "recon_pe_spad_input",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "savings_vs_conventional_ecc_percent": null,
+   "savings_vs_embedded_only_percent": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the PE weight-SPad input) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated."
+  },
+  {
+   "variant": "recon_pe_spad_output",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "savings_vs_conventional_ecc_percent": null,
+   "savings_vs_embedded_only_percent": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the weight-SPad output, repeated) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated."
+  },
+  {
+   "variant": "recon_pe_spad_output_reuse_reg",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "savings_vs_conventional_ecc_percent": null,
+   "savings_vs_embedded_only_percent": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the SPad output with a reconstructed-weight reuse register) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated."
+  }
+ ],
+ "best_reconstruction_placement": {
+  "variant": null,
+  "reason": "no reconstruction placement has been evaluated in this run"
+ },
+ "validation": [
+  {
+   "check": "parity_payload_hand_check",
+   "passed": true,
+   "detail": {
+    "method": "codeword-by-codeword walk compared against the closed form; both must agree exactly",
+    "code": "BCH(63,51) over 8-bit weights",
+    "weights_checked": 11678912,
+    "weights_per_codeword": 6,
+    "message_pad_bits_per_codeword": 3,
+    "checks": {
+     "codewords": {
+      "walked": 1946486,
+      "closed_form": 1946486
+     },
+     "payload_bits": {
+      "walked": 93431296,
+      "closed_form": 93431296
+     },
+     "padding_bits_total": {
+      "walked": 5839490,
+      "closed_form": 5839490
+     },
+     "parity_bits": {
+      "walked": 23357832,
+      "closed_form": 23357832
+     },
+     "parity_dram_words": {
+      "walked": 364967,
+      "closed_form": 364967
+     }
+    },
+    "mismatches": {},
+    "passed": true
+   }
+  },
+  {
+   "check": "all_layers_mapped",
+   "passed": true,
+   "detail": "21 mapped, 0 skipped"
+  },
+  {
+   "check": "mapping_ids_recorded",
+   "passed": true,
+   "detail": "12 distinct mapping(s) behind this result"
+  },
+  {
+   "check": "architecture_obeys_shared_contract",
+   "passed": true,
+   "detail": {
+    "violations": [],
+    "notes": [
+     "published at 65nm, modelled at 45nm. Deliberate: a mixed-node comparison would report silicon as architecture."
+    ]
+   }
+  },
+  {
+   "check": "components_sum_to_total[baseline_external_parity]",
+   "passed": true,
+   "detail": "components sum to 5298855412.949999 pJ, total is 5298855412.949999 pJ"
+  },
+  {
+   "check": "fixed_mapping_shared_across_variants",
+   "passed": true,
+   "detail": "all evaluated variants reference the same mapping set"
+  }
+ ],
+ "warnings": [
+  "BOUNDED MAPPER SEARCH (search_size=20000, max_permutations_per_if_visit=16). The search was cut short for speed, so these mappings are upper bounds on energy, not converged optima, and the shortfall is LARGER for deeper hierarchies. Development only -- do not publish or rank architectures from this."
+ ],
+ "approximations": [
+  "exact stored codeword count x measured DRAM refetch factor; parity + message padding; rounded up to whole DRAM words once",
+  "External parity is billed at the measured per-access energy of a DRAM weight read on this architecture, not at an independently modelled parity-region access cost. That is exact if parity is read from the same DRAM by the same controller, which is the conventional-ECC assumption."
+ ],
+ "variants": [
+  {
+   "name": "baseline_external_parity",
+   "label": "Conventional ECC, BCH parity external in DRAM",
+   "kind": "baseline",
+   "status": "evaluated",
+   "total_energy_pJ": 5298855412.949999,
+   "total_energy_uJ": 5298.855412949999,
+   "unavailable_reason": null,
+   "energy_by_component_pJ": {
+    "DRAM": 1470512640.0,
+    "Global buffer": 484893605.81000006,
+    "Local (spads/RF/NoC)": 991990949.3399996,
+    "Compute": 2059970985.7999995,
+    "DRAM external BCH parity": 291487232.0
+   },
+   "mapping_ids": [
+    "132283465417703d",
+    "16209d3a711dd5a7",
+    "2cfef1e7263c1be9",
+    "337393d3faa5b08d",
+    "4a1dd496acf6f42e",
+    "5dea03c060e1bed5",
+    "839f1be8e7e2bb46",
+    "8466c108520487c1",
+    "ad49c86ba5236332",
+    "d307b478d69cc6fc",
+    "e036bf12d6b5701f",
+    "ee39a089aad39db1"
+   ],
+   "detail": {
+    "external_parity_accounting": {
+     "code": {
+      "n": 63,
+      "k": 51,
+      "weight_bits": 8,
+      "parity_bits_per_codeword": 12,
+      "weights_per_codeword": 6,
+      "message_used_bits": 48,
+      "message_pad_bits_per_codeword": 3,
+      "parity_overhead_frac": 0.25,
+      "parity_overhead_ideal_frac": 0.23529411764705888
+     },
+     "grouping": "layer",
+     "charge_message_padding": true,
+     "dram_word_bits": 64,
+     "stored": {
+      "weights": 11678912,
+      "payload_bits": 93431296,
+      "codewords": 1946488,
+      "message_pad_bits": 5839464,
+      "tail_pad_bits": 128,
+      "parity_bits": 23357856,
+      "parity_dram_words": 364970,
+      "parity_dram_scalars": 2919760.0,
+      "dram_word_bits": 64,
+      "stored_bits": 122628744,
+      "overhead_frac": 0.3125017981127009,
+      "payload_bytes": 11678912.0,
+      "parity_bytes": 2919732.0,
+      "stored_bytes": 15328593.0
+     },
+     "traffic": {
+      "refetch_factor": 1.2479189842341478,
+      "codeword_reads": 2429059.327783958,
+      "parity_bits": 29148711.933407497,
+      "message_pad_bits": 7287177.983351874,
+      "external_bits": 36435889.91675937,
+      "external_dram_words": 569311.0,
+      "external_dram_scalars": 4554488.0,
+      "charge_padding": true,
+      "overhead_vs_payload_frac": 0.3125,
+      "method": "exact stored codeword count x measured DRAM refetch factor; parity + message padding; rounded up to whole DRAM words once"
+     },
+     "energy_pJ": 291487232.0,
+     "pJ_per_dram_weight_scalar": 64.0,
+     "hand_check": {
+      "method": "codeword-by-codeword walk compared against the closed form; both must agree exactly",
+      "code": "BCH(63,51) over 8-bit weights",
+      "weights_checked": 11678912,
+      "weights_per_codeword": 6,
+      "message_pad_bits_per_codeword": 3,
+      "checks": {
+       "codewords": {
+        "walked": 1946486,
+        "closed_form": 1946486
+       },
+       "payload_bits": {
+        "walked": 93431296,
+        "closed_form": 93431296
+       },
+       "padding_bits_total": {
+        "walked": 5839490,
+        "closed_form": 5839490
+       },
+       "parity_bits": {
+        "walked": 23357832,
+        "closed_form": 23357832
+       },
+       "parity_dram_words": {
+        "walked": 364967,
+        "closed_form": 364967
+       }
+      },
+      "mismatches": {},
+      "passed": true
+     },
+     "hand_check_passed": true,
+     "comparison_to_flat_model": {
+      "flat_n_over_k_minus_1": 0.23529411764705888,
+      "accounted_overhead": 0.3125,
+      "note": "the flat model assumes the k-bit message field is fully packed with weights; it is not, because a weight cannot straddle a codeword"
+     }
+    },
+    "timeloop_energy_pJ": 5007368180.949999,
+    "dram_weight_reads": 14574336.0,
+    "dram_weight_energy_pJ": 932757504.0
+   }
+  },
+  {
+   "name": "embedded_ecc",
+   "label": "Embedded ECC (no external parity)",
+   "kind": "embedded",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "unavailable_reason": "Task 2 has not been implemented. Embedded ECC needs the actual embedded-codeword layout and a DRAM-only comparison against this baseline; nothing in Task 1 models it, so no number is written.",
+   "energy_by_component_pJ": {},
+   "mapping_ids": [],
+   "detail": {}
+  },
+  {
+   "name": "recon_source_noc_ingress",
+   "label": "reconstruct at the source / NoC ingress",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the source / NoC ingress) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated.",
+   "energy_by_component_pJ": {},
+   "mapping_ids": [],
+   "detail": {}
+  },
+  {
+   "name": "recon_destination_cluster",
+   "label": "reconstruct at the destination-cluster boundary",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the destination-cluster boundary) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated.",
+   "energy_by_component_pJ": {},
+   "mapping_ids": [],
+   "detail": {}
+  },
+  {
+   "name": "recon_pe_spad_input",
+   "label": "reconstruct at the PE weight-SPad input",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the PE weight-SPad input) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated.",
+   "energy_by_component_pJ": {},
+   "mapping_ids": [],
+   "detail": {}
+  },
+  {
+   "name": "recon_pe_spad_output",
+   "label": "reconstruct at the weight-SPad output, repeated",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the weight-SPad output, repeated) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated.",
+   "energy_by_component_pJ": {},
+   "mapping_ids": [],
+   "detail": {}
+  },
+  {
+   "name": "recon_pe_spad_output_reuse_reg",
+   "label": "reconstruct at the SPad output with a reconstructed-weight reuse register",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the SPad output with a reconstructed-weight reuse register) so the document shape is final from Task 1 onward, but no reconstruction has been evaluated.",
+   "energy_by_component_pJ": {},
+   "mapping_ids": [],
+   "detail": {}
+  }
+ ],
+ "detail": {
+  "architecture": {
+   "source_yaml": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/archs/eyeriss_like/arch_paper.yaml",
+   "fingerprint": "65833ebb89d3",
+   "accumulator_bits": 16,
+   "accumulator_evidence": "Sec. IV: \"The computation consists of a 16-b two-stage pipelined multiplier and adder. Since the multiplication results are truncated from 32 to 16 b...\"  Verified against the JSSC PDF, 2026-09-06.",
+   "contract_report": {
+    "arch": "eyeriss_like",
+    "violations": [],
+    "notes": [
+     "published at 65nm, modelled at 45nm. Deliberate: a mixed-node comparison would report silicon as architecture."
+    ],
+    "facts": {
+     "source": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/archs/eyeriss_like/arch_paper.yaml",
+     "origin": "published",
+     "label": "Eyeriss v1",
+     "accumulator_bits": 16,
+     "accumulator_evidence": "Sec. IV: \"The computation consists of a 16-b two-stage pipelined multiplier and adder. Since the multiplication results are truncated from 32 to 16 b...\"  Verified against the JSSC PDF, 2026-09-06.",
+     "citation": "Y.-H. Chen, T. Krishna, J. Emer, V. Sze, \"Eyeriss: An Energy-Efficient Reconfigurable Accelerator for Deep Convolutional Neural Networks\", IEEE JSSC 52(1), 2017.",
+     "technology_declared": [
+      "45nm"
+     ],
+     "dram": {
+      "width": 64,
+      "datawidth": 8,
+      "depth": 1048576
+     },
+     "mac": {
+      "multiplier_width": 8,
+      "adder_width": 16
+     },
+     "levels": [
+      {
+       "name": "ifmap_glb",
+       "class": "smartbuffer_SRAM",
+       "depth": 6656,
+       "width": 64,
+       "datawidth": 8,
+       "entries_each": 53248,
+       "instances": 1,
+       "keep": [
+        "Inputs"
+       ],
+       "bypass": [
+        "Weights",
+        "Outputs"
+       ]
+      },
+      {
+       "name": "psum_glb",
+       "class": "smartbuffer_SRAM",
+       "depth": 6144,
+       "width": 64,
+       "datawidth": 16,
+       "entries_each": 24576,
+       "instances": 1,
+       "keep": [
+        "Outputs"
+       ],
+       "bypass": [
+        "Weights",
+        "Inputs"
+       ]
+      },
+      {
+       "name": "ifmap_spad",
+       "class": "smartbuffer_RF_decoded",
+       "depth": 12,
+       "width": 16,
+       "datawidth": 8,
+       "entries_each": 24,
+       "instances": 168,
+       "keep": [
+        "Inputs"
+       ],
+       "bypass": []
+      },
+      {
+       "name": "weights_spad",
+       "class": "smartbuffer_SRAM",
+       "depth": 224,
+       "width": 16,
+       "datawidth": 8,
+       "entries_each": 448,
+       "instances": 168,
+       "keep": [
+        "Weights"
+       ],
+       "bypass": []
+      },
+      {
+       "name": "psum_spad",
+       "class": "smartbuffer_RF_decoded",
+       "depth": 24,
+       "width": 16,
+       "datawidth": 16,
+       "entries_each": 24,
+       "instances": 168,
+       "keep": [
+        "Outputs"
+       ],
+       "bypass": []
+      }
+     ],
+     "total_fanout": 168,
+     "weight_levels": [
+      {
+       "name": "weights_spad",
+       "entries_each": 448,
+       "instances": 168,
+       "entries_total": 75264
+      }
+     ],
+     "weight_capacity": 75264,
+     "glb_keeps_weights": false
+    }
+   },
+   "provenance": {
+    "source_document": "Chen, Krishna, Emer, Sze, IEEE JSSC 52(1), 2017",
+    "url": "https://eems.mit.edu/wp-content/uploads/2016/11/eyeriss_jssc_2017.pdf",
+    "verified": "2026-09-06",
+    "levels": {
+     "DRAM": {
+      "quote": "study-wide DRAM model, not from the paper",
+      "note": "LPDDR4 64b word at 8b operands; identical for every design."
+     },
+     "ifmap_glb + psum_glb": {
+      "quote": "\"The Eyeriss accelerator has a GLB of 108 kB ... 100 kB of the GLB is allocated for ifmaps and psums as required by the RS dataflow for reuse. ... the space is divided into 25 banks, each of which is a 512-b x 64-b (4 kB) SRAM. Each bank is assigned entirely to ifmaps or psums, and the assignment is reconfigurable\"",
+      "modelled": "13 banks ifmap (52 kB) + 12 banks psum (48 kB) = the 100 kB",
+      "approximation": "Timeloop has no dynamic repartitioning, so the reconfigurable 25-bank split is frozen at 13/12. Bank GEOMETRY (512 x 64b) is exact, which is what sets per-access energy; only the ifmap:psum ratio is fixed."
+     },
+     "filter_glb_8kB": {
+      "quote": "\"Even though it is not required by the dataflow, the remaining 8 kB (two banks of 512-b x 64-b SRAMs) of the GLB is allocated for filter weights to compensate for insufficient off-chip traffic bandwidth.\"",
+      "modelled": "NOT modelled as a reuse level (!Nothing on the Weights branch)",
+      "rationale": "The paper is explicit that it is a prefetch buffer the RS dataflow does not need. Declaring it as a Timeloop storage level would hand v1 a full extra stage of weight reuse the dataflow does not actually have, which is exactly the quantity this study measures."
+     },
+     "weights_spad": {
+      "quote": "The filter spad is implemented in a 224-b x 16-b SRAM due to its large size",
+      "modelled": "depth 224, width 16, datawidth 8 -> 448 8-bit weights per PE"
+     },
+     "ifmap_spad": {
+      "quote": "the ifmap and psum spads of size 12 b x 16 b and 24 b x 16 b, respectively, are implemented using registers",
+      "modelled": "depth 12, width 16, datawidth 8 -> 24 8-bit iacts per PE"
+     },
+     "psum_spad": {
+      "quote": "the ifmap and psum spads of size 12 b x 16 b and 24 b x 16 b",
+      "modelled": "depth 24, width 16, datawidth 16 -> 24 psums at the accumulator width"
+     },
+     "mac": {
+      "quote": "\"The computation consists of a 16-b two-stage pipelined multiplier and adder. Since the multiplication results are truncated from 32 to 16 b\"",
+      "modelled": "multiplier_width 8 (study quantization), adder_width 16 (published)"
+     },
+     "PE_array": {
+      "quote": "Sec. V-B describes a broadcast tag \"of the same size of the PE array (i.e., 168 b)\", fixing the array at 168 PEs.",
+      "modelled": "meshX 14 x meshY 12 = 168 PEs"
+     }
+    }
+   }
+  },
+  "workload": {
+   "file": "cnn",
+   "layers": [
+    {
+     "name": "conv1",
+     "shape_signature": "C3_M64_R7_S7_P112_Q112_ws2_hs2",
+     "dims": {
+      "C": 3,
+      "M": 64,
+      "R": 7,
+      "S": 7,
+      "P": 112,
+      "Q": 112,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 9408,
+     "macs": 118013952
+    },
+    {
+     "name": "layer1.0.conv1",
+     "shape_signature": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+     "dims": {
+      "C": 64,
+      "M": 64,
+      "R": 3,
+      "S": 3,
+      "P": 56,
+      "Q": 56,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 36864,
+     "macs": 115605504
+    },
+    {
+     "name": "layer1.0.conv2",
+     "shape_signature": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+     "dims": {
+      "C": 64,
+      "M": 64,
+      "R": 3,
+      "S": 3,
+      "P": 56,
+      "Q": 56,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 36864,
+     "macs": 115605504
+    },
+    {
+     "name": "layer1.1.conv1",
+     "shape_signature": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+     "dims": {
+      "C": 64,
+      "M": 64,
+      "R": 3,
+      "S": 3,
+      "P": 56,
+      "Q": 56,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 36864,
+     "macs": 115605504
+    },
+    {
+     "name": "layer1.1.conv2",
+     "shape_signature": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+     "dims": {
+      "C": 64,
+      "M": 64,
+      "R": 3,
+      "S": 3,
+      "P": 56,
+      "Q": 56,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 36864,
+     "macs": 115605504
+    },
+    {
+     "name": "layer2.0.conv1",
+     "shape_signature": "C64_M128_R3_S3_P28_Q28_ws2_hs2",
+     "dims": {
+      "C": 64,
+      "M": 128,
+      "R": 3,
+      "S": 3,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 73728,
+     "macs": 57802752
+    },
+    {
+     "name": "layer2.0.conv2",
+     "shape_signature": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+     "dims": {
+      "C": 128,
+      "M": 128,
+      "R": 3,
+      "S": 3,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 147456,
+     "macs": 115605504
+    },
+    {
+     "name": "layer2.0.downsample.0",
+     "shape_signature": "C64_M128_R1_S1_P28_Q28_ws2_hs2",
+     "dims": {
+      "C": 64,
+      "M": 128,
+      "R": 1,
+      "S": 1,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 8192,
+     "macs": 6422528
+    },
+    {
+     "name": "layer2.1.conv1",
+     "shape_signature": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+     "dims": {
+      "C": 128,
+      "M": 128,
+      "R": 3,
+      "S": 3,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 147456,
+     "macs": 115605504
+    },
+    {
+     "name": "layer2.1.conv2",
+     "shape_signature": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+     "dims": {
+      "C": 128,
+      "M": 128,
+      "R": 3,
+      "S": 3,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 147456,
+     "macs": 115605504
+    },
+    {
+     "name": "layer3.0.conv1",
+     "shape_signature": "C128_M256_R3_S3_P14_Q14_ws2_hs2",
+     "dims": {
+      "C": 128,
+      "M": 256,
+      "R": 3,
+      "S": 3,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 294912,
+     "macs": 57802752
+    },
+    {
+     "name": "layer3.0.conv2",
+     "shape_signature": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 256,
+      "M": 256,
+      "R": 3,
+      "S": 3,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 589824,
+     "macs": 115605504
+    },
+    {
+     "name": "layer3.0.downsample.0",
+     "shape_signature": "C128_M256_R1_S1_P14_Q14_ws2_hs2",
+     "dims": {
+      "C": 128,
+      "M": 256,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 32768,
+     "macs": 6422528
+    },
+    {
+     "name": "layer3.1.conv1",
+     "shape_signature": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 256,
+      "M": 256,
+      "R": 3,
+      "S": 3,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 589824,
+     "macs": 115605504
+    },
+    {
+     "name": "layer3.1.conv2",
+     "shape_signature": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 256,
+      "M": 256,
+      "R": 3,
+      "S": 3,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 589824,
+     "macs": 115605504
+    },
+    {
+     "name": "layer4.0.conv1",
+     "shape_signature": "C256_M512_R3_S3_P7_Q7_ws2_hs2",
+     "dims": {
+      "C": 256,
+      "M": 512,
+      "R": 3,
+      "S": 3,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 1179648,
+     "macs": 57802752
+    },
+    {
+     "name": "layer4.0.conv2",
+     "shape_signature": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+     "dims": {
+      "C": 512,
+      "M": 512,
+      "R": 3,
+      "S": 3,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 2359296,
+     "macs": 115605504
+    },
+    {
+     "name": "layer4.0.downsample.0",
+     "shape_signature": "C256_M512_R1_S1_P7_Q7_ws2_hs2",
+     "dims": {
+      "C": 256,
+      "M": 512,
+      "R": 1,
+      "S": 1,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 131072,
+     "macs": 6422528
+    },
+    {
+     "name": "layer4.1.conv1",
+     "shape_signature": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+     "dims": {
+      "C": 512,
+      "M": 512,
+      "R": 3,
+      "S": 3,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 2359296,
+     "macs": 115605504
+    },
+    {
+     "name": "layer4.1.conv2",
+     "shape_signature": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+     "dims": {
+      "C": 512,
+      "M": 512,
+      "R": 3,
+      "S": 3,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 2359296,
+     "macs": 115605504
+    },
+    {
+     "name": "fc",
+     "shape_signature": "C512_M1000_R1_S1_P1_Q1_ws1_hs1",
+     "dims": {
+      "C": 512,
+      "M": 1000,
+      "R": 1,
+      "S": 1,
+      "P": 1,
+      "Q": 1,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 512000,
+     "macs": 512000
+    }
+   ],
+   "layer_scope": "full",
+   "total_weights": 11678912
+  },
+  "per_layer": [
+   {
+    "layer": "conv1",
+    "shape": "C3_M64_R7_S7_P112_Q112_ws2_hs2",
+    "status": "ok",
+    "weights": 9408,
+    "macs": 118013952,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "d307b478d69cc6fc",
+    "mapping_cached": true,
+    "total_energy_pJ": 320234497.34000003,
+    "dram_weight_reads": 37632.0,
+    "dram_weight_energy_pJ": 2408448.0
+   },
+   {
+    "layer": "layer1.0.conv1",
+    "shape": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+    "status": "ok",
+    "weights": 36864,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "16209d3a711dd5a7",
+    "mapping_cached": true,
+    "total_energy_pJ": 306720002.74,
+    "dram_weight_reads": 258048.0,
+    "dram_weight_energy_pJ": 16515072.0
+   },
+   {
+    "layer": "layer1.0.conv2",
+    "shape": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+    "status": "ok",
+    "weights": 36864,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "16209d3a711dd5a7",
+    "mapping_cached": true,
+    "total_energy_pJ": 306720002.74,
+    "dram_weight_reads": 258048.0,
+    "dram_weight_energy_pJ": 16515072.0
+   },
+   {
+    "layer": "layer1.1.conv1",
+    "shape": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+    "status": "ok",
+    "weights": 36864,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "16209d3a711dd5a7",
+    "mapping_cached": true,
+    "total_energy_pJ": 306720002.74,
+    "dram_weight_reads": 258048.0,
+    "dram_weight_energy_pJ": 16515072.0
+   },
+   {
+    "layer": "layer1.1.conv2",
+    "shape": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+    "status": "ok",
+    "weights": 36864,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "16209d3a711dd5a7",
+    "mapping_cached": true,
+    "total_energy_pJ": 306720002.74,
+    "dram_weight_reads": 258048.0,
+    "dram_weight_energy_pJ": 16515072.0
+   },
+   {
+    "layer": "layer2.0.conv1",
+    "shape": "C64_M128_R3_S3_P28_Q28_ws2_hs2",
+    "status": "ok",
+    "weights": 73728,
+    "macs": 57802752,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "132283465417703d",
+    "mapping_cached": false,
+    "total_energy_pJ": 185745543.42000002,
+    "dram_weight_reads": 294912.0,
+    "dram_weight_energy_pJ": 18874368.0
+   },
+   {
+    "layer": "layer2.0.conv2",
+    "shape": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+    "status": "ok",
+    "weights": 147456,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "839f1be8e7e2bb46",
+    "mapping_cached": false,
+    "total_energy_pJ": 279174759.93999994,
+    "dram_weight_reads": 589824.0,
+    "dram_weight_energy_pJ": 37748736.0
+   },
+   {
+    "layer": "layer2.0.downsample.0",
+    "shape": "C64_M128_R1_S1_P28_Q28_ws2_hs2",
+    "status": "ok",
+    "weights": 8192,
+    "macs": 6422528,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "4a1dd496acf6f42e",
+    "mapping_cached": true,
+    "total_energy_pJ": 36306675.54,
+    "dram_weight_reads": 114688.0,
+    "dram_weight_energy_pJ": 7340032.0
+   },
+   {
+    "layer": "layer2.1.conv1",
+    "shape": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+    "status": "ok",
+    "weights": 147456,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "839f1be8e7e2bb46",
+    "mapping_cached": false,
+    "total_energy_pJ": 279174759.93999994,
+    "dram_weight_reads": 589824.0,
+    "dram_weight_energy_pJ": 37748736.0
+   },
+   {
+    "layer": "layer2.1.conv2",
+    "shape": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+    "status": "ok",
+    "weights": 147456,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "839f1be8e7e2bb46",
+    "mapping_cached": false,
+    "total_energy_pJ": 279174759.93999994,
+    "dram_weight_reads": 589824.0,
+    "dram_weight_energy_pJ": 37748736.0
+   },
+   {
+    "layer": "layer3.0.conv1",
+    "shape": "C128_M256_R3_S3_P14_Q14_ws2_hs2",
+    "status": "ok",
+    "weights": 294912,
+    "macs": 57802752,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "2cfef1e7263c1be9",
+    "mapping_cached": false,
+    "total_energy_pJ": 191469250.63,
+    "dram_weight_reads": 589824.0,
+    "dram_weight_energy_pJ": 37748736.0
+   },
+   {
+    "layer": "layer3.0.conv2",
+    "shape": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 589824,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "ad49c86ba5236332",
+    "mapping_cached": false,
+    "total_energy_pJ": 275485277.88,
+    "dram_weight_reads": 589824.0,
+    "dram_weight_energy_pJ": 37748736.0
+   },
+   {
+    "layer": "layer3.0.downsample.0",
+    "shape": "C128_M256_R1_S1_P14_Q14_ws2_hs2",
+    "status": "ok",
+    "weights": 32768,
+    "macs": 6422528,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "5dea03c060e1bed5",
+    "mapping_cached": true,
+    "total_energy_pJ": 26932003.810000002,
+    "dram_weight_reads": 65536.0,
+    "dram_weight_energy_pJ": 4194304.0
+   },
+   {
+    "layer": "layer3.1.conv1",
+    "shape": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 589824,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "ad49c86ba5236332",
+    "mapping_cached": false,
+    "total_energy_pJ": 275485277.88,
+    "dram_weight_reads": 589824.0,
+    "dram_weight_energy_pJ": 37748736.0
+   },
+   {
+    "layer": "layer3.1.conv2",
+    "shape": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 589824,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "ad49c86ba5236332",
+    "mapping_cached": false,
+    "total_energy_pJ": 275485277.88,
+    "dram_weight_reads": 589824.0,
+    "dram_weight_energy_pJ": 37748736.0
+   },
+   {
+    "layer": "layer4.0.conv1",
+    "shape": "C256_M512_R3_S3_P7_Q7_ws2_hs2",
+    "status": "ok",
+    "weights": 1179648,
+    "macs": 57802752,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "337393d3faa5b08d",
+    "mapping_cached": false,
+    "total_energy_pJ": 207835343.04,
+    "dram_weight_reads": 1179648.0,
+    "dram_weight_energy_pJ": 75497472.0
+   },
+   {
+    "layer": "layer4.0.conv2",
+    "shape": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+    "status": "ok",
+    "weights": 2359296,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "e036bf12d6b5701f",
+    "mapping_cached": true,
+    "total_energy_pJ": 363178238.18,
+    "dram_weight_reads": 2359296.0,
+    "dram_weight_energy_pJ": 150994944.0
+   },
+   {
+    "layer": "layer4.0.downsample.0",
+    "shape": "C256_M512_R1_S1_P7_Q7_ws2_hs2",
+    "status": "ok",
+    "weights": 131072,
+    "macs": 6422528,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "8466c108520487c1",
+    "mapping_cached": false,
+    "total_energy_pJ": 24413410.13,
+    "dram_weight_reads": 131072.0,
+    "dram_weight_energy_pJ": 8388608.0
+   },
+   {
+    "layer": "layer4.1.conv1",
+    "shape": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+    "status": "ok",
+    "weights": 2359296,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "e036bf12d6b5701f",
+    "mapping_cached": true,
+    "total_energy_pJ": 363178238.18,
+    "dram_weight_reads": 2359296.0,
+    "dram_weight_energy_pJ": 150994944.0
+   },
+   {
+    "layer": "layer4.1.conv2",
+    "shape": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+    "status": "ok",
+    "weights": 2359296,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "e036bf12d6b5701f",
+    "mapping_cached": true,
+    "total_energy_pJ": 363178238.18,
+    "dram_weight_reads": 2359296.0,
+    "dram_weight_energy_pJ": 150994944.0
+   },
+   {
+    "layer": "fc",
+    "shape": "C512_M1000_R1_S1_P1_Q1_ws1_hs1",
+    "status": "ok",
+    "weights": 512000,
+    "macs": 512000,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "ee39a089aad39db1",
+    "mapping_cached": false,
+    "total_energy_pJ": 34036618.08,
+    "dram_weight_reads": 512000.0,
+    "dram_weight_energy_pJ": 32768000.0
+   }
+  ],
+  "per_level": [
+   {
+    "level": "DRAM",
+    "dataspace": "Inputs",
+    "category": "DRAM",
+    "instances": 1,
+    "energy_pJ": 186057728.0,
+    "reads": 2907147.0,
+    "writes": 0.0
+   },
+   {
+    "level": "DRAM",
+    "dataspace": "Outputs",
+    "category": "DRAM",
+    "instances": 1,
+    "energy_pJ": 351697408.0,
+    "reads": 1505280.0,
+    "writes": 3989992.0
+   },
+   {
+    "level": "DRAM",
+    "dataspace": "Weights",
+    "category": "DRAM",
+    "instances": 1,
+    "energy_pJ": 932757504.0,
+    "reads": 14574336.0,
+    "writes": 0.0
+   },
+   {
+    "level": "ifmap_glb",
+    "dataspace": "Inputs",
+    "category": "Global buffer",
+    "instances": 1,
+    "energy_pJ": 350498364.28999996,
+    "reads": 116947968.0,
+    "writes": 2907147.0
+   },
+   {
+    "level": "ifmap_spad",
+    "dataspace": "Inputs",
+    "category": "Local (spads/RF/NoC)",
+    "instances": 168,
+    "energy_pJ": 55737870.12,
+    "reads": 65525760.0,
+    "writes": 10854912.0
+   },
+   {
+    "level": "mac",
+    "dataspace": "Compute",
+    "category": "Compute",
+    "instances": 168,
+    "energy_pJ": 2059970985.8,
+    "reads": 0.0,
+    "writes": 0.0
+   },
+   {
+    "level": "psum_glb",
+    "dataspace": "Outputs",
+    "category": "Global buffer",
+    "instances": 1,
+    "energy_pJ": 134395241.51999998,
+    "reads": 11465216.0,
+    "writes": 15455208.0
+   },
+   {
+    "level": "psum_spad",
+    "dataspace": "Outputs",
+    "category": "Local (spads/RF/NoC)",
+    "instances": 168,
+    "energy_pJ": 191522631.7,
+    "reads": 64908396.0,
+    "writes": 68151936.0
+   },
+   {
+    "level": "weights_spad",
+    "dataspace": "Weights",
+    "category": "Local (spads/RF/NoC)",
+    "instances": 168,
+    "energy_pJ": 744730447.52,
+    "reads": 65525760.0,
+    "writes": 1024384.0
+   }
+  ],
+  "mappings": [
+   {}
+  ],
+  "raw_energy_cache": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/results/_raw/eyeriss_like/opt-energy__vic2000__vicx__alg-random_pruned__ss20000__to2000__paper/fp-65833ebb89d3/cnn/layers-full/cls-instances/rw-joint/resnet18.json",
+  "mapper_cache": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/ecc_energy_study/outputs/eyeriss_like/multimodel__opt-energy__vic2000__vicx__alg-random_pruned__ss20000__to2000__paper/fp-65833ebb89d3"
+ },
+ "provenance": {
+  "config": {
+   "experiment": "baseline",
+   "sweep": "arch",
+   "sweep_archs": [
+    "eyeriss_v2_like",
+    "eyeriss_like",
+    "simple_weight_stationary",
+    "simple_output_stationary",
+    "simple_input_stationary",
+    "simba_like"
+   ],
+   "sweep_models": [
+    "resnet18",
+    "resnet50",
+    "densenet121",
+    "squeezenet1_1",
+    "mobilenet_v2",
+    "efficientnet_b0",
+    "convnext_tiny",
+    "xception"
+   ],
+   "sweep_ks": [
+    57,
+    51,
+    45,
+    39,
+    36,
+    30
+   ],
+   "panel_models": [
+    "resnet18",
+    "mobilenet_v2"
+   ],
+   "const_arch": "eyeriss_like",
+   "const_model": "resnet18",
+   "const_k": 51,
+   "approaches": [
+    "baseline",
+    "embedded",
+    "recon"
+   ],
+   "weight_bits": 8,
+   "activation_bits": 8,
+   "acc_bits_override": null,
+   "code_n": 63,
+   "emb_weights_per_cw_override": null,
+   "parity_grouping": "layer",
+   "parity_charge_padding": true,
+   "decode_enabled": false,
+   "decode_pj_base": 40.0,
+   "decode_pj_emb": 40.0,
+   "recon_charges_decode": true,
+   "recon_json": "data/dc/BCH_N63_results.json",
+   "recon_include_idle": true,
+   "recon_pj_override": null,
+   "recon_incremental_fallback_pj": 1.8995,
+   "recon_idle_fallback_pj": 2.2301273,
+   "weak_enabled": false,
+   "weak_n": 63,
+   "weak_k": 57,
+   "baseline_inflates_onchip": false,
+   "split_read_write": false,
+   "classify_mode": "instances",
+   "arch_fidelity": "paper",
+   "force_technology": "",
+   "force_datawidth": null,
+   "dram_depth": 1048576,
+   "global_cycle_seconds": "1e-9",
+   "layers": [],
+   "phase": "Pre",
+   "overwrite": false,
+   "cache_strict": true,
+   "run_note": "",
+   "opt_metric": "energy",
+   "victory": 2000,
+   "victory_scaling": "levels",
+   "mapper_threads": 18,
+   "mapper_timeout": 2000,
+   "mapper_algorithm": "random_pruned",
+   "mapper_seed": null,
+   "mapper_search_size": 20000,
+   "mapper_max_permutations": 16,
+   "results_dir": "results",
+   "replot_only": false,
+   "from_cache": true,
+   "palette": "house",
+   "dpi": 400,
+   "formats": [
+    "png",
+    "pdf"
+   ],
+   "title_note": "",
+   "nice_labels": true,
+   "archs": [
+    "eyeriss_v2_like",
+    "eyeriss_like",
+    "simple_weight_stationary",
+    "simple_output_stationary",
+    "simple_input_stationary",
+    "simba_like"
+   ],
+   "models": [
+    "resnet18"
+   ],
+   "code_k": 51,
+   "code_t": 2,
+   "workload": "cnn",
+   "stem": "ArchitectureSweep",
+   "arch_variant_slug": "opt-energy__vic2000__vicx__alg-random_pruned__ss20000__to2000__paper",
+   "weights_per_codeword": 6,
+   "emb_weights_per_cw": 6,
+   "parity_frac": 0.23529411764705888,
+   "sram_scale": 0.8095238095238095,
+   "weak_overhead": 1.0
+  },
+  "config_hash": "d1eb35ef",
+  "mapper_settings": {
+   "optimization_metric": "energy",
+   "victory_condition_base": 2000,
+   "victory_scaling": "levels",
+   "algorithm": "random_pruned",
+   "timeout": 2000,
+   "search_size": 20000,
+   "max_permutations_per_if_visit": 16,
+   "num_threads": 18,
+   "seed": null,
+   "seed_supported": false,
+   "seed_note": "timeloop-mapper v4 exposes no random seed; pytimeloop's Mapper spec has no `random_seed` attribute. ECC_MAPPER_SEED is RECORDED so a result says which value was asked for, but it does not make the search deterministic. What does bound it is the thread count and victory condition, both of which are in the fingerprint -- so pin ECC_MAPPER_THREADS for a reproducible run rather than leaving it at 'all cores', which differs per machine."
+  },
+  "mapper_fingerprint": "3fe12ae0",
+  "command": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/eccenergy/__main__.py baseline --eval",
+  "git_commit": "bb39e96f924befe1ffa6f15447955fb4fe06d7b2",
+  "started_utc": "2026-09-07T00:36:35+00:00",
+  "finished_utc": "2026-09-07T00:36:35+00:00",
+  "runtime_seconds": 0.0,
+  "host": "login11.ufhpc",
+  "user": "vkamineni",
+  "platform": "Linux-5.14.0-687.36.1.el9_8.x86_64-x86_64-with-glibc2.35",
+  "project_root": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling"
+ }
+}

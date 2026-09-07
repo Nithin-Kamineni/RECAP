@@ -1,0 +1,154 @@
+compound_components:
+  version: 0.4
+  classes:
+
+  # ===================================================================
+  #  regfile_decoded / smartbuffer_RF_decoded
+  #
+  #  WHY THIS FILE EXISTS.
+  #  The `regfile` component shipped with timeloop-accelergy-exercises
+  #  (_components/regfile.yaml) declares
+  #
+  #      subcomponents:
+  #      - name: comparator[1..depth]      # class aladdin_comparator
+  #      actions:
+  #      - name: read
+  #        subcomponents:
+  #        - {name: storage[1..width],  actions: [{name: read}]}
+  #        - {name: comparator[1..depth], actions: [{name: compare}]}
+  #
+  #  so EVERY one of the level's `depth` address comparators fires on
+  #  EVERY read and write.  That is a fully-associative CAM tag match.
+  #  None of the designs in this study contains one: every scratchpad
+  #  here is address-decoded, exactly like an SRAM.
+  #
+  #  THE EVIDENCE THAT THIS IS A DEFECT AND NOT A DESIGN CHOICE is in
+  #  the same component library.  `smartbuffer_SRAM` is
+  #
+  #      storage (CACTI) + address_generators[0..1]     -- no comparators
+  #
+  #  while `smartbuffer_RF` is
+  #
+  #      storage (regfile) + address_generators[0..1]   -- PLUS depth comparators
+  #
+  #  Both are address-decoded arrays with the same addressing structure,
+  #  and both already pay for their addressing through the two intadder
+  #  address_generators.  The comparator array is charged on top of that
+  #  in one definition and not the other.  It is an inconsistency
+  #  between the two components, not a physical difference between an
+  #  SRAM and a register file.
+  #
+  #  WHY IT MATTERS HERE, MEASURED at 45nm (read energy per access):
+  #
+  #    eyeriss_like.psum_spad      24 x 16b   0.660 -> 0.137 pJ   (80% was CAM)
+  #    eyeriss_like.ifmap_spad     12 x 16b   0.389 -> 0.102 pJ   (76%)
+  #    eyeriss_v2_like.psum_spad   32 x 20b   1.022 -> 0.185 pJ   (82%)
+  #    eyeriss_v2_like.ifmap_spad  24 x  8b   0.340 -> 0.095 pJ   (75%)
+  #    simba_like.PEAccuBuffer    128 x 24b   3.881 -> 0.326 pJ   (92%)
+  #
+  #  The three simple_* reference designs declare their innermost
+  #  registers as bare `aladdin_register` (depth 1) and therefore paid
+  #  NO comparator cost at all -- 0.182 pJ for a 16-bit register.  So
+  #  the charge fell only on the designs that express a real scratchpad
+  #  hierarchy, which is precisely the thing a row-stationary dataflow
+  #  is built out of.  On resnet18 layer4.1.conv2, psum_spad was
+  #  eyeriss_like's largest non-DRAM term.
+  #
+  #  WHAT IS AND IS NOT CHANGED.  The storage array, the two address
+  #  generators, and every scaling rule are copied VERBATIM from
+  #  _components/smartbuffer_RF.yaml.  The ONLY difference is that the
+  #  comparator array is gone, which makes the RF cost model structurally
+  #  identical to the SRAM one.  Levels keep their published geometry and
+  #  their published cell type; nothing about any architecture moves.
+  # ===================================================================
+  - name: regfile_decoded
+    attributes:
+      technology: "must_specify"
+      width: "must_specify"
+      depth: "must_specify"
+
+    subcomponents:
+    - name: storage[1..width*depth]
+      class: aladdin_register
+      attributes:
+        global_cycle_seconds: global_cycle_seconds
+
+    actions:
+    - &rfd_write
+      name: write
+      subcomponents:
+      - name: storage[1..width]
+        actions: [{name: write}]
+    - name: read
+      subcomponents:
+      - name: storage[1..width]
+        actions: [{name: read}]
+    - name: leak
+      subcomponents:
+      - name: storage[1..width*depth]
+        actions: [{name: leak, arguments: {global_cycle_seconds: global_cycle_seconds}}]
+    - name: update
+      << : *rfd_write
+
+  # Structurally identical to _components/smartbuffer_RF.yaml -- same
+  # CACTI-style width/depth clamps, same 2^0.78 depth scaling, same two
+  # address generators -- but backed by regfile_decoded.
+  - name: smartbuffer_RF_decoded
+    attributes:
+      technology: "must_specify"
+      width: "must_specify"
+      depth: "must_specify"
+      # CACTI requires >= 4B wide and >= 64 entries deep
+      memory_width: max(32, width)
+      memory_depth: max(64, depth)
+      widthscale: width / memory_width
+      depthscale: depth / memory_depth
+      real_depth: depth
+
+      area_scale: widthscale * depthscale
+      # CACTI scaling: 2x depth --> 1.56x dynamic power
+      dynamic_energy_scale: widthscale * (depthscale ** (1.56 / 2))
+      static_energy_scale: area_scale # Leakage proportional to area
+      n_rdwr_ports: 1
+      global_cycle_seconds: "must_specify"
+
+    subcomponents:
+    - name: storage
+      class: regfile_decoded
+      area_scale: area_scale
+      attributes:
+        width: memory_width
+        depth: memory_depth
+        n_rdwr_ports: n_rdwr_ports
+        global_cycle_seconds: global_cycle_seconds
+
+    - name: address_generators[0..1]
+      class: intadder
+      attributes:
+        n_bits: max(1, ceil(log2(real_depth))) if real_depth >= 1 else 1
+        precision: max(1, ceil(log2(real_depth))) if real_depth >= 1 else 1
+        width: max(1, ceil(log2(real_depth))) if real_depth >= 1 else 1
+        global_cycle_seconds: global_cycle_seconds
+
+    actions:
+    - &sbrfd_write
+      name: write
+      subcomponents:
+      - name: storage
+        actions: [{name: write, energy_scale: dynamic_energy_scale}]
+      - name: address_generators[0]
+        actions: [{name: add}]
+    - name: read
+      subcomponents:
+      - name: storage
+        actions: [{name: read, energy_scale: dynamic_energy_scale}]
+      - name: address_generators[1]
+        actions: [{name: add}]
+    - name: leak
+      subcomponents:
+      - name: storage
+        actions: [{name: leak, energy_scale: static_energy_scale}]
+      - name: address_generators[0..1]
+        actions: [{name: leak}]
+    - name: update
+      << : *sbrfd_write

@@ -1,0 +1,148 @@
+ECC ACCELERATOR MODELING: STAGED IMPLEMENTATION PLAN
+
+PURPOSE
+Implement the five tasks below in separate development sessions, allowing
+review between stages. Primary tools: Timeloop + Accelergy. Existing working
+architecture YAML files are the starting point; inspect and reuse them.
+
+CONTEXT FILES
+01_project_context_and_architectures.txt
+02_reconstruction_dse_and_implementation.txt
+Read this plan first and consult relevant sections of those files. This plan
+controls implementation scope where it differs from the broader discussion.
+Architecture ratings in those files are hypotheses, not measured results.
+
+SESSION RULE
+Implement only the requested task. Inspect existing code before changing it.
+At completion, record changed files, exact run commands, results, assumptions,
+and the next unfinished task in a short PROJECT_STATUS.md. Stop for review
+before starting the next numbered task. Do not invent characterization data.
+
+SHARED DEVELOPMENT MODE — REQUIRED FROM TASK 1 ONWARD
+- Support selecting one or two real layers by stable layer name/ID, as well
+  as full-model runs. Choose one small layer for quick checks and optionally
+  one contrasting layer for memory/reuse behavior. Record their identities.
+- Separate mapping generation from energy evaluation and plotting. Save
+  mappings and raw statistics; allow evaluation-only reruns without invoking
+  the mapper. Reuse mappings only when their legality remains unchanged.
+- Cache mappings using the workload, architecture/capacity, constraints,
+  mapper settings/seed and tool version. Keep evaluation-cost settings
+  separate so energy-only edits do not invalidate mappings. If energy costs
+  affect the mapping objective, re-optimization is required to claim a new
+  optimum, even when the previous mapping remains legal.
+- Provide documented quick-run commands with bounded mapper search/time and
+  a fixed seed where supported. Do not launch full-model searches by default.
+- Save machine-readable results with units, configuration identifiers and
+  mapping identifiers. Quick runs validate implementation, not final rankings.
+
+1. ORGANIZE AND VALIDATE BASELINE ARCHITECTURES WITH EXTERNAL BCH PARITY
+
+Start from my working YAMLs for Eyeriss v1, Eyeriss v2, weight stationary,
+input stationary, output stationary and Simba. Organize them consistently,
+with shared experiment settings and architecture-specific configurations.
+
+Use the same selected weight quantization, activation precision, accumulation
+precision, workload and BCH configuration across comparisons. Keep these
+precisions explicit and distinct. Preserve each architecture's actual
+hierarchy, capacity and weight bypass rules; do not equalize architectures
+by accidentally changing their physical storage capacities or topology.
+
+Implement only the conventional-ECC baseline: weights are the protected
+payload and BCH parity is external in DRAM. For BCH(n,k), each k payload bits
+requires n-k parity bits. Account for actual grouping, padding and physical
+DRAM transfer granularity. External parity is consumed by off-chip ECC
+correction, not automatically stored in on-chip weight SRAM/RF.
+
+Done when: each architecture completes the selected-layer quick run; the
+configuration summary reports precisions and BCH parameters; a small
+hand-check confirms payload/parity accounting; the existing baseline is
+preserved apart from documented standardization and parity accounting.
+
+2. IMPLEMENT EMBEDDED ECC — DRAM ENERGY EFFECT ONLY
+
+Add an embedded-ECC evaluation mode with parity contained within the stored
+weight representation and no external parity for this fully embedded case.
+Use the actual embedded-codeword layout rather than treating all full weight
+bits as independent payload. Read the complete embedded codeword for ECC
+correction; do not discard its embedded parity before that correction.
+
+Keep mappings, on-chip widths, access counts and MAC behavior fixed. Compare
+with Task 1 and change only modeled DRAM storage/traffic energy attributable
+to removing external parity. Distinguish stored bits from physical reads:
+less storage does not guarantee fewer DRAM bursts or proportional energy.
+Document any bit-proportional approximation. Do not silently change ECC
+codec energy; keep it fixed or explicitly outside this isolated comparison.
+
+Done when: evaluation-only reruns use the cached mappings; DRAM payload,
+parity/padding, physical accesses and energy are reported; all non-DRAM energy
+components match Task 1. This task makes no inference-accuracy claim.
+
+3. EYERISS V2 RECONSTRUCTION — EVALUATOR ONLY, FIXED MAPPING
+
+Using Task 2 as the embedded-ECC reference, fix architecture=Eyeriss_v2,
+model/layers, BCH configuration, precision, physical hardware assumptions
+and mapping. Vary only reconstruction placement and its necessary overhead.
+Do not modify or rerun the mapping optimizer for this comparison.
+
+Evaluate all feasible weight-path boundaries present in the actual model:
+source/NoC ingress; destination-cluster boundary; PE weight-SPad input;
+weight-SPad output with repeated reconstruction; and SPad output with a
+reconstructed-weight reuse register. Mark unsupported boundaries explicitly.
+
+Apply reduced representation only after ECC correction and before the chosen
+boundary; use full weights downstream. Count encoder work from actual reuse,
+fanout and ECC-group dependencies. Include encoder and required buffer/control
+costs from supplied characterization, or expose clearly labeled parameters.
+Keep CSC metadata and physical packing explicit. A single weight may depend
+on retained bits from other weights; reject infeasible local placements.
+
+With the fixed mapping, model justified transfer/access savings, but do not
+credit additional capacity-driven reuse or new tiling. Reuse registers must
+also be compared against equivalent baseline operand-retention behavior.
+
+Done when: one/two-layer runs produce a table and energy-breakdown plot for
+all feasible placements, including reconstruction counts, overheads, total
+energy and savings versus both conventional ECC and embedded-only references.
+Use evaluation-only reruns for cost changes. Label results as fixed-mapping.
+
+4. EYERISS V2 RECONSTRUCTION — INCLUDE THE MAPPING OPTIMIZER
+
+Extend Task 3 so representation changes affect mapping feasibility and the
+mapping objective. Keep physical SRAM/RF capacities fixed: packed reduced
+weights can increase effective weight capacity, potentially enabling better
+tiling and reuse. Do not simply increase physical memory size or change a
+global datawidth that also changes activations, partial sums or MAC precision.
+
+Represent the actual weight width at each level for each reconstruction
+placement, including packing, CSC metadata and required ECC-group buffering.
+Use the existing Timeloop/Accelergy capabilities where sufficient; add a
+focused extension/wrapper only where needed. Account for reconstruction costs
+in mapping selection, directly or by rescoring candidate mappings. If only a
+limited candidate set is rescored, label the search approximate.
+
+Run bounded mapping searches for the selected layers, then evaluate with the
+same cost model as Task 3. Save mappings separately for each valid variant.
+
+Done when: mappings pass capacity/legality checks and comparisons distinguish
+Task 3's fixed-mapping savings from additional remapping savings. Report total
+energy and relevant latency/area overhead. Increased reuse is a possible
+result, not an outcome to force.
+
+5. REPEAT TASKS 3 AND 4 FOR THE OTHER ARCHITECTURES
+
+Apply evaluator-only reconstruction, then reconstruction-aware mapping, to
+Eyeriss v1, weight stationary, input stationary, output stationary and Simba.
+Reuse shared code and retain architecture-specific paths, reuse and fanout.
+Use separate sessions per architecture if needed. Keep common workload,
+precision, BCH and characterization assumptions for comparable experiments.
+
+Save placement comparisons and the lowest-energy feasible location for each
+architecture, along with its configuration, mapping, energy, latency and area
+assumptions. Record per-layer winners. For one architecture-wide placement,
+select the minimum summed energy across the chosen workload, not the average
+of percentage savings. Keep fixed-mapping and remapped winners separate.
+
+Done when: all architectures support the same quick-run/evaluation workflow
+and produce comparable result tables/plots. Treat one/two-layer winners as
+provisional; use full-model evaluation before claiming final architecture-wide
+winners. Report the best evaluated candidate, not an unproven global optimum.

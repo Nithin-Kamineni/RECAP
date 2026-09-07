@@ -1,0 +1,201 @@
+PROGRESS CHECKLIST  --  ECC accelerator energy modelling
+========================================================
+Last updated : 2026-09-07 (interconnect / NoC energy model added; every mapper cache is cold again)
+Legend       : ✅ done   ❌ not done / wrong   ⚠️ done with caveats or partially
+
+How to read this: one line per task or subtask, each marked with exactly one
+emoji. The plan being executed is 03_staged_implementation_plan.txt. Numbers
+and reasoning live in FINDINGS.md; this file is only the status board.
+
+
+SHARED DEVELOPMENT MODE (required from Task 1 on)
+--------------------------------------------------
+✅ Select one/two real layers by stable name (ECC_LAYERS), full model when empty
+✅ Mapping generation separated from evaluation (`bash run.sh map` vs `baseline --eval`)
+✅ Mapper cache keyed by arch YAML + mapper settings (fp-<hash> + mapping.json sidecar)
+⚠️ Cache key STABILITY: the fingerprint recipe changed after Task 1 (search_size and
+   max_permutations were added to mapper_settings), so the Task 1 mapper-cache entries
+   (fp-25b35c9b0d5a etc.) are no longer addressable by the current code; the Task 1 result
+   JSONs cannot be re-evaluated with `--eval`. Re-map at the current recipe instead.
+✅ Raw-energy cache now rejects a record whose per-layer shape list differs from the
+   current workload (added 2026-09-06; needed by the depthwise fix)
+✅ Quick-run commands documented with bounded search and pinned thread count
+⚠️ Fixed seed: Timeloop v4 exposes none; thread count is pinned instead (documented)
+✅ Machine-readable results with units, config ids, mapping ids (results/evaluation/)
+
+
+TASK 1  --  BASELINE ARCHITECTURES + EXTERNAL BCH PARITY
+--------------------------------------------------------
+✅ Architectures organised consistently (archs/<name>/arch_paper.yaml + archs/_shared/)
+✅ Shared contract validated: `bash run.sh validate` -> 6/6 (7/7 with wglb) pass, 0 violations
+✅ Precisions explicit and distinct (w8 / a8 / per-design accumulator 16/20/24 b)
+✅ Hierarchy, capacity, bypass rules preserved per design (printed by validate)
+✅ Conventional-ECC baseline implemented (external parity, whole-weight codewords,
+   message + tail padding, DRAM-word granularity); hand check passes on every result
+✅ External parity kept out of on-chip SRAM/RF (ECC_BASELINE_INFLATES_ONCHIP=0 default)
+⚠️ "Each architecture completes the selected-layer quick run": TRUE mechanically, but
+   the Task 1 quick-run NUMBERS are not usable -- see the mapper item below
+❌ Baseline energies trustworthy enough to compare architectures: NO.
+   Under the Task 1 search (hybrid, victory 100) Eyeriss v1/v2 cost ~5x more than under a
+   wider random_pruned search on the same two layers (1979/2037 uJ -> 390/402 uJ), and the
+   ranking inverts. The cached figures were produced by an even more bounded search.
+⚠️ Existing baseline preserved apart from documented changes: the documented changes
+   are real; the undocumented one is the fingerprint-recipe change above
+
+
+WORKLOAD CORRECTNESS (audit items from the 2026-09-06 request)
+---------------------------------------------------------------
+✅ Depthwise / grouped convolutions: defect CONFIRMED and FIXED.
+   Old model: C=1 input channel shared by all M filters (input tensor 960x too small).
+   New model: group dimension G in the Timeloop problem (Layer.G, M per group), grouped
+   problem template, shape names carry _G<g>. Verified: DRAM Inputs 81 -> 77,760 scalars.
+✅ Grouped shape maps on all 7 architectures (smoke test, tiny search)
+✅ Depthwise ENERGY at converged settings: DONE for mobilenet_v2 on all six architectures
+   (31 distinct shapes, 10 depthwise), mapped on HiPerGator 2026-09-06 (see FINDINGS.md §13)
+✅ ConvNeXt per-pixel nn.Linear layers (pwconv1/pwconv2) recorded as single-pixel
+   matmuls: FIXED in generate.py, convnext_tiny regenerated (4.46 G MACs vs paper 4.5 G)
+✅ MAC counts checked against published values: resnet18 1.81 G, resnet50 4.09 G,
+   mobilenet_v2 300.8 M, efficientnet_b0 385.8 M, convnext_tiny 4.46 G
+❌ Every other model with depthwise layers (efficientnet_b0, xception, convnext_tiny)
+   still needs its mapper cache rebuilt for the new grouped shapes before any figure
+
+
+MAPPER / EVALUATION CONSISTENCY
+--------------------------------
+❌ Search convergence: `hybrid` (the run.sh default) under-converges badly on the Eyeriss
+   designs (196x-224x DRAM weight refetch on layer1.0.conv1 even at victory 500). The
+   default must change or every ranking is a search artefact. Decision for the user.
+✅ Evidence gathered: same layers, 4 search settings, all 7 designs (FINDINGS.md §2)
+✅ The panel figure ArchitectureSweep__panels__resnet18__mobilenet_v2.png was REGENERATED
+   2026-09-06 from whole-model mappings at the converged search with corrected grouped
+   shapes, and is quotable. The old bounded-search (ss300/perm4) version is kept at
+   results/figures/_superseded_bounded_search/ and must still not be quoted
+⚠️ Two fingerprints exist per treatment for several designs (YAMLs were edited between
+   runs); only the one the current YAML produces is valid -- always compute it, never glob
+✅ Stale test (mapper_slug gained -ssnone-perm16) fixed; 15/15 offline tests pass
+✅ Evaluation-only rerun path (`baseline --eval`) verified to need no container
+
+
+EYERISS V2 MODEL CHECK
+----------------------
+✅ It is a DENSE Eyeriss v2: own hierarchy (16 clusters x 12 PEs x SIMD-2 = 384 MACs,
+   72 kB iact GLB + 120 kB psum GLB, no weight GLB, 96x24b weight spad = 288 weights/PE,
+   24 B iact spad, 32x20b psum spad, 20 b psums, RS+ spatial constraints). It is NOT the
+   stock eyeriss_like renamed.
+⚠️ Not modelled, by design or by tool limit: CSC sparsity (dense on purpose), HM-NoC
+   router energy, NoC mode switching, 12 b register words (declared 24x8b), 65 nm (45 nm
+   used), 200 MHz (1 GHz cycle used for leakage)
+⚠️ Order-of-magnitude sanity vs the paper only (3.3 pJ/MAC here at 45 nm without NoC,
+   vs ~11 pJ/MAC published at 65 nm with everything); no direct validation possible
+
+
+ENERGY BREAKDOWN (component level, not totals)
+-----------------------------------------------
+✅ Per-(level, dataspace) breakdown available for every raw record (levels[] in
+   results/_raw and detail.per_level in results/evaluation); script in FINDINGS.md §7
+❌ NoC energy: ZERO for every architecture (Timeloop "Networks" section empty; no
+   network components declared). Comparisons are missing the interconnect term.
+✅ DRAM per-scalar cost identical across designs (64 pJ / 8-bit access) -- verified
+
+
+MIGRATION TO HIPERGATOR (decided 2026-09-06: local runs take ~12 h; target is minutes)
+-----------------------------------------------------------------------------------
+✅ Instructions written: hpc/HIPERGATOR.md (transfer, image build, verification checklist,
+   VS Code workflow, what is known about parallelisation) + hpc/tl.sh (apptainer wrapper);
+   pointer section added to CLAUDE.md
+✅ Project copied into /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling; the nested
+   duplicate was verified to hold 0 unique files and removed 2026-09-06 (freed 650 MB)
+✅ LF guard run; required directories and system-python eccenergy import verified
+✅ Copy integrity: all 23,249 mapper-cache files and 101 raw-cache files matched the source
+✅ timeloop.sif built with Apptainer 1.4.2 in four-core allocation 41258861; cache/temp under /blue
+✅ Five verification checks passed in 18-core allocation 41260181; six laptop totals match exactly
+✅ CACTI writable scratch bind added to hpc/tl.sh; uncached shape mapped in 28.724 s with sidecar
+✅ Account/QOS confirmed: rewetz; investment concurrent-core limit 181 (slurmInfo)
+✅ Parallel (job-array) execution designed and built ON HiPerGator, after §5:
+   hpc/map_array.sbatch + hpc/tasks_panel.txt (one (arch, model) per array task),
+   hpc/eval_panel.sh (cache-only evaluation) and hpc/summary.py (the model x arch matrix).
+   Array 41269118, --array=1-12%9, 18 cores per task, 162 cores held: 12/12 COMPLETED,
+   0 failed, 258 shape-mappings in 48 min wall (longest task 30m49s)
+✅ Two shared-file races fixed rather than avoided: patched_arch_path() and write_globals()
+   now write through _write_atomic() (temp file + os.replace) in eccenergy/archs.py.
+   Content is unchanged -- section 5 check 4 still reproduces the six laptop totals exactly
+⚠️ Local chained full-model run (run_full_models.sh) stopped/abandoned 2026-09-06 15:15 with
+   the resnet18 representative layers mapped for 4 of 7 designs; the cache is in the transfer
+
+FULL-MODEL EVALUATION (converged search, 6 architectures)  -- superseded the layer subset
+-----------------------------------------------------------------------------------------
+✅ resnet18 WHOLE MODEL (21/21 layers, 12 distinct shapes) mapped and evaluated on all six
+   architectures; every parity hand check PASS
+✅ mobilenet_v2 WHOLE MODEL (53/53 layers, 31 distinct shapes, 10 of them depthwise) mapped
+   and evaluated on all six architectures; every parity hand check PASS
+✅ Panel figure regenerated from this data at converged settings with the corrected grouped
+   shapes: results/figures/ArchitectureSweep__panels__resnet18__mobilenet_v2.{png,pdf}.
+   The previous bounded-search version is kept at
+   results/figures/_superseded_bounded_search/ and must still not be quoted
+✅ Expected-ordering comparison: the architecture ranking is PRESERVED across the two models
+   (v2 ~ v1 < Simba-like ~ input-stationary < weight-stationary < output-stationary), which is
+   the claim the two-panel layout exists to test
+⚠️ The two development layers are NOT a proxy for the model: on the layer pair the order was
+   v1 < v2 < Simba < WS < IS < OS, but on the whole model WS and IS swap (WS is 20% WORSE than
+   IS) and v1/v2 swap. Never rank architectures from the layer subset
+⚠️ eyeriss_like DRAM weight refetch is x1.25 on the whole model at these settings, not the ~7x
+   quoted in CLAUDE.md from the bounded-search era; that caveat needs re-measuring
+❌ Remaining six models (resnet50, densenet121, squeezenet1_1, efficientnet_b0, convnext_tiny,
+   xception) -- 221 distinct shapes x 6 archs = 1,326 tasks; not run, sized in HIPERGATOR.md §7
+❌ eyeriss_like_wglb / eyeriss_v2_like_wglb bracketing pair NOT included in the sweep, so no
+   Eyeriss v1 bound is available from this run (CLAUDE.md requires quoting the pair)
+
+
+INTERCONNECT (NoC) ENERGY MODEL  --  2026-09-07
+-----------------------------------------------
+✅ Root cause found: Timeloop's wire model is a stub (pat.cpp WireEnergy returns 0) and no
+   arch supplied coefficients, so every network cost 0.00 -- in the mapper's objective too
+✅ archs/_shared/noc.yaml: one shared wire constant (0.12 pJ/b/mm, Keckler/Dally IEEE Micro
+   2011 Table 1; first pass used 0.4, a repeated-global-wire upper bound) + per-design
+   switching (v1 multicast controller `calibrated` to Eyeriss ISCA'16 Table IV "inter-PE =
+   2x MAC" -> 0.9152 pJ/ingress at wire 0.12; v2 + Simba-like routers 0.25 pJ PER FLIT, v2
+   at 3 operands/flit and ONLY at the router-cluster level; WS/OS/IS one explicit generic
+   model) + per-design, per-level `noc_levels` naming which spatial containers ARE the NoC
+✅ Injected into the arch the mapper sees (archs._inject_noc), so NoC cost is inside the
+   optimiser; fingerprint + cache slug (`noc`) move with it -- no pre-NoC mapping is reused
+✅ Three injection traps found and fixed, each measured: coefficients on storage components
+   land on zero-hop networks; container attributes inherit onto intra-PE scratchpads (94% of a
+   45% "NoC"); nested lane containers inherit the parent's router term (v2 SIMD, 750 fJ/MAC)
+✅ parse_stats reads the Networks section (and no longer lets it leak into DRAM); "NoC" is a
+   plotted category (grey, under Compute); Local key renamed `Local (spads/RF)`; CSV follows
+✅ recon arm scales the WEIGHT share of NoC by K/N (decision 2026-09-07), recorded as an
+   approximation on every result
+✅ validate: every design must have a cited noc.yaml entry, may not declare its own wire
+   constant, and `noc_levels` names must exist; per-result checks noc_energy_costed and
+   noc_share_within_published_band_eyeriss_v2 (6-10%, JETCAS 2019)
+✅ Offline tests: eccenergy/tests/test_noc.py (11), fixture = real stats.txt with networks
+✅ Second pass (user: "v2 NoC is insane"): decomposed v2's 15.4% -> wire 74% / router 26%;
+   6-variant ablation on the dev pair (FINDINGS.md). Adopted: wire 0.12 + cluster-only
+   per-flit routers -> v1 3.8%, v2 5.3% (415.5 uJ vs 402 pre-NoC). Rejected: 8x2 cluster
+   geometry -- NoC -18% but TOTAL +7% via a changed mapspace under the bounded search
+⚠️ v2 at 5.3% sits just below the paper's 6-10%: sparse-run share (pushes ours up) vs 65nm
+   wire (pushes ours down); consistent, not confirmed. Band check kept, detail says how to read
+⚠️ router 0.25 pJ/flit is an ASSUMPTION (no published pJ/router for either NoC); v2 per operand
+   0.083 via its 24b ports, Simba-like 0.25 (no published packing). ECC_NOC_ROUTER_PJ sweeps it
+⚠️ Known over-counts kept and documented: 1-D cluster row (unicast 7.5 hops vs ~4 on 8x2) and a
+   single edge-injected GLB where the chip has 16 distributed GLB clusters
+⚠️ GLB->array and DRAM->GLB links carry no wire cost (zero hops in Timeloop's model); the
+   interconnect modelled is the PE-array fanout, which is what the papers call the NoC
+✅ All three generic dataflows exercised end to end with NoC (job 41295683): WS 7.7%, OS 6.0%,
+   IS 4.8% of Timeloop total on the dev pair; 2-D hop counting confirmed working
+✅ Mapper cache is race-safe: timeloop.ShapeLock (atomic mkdir + owner file, stale takeover), so
+   (arch, model) tasks that share layer shapes may run concurrently; the second waits and reuses
+✅ hpc/map.sbatch, eval_panel.sh, sweep.sh now share ONE env-overridable set of mapper defaults
+   (random_pruned, search_size EMPTY = uncapped, victory 2000 depth-scaled, timeout 2000);
+   eval_panel.sh used to hardcode 20000/2000 and silently miss any other cache slug.
+   map.sbatch --time raised to 24 h for uncapped runs. hpc/tasks_full.txt (64) + tasks_conv.txt
+✅ One-command pipeline: hpc/run_all.sh = map array + dependent hpc/eval.sbatch (evaluate +
+   draw when the array succeeds); README quick start rewritten around it
+❌ Full 8-model x 8-arch cold run with NoC not yet done; results/figures/ArchitectureSweep.png
+   on disk is still the PRE-NoC result and must not be compared against NoC numbers
+
+
+TASK 2  --  EMBEDDED ECC (DRAM effect only)          ❌ not started
+TASK 3  --  EYERISS V2 RECONSTRUCTION, FIXED MAPPING ❌ not started
+TASK 4  --  EYERISS V2 RECONSTRUCTION + MAPPER       ❌ not started
+TASK 5  --  OTHER ARCHITECTURES                      ❌ not started

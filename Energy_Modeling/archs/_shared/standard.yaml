@@ -1,0 +1,226 @@
+# =====================================================================
+#  THE STANDARDIZED COMPARISON CONTRACT
+#
+#  Task 1 of 03_staged_implementation_plan.txt asks for architectures
+#  that are organised consistently, with SHARED experiment settings and
+#  ARCHITECTURE-SPECIFIC configurations, so that a cross-architecture
+#  energy number is a statement about the architecture and not about
+#  how carelessly its YAML was written.
+#
+#  This file is the machine-readable statement of that contract.
+#  `bash run.sh validate` checks every archs/<name>/arch_paper.yaml
+#  against it and FAILS on a violation.  Nothing here is read by
+#  Timeloop; it is a specification the YAMLs are audited against.
+#
+#  THE ORIGINAL DEFECT THIS EXISTS TO PREVENT
+#  ------------------------------------------
+#  Eyeriss v2's weight scratchpad was declared at one operand width
+#  while Eyeriss v1's was declared at another, and the two designs were
+#  then compared as if the difference were architectural.  A datawidth
+#  is not an architecture.  Operand precision is a STUDY-WIDE choice and
+#  is fixed below for every design; only quantities each design's own
+#  paper publishes are allowed to differ.
+# =====================================================================
+version: 1
+
+# ---------------------------------------------------------------- shared
+# Identical for every architecture, every ECC arm, every experiment.
+# A mismatch here is a bug in the arch YAML, not a design difference.
+study:
+  weight_bits: 8               # the protected payload this study measures
+  activation_bits: 8           # input activations (iacts / ifmaps)
+  technology: "45nm"           # Accelergy process node, logic AND DRAM
+  packing_rule: dense_bytes
+  accumulator_policy: paper_native
+
+  dram:
+    class: DRAM
+    type: LPDDR4
+    width_bits: 64             # physical DRAM word == transfer granularity
+    datawidth_bits: 8          # one 8-bit operand per scalar access
+    depth_words: 1048576
+
+  # WHAT `packing_rule: dense_bytes` MEANS.
+  # This study maps DENSE workloads.  A level whose published geometry
+  # is D words of W physical bits therefore holds floor(D*W / 8) 8-bit
+  # operands, whatever compressed format the real design stores there.
+  # The rule is applied to EVERY level of EVERY design, because applying
+  # it to some levels and not others is how Eyeriss v2 ended up with a
+  # dense-repacked weight spad and a CSC-native iact spad in the same
+  # file.  Where Timeloop cannot express the published word width at
+  # datawidth 8 (v2's 12-bit registers are the only case), the
+  # approximation is recorded in that design's provenance.yaml.
+  #
+  # WHAT `accumulator_policy: paper_native` MEANS.
+  # Partial-sum width is NOT standardized.  It is a published property
+  # of each design (v1 truncates to 16b, v2 accumulates at 20b, Simba at
+  # 24b) and equalising it would be equalising the architectures.  Every
+  # design declares its own, cited, below; every level of that design
+  # that holds Outputs must be declared at it, and all ECC arms of that
+  # design must share it.  ECC_ACC_BITS forces a common width for the
+  # OPTIONAL sensitivity study only, never for the primary result.
+
+# ------------------------------------------------- per-architecture facts
+# `accumulator_bits` and every geometry claim below trace to the cited
+# source.  Four values of `source`, and only the first licenses quoting
+# a design's name as if it were the chip:
+#
+#   published         every geometry below is in the cited paper.
+#   derived           a variant of a `published` design, differing in one
+#                     stated block; the variant's own level is NOT the
+#                     paper unless its citation says so.
+#   reference_design  a design shipped by timeloop-accelergy-exercises
+#                     that is NAMED after a paper but does not reproduce
+#                     its geometry. Its label says so, and the figure
+#                     label says so too.
+#   locally_authored  a reference dataflow written here. No paper, so
+#                     nothing to reproduce and nothing to cite.
+architectures:
+
+  eyeriss_like:
+    label: "Eyeriss v1"
+    source: published
+    citation: >-
+      Y.-H. Chen, T. Krishna, J. Emer, V. Sze, "Eyeriss: An Energy-Efficient
+      Reconfigurable Accelerator for Deep Convolutional Neural Networks",
+      IEEE JSSC 52(1), 2017.
+    accumulator_bits: 16
+    accumulator_evidence: >-
+      Sec. IV: "The computation consists of a 16-b two-stage pipelined
+      multiplier and adder. Since the multiplication results are truncated
+      from 32 to 16 b..."  Verified against the JSSC PDF, 2026-09-06.
+    paper_technology: "65nm"
+    modelled_technology: "45nm"
+    deviation: >-
+      Modelled at 45nm, not the paper's 65nm, so that a cross-architecture
+      gap is architecture and not silicon.  Applies to every design here.
+
+  eyeriss_like_wglb:
+    label: "Eyeriss v1 (+8kB filter GLB)"
+    source: derived
+    derived_from: eyeriss_like
+    citation: >-
+      Same JSSC 52(1), 2017 as eyeriss_like.  Differs from it in ONE block:
+      the 8 kB filter allocation the paper describes -- "the remaining 8 kB
+      (two banks of 512-b x 64-b SRAMs) of the GLB is allocated for filter
+      weights to compensate for insufficient off-chip traffic bandwidth" --
+      is declared as a Timeloop storage level instead of !Nothing.
+      Unlike eyeriss_v2_like_wglb, whose weight level is NOT in its paper,
+      this level IS published; what is uncertain is whether a prefetch
+      buffer should be modelled as a reuse level.  The pair BRACKETS that
+      uncertainty: eyeriss_like is the upper bound on DRAM weight traffic
+      (and so on the ECC saving), eyeriss_like_wglb the lower bound.
+      Quote the pair, never one alone.
+    accumulator_bits: 16
+    accumulator_evidence: "inherited from eyeriss_like"
+    paper_technology: "65nm"
+    modelled_technology: "45nm"
+
+  eyeriss_v2_like:
+    label: "Eyeriss v2"
+    source: published
+    citation: >-
+      Y.-H. Chen, T.-J. Yang, J. Emer, V. Sze, "Eyeriss v2: A Flexible
+      Accelerator for Emerging Deep Neural Networks on Mobile Devices",
+      IEEE JETCAS 9(2), 2019.  arXiv:1807.07928.
+    accumulator_bits: 20
+    accumulator_evidence: >-
+      Table IV, "Arithmetic Precision: weights & iacts: 8b fixed-point /
+      psums: 20b fixed-point"; Table V repeats it for all three variants.
+      Verified against the arXiv PDF, 2026-09-06.
+    paper_technology: "TSMC 65nm LP 1P9M"
+    modelled_technology: "45nm"
+
+  eyeriss_v2_like_wglb:
+    label: "Eyeriss v2 (+weight NoC)"
+    source: derived
+    derived_from: eyeriss_v2_like
+    citation: >-
+      Diagnostic variant of eyeriss_v2_like, not a second reading of the
+      paper.  Adds one weight-reuse level standing in for the weight
+      routers, which Timeloop's example-design flow cannot express.
+    accumulator_bits: 20
+    accumulator_evidence: "inherited from eyeriss_v2_like"
+    paper_technology: "TSMC 65nm LP 1P9M"
+    modelled_technology: "45nm"
+
+  simba_like:
+    label: "Simba-like (reference design)"
+    # WAS `source: published` and labelled "Simba". Demoted 2026-09-06.
+    # The PRECISIONS below are the paper's. The GEOMETRY is the
+    # timeloop-accelergy-exercises reference design and does NOT reproduce
+    # the published chiplet -- see the two checks in `geometry_not_published`.
+    # Calling it "Simba" asserted more than is known.
+    source: reference_design
+    citation: >-
+      Precisions only: Y. S. Shao et al., "Simba: Scaling Deep-Learning
+      Inference with Multi-Chip-Module-Based Architecture", MICRO-52, 2019.
+      The buffer and PE geometry come from timeloop-accelergy-exercises'
+      example_designs/simba_like, which reproduces no published table.
+    geometry_not_published: >-
+      Two checks, both from numbers this repo has verified.  (1) MAC COUNT.
+      The design instantiates 16 PEs x 4 distributed buffers x 4 reg/mac =
+      256 MACs.  The paper's own headline -- "4 tera-ops per second (TOPS)
+      using 8-bit weights and activations" -- needs ~1024 MACs at Simba's
+      published clock (2 ops per MAC, ~1.8 GHz), so this is a quarter-scale
+      chiplet.  (2) BUFFER HIERARCHY.  As declared it has 1 MB of per-PE
+      input buffer (64 kB x 16) and 2 MB of per-PE weight buffer (32 kB x 64)
+      sitting behind a 64 kB shared GlobalBuffer -- 3 MB of private storage
+      behind a shared buffer 48x smaller, which inverts the hierarchy.  The
+      2,113,536 on-chip weights that follow are 28x eyeriss_like's 75,264 and
+      are what set this design's 1.4x DRAM refetch, hence its ECC saving.
+      The MICRO-52 PDF could not be retrieved to correct the geometry
+      (ACM and CACM paywalled, the Berkeley mirror 302s to a dead host), so
+      the design is RELABELLED rather than silently re-dimensioned.
+    accumulator_bits: 24
+    accumulator_evidence: >-
+      "Each chip has a peak performance of 4 tera-ops per second (TOPS)
+      using 8-bit weights and activations and 24-bit accumulation."
+      Verified 2026-09-06.  The design as shipped by
+      timeloop-accelergy-exercises declares PEAccuBuffer datawidth 24 but
+      mac.adder_width 16, i.e. accumulator STORAGE at 24b and accumulator
+      ARITHMETIC at 16b; 24 is the published number and is used for both.
+    paper_technology: "TSMC 16nm FinFET"
+    modelled_technology: "45nm"
+    deviation: >-
+      The largest node deviation in the study: Simba is a 16nm design
+      modelled at 45nm.  Recorded, not corrected -- correcting it would
+      reintroduce the mixed-node confound this contract removes.
+
+  simple_weight_stationary:
+    label: "Weight stationary"
+    source: locally_authored
+    citation: >-
+      Textbook weight-stationary reference shipped with
+      timeloop-accelergy-exercises.  No paper; there is nothing to
+      reproduce and nothing to cite beyond the exercises repo.
+    accumulator_bits: 16
+    accumulator_evidence: >-
+      The design's own mac.adder_width. Not a published number -- it is
+      the reference design's declaration, kept because changing it would
+      be inventing a design point.
+
+  simple_output_stationary:
+    label: "Output stationary"
+    source: locally_authored
+    citation: >-
+      Textbook output-stationary reference shipped with
+      timeloop-accelergy-exercises.
+    accumulator_bits: 16
+    accumulator_evidence: "the design's own mac.adder_width; not published"
+
+  simple_input_stationary:
+    label: "Input stationary"
+    source: locally_authored
+    citation: >-
+      Authored in this repository, 2026-09-06.  timeloop-accelergy-exercises
+      ships no input-stationary design and no paper is being reproduced.
+      Built as the exact mirror of simple_weight_stationary and
+      simple_output_stationary -- same mesh, same buffer capacities, same
+      word widths -- with the PE scratchpad holding Inputs instead of
+      Weights or Outputs, per section 9 of
+      01_project_context_and_architectures.txt.
+    accumulator_bits: 16
+    accumulator_evidence: >-
+      Matched to its two sibling reference dataflows so that the three
+      simple designs differ only in which operand is stationary.

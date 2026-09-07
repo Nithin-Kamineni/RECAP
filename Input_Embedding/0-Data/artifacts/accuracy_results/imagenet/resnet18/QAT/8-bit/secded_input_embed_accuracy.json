@@ -1,0 +1,83 @@
+{
+  "dataset": "IMAGENET",
+  "arch": "resnet18",
+  "qmode": "QAT",
+  "bits": 8,
+  "n_layers": 21,
+  "baseline": {
+    "top1": 69.936,
+    "top5": 89.162
+  },
+  "input_embed": {
+    "top1": 62.526,
+    "top5": 84.324,
+    "skip_layers": [],
+    "mean_layer_distortion": {
+      "conv1": 0.009259,
+      "layer1.0.conv1": 0.023254,
+      "layer1.0.conv2": 0.015395,
+      "layer1.1.conv1": 0.029969,
+      "layer1.1.conv2": 0.015585,
+      "layer2.0.conv1": 0.028747,
+      "layer2.0.conv2": 0.013284,
+      "layer2.0.downsample.0": 0.028747,
+      "layer2.1.conv1": 0.03747,
+      "layer2.1.conv2": 0.016622,
+      "layer3.0.conv1": 0.032038,
+      "layer3.0.conv2": 0.013717,
+      "layer3.0.downsample.0": 0.032038,
+      "layer3.1.conv1": 0.01876,
+      "layer3.1.conv2": 0.010381,
+      "layer4.0.conv1": 0.023303,
+      "layer4.0.conv2": 0.008858,
+      "layer4.0.downsample.0": 0.023303,
+      "layer4.1.conv1": 0.021169,
+      "layer4.1.conv2": 0.011036,
+      "fc": 0.047777
+    }
+  },
+  "input_embed_fallback": {
+    "top1": 65.406,
+    "top5": 86.428,
+    "skip_layers": [
+      "layer1.0.conv1",
+      "layer2.0.conv2",
+      "layer2.1.conv1"
+    ],
+    "skip_fraction": 0.1429,
+    "subset_search_top1": 66.2,
+    "met_target_on_subset": false,
+    "budget_exhausted": true,
+    "ablation_sensitivity": {
+      "conv1": -0.06,
+      "layer1.0.conv1": 1.1,
+      "layer1.0.conv2": 0.22,
+      "layer1.1.conv1": -0.14,
+      "layer1.1.conv2": -0.34,
+      "layer2.0.conv1": -0.26,
+      "layer2.0.conv2": 0.72,
+      "layer2.0.downsample.0": -0.06,
+      "layer2.1.conv1": 0.66,
+      "layer2.1.conv2": -1.16,
+      "layer3.0.conv1": 0.04,
+      "layer3.0.conv2": -0.48,
+      "layer3.0.downsample.0": -0.28,
+      "layer3.1.conv1": -0.26,
+      "layer3.1.conv2": -0.92,
+      "layer4.0.conv1": -0.58,
+      "layer4.0.conv2": -1.94,
+      "layer4.0.downsample.0": -0.38,
+      "layer4.1.conv1": -0.62,
+      "layer4.1.conv2": -0.94,
+      "fc": -0.06
+    }
+  },
+  "timing": {
+    "calibration_sec": 7.97,
+    "baseline_sec": 93.86,
+    "input_embed_sec": 525.81,
+    "fallback_sec": 1808.3,
+    "total_sec": 2437.87,
+    "total_human": "40m38s"
+  }
+}

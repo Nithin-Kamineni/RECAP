@@ -1,0 +1,2 @@
+eyeriss_v2_like resnet18
+eyeriss_like resnet18
