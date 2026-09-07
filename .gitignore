@@ -37,8 +37,3 @@ __pycache__/
 .DS_Store
 Thumbs.db
 .nfs*
-
-# ---- retired git metadata --------------------------------------------------
-# Energy_Modeling/ was a standalone repo (HPG-RECAP) before it was folded into
-# this one; its old .git/ is kept on disk under this name for reference.
-.git-hpg-recap-backup/
