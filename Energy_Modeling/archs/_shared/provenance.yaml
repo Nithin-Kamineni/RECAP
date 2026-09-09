@@ -15,6 +15,167 @@
 version: 1
 
 # =====================================================================
+#  f_if -- THE INTERFACE SHARE OF THE PER-BIT DRAM ENERGY  (Task 3)
+#
+#  Since 2026-09-09 the placement study puts the BCH decoder on the DRAM
+#  die, so only the k message bits of each codeword cross the DRAM
+#  interface and that share of the DRAM weight energy scales by K/N under
+#  every reconstruction boundary.  Accelergy's CactiDRAM is one flat
+#  per-bit LPDDR4 constant with no array/interface decomposition, so the
+#  evaluator needs f_if = E_interface / (E_array + E_interface) from a
+#  cited breakdown.  This block is where that citation has to go before
+#  env.sh may carry a default (ECC_DRAM_IF_FRAC).  As of 2026-09-09 none
+#  is adopted; the two candidates found are recorded so the search is
+#  not repeated, and every figure states the f_if it was drawn at.
+# =====================================================================
+# =====================================================================
+#  THE MAC COST -- THE DENOMINATOR OF EVERY ECC PERCENTAGE  (audited 2026-09-09)
+#
+#  An ECC saving is saved_uJ / total_uJ. The saved uJ are weight traffic
+#  and do not depend on what a MAC costs; the total does, and on
+#  eyeriss_v2_like / resnet18 the MACs are 44% of the run.  This block
+#  traces the number Accelergy charges to its files and records the cited
+#  alternatives ECC_MAC_PJ_OVERRIDE (env.sh section 5) may be set to.  A
+#  value listed under `candidates` is labelled with its source on every
+#  figure, manifest and result file; any other value is labelled uncited.
+#  FINDINGS 7.3 has the resulting table.
+# =====================================================================
+mac_energy_pj:
+  as_modelled:
+    pj_per_mac: 1.16877
+    where_read: "ecc_energy_study/outputs/eyeriss_v2_like/*/fp-*/*/timeloop-mapper.ERT_summary.yaml: system_top_level.mac[1..384], action compute"
+    component: >-
+      archs/eyeriss_v2_like/arch_paper.yaml `mac`, class intmac, attributes
+      multiplier_width 8 (Table IV: weights & iacts 8b), adder_width 20
+      (Table IV: psums 20b), technology 45nm. The compound is
+      ecc_energy_study/timeloop-accelergy-exercises/workspace/example_designs/
+      example_designs/_components/intmac.yaml: intmac = intadder (class
+      aladdin_adder, width = adder_width) + intmultiplier (class
+      aladdin_multiplier, width_a = width_b = multiplier_width); action
+      compute = intadder.read + intmultiplier.read.
+    estimator: >-
+      accelergy-library-plugin (ERT_summary primitive_estimation(s): "estimator:
+      Library" for both intadder and intmultiplier; the Aladdin_table plug-in's
+      own intmac path, which would use the same 32-bit rows with quadratic
+      width scaling, was NOT the one chosen).
+    table_rows:
+      multiplier: "accelergy-library-plugin/library/aladdin/aladdin_multiplier.csv: 40nm, 1e-9 s, width 32, width_a 32, width_b 32, energy 12.68 pJ, action multiply|read (the ONLY multiply row)"
+      adder: "accelergy-library-plugin/library/aladdin/aladdin_adder.csv: 40nm, 1e-9 s, width 32, energy 0.21 pJ, action add|read (the ONLY add row)"
+    scaling_rule: >-
+      accelergywrapper.match_entry -> scaling.scale_energy: every attribute that
+      does not match the row is scaled; `width`, `width_a`, `width_b` scale
+      energy LINEARLY (v1/v0), `technology` by get_tech_node_energy_scale
+      (Stillmaker & Baas 2017 polynomial in Vdd = 0.8, times (to/from)^0.5),
+      which from 40 nm to 45 nm is 1.265241x (the table is at a smaller node
+      than the model, so the number is scaled UP). Quoted from
+      timeloop-mapper.accelergy.log: "Scaled aladdin_multiplier.width_a from
+      32.0 to 8.0: 0.25x energy", "...width_b ... 0.25x", "...technology from
+      40.0 to 45.0: 1.265241016612673x", "aladdin_multiplier energy has been
+      scaled 0.07907756353829207x".
+    arithmetic: >-
+      multiplier 12.68 x 0.25 x 0.25 x 1.265241 = 1.00270 pJ;
+      adder 0.21 x (20/32) x 1.265241 = 0.16606 pJ; sum 1.16876 pJ = the ERT's
+      1.16877. Two things to notice: the 8x8 multiplier is 1/16 of a 32x32 one
+      (linear in each operand width, i.e. quadratic overall), and both numbers
+      rest on one 40 nm row each, of unstated origin (Aladdin's HLS library).
+    cross_check: >-
+      MAC / weights_spad read per weight = 1.16877 / (0.596239/3) = 5.9x;
+      MAC / ifmap_spad read (8b) = 1.16877 / 0.0423887 = 27.6x. Eyeriss v1
+      (JSSC 2017 Fig. 16, measured, 65 nm, 16b) puts the ALUs at <10% of chip
+      power against 44% (of the run) / 50% (of on-chip) here.
+  candidates:
+    - short: "Horowitz ISSCC 2014 int8 mult+add, 45 nm"
+      source: "M. Horowitz, 'Computing's energy problem (and what we can do about it)', ISSCC 2014, Fig. 1.1.9 'Rough energy costs for various operations in 45nm 0.9V'"
+      url: "https://gwern.net/doc/cs/hardware/2014-horowitz-2.pdf"
+      verified: >-
+        2026-09-09: the figure and its caption confirmed in the PDF text; the
+        cell values are drawn in the figure and were taken as the task brief
+        and the commonly reproduced table give them (int8 add 0.03, int32 add
+        0.1, int8 mult 0.2, int32 mult 3.1 pJ). Re-read the figure before
+        quoting to three digits.
+      node: "45 nm, 0.9 V"
+      precision: "int8 x int8 multiply + int8 add"
+      pj: 0.23
+      derivation: "0.2 (int8 mult) + 0.03 (int8 add)"
+      caveat: >-
+        The model's MAC accumulates at 20 bits (adder_width 20). Interpolating
+        Horowitz's adds linearly between 8b (0.03) and 32b (0.1) gives ~0.065
+        pJ for 20b, i.e. ~0.265 pJ per MAC; the 0.23 row is the brief's
+        definition and the difference is 15% of a number that is already 5x
+        below the ERT's.
+    - short: "Horowitz ISSCC 2014 int8 mult + 20b add (interpolated)"
+      source: "as above; 20-bit add interpolated linearly between the int8 and int32 add rows"
+      node: "45 nm, 0.9 V"
+      precision: "int8 x int8 multiply + 20-bit add"
+      pj: 0.265
+      derivation: "0.2 + (0.03 + (0.1 - 0.03) x (20 - 8) / (32 - 8))"
+    - short: "Eyeriss JSSC 2017, measured ALU share"
+      source: "Y.-H. Chen, T. Krishna, J. Emer, V. Sze, IEEE JSSC 52(1), 2017, Fig. 16 and Sec. V: 'the ALUs only account for less than 10% of the total power, while data movement related components, including spads, GLB, and NoC, account for up to 45%'"
+      url: "https://eems.mit.edu/wp-content/uploads/2016/11/eyeriss_jssc_2017.pdf"
+      verified: "2026-09-09, quote confirmed in the PDF text"
+      node: "65 nm, 16-bit fixed point, measured chip"
+      pj: null
+      use: >-
+        A share, not a pJ: not settable as an override. It bounds the MAC
+        share of on-chip power at <10% on the real chip, against 50% of
+        on-chip energy in this model; the ISCA 2016 paper's normalised table
+        (ALU 1x, RF 1x, PE-to-PE 2x, buffer 6x, DRAM 200x -- NOT re-read on
+        2026-09-09, the PDF was not reachable) puts a MAC at ~1 RF read, against
+        5.9x (24b word) to 27.6x (8b register) here.
+    - short: "data/dc synthesis"
+      source: "none: data/dc/ holds BCH_N63_results.json and EMBEDDED_ECC_N7_results.json (the encoder/decoder datapaths); no int8 MAC was synthesized"
+      pj: null
+
+dram_interface_share:
+  status: >-
+    ASSUMED 0.40 since 2026-09-09 (env.sh ECC_DRAM_IF_FRAC), by decision, not by
+    citation: 40% of the per-bit LPDDR4 read energy is taken to be spent driving
+    the bits off the die over the terminated link. Neither candidate below
+    supports that number directly; the HBM2 one is an interposer lower bound and
+    the LPDDR4 one is only plotted. Replace it with a read-off or datasheet-
+    derived value and record it here; every result carries the f_if it used.
+  assumed_value: 0.40
+  assumed_on: 2026-09-09
+  wanted: >-
+    An LPDDR4 read-energy breakdown that separates the off-die interface
+    (I/O drivers, link, controller port) from everything on the die (row
+    activation, column access, on-die data movement to the pads). The
+    on-die data movement belongs to the ARRAY share: a burst moves whole
+    words to the pads whether or not all of them are driven off the die.
+  candidates:
+    - source: "O'Connor et al., Fine-Grained DRAM, MICRO-50, 2017, Sec. 2.1 and Fig. 2"
+      url: "https://www.cs.utexas.edu/~skeckler/pubs/MICRO_2017_Fine_Grained_DRAM.pdf"
+      verified: 2026-09-09
+      device: "HBM2 (stacked, unterminated I/O over a silicon interposer)"
+      quote: >-
+        "switching the capacitance on this datapath requires 2.24 pJ/bit of
+        energy on average. In contrast, transferring the data over the I/O
+        wires on the silicon interposer requires an additional 0.3 pJ/bit ...
+        with the average of 1.21 pJ/bit of activation energy, each HBM2
+        access incurs 3.92 pJ/bit"
+      implied_f_if: 0.077        # 0.3 / 3.92, I/O only
+      why_not_adopted: >-
+        HBM2's I/O is a short unterminated interposer link; LPDDR4 drives a
+        package/PCB link at higher per-bit I/O energy, so this is a lower
+        bound for the study's DRAM type, not its value.
+    - source: "H. Ha, Understanding and Improving the Energy Efficiency of DRAM, PhD thesis, Stanford, 2018, Fig. 4.8 (DramDSE, 2y-nm 8 Gb LPDDR4)"
+      url: "https://www-vlsi.stanford.edu/people/alum/pdf/1810_Ha_DRAMEnergy.pdf"
+      verified: 2026-09-09
+      device: "LPDDR4-3200, 2y nm, 8 Gb (QDP) and 32 Gb (SDP)"
+      quote: >-
+        "Energy/bit of 32Gb LPDDR4 built with QDP of 8Gb LPDDR4 and SDP of
+        32Gb LPDDR4. The I/O component includes energy consumed by the read
+        driver and termination."  Categories: Background, Row, Column, I/O,
+        Refresh, in pJ/bit.
+      implied_f_if: null
+      why_not_adopted: >-
+        The right device and the right split (the off-die I/O is its own
+        category, separate from the on-die SIO/LIO/GIO wires that Sec. 4.6
+        books under column power), but the value is only plotted; it has to
+        be read off the figure and checked before it can be a default.
+  sensitivity_printed_when_unset: [0.10, 0.25, 0.50]
+
+# =====================================================================
 #  STORAGE CLASS: WHY SOME LEVELS ARE smartbuffer_SRAM AND SOME ARE
 #  smartbuffer_RF, AND THE DEFECT THAT MADE IT MATTER
 #

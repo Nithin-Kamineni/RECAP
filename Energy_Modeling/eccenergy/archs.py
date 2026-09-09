@@ -25,7 +25,7 @@ import shutil
 
 import yaml
 
-from .paths import (ARCH_NOC, ARCH_PROVENANCE, ARCH_SRC, ARCH_SRC_RESERVED,
+from .paths import (ARCH_COMPONENTS, ARCH_NOC, ARCH_PROVENANCE, ARCH_SRC, ARCH_SRC_RESERVED,
                     ARCH_STANDARD, DESIGNS_DIR, WORK)
 
 
@@ -96,6 +96,18 @@ def _shared_noc(cfg):
     return sh, wire, rflit
 
 
+def pe_latch_pj(cfg):
+    """Per-operand cost of taking an operand off a router port into a PE.
+
+    noc.yaml `shared.pe_latch_pj`, or ECC_NOC_PE_LATCH_PJ. A bracketed
+    assumption (0 .. v1's calibrated switching), not a measurement -- see the
+    yaml for why it exists and how to run the two ends.
+    """
+    if getattr(cfg, "noc_pe_latch_pj", None) is not None:
+        return float(cfg.noc_pe_latch_pj)
+    return float(load_noc().get("shared", {}).get("pe_latch_pj", 0.0))
+
+
 def calibrated_ingress(cfg, wire=None):
     """Eyeriss v1's switching term, derived so its inter-PE transfer stays 2x MAC.
 
@@ -143,22 +155,32 @@ def noc_terms(arch, cfg):
         return rflit / opf if v == "per_flit" else float(v)
 
     def ingress(v):
-        return calibrated_ingress(cfg, wire) if v == "calibrated" else float(v)
+        if v == "calibrated":
+            return calibrated_ingress(cfg, wire)
+        if v == "pe_latch":
+            return pe_latch_pj(cfg)
+        return float(v)
 
     d_router = router(entry.get("router_pj", 0.0))
     d_ingress = ingress(entry.get("ingress_pj", 0.0))
     lv = entry.get("noc_levels")
+    tile_width = {}
     if lv is None:
         levels = None
     elif isinstance(lv, dict):
         levels = {str(n): (router((o or {}).get("router_pj", entry.get("router_pj", 0.0))),
                            ingress((o or {}).get("ingress_pj", entry.get("ingress_pj", 0.0))))
                   for n, o in lv.items()}
+        # A pre-floorplanned hop length (um). Optional; Timeloop derives one
+        # from the Accelergy area of the inner level when it is absent.
+        tile_width = {str(n): float(o["tile_width_um"]) for n, o in lv.items()
+                      if o and o.get("tile_width_um") is not None}
     else:
         levels = {str(n): (d_router, d_ingress) for n in lv}
     k = cfg.noc_scale
     return {"wire": wire * k, "router": d_router * k, "ingress": d_ingress * k,
             "levels": None if levels is None else {n: (r * k, g * k) for n, (r, g) in levels.items()},
+            "tile_width_um": tile_width,
             "router_pj_per_flit": rflit, "operands_per_flit": opf}
 
 
@@ -178,6 +200,16 @@ def noc_levels(arch):
     """
     lv = _noc_entry(arch).get("noc_levels")
     return None if lv is None else [str(x) for x in lv]
+
+
+def noc_band_levels(arch):
+    """The spatial levels whose networks are what the design's paper calls its NoC.
+
+    noc.yaml `paper_band_levels`. Empty when the entry declares none, in which
+    case a published-band comparison uses the whole interconnect.
+    """
+    lv = _noc_entry(arch).get("paper_band_levels") or []
+    return [str(x) for x in lv]
 
 
 def spatial_containers(text):
@@ -267,6 +299,7 @@ def _inject_noc(text, arch, cfg):
         return text
     terms = noc_terms(arch, cfg)
     wire, levels = terms["wire"], terms["levels"]
+    tile_width = terms["tile_width_um"]
     bits = cfg.weight_bits
     lines = text.split("\n")
     blocks = _node_blocks(lines)
@@ -284,6 +317,9 @@ def _inject_noc(text, arch, cfg):
                  for b in blocks
                  if b["kind"] == "Container" and b["spatial"] is not None
                  and (levels is None or b["name"] in levels)}
+    width_at = {b["spatial"]: tile_width[b["name"]] for b in blocks
+                if b["kind"] == "Container" and b["spatial"] is not None
+                and b["name"] in tile_width}
     out = []
     for idx, line in enumerate(lines):
         out.append(line)
@@ -306,10 +342,17 @@ def _inject_noc(text, arch, cfg):
             out.append(f"{ind}attributes:   # NoC: archs/_shared/noc.yaml")
             out.append(f"{ind}  wire_energy: {wire}")
             out.append(f"{ind}  network_word_bits: {bits}")
-            if router:
-                out.append(f"{ind}  router_energy: {router}")
-            if ingress:
-                out.append(f"{ind}  energy-per-ingress: {ingress}")
+            # ALWAYS written, zero included. A NoC level nested inside another
+            # (v2's PE row inside PE_cluster) inherits the parent's router and
+            # ingress terms; until 2026-09-08 a declared zero was simply not
+            # emitted, so v2's intra-cluster level paid the cluster router
+            # again -- 20.5% of its whole NoC (FINDINGS.md, open defect 8.1).
+            out.append(f"{ind}  router_energy: {router}")
+            out.append(f"{ind}  energy-per-ingress: {ingress}")
+            if idx in width_at:
+                # Pre-floorplanned hop length (um); network-legacy.cpp's
+                # SetTileWidth keeps a specified value over the area-derived one.
+                out.append(f"{ind}  tile_width: {width_at[idx]}")
             continue
         if idx in zero_at:
             ind = " " * (len(line) - len(line.lstrip()) + 2)
@@ -337,6 +380,13 @@ def load_provenance():
             _PROVENANCE.update(
                 yaml.safe_load(ARCH_PROVENANCE.read_text(encoding="utf-8")) or {})
     return _PROVENANCE
+
+
+def mac_candidates():
+    """`provenance.yaml` `mac_energy_pj.candidates`: the cited per-MAC energies
+    ECC_MAC_PJ_OVERRIDE may be set to and labelled with (config.mac_citation)."""
+    block = load_provenance().get("mac_energy_pj") or {}
+    return list(block.get("candidates") or [])
 
 
 def arch_standard(arch):
@@ -602,9 +652,24 @@ def arch_fingerprint(arch, cfg, mapper_settings=None):
         "arch_yaml": text,
         "globals": globals_view,
         "mapper": mapper_settings or cfg.mapper_settings(),
+        # The locally authored Accelergy components (archs/_shared/components)
+        # set the per-access energies the mapper optimises against. Added
+        # 2026-09-08: a register-write correction to regfile_decoded.yaml
+        # changed every scratchpad's ERT without moving a single arch YAML,
+        # and nothing would otherwise have told the cache.
+        "components": components_digest(),
         "workload_shape_template_version": 1,
     }, sort_keys=True)
     return hashlib.sha1(blob.encode("utf-8")).hexdigest()[:12]
+
+
+def components_digest():
+    """sha1 over the shared Accelergy component files, by name and content."""
+    h = hashlib.sha1()
+    for f in sorted(ARCH_COMPONENTS.glob("*.yaml")) if ARCH_COMPONENTS.exists() else []:
+        h.update(f.name.encode("utf-8"))
+        h.update(f.read_bytes())
+    return h.hexdigest()[:12]
 
 
 def effective_variant(arch, cfg):
@@ -744,17 +809,33 @@ def validate_arch(arch, cfg):
             charged = present if levels is None else [n for n in present if n in levels]
             per_level = {n: (terms["levels"][n] if terms["levels"] else (router, ingress))
                          for n in charged}
+            widths = terms["tile_width_um"]
+            for name in widths:
+                if name not in charged:
+                    violations.append(
+                        f"noc.yaml declares tile_width_um for `{name}`, which is not one "
+                        f"of this design's NoC levels {charged}.")
+            if widths and set(widths) != set(charged):
+                violations.append(
+                    f"noc.yaml declares tile_width_um for {sorted(widths)} but this design's "
+                    f"NoC levels are {charged}: a container's attributes are inherited, so "
+                    f"an undeclared inner level would take the outer pitch. Declare all or none.")
             facts["noc"] = {"structure": noc_entry.get("structure"),
                             "wire_pj_per_bit_mm": wire, "source": noc_entry.get("source"),
                             "router_pj_per_flit": terms["router_pj_per_flit"],
                             "operands_per_flit": terms["operands_per_flit"],
-                            "levels": {n: {"router_pj": r, "ingress_pj": g}
+                            "pe_latch_pj": pe_latch_pj(cfg),
+                            "levels": {n: {"router_pj": r, "ingress_pj": g,
+                                           "tile_width_um": widths.get(n)}
                                        for n, (r, g) in per_level.items()},
-                            "datapath_levels": [n for n in present if n not in charged]}
+                            "datapath_levels": [n for n in present if n not in charged],
+                            "components_digest": components_digest()}
             notes.append(
                 f"interconnect: {noc_entry.get('structure', '?')} -- wire {wire:g} pJ/b/mm "
-                f"(shared); " + "; ".join(f"{n}: router {r:g} pJ, ingress {g:g} pJ"
-                                          for n, (r, g) in per_level.items())
+                f"(shared); " + "; ".join(
+                    f"{n}: router {r:g} pJ, ingress {g:g} pJ"
+                    + (f", hop {widths[n]:g} um (declared)" if n in widths else ", hop from area")
+                    for n, (r, g) in per_level.items())
                 + (f"; datapath, not NoC: {[n for n in present if n not in charged]}"
                    if len(charged) != len(present) else "")
                 + " (archs/_shared/noc.yaml)")

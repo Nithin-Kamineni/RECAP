@@ -186,8 +186,12 @@ class Session:
             first = str(labels.get(groups[0], groups[0])).replace("\n", " ")
             print(f"  reconstruction is {share:.2f}% of the recon+ total at {first}")
 
-    def finish(self, figures, csv=None, groups=None):
-        manifest = self.results.write_manifest({
+    def finish(self, figures, csv=None, groups=None, extra=None):
+        """Write the manifest beside the figure. `extra` is what a stage wants
+        recorded at the top level as well as inside `config` -- the placement
+        study puts the decode site and f_if there, because they decide what
+        the DRAM band on disk means."""
+        payload = {
             "recon_pj_per_codeword": self.recon_pj,
             "recon_provenance": self.recon_provenance,
             "workload_meta": self.meta,
@@ -196,10 +200,23 @@ class Session:
             "figures": [str(p) for p in figures],
             "table": str(csv) if csv else None,
             "notes": self.notes,
-        })
+        }
+        # What a MAC was charged: the denominator of every percentage on the
+        # figure beside this manifest (energy.apply_mac_override).
+        for raws in self.raws.values():
+            for raw in raws.values():
+                if getattr(raw, "mac", None):
+                    payload["mac_energy"] = raw.mac
+                    break
+            if "mac_energy" in payload:
+                break
+        payload.update(extra or {})
+        manifest = self.results.write_manifest(payload)
         base = self.results.base.parent
         print("\n" + "=" * 78)
-        print(f"Done. {self.cfg.sweep} sweep -> {self.cfg.stem}")
+        what = ("reconstruction-placement study" if self.cfg.experiment == "recon"
+                else f"{self.cfg.sweep} sweep")
+        print(f"Done. {what} -> {self.cfg.stem}")
         for p in list(figures) + ([csv] if csv else []) + [manifest]:
             try:
                 print(f"  {p.relative_to(base)}")

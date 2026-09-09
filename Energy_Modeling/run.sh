@@ -21,6 +21,13 @@
 #      bash run.sh baseline --eval Task 1: conventional ECC, external parity
 #      bash run.sh embedded --eval Task 2: embedded ECC beside that baseline,
 #                                  from the same mappings; only DRAM differs
+#      bash run.sh recon --eval    Task 3: the reconstruction PLACEMENT study on
+#                                  ONE architecture, from the same mappings. The
+#                                  x axis is WHERE the boundary sits; the mapper
+#                                  is never re-run. Configure the point in
+#                                  env.sh section 4, or just set
+#                                  ECC_RECON_MODELING=1 and let the one command
+#                                  route everything to it.
 #      bash run.sh panels --eval   one image, one panel per ECC_PANEL_MODELS
 #      bash run.sh validate        check the architectures against the shared
 #                                  comparison contract. No container needed.

@@ -1,6 +1,225 @@
 # PROJECT_STATUS
 
-**Last updated:** 2026-09-07 (Task 2 -- embedded ECC, DRAM effect only -- implemented and evaluated)
+**2026-09-09 (final) — Horowitz MAC cost adopted as the primary denominator, by the user's decision: `ECC_MAC_PJ_OVERRIDE:=0.23` is the env.sh default and `ReconSweep.png` is drawn under it: embedded vs conventional 19.31 %, R2 +3.87 % / R3 +3.84 % / R1 +3.56 % vs embedded (FINDINGS §7.3). The ERT-denominator numbers (14.58 % / +2.76 %) are the sensitivity row, reproduced with `ECC_MAC_PJ_OVERRIDE=` empty. `ReconSweep__mac0.23.*` and `ReconSweep_unfinshed.*` removed. No re-mapping: the mapper prices MACs from the ERT whatever this knob says, so the EDP caveat is recorded rather than resolved.**
+
+**2026-09-09 (earlier) — MAC-cost audit (FINDINGS §7.3).** The 1.16877 pJ/MAC the ERT charges is one 40 nm Aladdin HLS table row each for a 32-bit multiplier (12.68 pJ) and adder (0.21 pJ), scaled linearly in width (×0.25 ×0.25 / ×20/32) and *up* 1.2652× from 40 to 45 nm by the Library plug-in — 5× Horowitz's int8 figure and ~5× the measured Eyeriss ALU share. New evaluator-side knob `ECC_MAC_PJ_OVERRIDE` (env.sh §5, default EMPTY = ERT) rescales Compute to MACs × value after the raw cache; saved µJ are bit-identical across rows (`tests/test_mac_override.py`, 4 tests). At the Horowitz 0.23 pJ row every percentage is ×1.40: embedded vs conventional 14.58 → 19.31 %, R2 vs embedded +2.76 → +3.87 %; no ordering moves. Primary figure and numbers stay at the ERT value; the figure subtitle now states the MAC cost, and the override run lands on its own stem, `results/figures/ReconSweep__mac0.23.png`, beside the primary. Verification: `test_recon` 36 ok / 1 skip, `test_embedded`, `test_noc` pass; `ECC_RECON_MODELING=1 ECC_MAC_PJ_OVERRIDE=0.23 bash hpc/run_all.sh --eval-only` then the default re-run restored `ReconSweep.png`.**
+
+**2026-09-09 (later) — decoder moved onto the DRAM die (Task 3, `recon.py`): every reconstruction boundary now saves DRAM INTERFACE energy. `ECC_DRAM_IF_FRAC` defaults to **0.40, an ASSUMPTION** (decided by the user the same day; no cited LPDDR4 array/interface breakdown exists, `provenance.yaml` `dram_interface_share` says so). `ReconSweep.png` is drawn at 0.40: R2 +2.76 % / R3 +2.74 % / R1 +2.54 % vs embedded, DRAM interface saving 159.5 µJ on every R bar; ordering unchanged. A first draft at 0.25 (set on the command line) is the run pasted below. FINDINGS.md §7.2.**
+
+---
+
+## 2026-09-09 TASK 3 REVISION — THE BCH DECODER IS ON THE DRAM DIE
+
+**What changed and why.** `01_project_context_and_architectures.txt` §1/§4 puts
+the decoder on the DRAM die and OFF the fetch path, so at fetch time only the k
+message bits of each n-bit codeword cross the DRAM interface. Accelergy's
+CactiDRAM is one flat per-bit constant, so the evaluator splits the DRAM weight
+energy with `f_if`, the interface share:
+
+    dram_array     = (1 - f_if) x DRAM weight energy    never reduced
+    dram_interface =      f_if  x DRAM weight energy    x K/N under EVERY boundary
+
+The two reference bars keep controller-side correction and did not move
+(`parity.py`, `baseline.py`, `embedded_dram()` untouched). This is a
+`recon.py` / `experiments/recon.py` change only.
+
+**f_if has no default, deliberately.** The spec requires an LPDDR4 array-vs-I/O
+citation in `archs/_shared/provenance.yaml` before env.sh may carry one. A
+search on 2026-09-09 found (recorded there under `dram_interface_share`):
+O'Connor et al., MICRO 2017 — HBM2 3.92 pJ/bit = 1.21 activation + 2.24 on-die
+data movement + 0.30 I/O, i.e. I/O ≈ 7.7 %, but for an unterminated interposer
+link (a lower bound for LPDDR4); and Ha, Stanford PhD 2018, Fig. 4.8 — an
+LPDDR4 energy/bit breakdown with the off-die I/O (read driver + termination) as
+its own category, but only plotted, not stated. Neither is adopted. With
+`ECC_DRAM_IF_FRAC` empty the study **refuses** and prints the ceiling at
+0.10 / 0.25 / 0.50; the figure on disk was drawn at **0.25, set on the command
+line**, and its subtitle, table, manifest and result file all say so. The DRAM
+interface saving is linear in f_if and identical on every R bar, so it changes no
+ordering among the placements, only their common offset against embedded.
+
+### Files changed
+
+| file | change |
+|---|---|
+| `env.sh` §4 | `ECC_RECON_DECODE_SITE` (ondie \| controller) and `ECC_DRAM_IF_FRAC` (EMPTY = refuse); recon1 comment; both exported in §10. |
+| `eccenergy/config.py` | `recon_decode_site`, `dram_if_frac` (the only reader of the two variables); `RECON_DECODE_SITES`; validation (f_if in [0,1], f_if=0 refused under ondie); `dram_model_line()` in `recon_title()`. |
+| `eccenergy/recon.py` | `WEIGHT_PATHS`: the single `dram` stage is now `dram_array` (reducible=False) + `dram_interface` (reducible=True), both matching Timeloop's `DRAM`; `_level_shares()` splits the level by f_if and refuses any other double claim, so the level is claimed once in total and `cross_check()` reconciles the pair's sum. `PLACEMENTS`: `dram_interface` prepended to every `reduced` tuple, R1 = `("dram_interface",)` with site `dram_array`/reads. `stages_for()`, `placements_for()`, `placement_by_key()`, `validate_placement_space()` take `cfg`; under `controller`, `dram_interface` is not reducible and leaves every reduced set. `dram_model_detail()` replaces the `dram_unchanged` string. Docstring "WHAT IS DELIBERATELY NOT CREDITED" rewritten. |
+| `eccenergy/experiments/recon.py` | ceiling print: array share, interface share, interface × (1−K/N), on-chip + interface; `refuse_without_f_if()`; checks `dram_identical_to_embedded_reference` → `dram_array_identical_to_embedded_reference` + `dram_interface_scaled_by_K_over_N` (one-sided each, so each fails on a cheat in its own direction); `DRAM i/f uJ` column on the console; `decode_site`, `f_if`, `dram_array_uJ`, `dram_interface_uJ`, `dram_interface_saving_uJ` columns in the CSV; per-bar note gains a `DRAM I/O` line; manifest gains `recon_decode_site`, `dram_if_frac`, `dram_if_frac_provenance`, `dram_split`. |
+| `eccenergy/experiments/common.py` | `Session.finish(..., extra=)` for the manifest. |
+| `eccenergy/plots/stacked.py` | head-room grows with a three-line bar note (`draw_panel` widened, not forked). |
+| `eccenergy/tests/test_recon.py` | every "DRAM untouched" assertion → array untouched + interface × K/N; two cheat tests (array credit fails only the array check, unscaled interface fails only the interface check, both on the stack and on the detail rows); `controller` reproduces the pre-2026-09-09 synthetic numbers to the digit and differs from `ondie` by exactly the interface saving on every bar; refusal / knob validation; the DRAM level claimed exactly once; R1 isolates the interface saving. Real-cache property tests now treat an `unsupported` PE-local boundary as the modelled outcome it is (R4a/R4b are infeasible on the 8x2 EDP mappings, FINDINGS §4.1.3) instead of failing on a fact about the mapping. 37 tests. |
+| `archs/_shared/provenance.yaml` | `dram_interface_share` block: the two candidate citations, why neither is a default. |
+| `CLAUDE.md`, `FINDINGS.md` §7.2, this file | the structure and the numbers. |
+
+### Verification, in the prescribed order (outputs pasted)
+
+```
+$ bash hpc/tl.sh python3 -m eccenergy.tests.test_recon
+eccenergy reconstruction-placement (Task 3) tests
+  ok    test_a_full_width_register_must_remove_the_spad_reads_it_serves
+  ok    test_a_missing_stage_is_unsupported_rather_than_skipped
+  ok    test_a_pe_local_boundary_is_rejected_when_the_tile_is_smaller_than_g_rec
+  ok    test_a_reducible_stage_no_boundary_reduces_stops_the_run
+  ok    test_a_register_smaller_than_the_working_set_collapses_r4b_onto_r4a
+  ok    test_a_silent_dram_array_credit_fails_the_array_check_and_only_that_one
+  ok    test_a_stronger_code_saves_strictly_more_at_every_reduced_stage
+  ok    test_a_tile_sized_register_beats_every_other_boundary
+  ok    test_a_weight_level_no_stage_claims_fails_the_cross_check
+  ok    test_an_unclaimed_weight_level_fails_the_recorded_check_rather_than_dropping
+  ok    test_an_unscaled_dram_interface_fails_the_interface_check_and_only_that_one
+  ok    test_category_energies_are_monotonic_down_the_weight_path
+  ok    test_controller_site_reproduces_the_pre_2026_09_09_numbers
+  ok    test_encoder_charging_modes_bracket_each_other
+  ok    test_every_reduced_stage_scales_by_k_over_n_and_no_other_stage_moves
+  ok    test_every_weight_carrying_level_of_the_real_design_is_claimed_by_a_stage
+  ok    test_free_mode_reproduces_the_pre_audit_accounting_exactly
+  skip  test_full_width_really_moves_the_spad_reads_on_the_real_cache  (R4b is unsupported on this cache: infeasible local placement: 4 (layer, stage) pair(s) keep fewer than G_rec = 9 w)
+  ok    test_g_rec_is_the_worst_aligned_codeword_not_the_average
+  ok    test_loop_nest_separates_the_tile_from_the_consecutive_run
+  ok    test_no_stage_or_transport_category_exceeds_the_embedded_reference
+  ok    test_ondie_without_f_if_refuses_and_the_knobs_are_validated
+  ok    test_only_the_weight_share_of_a_category_moves
+  ok    test_placements_reconcile_by_hand_array_untouched_interface_x_k_over_n
+  ok    test_r1_isolates_the_interface_saving_from_every_on_chip_saving
+  ok    test_recon_optimizer_true_is_refused_rather_than_ignored
+  ok    test_stream_packing_scales_by_k_over_n_and_aligned_packing_does_not
+  ok    test_task3_checks_pass_on_a_consistent_record_and_catch_a_leak
+  ok    test_the_complement_read_term_is_keyed_to_the_code_not_hard_wired
+  ok    test_the_complement_register_is_n_minus_k_bits_and_costs_the_pe_nothing
+  ok    test_the_dram_level_is_claimed_exactly_once_in_total
+  ok    test_the_placement_space_check_is_recorded_on_every_result
+  ok    test_the_placement_study_refuses_more_than_one_architecture
+  ok    test_the_property_tests_also_ran_on_the_real_cache
+  ok    test_the_saving_of_each_boundary_matches_its_closed_form
+  ok    test_the_stem_is_the_recon_stem_and_keeps_a_layer_scope
+  ok    test_weight_path_reads_totals_capacity_and_the_wire_split
+
+1 skipped (run inside the container): test_full_width_really_moves_the_spad_reads_on_the_real_cache
+all tests passed
+```
+
+```
+$ bash hpc/tl.sh bash run.sh baseline --eval        # Task 1/2 totals must not move
+  resnet18           raw     5,940.39 uJ   DRAM weight reads     16,356,544
+  --- eyeriss_v2_like / resnet18 : conventional ECC, external BCH parity ---
+    Timeloop energy       :    5,940.394 uJ
+    + external parity     :    1,014.106 uJ
+    = conventional ECC    :    6,954.500 uJ
+```
+Identical to the 2026-09-09 morning record (`20260909T060947Z__6a30f5c4.json`):
+embedded 5,940.394 µJ, conventional 6,954.500 µJ.
+
+```
+$ ECC_RECON_MODELING=1 ECC_RECON_DECODE_SITE=controller bash hpc/tl.sh bash run.sh recon --eval
+    bar                             total uJ   vs base    vs emb  DRAM i/f uJ     recon uJ  overhead uJ            N_rec
+    R1 @ NoC source                5,949.212    14.46%    -0.15%       -0.000        8.817        0.000        2,077,021
+    R2 @ cluster edge              5,935.739    14.65%     0.08%       -0.000        8.817        0.000        2,077,021
+    R3 @ SPad input                5,937.067    14.63%     0.06%       -0.000       12.837        0.000        3,023,807
+    R4a @ SPad output            UNSUPPORTED   infeasible local placement: 4 (layer, stage) pair(s) keep fe
+    R4b @ SPad + reg             UNSUPPORTED   infeasible local placement: 4 (layer, stage) pair(s) keep fe
+```
+`results/tables/ReconSweep.csv` from this run compared column by column with
+the pre-change CSV: **IDENTICAL TO THE DIGIT** on every shared column of every
+row; the only difference is five new columns (`decode_site`, `f_if`,
+`dram_array_uJ`, `dram_interface_uJ`, `dram_interface_saving_uJ`).
+
+```
+$ ECC_RECON_MODELING=1 bash hpc/run_all.sh --eval-only      # f_if unset -> refuses, ceiling first
+  --- eyeriss_v2_like / resnet18 : the DRAM interface saving, at several f_if, because ECC_DRAM_IF_FRAC is unset ---
+    DRAM weight energy (both shares)     :    1,046.819 uJ = 17.62% of the Timeloop total
+    K/N = 0.6190, so the interface share falls by x 0.3810
+      f_if   array (1-f_if) uJ   interface f_if uJ   interface x (1-K/N) uJ  of total
+      0.10             942.137             104.682                   39.879     0.67%
+      0.25             785.114             261.705                   99.697     1.68%
+      0.50             523.409             523.409                  199.394     3.36%
+    (every reconstruction boundary saves exactly the last column, in addition to its own on-chip saving; the reference bars do not move)
+```
+
+```
+$ ECC_RECON_MODELING=1 ECC_DRAM_IF_FRAC=0.25 bash hpc/run_all.sh --eval-only   # the new figure
+  DRAM weight inflation : baseline x1.6154 (+61.5%), embedded/recon x1.0
+      stage                  kind        energy uJ           reads         fills         ingress  resident  reducible
+      dram_array             dram          785.114      16,356,544             0               0     8,192 NO (array)
+      dram_interface         dram          261.705      16,356,544             0               0     8,192        yes
+      inter_cluster_mesh     network        35.367               0             0      16,356,544         0        yes
+      cluster_local          network         7.064               0             0      23,812,480         0        yes
+      weight_spad            storage       370.041   1,814,073,344    23,812,480               0         4        yes
+    CEILING on any boundary's saving:
+      on-chip weight energy that CAN be reduced :      412.472 uJ =  6.94% of the embedded total
+      x (1 - K/N) = x 0.3810                     :      157.132 uJ =  2.65%   <-- the most ANY placement can save
+      DRAM weight energy, both shares           :    1,046.819 uJ = 17.62%   (f_if = 0.2500; ECC_DRAM_IF_FRAC=0.25 (ECC_DRAM_IF_FRAC, set for this run; no cited LPDDR4 array/interface breakdown -- a sensitivity value))
+        array share (1 - f_if), NOT reducible   :      785.114 uJ = 13.22%   (the complete codeword is read for on-die correction)
+        interface share f_if, x K/N on EVERY bar:      261.705 uJ =  4.41%   (only the k message bits leave the die)
+        interface x (1 - K/N)                   :       99.697 uJ =  1.68%   <-- the DRAM saving every boundary shares
+      on-chip + interface, x (1 - K/N)          :      256.829 uJ =  4.32%   <-- the most ANY placement can save in total
+    bar                             total uJ   vs base    vs emb  DRAM i/f uJ     recon uJ  overhead uJ            N_rec
+    R1 @ NoC source                5,849.515    15.89%     1.53%      -99.697        8.817        0.000        2,077,021
+    R2 @ cluster edge              5,836.042    16.08%     1.76%      -99.697        8.817        0.000        2,077,021
+    R3 @ SPad input                5,837.370    16.06%     1.73%      -99.697       12.837        0.000        3,023,807
+    R4a @ SPad output            UNSUPPORTED   infeasible local placement: 4 (layer, stage) pair(s) keep fe
+    R4b @ SPad + reg             UNSUPPORTED   infeasible local placement: 4 (layer, stage) pair(s) keep fe
+    (vs base / vs emb are SAVINGS: a negative number costs more than the reference; DRAM i/f is the interface energy the bar REMOVED against the embedded reference)
+```
+
+**Prediction check.** Predicted: every R bar's DRAM band drops by the same
+f_if × (1−K/N) × DRAM weight energy; R1 goes from worse than embedded to better
+by that amount minus its reconstruction cost; R2..R4b ordering unchanged.
+Measured: 0.25 × 0.3810 × 1,046.819 = **99.697 µJ on R1, R2 and R3 alike**
+(the DRAM weight energy on the 8x2 EDP mappings is 1,046.819 µJ, not the
+886 µJ of the 2026-09-07 mappings); R1 from −8.817 µJ to +90.880 µJ =
+99.697 − 8.817 against embedded (−0.148 % → +1.530 %); R2 (+1.757 %) > R3
+(+1.734 %) > R1, the same order as before. R4a/R4b remain `unsupported` (G_rec).
+
+Sensitivity, `vs embedded`, %: f_if = 0.10 → R1 +0.52 / R2 +0.75 / R3 +0.73;
+0.25 → +1.53 / +1.76 / +1.73; 0.50 → +3.21 / +3.43 / +3.41; controller
+(pre-change) → −0.15 / +0.08 / +0.06.
+
+### f_if set to 0.40 by assumption (same day, later)
+
+After the runs above, the user set `ECC_DRAM_IF_FRAC=0.40` as the env.sh default
+("assuming interface energy would be 40 %"). The value is labelled ASSUMED in
+the figure subtitle, the table, the manifest and every result file, and
+`provenance.yaml` records that it is a decision, not a citation. Re-run:
+
+```
+$ bash hpc/tl.sh python3 -m eccenergy.tests.test_recon      # 36 ok, 1 skipped (R4b unsupported on this cache)
+$ ECC_RECON_MODELING=1 bash hpc/run_all.sh --eval-only      # the figure now on disk
+      DRAM weight energy, both shares           :    1,046.819 uJ = 17.62%   (f_if = 0.4000; ECC_DRAM_IF_FRAC=0.4, an ASSUMED value)
+        array share (1 - f_if), NOT reducible   :      628.091 uJ = 10.57%
+        interface share f_if, x K/N on EVERY bar:      418.728 uJ =  7.05%
+        interface x (1 - K/N)                   :      159.515 uJ =  2.69%   <-- the DRAM saving every boundary shares
+      on-chip + interface, x (1 - K/N)          :      316.648 uJ =  5.33%   <-- the most ANY placement can save in total
+    bar                             total uJ   vs base    vs emb  DRAM i/f uJ     recon uJ  overhead uJ            N_rec
+    R1 @ NoC source                5,789.696    16.75%     2.54%     -159.515        8.817        0.000        2,077,021
+    R2 @ cluster edge              5,776.223    16.94%     2.76%     -159.515        8.817        0.000        2,077,021
+    R3 @ SPad input                5,777.551    16.92%     2.74%     -159.515       12.837        0.000        3,023,807
+    R4a / R4b                    UNSUPPORTED   (G_rec = 9 > resident tile in layer4.*)
+```
+Predicted before running: 0.40 × 0.3810 × 1,046.819 = 159.5 µJ on every R bar,
+ordering unchanged. Both held.
+
+### Still open after this revision
+
+* **A cited f_if.** 0.40 is an assumption. Read the LPDDR4 I/O share off Ha
+  2018 Fig. 4.8 (or derive it from a datasheet's read-burst I/O energy), record
+  it in `provenance.yaml`, and replace the default; the figure rescales linearly
+  and no ordering moves.
+* The result file's `noc_share_within_published_band_eyeriss_v2` check still
+  fails by 0.1 point (FINDINGS §4.1.3) — unrelated to this change.
+
+
+**2026-09-09 — objective is EDP; v2 clusters 8x2; latch 0; band vs mesh only (FINDINGS.md §4.1.2). 8x2 whole-model mapping done (12 per-shape jobs, `hpc/map_by_shape.sh`); `ReconSweep.png` is the 8x2 / EDP / latch-0 result: interconnect 14.9% of on-chip, mesh only 5.9% (FINDINGS §4.1.3). R4a/R4b unsupported under these mappings.**
+
+**2026-09-08 — NoC model revision implemented (FINDINGS.md §4.1).**
+Inner-level router zero written explicitly (defect 8.1), declared mesh hop
+lengths for v2, a bracketed per-PE latch (`ECC_NOC_PE_LATCH_PJ`, default 0.5),
+evaluator-only spatial-reduction and psum-width terms (`eccenergy/noc_post.py`),
+register writes costed (Aladdin's table had them at 0), and the component library
+in the mapper fingerprint. **Every mapper cache is cold.** Decision pending:
+`ECC_OPT_METRIC=edp`. Every number below is the 2026-09-07 model until the cold
+pass has run.
+
+**Last updated:** 2026-09-07 (Task 3 -- Eyeriss v2 reconstruction placement, evaluator only, fixed mapping -- implemented, evaluated, and then REVIEWED: is the K/N reduction applied, and is its magnitude right? FINDINGS.md §15 "Review, second pass")
 **Migration:** COMPLETE. Single-process Apptainer flow verified (all five checks
 passed; the six copied-cache energies match the laptop exactly), and parallel
 execution is built and proven: `sbatch hpc/map.sbatch` ran 12/12 tasks, 0 failed,
@@ -15,13 +234,276 @@ converged search, and the panel figure is regenerated and quotable. The
 architecture ranking is preserved across both models. **The two development
 layers are not a proxy for the model** — weight-stationary and input-stationary
 swap between them.
-**Model status:** Tasks 1 and 2 are complete (Task 2 section next; FINDINGS.md
-§14). The `embedded` arm is now a measured DRAM-only result on the Task 1
-mappings; `recon` is still the placeholder. Prior caveats still apply — the
+**Model status:** Tasks 1, 2 and 3 are complete (Task 3 section next;
+FINDINGS.md §14 and §15). The `embedded` arm is a measured DRAM-only result on
+the Task 1 mappings, and the five reconstruction BOUNDARIES of Task 3 are now
+measured on `eyeriss_v2_like` from those same mappings — with the result that
+none of them beats embedded-only ECC under a fixed, ECC-unaware mapping, which
+is what makes Task 4 the interesting one. `ecc.build_stacks()`'s three-arm
+`recon` is untouched and is a different (single-placement) model; see CLAUDE.md
+"The `recon` ARM is one point". Prior caveats still apply — the
 `_wglb` bracketing pair was not run and six of the eight models are still
 unmapped. NoC energy has been costed since 2026-09-07 (FINDINGS.md
 "Interconnect"). run.sh defaults, architectures and the baseline are unchanged.
 See FINDINGS.md §12 (bring-up) and §13 (the whole-model run) for evidence.
+
+---
+
+## 2026-09-07 TASK 3 — EYERISS V2 RECONSTRUCTION, EVALUATOR ONLY, FIXED MAPPING — DONE
+
+**What was asked** (`03_staged_implementation_plan.txt` §3): with Task 2 as the
+embedded-ECC reference, fix architecture = Eyeriss v2, model/layers, BCH
+configuration, precision, physical hardware assumptions and mapping; vary only
+the reconstruction placement and its necessary overhead; do not modify or rerun
+the mapping optimiser; evaluate every feasible weight-path boundary present in
+the actual model and mark unsupported ones explicitly.
+
+### The result, first
+
+On `eyeriss_v2_like` / resnet18, whole model, BCH(63,51):
+
+| bar | total | vs conventional ECC | vs embedded only |
+|---|---|---|---|
+| Baseline (external parity) | 5,075.371 µJ | — | −5.773 % |
+| Embedded (no external parity) | 4,798.375 µJ | +5.458 % | — |
+| R1 @ NoC source | 4,805.637 µJ | +5.315 % | −0.151 % |
+| R2 @ cluster edge | 4,801.036 µJ | +5.405 % | −0.055 % |
+| R3 @ SPad input | 4,802.647 µJ | +5.373 % | −0.089 % |
+| R4a @ SPad output | 5,672.121 µJ | −11.758 % | −18.209 % |
+| **R4b @ SPad + reuse reg** | **4,733.027 µJ** | **+6.745 %** | **+1.362 %** |
+
+**R4b wins and beats embedded-only ECC**, capturing 65.3 of the 77.5 µJ the
+reducible weight path makes available (84 % of the ceiling). The ordering the
+source discussion's ratings predict holds: R4b (5/5) > R2/R3 (4/5, break-even) >
+R4a (3/5, 18 % worse than doing nothing). R1 being worse than embedded is
+correct and is why it is 2/5 — it strips the bits and puts them straight back.
+
+**The ceiling is the number every result has to be read against**, and it is now
+printed first on every run: the whole on-chip weight path is 407 µJ of 4,798
+(8.5 %), so K/N = 0.81 is worth at most 1.62 % of inference energy; 91 % of it is
+the PE scratchpad, and DRAM's 18.5 % may not be reduced at all because the
+complete codeword is read for correction.
+
+**A first version of this model reported R4b as the WORST boundary — that was a
+bug, found by review, and it is fixed.** It asked how many uses one weight gets
+*in a row* (what a one-entry latch serves), which the loop nest says is 1 on
+every mapping here. But §5.4's EV2-C is "reload/reconstruct when the required
+weight CHANGES" — a retained reconstruction, so the question is capacity, not
+consecutiveness. The loops below the scratchpad walk a tile of 16–256 weights
+and repeat 1–6272 times, so a register covering that tile reconstructs once per
+FILL: 82.85× fewer than R4a, and the same count as R3. **R4b is R3's encoder
+count with R4a's storage saving**, which is exactly why it is rated above both.
+FINDINGS.md §15 has the measurement, the sensitivity corners and the
+capacity overhead this buys with (1.81× the baseline's PE weight storage).
+
+### Two questions answered first, then the work
+
+1. *Re-run the mapping optimiser?* **No, and it is refused.** Task 3 says not
+   to, so `RECON_OPTIMIZER=False` is the only accepted value; `True` stops the
+   run with an error naming Task 4 rather than quietly producing fixed-mapping
+   numbers under a heading that claims otherwise. Every result carries
+   `evaluation_only_rerun` and `fixed_mapping_shared_across_variants`.
+2. *New architecture YAMLs per placement?* **No.** A placement changes only how
+   the evaluator charges the weight path; nothing the mapper sees moves, so the
+   mapping fingerprint is unchanged and the whole Task 1/2 mapper cache is
+   reused as-is. YAML variants become necessary at Task 4, where the reduced
+   width has to reach the mapper.
+
+### One architecture at a time, on purpose
+
+Section 4 of `env.sh` now takes precedence over section 3 when
+`ECC_RECON_MODELING=1`: the run collapses to one architecture, one model and one
+code. The three sweeps can put architectures on an axis because all three ECC
+*arms* exist on every design; a reconstruction *boundary* does not — v2's are its
+mesh, its cluster-local fanout and its PE scratchpad, and a weight-stationary
+design's are a different list. Task 5 repeats the study per design, and adding
+one means adding `WEIGHT_PATHS[<name>]` and `PLACEMENTS[<name>]` to
+`eccenergy/recon.py` together.
+
+### The weight path is read from the model, not assumed
+
+`01_project_context_and_architectures.txt` §5.1 warns against substituting
+"DRAM → global weight SRAM → RF → MAC" for Eyeriss v2. `eyeriss_v2_like` has
+**no weight GLB** (its GLB banks are iacts and psums), so the path is four
+stages and there is deliberately no global-buffer boundary. The stage-to-level
+match is verified, not trusted: `weight_path_reconciles_with_raw_record`
+re-derives the per-category weight energy from the cached stats and compares it
+with the `Raw` record, and a level carrying weight energy that no stage claims
+fails the run.
+
+### The three things the model refuses to fudge
+
+* **Physical packing** (§16 of file 02). `ECC_RECON_PACKING=stream` (default,
+  and the layout `embedded.py` actually produces) packs the retained k bits with
+  no per-weight alignment, so every reduced stage scales by exactly K/N.
+  `aligned` gives each weight `ceil(8×51/63) = 7` whole bits; `floor(24/7) = 3`
+  values fit a 24-bit scratchpad word, the same 3 as at 8 bits, so **the SRAM
+  saving disappears entirely**. Measured: R4a goes −18.21 % → −19.76 %.
+* **Reconstruction granularity** (§15). `G_rec = 9` is computed from the layout
+  (a 63-bit codeword spans 7.875 weights and, starting mid-weight, touches 9).
+  `ECC_RECON_ENCODER_GRANULARITY=weight` charges per weight rebuilt; `codeword`
+  charges a whole codeword per access and multiplies every reconstruction cost
+  by 7.875. Neither knob changes the sign of any comparison.
+* **Feasibility.** A PE-local boundary whose resident tile is under `G_rec` is
+  `unsupported` with the layers named, never estimated. Exercised on real data:
+  mobilenet_v2's 7 depthwise layers hold 3 weights per PE, so R4a/R4b are
+  rejected there while R1–R3 evaluate.
+* **Retention** (`ECC_RECON_REUSE_REG_ENTRIES`, default `tile`). What R4b's
+  register serves, read off the mapping rather than assumed. `1` (a latch) or
+  `9` (a group buffer) collapse R4b onto R4a at −19.45 %, because a cyclic walk
+  is the LRU worst case and there is no partial hit rate. Two of the three
+  things R4b's +1.36 % is contingent on are exactly these knobs: under
+  `aligned` packing it becomes −0.19 %, and under a latch −19.45 %.
+
+### What is deliberately not credited
+
+No DRAM saving (the complete protected codeword is read for correction —
+checked per placement against the embedded reference). No capacity-driven reuse
+and no re-tiling. And no operand-retention saving for anybody: R4b's register
+would cut scratchpad reads, but so would the same register in a baseline PE,
+which is the comparison the plan asks for, so read counts stay Timeloop's under
+every bar and the register only reduces the reconstruction count while paying
+its own write energy (0.0328 pJ, the cheapest per-PE register write in this
+design's own Accelergy ERT — conservative, since a one-entry latch costs less
+than the 24-entry file it comes from).
+
+### Files changed
+
+| file | change |
+|---|---|
+| `eccenergy/recon.py` | **NEW.** The placement space: `WEIGHT_PATHS`, `PLACEMENTS`, the stats/loop-nest re-parse, `Packing`, `Granularity`, `feasibility()`, `evaluate_placement()`, `cross_check()`, `reuse_register_pj()`. |
+| `eccenergy/experiments/recon.py` | **NEW.** The driver: two reference bars from Task 1's and Task 2's own functions, five boundaries, the result file, the checks, the figure. |
+| `eccenergy/tests/test_recon.py` | **NEW.** 15 offline tests on a synthetic `stats.txt`/`map.txt`, so nothing needs the mapper cache or the container. Two of them pin the corrected R4b behaviour in both directions: a tile-sized register must beat every other boundary, and a register under the working set must collapse onto R4a. |
+| `env.sh` | section 4 rewritten (was a placeholder): `RECON_OPTIMIZER`, `ECC_RECON_PACKING`, `ECC_RECON_ENCODER_GRANULARITY`, `ECC_RECON_REUSE_REG_ENTRIES`, `ECC_RECON_REUSE_REG_PJ`, stem `ReconSweep`; section 10 collapses sections 3's lists onto section 4's point and flattens the per-arch placement list into `ECC_RECON_PLACEMENT_LIST` (a bash associative array cannot be exported). `ECC_RECON_PLACEMENT_LABELS`, `ECC_RECON_RESULTS_JSON` and `ECC_RECON_RERUN` removed — the labels are a property of the weight path and live with it in `recon.py`; the results go through the normal result store. |
+| `eccenergy/config.py` | `recon` experiment; nine `recon_*` fields; `RECON_OPTIMIZER=True` refused; one-arch/one-model and `ECC_SPLIT_READ_WRITE=0` enforced for the study; `recon_title()`; the stem; banner rows. |
+| `eccenergy/energy.py` | one new plotted category, `Recon overhead`, so a placement's buffer/control cost is visible rather than hidden inside `Reconstruction`. Zero for all three sweep arms, so `active_categories()` drops it there. |
+| `eccenergy/plots/style.py` | its colour (both palettes) and legend label. |
+| `eccenergy/plots/stacked.py` | `draw_panel()` gained `bars`, `bar_tags`, `bar_width`, `ref_totals` — **widened, not forked**, per CLAUDE.md. `write_table()` gained `ref_totals` and `extra_columns`, so the one table per stem carries the placement facts and its saving column measures against the right reference. Also fixed: a bar costing more than its reference printed `−-11.8%`; the sign now carries the direction. |
+| `eccenergy/__main__.py`, `run.sh`, `hpc/run_all.sh` | route the new stage; `_plot` knows the placement study draws its own figure. |
+| `CLAUDE.md`, `FINDINGS.md` (§15) | the structure and the numbers. |
+
+`ecc.py`, `parity.py`, `embedded.py`, `experiments/baseline.py` and
+`experiments/embedded.py` are **untouched**. Verified: Task 1 and Task 2
+re-evaluate to 5,075.3712 µJ and 4,798.3746 µJ, identical before and after.
+
+### Exact run commands
+
+```bash
+cd /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling
+module load apptainer
+
+ECC_RECON_MODELING=1 bash hpc/run_all.sh --eval-only          # the one command
+ECC_RECON_MODELING=1 bash hpc/tl.sh bash run.sh recon --eval  # just this stage
+ECC_RECON_MODELING=1 bash hpc/run_all.sh --replot             # figure only
+
+ECC_RECON_MODELING=1 ECC_RECON_MODEL=mobilenet_v2 bash hpc/tl.sh bash run.sh recon --eval
+ECC_RECON_MODELING=1 ECC_RECON_PACKING=aligned    bash hpc/tl.sh bash run.sh recon --eval
+ECC_RECON_MODELING=1 ECC_RECON_ENCODER_GRANULARITY=codeword bash hpc/tl.sh bash run.sh recon --eval
+
+bash hpc/tl.sh python3 -m eccenergy.tests.test_recon
+```
+
+Outputs: `results/figures/ReconSweep.{png,pdf}`,
+`results/tables/ReconSweep.csv`, `results/manifests/ReconSweep.json`,
+`results/evaluation/Pre/eyeriss_v2_like/<model>/…/*.json` (experiment
+`task3_reconstruction_placement_fixed_mapping`).
+
+### Assumptions a reader should be able to challenge
+
+1. `stream` packing — defensible only because the embedded layout genuinely is
+   a packed bit stream; `aligned` is one env var away and is reported above.
+2. Encoder work charged per weight rebuilt at the per-codeword synthesis energy
+   (`weight`); the pessimistic `codeword` reading is also reported.
+3. Reconstruction 4.1296 pJ/codeword = 1.8995 incremental + 2.2301
+   idle-per-cycle. The idle term is 54 % of it;
+   `ECC_RECON_INCLUDE_IDLE=0` halves every reconstruction cost and still does
+   not rescue R4a (≈ 437 µJ cost against a 77 µJ saving).
+4. CSC metadata is not modelled — the design is modelled dense, so R4a/R4b's
+   scratchpad saving is an upper bound on what a CSC v2 would see. It is a
+   warning on every result file.
+5. `archs/_shared/noc.yaml` declares v2's intra-cluster level `router_pj: 0.0`
+   but the flattened architecture carries `router_energy: 0.0833` on
+   `inter_PE_spatial`. Found while parsing the NoC stats, **not fixed** — it
+   affects every bar equally and scales identically under `stream`, so it does
+   not bias this comparison, but the declaration and `archs._inject_noc`
+   disagree and one of them is wrong.
+   *Mechanism found on the second-pass review:* `_inject_noc` writes
+   `router_energy` only `if router:`, so a declared **zero is never emitted**
+   and the level inherits its parent's value. Size: **44.94 µJ**, 20.5 % of the
+   whole NoC and 0.94 % of the run. Correcting it moves the mapping fingerprint
+   (whole cache cold) and Tasks 1/2's frozen totals, so it belongs in the next
+   cold mapping pass, not here.
+6. **The DRAM-to-accelerator link is not modelled**, and the 886.387 µJ DRAM
+   weight term cannot be split to expose it: Accelergy's `CactiDRAM` is a flat
+   `8 pJ/bit × width` LPDDR4 constant using only `(type, width)`. Stated as a
+   limitation rather than guessed at. It is the one omission that could move the
+   answer materially (a 25 % link fraction would lift the ceiling from 1.62 % to
+   2.50 %), and no boundary in this study reaches it — R1–R4b all sit downstream
+   of the link. FINDINGS.md §15 "Review, second pass" has the arithmetic.
+7. **The `noc_share` FAIL may be a denominator question.** `audit.py` divides by
+   a total that includes DRAM (4.58 %); against on-chip energy alone the share
+   is 6.53 %, inside the paper's 6–10 % band. Which one JETCAS Fig. 18 uses is a
+   fact about the paper and is not settled in this repo. Verdict left unchanged.
+
+### What the second-pass review settled (2026-09-07)
+
+**The K/N reduction is applied correctly and completely** — proved per stage and
+per placement against the real mapper cache, not inferred from bar totals. The
+mesh falls 24.158 → 19.557 µJ from R2 on, the cluster-local fanout
+13.694 → 11.085 µJ from R3 on, the scratchpad 369.276 → 298.938 µJ at R4a/R4b,
+each `before × K/N` to 4e-16 relative, with every untouched stage bit-identical.
+The savings really are 4.60 and 7.21 µJ on a 4,798 µJ bar. `test_recon.py` grew
+from 15 to **26** tests: seven property tests (per-stage exactness, non-weight
+untouched, monotonicity down the path, the closed-form identity, nothing-goes-up,
+a K sweep, and an independent re-scan for unclaimed weight levels), each run on
+the synthetic stats **and** the real cache, and all six deliberate mutations of
+`recon.py` are caught — one of them, a reduction hard-wired to 51/63 rather than
+keyed to K, only by the new code sweep.
+
+**One latent bug found and fixed.** `eyeriss_v2_like_wglb`'s weight path carries
+a reducible `weight_glb` stage that no placement reduces, so four of its five
+boundaries would have silently reported it at full width.
+`recon.validate_placement_space()` now requires a placement's reduced set to be
+a **prefix** of the path's reducible stages and every reducible stage to be
+reached by some boundary; it is recorded on every result and raises before
+evaluation. No `eyeriss_v2_like` number moves.
+
+**`eyeriss_v2_like_wglb` is still unmeasured, and a cold map is costed.** From
+SLURM job `41296638` at the current settings: `eyeriss_v2_like` × resnet18
+(12 shapes) took **2 h 26 m** on 18 cores, × mobilenet_v2 (31 shapes) 3 h 00 m.
+The `_wglb` variant adds a storage level and `ECC_VICTORY_SCALING=levels` raises
+the budget with depth, so 2.5–4 h (≈45–70 core-hours) for resnet18 is a lower
+bound. Worth doing — it is the only way to measure a global-buffer boundary at
+all — but **not launched**: a cold mapping run needs an explicit go-ahead, and
+its number is a BOUND, not Eyeriss v2.
+
+**The figure was widened so the evidence is visible**, since the model is not
+the thing to change. `plots/stacked.py::draw_panel` gained `bar_notes` (one
+caller-supplied line per bar — the placement figure prints the µJ moved on chip
+and the µJ paid for reconstruction, because a percentage cannot separate R2's
+0.096 % from R3's 0.150 %) and `grouped_stacks(zoom_stacks=…)` (a second panel
+drawn by calling `draw_panel` again, as `panels.py` already does, scoped to the
+on-chip weight path: 407.1 → 402.5 → 399.9 → 336.8 µJ, so the scratchpad saving
+is 19 % of the panel instead of 1.5 % of a bar). Still one image, one table, one
+manifest, one bar-drawing routine — and `--replot` reproduces the three sweeps'
+figures **byte-for-byte**.
+
+### The next unfinished task
+
+**Task 4 — Eyeriss v2 reconstruction WITH the mapping optimiser.** Set
+`RECON_OPTIMIZER=True` (it currently refuses, by design) and make the reduced
+width reach the mapper: represent the packed weight width per level per
+placement, keep the physical SRAM/RF capacities fixed, and let the extra
+effective capacity change the tiling. `ECC_PHASE=Post` is the namespace for it.
+
+Two things §15 says Task 4 should be pointed at. First, R4b already needs 1.81×
+the baseline's PE weight storage (6.48 b of reduced scratchpad plus 8 b of
+register per resident weight), so a reconstruction-aware mapper has *less*
+headroom than the reduced scratchpad alone suggests — the right question is
+whether it can shrink the working set the register has to cover. Second, R4b's
+whole saving is contingent on `stream` packing; a mapping-aware model that also
+represents the packed width per level is where that assumption stops being an
+assumption.
 
 ---
 

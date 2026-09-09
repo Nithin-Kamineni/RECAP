@@ -1,0 +1,5519 @@
+{
+ "schema_version": "1.0",
+ "experiment": {
+  "name": "task3_reconstruction_placement_fixed_mapping",
+  "phase": "Pre",
+  "phase_meaning": "Pre: the mapping is ECC-unaware and the ECC effect is applied during energy evaluation only",
+  "mapping_mode": "fixed-mapping",
+  "run_id": "20260907T225035Z__19764876",
+  "status": "check the validation section",
+  "units": {
+   "energy": "pJ unless a field name says otherwise",
+   "savings": "percent",
+   "capacity": "bits or bytes as the field name says"
+  }
+ },
+ "identity": {
+  "architecture": "eyeriss_v2_like",
+  "architecture_label": "Eyeriss v2",
+  "model": "resnet18",
+  "layer_scope": "full",
+  "layers": "full model",
+  "bch": {
+   "n": 63,
+   "k": 51,
+   "t": 2,
+   "label": "BCH(63,51)"
+  },
+  "precisions_bits": {
+   "weight": 8,
+   "activation": 8,
+   "accumulator": 20,
+   "accumulator_policy": "paper-native (per architecture)",
+   "accumulator_evidence": "Table IV, \"Arithmetic Precision: weights & iacts: 8b fixed-point / psums: 20b fixed-point\"; Table V repeats it for all three variants. Verified against the arXiv PDF, 2026-09-06."
+  }
+ },
+ "reference_variants": {
+  "conventional_ecc": "baseline_external_parity",
+  "embedded_only": "embedded_ecc"
+ },
+ "summary": [
+  {
+   "variant": "baseline_external_parity",
+   "kind": "baseline",
+   "status": "evaluated",
+   "total_energy_pJ": 5075371161.37,
+   "total_energy_uJ": 5075.37116137,
+   "savings_vs_conventional_ecc_percent": 0.0,
+   "savings_vs_embedded_only_percent": -5.772717509212769,
+   "unavailable_reason": null
+  },
+  {
+   "variant": "embedded_ecc",
+   "kind": "embedded",
+   "status": "evaluated",
+   "total_energy_pJ": 4798374553.37,
+   "total_energy_uJ": 4798.37455337,
+   "savings_vs_conventional_ecc_percent": 5.457662093923196,
+   "savings_vs_embedded_only_percent": 0.0,
+   "unavailable_reason": null
+  },
+  {
+   "variant": "recon_source_noc_ingress",
+   "kind": "reconstruction",
+   "status": "evaluated",
+   "total_energy_pJ": 4805637344.372225,
+   "total_energy_uJ": 4805.637344372225,
+   "savings_vs_conventional_ecc_percent": 5.3145633771731005,
+   "savings_vs_embedded_only_percent": -0.15135940142738774,
+   "unavailable_reason": null
+  },
+  {
+   "variant": "recon_destination_cluster",
+   "kind": "reconstruction",
+   "status": "evaluated",
+   "total_energy_pJ": 4801035770.882701,
+   "total_energy_uJ": 4801.0357708827005,
+   "savings_vs_conventional_ecc_percent": 5.405228145191402,
+   "savings_vs_embedded_only_percent": -0.055460812471006565,
+   "unavailable_reason": null
+  },
+  {
+   "variant": "recon_pe_spad_input",
+   "kind": "reconstruction",
+   "status": "evaluated",
+   "total_energy_pJ": 4802646641.544955,
+   "total_energy_uJ": 4802.646641544955,
+   "savings_vs_conventional_ecc_percent": 5.373489172591426,
+   "savings_vs_embedded_only_percent": -0.08903198629950616,
+   "unavailable_reason": null
+  },
+  {
+   "variant": "recon_pe_spad_output",
+   "kind": "reconstruction",
+   "status": "evaluated",
+   "total_energy_pJ": 5672121199.173771,
+   "total_energy_uJ": 5672.121199173771,
+   "savings_vs_conventional_ecc_percent": -11.757761527783314,
+   "savings_vs_embedded_only_percent": -18.209221395401915,
+   "unavailable_reason": null
+  },
+  {
+   "variant": "recon_pe_spad_output_reuse_reg",
+   "kind": "reconstruction",
+   "status": "evaluated",
+   "total_energy_pJ": 4733026778.872575,
+   "total_energy_uJ": 4733.026778872575,
+   "savings_vs_conventional_ecc_percent": 6.745208805675125,
+   "savings_vs_embedded_only_percent": 1.361873146220525,
+   "unavailable_reason": null
+  }
+ ],
+ "best_reconstruction_placement": {
+  "variant": "recon_pe_spad_output_reuse_reg",
+  "total_energy_pJ": 4733026778.872575,
+  "savings_vs_conventional_ecc_percent": 6.745208805675125,
+  "savings_vs_embedded_only_percent": 1.361873146220525,
+  "evaluated_candidates": 5
+ },
+ "validation": [
+  {
+   "check": "weight_path_reconciles_with_raw_record",
+   "passed": true,
+   "detail": {
+    "per_category": {
+     "DRAM": {
+      "weight_path_module_pJ": 886386688.0,
+      "raw_record_pJ": 886386688.0,
+      "relative_difference": 0.0
+     },
+     "Local (spads/RF)": {
+      "weight_path_module_pJ": 369276129.9800001,
+      "raw_record_pJ": 369276129.9800001,
+      "relative_difference": 0.0
+     },
+     "NoC": {
+      "weight_path_module_pJ": 37851849.94,
+      "raw_record_pJ": 37851849.94,
+      "relative_difference": 0.0
+     }
+    },
+    "unclaimed_weight_levels": [],
+    "rule": "this module re-parses the cached stats and must reproduce the `Raw` record's WEIGHT energy per category exactly; a level carrying weight energy that no stage claims is listed above and makes this check fail"
+   }
+  },
+  {
+   "check": "dram_identical_to_embedded_reference",
+   "passed": true,
+   "detail": {
+    "embedded_reference_dram_pJ": 1433440768.0,
+    "per_placement_dram_pJ": {
+     "recon1": 1433440768.0,
+     "recon2": 1433440768.0,
+     "recon3": 1433440768.0,
+     "recon4": 1433440768.0,
+     "recon5": 1433440768.0
+    },
+    "rule": "the reconstructable bits may not be dropped before the DRAM-side ECC check, so every placement reads the same complete codeword the embedded arm reads"
+   }
+  },
+  {
+   "check": "non_weight_energy_identical",
+   "passed": true,
+   "detail": {
+    "components": {
+     "Compute": {
+      "embedded": 2120234502.2800004,
+      "placements": {
+       "recon1": 2120234502.2800004,
+       "recon2": 2120234502.2800004,
+       "recon3": 2120234502.2800004,
+       "recon4": 2120234502.2800004,
+       "recon5": 2120234502.2800004
+      }
+     }
+    },
+    "weight_share_of_those_categories": {
+     "Compute": 0.0
+    },
+    "rule": "a reconstruction boundary touches the WEIGHT path only; MAC energy is identical under every bar because both are arithmetic on one raw record"
+   }
+  },
+  {
+   "check": "placement_savings_are_bounded_by_the_weight_path",
+   "passed": true,
+   "detail": {
+    "per_placement": {
+     "recon1": {
+      "reducible_weight_energy_pJ": 0,
+      "energy_saved_pJ": 0,
+      "within_bound": true
+     },
+     "recon2": {
+      "reducible_weight_energy_pJ": 24158260.819999997,
+      "energy_saved_pJ": 4601573.489523802,
+      "within_bound": true
+     },
+     "recon3": {
+      "reducible_weight_energy_pJ": 37851849.94,
+      "energy_saved_pJ": 7209876.1790476125,
+      "within_bound": true
+     },
+     "recon4": {
+      "reducible_weight_energy_pJ": 407127979.9200001,
+      "energy_saved_pJ": 77548186.65142855,
+      "within_bound": true
+     },
+     "recon5": {
+      "reducible_weight_energy_pJ": 407127979.9200001,
+      "energy_saved_pJ": 77548186.65142855,
+      "within_bound": true
+     }
+    },
+    "rule": "the saving is a reduction of the weight energy of the stages the reduced form actually reaches; it cannot exceed it and cannot be negative"
+   }
+  },
+  {
+   "check": "only_weight_path_categories_differ_from_the_embedded_reference",
+   "passed": true,
+   "detail": {
+    "per_placement_differences": {
+     "recon1": {},
+     "recon2": {
+      "NoC": {
+       "placement_pJ": 215116645.07047617,
+       "embedded_pJ": 219718218.55999997,
+       "difference_pJ": -4601573.489523798
+      }
+     },
+     "recon3": {
+      "NoC": {
+       "placement_pJ": 212508342.38095236,
+       "embedded_pJ": 219718218.55999997,
+       "difference_pJ": -7209876.179047614
+      }
+     },
+     "recon4": {
+      "NoC": {
+       "placement_pJ": 212508342.38095236,
+       "embedded_pJ": 219718218.55999997,
+       "difference_pJ": -7209876.179047614
+      },
+      "Local (spads/RF)": {
+       "placement_pJ": 561499417.1876187,
+       "embedded_pJ": 631837727.6599997,
+       "difference_pJ": -70338310.472381
+      }
+     },
+     "recon5": {
+      "NoC": {
+       "placement_pJ": 212508342.38095236,
+       "embedded_pJ": 219718218.55999997,
+       "difference_pJ": -7209876.179047614
+      },
+      "Local (spads/RF)": {
+       "placement_pJ": 561499417.1876187,
+       "embedded_pJ": 631837727.6599997,
+       "difference_pJ": -70338310.472381
+      }
+     }
+    },
+    "allowed_categories": [
+     "DRAM",
+     "Global buffer",
+     "Local (spads/RF)",
+     "NoC"
+    ],
+    "rule": "outside the two ECC categories, a placement may differ from the embedded reference only in the categories its weight path lives in"
+   }
+  },
+  {
+   "check": "evaluation_only_rerun",
+   "passed": true,
+   "detail": {
+    "ECC_FROM_CACHE": true,
+    "newly_mapped_shapes": 0,
+    "meaning": "passed: every mapping behind this result already existed and the mapper was not invoked -- which is what 'do not modify or rerun the mapping optimizer for this comparison' requires. Failed: re-run with --eval."
+   }
+  },
+  {
+   "check": "reference_bars_match_tasks_1_and_2",
+   "passed": true,
+   "detail": {
+    "baseline_minus_embedded_dram_pJ": 276996608.0,
+    "external_parity_pJ": 276996608.0,
+    "source": "ecc.external_parity() and ecc.embedded_dram(), unchanged"
+   }
+  },
+  {
+   "check": "parity_payload_hand_check",
+   "passed": true,
+   "detail": {
+    "method": "codeword-by-codeword walk compared against the closed form; both must agree exactly",
+    "code": "BCH(63,51) over 8-bit weights",
+    "weights_checked": 11678912,
+    "weights_per_codeword": 6,
+    "message_pad_bits_per_codeword": 3,
+    "checks": {
+     "codewords": {
+      "walked": 1946486,
+      "closed_form": 1946486
+     },
+     "payload_bits": {
+      "walked": 93431296,
+      "closed_form": 93431296
+     },
+     "padding_bits_total": {
+      "walked": 5839490,
+      "closed_form": 5839490
+     },
+     "parity_bits": {
+      "walked": 23357832,
+      "closed_form": 23357832
+     },
+     "parity_dram_words": {
+      "walked": 364967,
+      "closed_form": 364967
+     }
+    },
+    "mismatches": {},
+    "passed": true
+   }
+  },
+  {
+   "check": "all_layers_mapped",
+   "passed": true,
+   "detail": "21 mapped, 0 skipped"
+  },
+  {
+   "check": "mapping_ids_recorded",
+   "passed": true,
+   "detail": "12 distinct mapping(s) behind this result"
+  },
+  {
+   "check": "architecture_obeys_shared_contract",
+   "passed": true,
+   "detail": {
+    "violations": [],
+    "notes": [
+     "published at TSMC 65nm LP 1P9M, modelled at 45nm. Deliberate: a mixed-node comparison would report silicon as architecture.",
+     "interconnect: hierarchical_mesh_with_routers -- wire 0.12 pJ/b/mm (shared); PE_cluster: router 0.0833333 pJ, ingress 0 pJ; PE: router 0 pJ, ingress 0 pJ; datapath, not NoC: ['SIMD'] (archs/_shared/noc.yaml)"
+    ]
+   }
+  },
+  {
+   "check": "noc_energy_costed",
+   "passed": true,
+   "detail": {
+    "enabled": true,
+    "noc_pJ": 219718218.55999997,
+    "share_of_timeloop_total": 0.045790134995961754,
+    "wire_pj_per_bit_mm": 0.12,
+    "router_pj_per_flit": 0.25,
+    "operands_per_flit": 3.0,
+    "levels": {
+     "PE_cluster": {
+      "router_pj": 0.08333333333333333,
+      "ingress_pj": 0.0
+     },
+     "PE": {
+      "router_pj": 0.0,
+      "ingress_pj": 0.0
+     }
+    },
+    "source": "archs/_shared/noc.yaml"
+   }
+  },
+  {
+   "check": "noc_share_within_published_band_eyeriss_v2",
+   "passed": false,
+   "detail": {
+    "modelled_share": 0.045790134995961754,
+    "published_band": [
+     0.06,
+     0.1
+    ],
+    "source": "arXiv:1807.07928 Sec. V, Fig. 18",
+    "read_as": "published share is for SPARSE runs at 65nm; this model is dense (pushes the share up) at 45nm (pushes it down). A few points either side is consistent; 15%+ is not."
+   }
+  },
+  {
+   "check": "components_sum_to_total[baseline_external_parity]",
+   "passed": true,
+   "detail": "components sum to 5075371161.370000 pJ, total is 5075371161.370000 pJ"
+  },
+  {
+   "check": "components_sum_to_total[embedded_ecc]",
+   "passed": true,
+   "detail": "components sum to 4798374553.370000 pJ, total is 4798374553.370000 pJ"
+  },
+  {
+   "check": "components_sum_to_total[recon_source_noc_ingress]",
+   "passed": true,
+   "detail": "components sum to 4805637344.372225 pJ, total is 4805637344.372225 pJ"
+  },
+  {
+   "check": "components_sum_to_total[recon_destination_cluster]",
+   "passed": true,
+   "detail": "components sum to 4801035770.882701 pJ, total is 4801035770.882701 pJ"
+  },
+  {
+   "check": "components_sum_to_total[recon_pe_spad_input]",
+   "passed": true,
+   "detail": "components sum to 4802646641.544955 pJ, total is 4802646641.544955 pJ"
+  },
+  {
+   "check": "components_sum_to_total[recon_pe_spad_output]",
+   "passed": true,
+   "detail": "components sum to 5672121199.173771 pJ, total is 5672121199.173771 pJ"
+  },
+  {
+   "check": "components_sum_to_total[recon_pe_spad_output_reuse_reg]",
+   "passed": true,
+   "detail": "components sum to 4733026778.872575 pJ, total is 4733026778.872575 pJ"
+  },
+  {
+   "check": "fixed_mapping_shared_across_variants",
+   "passed": true,
+   "detail": "all evaluated variants reference the same mapping set"
+  }
+ ],
+ "warnings": [
+  "CSC METADATA IS NOT MODELLED. The published Eyeriss v2 PE stores weights CSC-compressed with a separate address scratchpad (Table IV: weight data 288B, weight address 16x7b); this study models the design DENSE, so there is no metadata array here to leave at full width. A CSC implementation would apply the reduced representation to the weight DATA only, so the scratchpad saving of R4a/R4b is an upper bound on what CSC v2 would see."
+ ],
+ "approximations": [
+  "Interconnect energy uses Timeloop's Legacy network model with one shared 45nm wire constant and per-architecture switching terms (archs/_shared/noc.yaml); hop distance is derived by Timeloop from each level's Accelergy area. The recon arm scales the WEIGHT share of NoC energy by K/N like the other on-chip categories.",
+  "exact stored codeword count x measured DRAM refetch factor; parity + message padding; rounded up to whole DRAM words once",
+  "External parity is billed at the measured per-access energy of a DRAM weight read on this architecture, not at an independently modelled parity-region access cost. That is exact if parity is read from the same DRAM by the same controller, which is the conventional-ECC assumption.",
+  "complete codeword read: every bit of every DRAM weight read that Timeloop counts is billed, message and embedded parity alike, and no K/N reduction is applied at DRAM; no external parity; physical DRAM words are ESTIMATED as bits / word rounded up once at the end (bit-proportional -- Timeloop bills per 8-bit scalar); the final chunk's tail padding is reported, not charged, as for the baseline",
+  "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout.",
+  "FIXED-MAPPING RESULT. Every access count, fanout, multicast factor and hop count here is the one Timeloop chose WITHOUT knowing about reconstruction, and the mapper was not re-run for any placement. So this file answers 'what does moving the boundary cost and save at constant data movement', not 'what is the best this architecture can do' -- packed reduced weights raise the effective weight capacity and may enable better tiling, which is Task 4's question and is deliberately not credited here.",
+  "stream: the retained k bits of each codeword are packed with no per-weight alignment, so values per physical word and operands per flit rise by n/k and every stage scales by k/n. aligned: each reduced weight occupies ceil(weight_bits*k/n) whole bits and nothing is repacked, so wire energy falls but a physical word may hold no more values than before and its access count does not move.",
+  "weight: encoder work is proportional to the weights reconstructed, charged at the synthesized per-codeword energy per n/weight_bits of them (the group is rebuilt once and all of it is consumed). codeword: every access at the boundary rebuilds a whole codeword.",
+  "R4b's reuse register is charged one full-width write per weight it retains and reduces the RECONSTRUCTION count only. It is not credited with removing scratchpad reads, because a baseline PE holding the same operand in the same register would remove exactly as many -- the plan asks for the reuse register to be compared against equivalent baseline operand-retention behaviour, and this is that comparison. Scratchpad read counts are therefore Timeloop's under every bar.",
+  "Weight-path stages are matched to Timeloop levels by name (eccenergy/recon.py WEIGHT_PATHS['eyeriss_v2_like']) and the match is verified against the raw record's per-category weight energy before any placement is evaluated. A level carrying weight energy that no stage claims fails that check rather than being ignored."
+ ],
+ "variants": [
+  {
+   "name": "baseline_external_parity",
+   "label": "Conventional ECC, BCH parity external in DRAM",
+   "kind": "baseline",
+   "status": "evaluated",
+   "total_energy_pJ": 5075371161.37,
+   "total_energy_uJ": 5075.37116137,
+   "unavailable_reason": null,
+   "energy_by_component_pJ": {
+    "DRAM": 1433440768.0,
+    "Global buffer": 393143336.8699999,
+    "Local (spads/RF)": 631837727.6599997,
+    "NoC": 219718218.55999997,
+    "Compute": 2120234502.2800004,
+    "DRAM external BCH parity": 276996608.0
+   },
+   "mapping_ids": [
+    "3c1b85aafa3ab0e0",
+    "4946489f0d6007d3",
+    "4f952b756369d55a",
+    "5166252747cb6ad6",
+    "55faa20c7ac0d89a",
+    "58190dd7ac2e2c92",
+    "65526d8741cdb8e2",
+    "7969f7554d852167",
+    "944ce785312d3728",
+    "95b7472967fddfd6",
+    "bbc46c9e26991773",
+    "c0ce85a0bcd741a0"
+   ],
+   "detail": {
+    "external_parity_accounting": {
+     "code": {
+      "n": 63,
+      "k": 51,
+      "weight_bits": 8,
+      "parity_bits_per_codeword": 12,
+      "weights_per_codeword": 6,
+      "message_used_bits": 48,
+      "message_pad_bits_per_codeword": 3,
+      "parity_overhead_frac": 0.25,
+      "parity_overhead_ideal_frac": 0.23529411764705888
+     },
+     "grouping": "layer",
+     "charge_message_padding": true,
+     "dram_word_bits": 64,
+     "stored": {
+      "weights": 11678912,
+      "payload_bits": 93431296,
+      "codewords": 1946488,
+      "message_pad_bits": 5839464,
+      "tail_pad_bits": 128,
+      "parity_bits": 23357856,
+      "parity_dram_words": 364970,
+      "parity_dram_scalars": 2919760.0,
+      "dram_word_bits": 64,
+      "stored_bits": 122628744,
+      "overhead_frac": 0.3125017981127009,
+      "payload_bytes": 11678912.0,
+      "parity_bytes": 2919732.0,
+      "stored_bytes": 15328593.0
+     },
+     "traffic": {
+      "refetch_factor": 1.1858803285785524,
+      "codeword_reads": 2308301.829014209,
+      "parity_bits": 27699621.94817051,
+      "message_pad_bits": 6924905.487042627,
+      "external_bits": 34624527.43521313,
+      "external_dram_words": 541009.0,
+      "external_dram_scalars": 4328072.0,
+      "charge_padding": true,
+      "overhead_vs_payload_frac": 0.3125,
+      "method": "exact stored codeword count x measured DRAM refetch factor; parity + message padding; rounded up to whole DRAM words once"
+     },
+     "energy_pJ": 276996608.0,
+     "pJ_per_dram_weight_scalar": 64.0,
+     "hand_check": {
+      "method": "codeword-by-codeword walk compared against the closed form; both must agree exactly",
+      "code": "BCH(63,51) over 8-bit weights",
+      "weights_checked": 11678912,
+      "weights_per_codeword": 6,
+      "message_pad_bits_per_codeword": 3,
+      "checks": {
+       "codewords": {
+        "walked": 1946486,
+        "closed_form": 1946486
+       },
+       "payload_bits": {
+        "walked": 93431296,
+        "closed_form": 93431296
+       },
+       "padding_bits_total": {
+        "walked": 5839490,
+        "closed_form": 5839490
+       },
+       "parity_bits": {
+        "walked": 23357832,
+        "closed_form": 23357832
+       },
+       "parity_dram_words": {
+        "walked": 364967,
+        "closed_form": 364967
+       }
+      },
+      "mismatches": {},
+      "passed": true
+     },
+     "hand_check_passed": true,
+     "comparison_to_flat_model": {
+      "flat_n_over_k_minus_1": 0.23529411764705888,
+      "accounted_overhead": 0.3125,
+      "note": "the flat model assumes the k-bit message field is fully packed with weights; it is not, because a weight cannot straddle a codeword"
+     }
+    },
+    "timeloop_energy_pJ": 4798374553.37,
+    "ecc_codec_energy": "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout."
+   }
+  },
+  {
+   "name": "embedded_ecc",
+   "label": "Embedded ECC, parity inside the stored weights, no external parity",
+   "kind": "embedded",
+   "status": "evaluated",
+   "total_energy_pJ": 4798374553.37,
+   "total_energy_uJ": 4798.37455337,
+   "unavailable_reason": null,
+   "energy_by_component_pJ": {
+    "DRAM": 1433440768.0,
+    "Global buffer": 393143336.8699999,
+    "Local (spads/RF)": 631837727.6599997,
+    "NoC": 219718218.55999997,
+    "Compute": 2120234502.2800004,
+    "DRAM external BCH parity": 0.0
+   },
+   "mapping_ids": [
+    "3c1b85aafa3ab0e0",
+    "4946489f0d6007d3",
+    "4f952b756369d55a",
+    "5166252747cb6ad6",
+    "55faa20c7ac0d89a",
+    "58190dd7ac2e2c92",
+    "65526d8741cdb8e2",
+    "7969f7554d852167",
+    "944ce785312d3728",
+    "95b7472967fddfd6",
+    "bbc46c9e26991773",
+    "c0ce85a0bcd741a0"
+   ],
+   "detail": {
+    "embedded_dram_accounting": {
+     "code": {
+      "n": 63,
+      "k": 51,
+      "t": 2,
+      "parity_bits_per_codeword": 12
+     },
+     "layout": {
+      "n": 63,
+      "k": 51,
+      "weight_bits": 8,
+      "layout": "bitstream",
+      "layout_meaning": "the MSB-first weight bit stream is cut into fixed n-bit codewords; weights straddle codeword boundaries; the parity overwrites the lowest-significance positions; storage is weight_bits per weight with no external parity",
+      "parity_bits_per_codeword": 12,
+      "codeword_bits": 63,
+      "weights_per_codeword": 7.875,
+      "independent_frac": 0.8095238095238095,
+      "period_bits": 504,
+      "period_codewords": 8,
+      "period_weights": 63,
+      "split_boundaries_per_period": 7,
+      "parity_significance": {
+       "rule": "per chunk, the n-k parity bits overwrite the positions of lowest bit significance (ties: higher chunk index first)",
+       "phases": 8,
+       "parity_slots_by_significance_per_phase": [
+        {
+         "bit0": 7,
+         "bit1": 5
+        },
+        {
+         "bit0": 8,
+         "bit1": 4
+        },
+        {
+         "bit0": 8,
+         "bit1": 4
+        },
+        {
+         "bit0": 8,
+         "bit1": 4
+        },
+        {
+         "bit0": 8,
+         "bit1": 4
+        },
+        {
+         "bit0": 8,
+         "bit1": 4
+        },
+        {
+         "bit0": 8,
+         "bit1": 4
+        },
+        {
+         "bit0": 8,
+         "bit1": 4
+        }
+       ],
+       "parity_bits_per_weight_by_significance": {
+        "bit0": 1.0,
+        "bit1": 0.5238095238095238
+       },
+       "parity_bits_per_weight_total": 1.5238095238095237
+      }
+     },
+     "layout_source": {
+      "pipeline": "ECC-CODE-Engine/4-EmbeddingECC/ecc_embed.py -- approach `replace`, chunk_size = message_parity_size (the codeword n); one int8 tensor per call",
+      "slicing": "Input_Embedding/3-Testing/utils/messageSliceBasedOnChunkSize.py -- fixed n-bit chunks over the MSB-first 8-bit weight stream; chunks span weights; only the last chunk is zero-padded",
+      "encoding": "Input_Embedding/3-Testing/implementations/ParityOverwriteByTopWeightsEncode.py -- systematic BCH(n,k) via galois.BCH(n,k).G; the k highest-significance chunk positions are the message, the n-k lowest-significance positions are overwritten with the parity",
+      "phases": "Input_Embedding/3-Testing/implementations/secded_vectorized.py -- the chunk/weight alignment repeats every lcm(n, 8)/n chunks",
+      "verified": "2026-09-07, read-only inspection of the files above"
+     },
+     "grouping": "layer",
+     "dram_word_bits": 64,
+     "stored": {
+      "weights": 11678912,
+      "payload_bits": 93431296,
+      "codewords": 1483051,
+      "tail_pad_bits": 917,
+      "embedded_parity_bits": 17796612,
+      "split_boundaries": 1297657,
+      "straddling_weights": 1297657,
+      "external_parity_bits": 0,
+      "stored_dram_words": 1459885,
+      "dram_word_bits": 64,
+      "stored_bits": 93432213,
+      "overhead_frac": 9.814698492462312e-06,
+      "bits_per_weight": 8.000078517587939,
+      "payload_bytes": 11678912.0,
+      "external_parity_bytes": 0.0,
+      "stored_bytes": 11679026.625
+     },
+     "traffic": {
+      "refetch_factor": 1.1858803285785524,
+      "codeword_reads": 1758721.0071787508,
+      "payload_bits_read": 110798336.0,
+      "embedded_parity_bits_read": 21104652.08614501,
+      "tail_pad_bits_read": 1087.4522613065326,
+      "external_bits": 0.0,
+      "external_dram_words": 0.0,
+      "external_dram_scalars": 0.0,
+      "physical_dram_words_estimate": 1731224.0,
+      "overhead_vs_payload_frac": 0.0,
+      "method": "complete codeword read: every bit of every DRAM weight read that Timeloop counts is billed, message and embedded parity alike, and no K/N reduction is applied at DRAM; no external parity; physical DRAM words are ESTIMATED as bits / word rounded up once at the end (bit-proportional -- Timeloop bills per 8-bit scalar); the final chunk's tail padding is reported, not charged, as for the baseline"
+     },
+     "dram_weight_energy_pJ": 886386688.0,
+     "external_parity_energy_pJ": 0.0,
+     "energy_pJ": 0.0,
+     "pJ_per_dram_weight_scalar": 64.0,
+     "hand_check": {
+      "method": "per-layer codeword-by-codeword walk (each tensor its own stream) summed over layers, compared against the summed closed form; both must agree exactly",
+      "code": "BCH(63,51) embedded in 8-bit weights",
+      "grouping": "layer",
+      "layers_checked": 21,
+      "weights_checked": 11678912,
+      "weights_per_codeword": 7.875,
+      "checks": {
+       "codewords": {
+        "walked": 1483051,
+        "closed_form": 1483051
+       },
+       "payload_bits": {
+        "walked": 93431296,
+        "closed_form": 93431296
+       },
+       "tail_pad_bits": {
+        "walked": 917,
+        "closed_form": 917
+       },
+       "stored_bits": {
+        "walked": 93432213,
+        "closed_form": 93432213
+       },
+       "split_boundaries": {
+        "walked": 1297657,
+        "closed_form": 1297657
+       },
+       "straddling_weights": {
+        "walked": 1297657,
+        "closed_form": 1297657
+       },
+       "stored_dram_words": {
+        "walked": 1459885,
+        "closed_form": 1459885
+       },
+       "external_parity_bits": {
+        "walked": 0,
+        "closed_form": 0
+       }
+      },
+      "mismatches": {},
+      "passed": true
+     },
+     "hand_check_passed": true,
+     "comparison_to_baseline_layout": {
+      "baseline_weights_per_codeword": 6,
+      "baseline_stored_bits_per_weight": 10.5,
+      "embedded_weights_per_codeword": 7.875,
+      "embedded_stored_bits_per_weight": 8.000078517587939,
+      "note": "the baseline stores a codeword BESIDE the data and packs only whole weights into its k-bit message field; the embedded pipeline cuts the weight bit stream itself into n-bit codewords. The two arms therefore count codewords differently, and neither count is a modelling choice."
+     }
+    },
+    "dram_energy_removed_vs_conventional_pJ": 276996608.0,
+    "role": "the reference Task 3 measures reconstruction against: every placement has the same DRAM behaviour as this bar",
+    "ecc_codec_energy": "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout."
+   }
+  },
+  {
+   "name": "recon_source_noc_ingress",
+   "label": "R1 - reconstruct at the source / weight-NoC ingress  [hypothesis 2/5]",
+   "kind": "reconstruction",
+   "status": "evaluated",
+   "total_energy_pJ": 4805637344.372225,
+   "total_energy_uJ": 4805.637344372225,
+   "unavailable_reason": null,
+   "energy_by_component_pJ": {
+    "DRAM": 1433440768.0,
+    "Global buffer": 393143336.8699999,
+    "Local (spads/RF)": 631837727.6599997,
+    "NoC": 219718218.55999997,
+    "Compute": 2120234502.2800004,
+    "Reconstruction": 7262791.002224965
+   },
+   "mapping_ids": [
+    "3c1b85aafa3ab0e0",
+    "4946489f0d6007d3",
+    "4f952b756369d55a",
+    "5166252747cb6ad6",
+    "55faa20c7ac0d89a",
+    "58190dd7ac2e2c92",
+    "65526d8741cdb8e2",
+    "7969f7554d852167",
+    "944ce785312d3728",
+    "95b7472967fddfd6",
+    "bbc46c9e26991773",
+    "c0ce85a0bcd741a0"
+   ],
+   "detail": {
+    "placement": {
+     "key": "recon1",
+     "boundary": "R1 - reconstruct at the source / weight-NoC ingress",
+     "hypothesised_rating": "2/5",
+     "description": "The ECC engine strips the reconstructable bits and one (or a few) encoders put them straight back before the weight enters the network. Nothing on chip carries the reduced form, so nothing on chip gets cheaper; the encoder runs once per codeword fetched from DRAM. It is in the study as the control: it isolates the cost of reconstruction from any of its benefits.",
+     "reduced_stages": [],
+     "reconstruction_site": {
+      "stage": "dram",
+      "counter": "reads",
+      "reuse_register": false
+     }
+    },
+    "feasibility": {
+     "group_assembly": "not PE-local: the reduced form is only in transit, in codeword order from the ECC engine, so a whole group is always available",
+     "G_rec": 9
+    },
+    "reduced_representation": {
+     "mode": "stream",
+     "meaning": "stream: the retained k bits of each codeword are packed with no per-weight alignment, so values per physical word and operands per flit rise by n/k and every stage scales by k/n. aligned: each reduced weight occupies ceil(weight_bits*k/n) whole bits and nothing is repacked, so wire energy falls but a physical word may hold no more values than before and its access count does not move.",
+     "full_bits_per_weight": 8,
+     "reduced_bits_per_weight": 6.476190476190476,
+     "retained_fraction_k_over_n": 0.8095238095238095,
+     "source": "02_reconstruction_dse_and_implementation.txt section 16; the stream layout is eccenergy/embedded.py's"
+    },
+    "reconstruction_granularity": {
+     "charging": "weight",
+     "meaning": "weight: encoder work is proportional to the weights reconstructed, charged at the synthesized per-codeword energy per n/weight_bits of them (the group is rebuilt once and all of it is consumed). codeword: every access at the boundary rebuilds a whole codeword.",
+     "weights_per_codeword": 7.875,
+     "G_rec_weights_touched_per_codeword": 9,
+     "G_rec_meaning": "weights whose retained bits must be available at once to rebuild one ECC group; a codeword that starts mid-weight reaches into one weight more than its length implies",
+     "source": "02_reconstruction_dse_and_implementation.txt section 15; the layout is eccenergy/embedded.py's"
+    },
+    "reconstruction_counts": {
+     "weights_reconstructed": 13849792.0,
+     "counter": "reads",
+     "counter_meaning": "one reconstruction per weight read out of the stage",
+     "amortization_vs_no_retention": 1.0,
+     "reconstruction_events_codewords": 1758703.746031746,
+     "pJ_per_codeword": 4.1296273,
+     "reconstruction_energy_pJ": 7262791.002224965,
+     "reuse_register_writes": 0.0,
+     "pJ_per_reuse_register_write": 0.0,
+     "reuse_register_energy_pJ": 0.0,
+     "reuse_register_entries_required": 0,
+     "reuse_register_bits_required": 0
+    },
+    "reducible_weight_energy_pJ": {
+     "stages_left_reduced": [],
+     "before_pJ": 0,
+     "ceiling_on_the_saving_pJ": 0.0,
+     "note": "the most this boundary could give back if reconstruction were free; the whole on-chip weight path is the ceiling for ANY boundary, and on this architecture it is a small share of inference energy"
+    },
+    "weight_path_stages": [
+     {
+      "stage": "dram",
+      "kind": "dram",
+      "timeloop_levels": [
+       "DRAM"
+      ],
+      "weight_energy_pJ": 886386688.0,
+      "weight_wire_energy_pJ": 0.0,
+      "weight_switching_energy_pJ": 886386688.0,
+      "weight_scalar_reads_total": 13849792.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 0.0,
+      "weights_resident_per_instance": 8192,
+      "physical_word_bits": 64,
+      "instances": 1,
+      "category": "DRAM",
+      "carries_reduced": false,
+      "scale": 1.0,
+      "energy_saved_pJ": 0.0
+     },
+     {
+      "stage": "inter_cluster_mesh",
+      "kind": "network",
+      "timeloop_levels": [
+       "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial"
+      ],
+      "weight_energy_pJ": 24158260.819999997,
+      "weight_wire_energy_pJ": 19288472.748310916,
+      "weight_switching_energy_pJ": 4869788.071689089,
+      "weight_scalar_reads_total": 0.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 13849792.0,
+      "weights_resident_per_instance": 0.0,
+      "physical_word_bits": 8,
+      "instances": 1,
+      "category": "NoC",
+      "carries_reduced": false,
+      "scale": 1.0,
+      "energy_saved_pJ": 0.0
+     },
+     {
+      "stage": "cluster_local",
+      "kind": "network",
+      "timeloop_levels": [
+       "NoC: inter_PE_spatial <==> ifmap_spad"
+      ],
+      "weight_energy_pJ": 13693589.12,
+      "weight_wire_energy_pJ": 6748491.54640509,
+      "weight_switching_energy_pJ": 6945097.573594907,
+      "weight_scalar_reads_total": 0.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 21895552.0,
+      "weights_resident_per_instance": 0.0,
+      "physical_word_bits": 8,
+      "instances": 16,
+      "category": "NoC",
+      "carries_reduced": false,
+      "scale": 1.0,
+      "energy_saved_pJ": 0.0
+     },
+     {
+      "stage": "weight_spad",
+      "kind": "storage",
+      "timeloop_levels": [
+       "weights_spad"
+      ],
+      "weight_energy_pJ": 369276129.9800001,
+      "weight_wire_energy_pJ": 0.0,
+      "weight_switching_energy_pJ": 369276129.9800001,
+      "weight_scalar_reads_total": 1814073344.0,
+      "weight_scalar_fills_total": 21895552.0,
+      "weight_network_ingresses_total": 0.0,
+      "weights_resident_per_instance": 16,
+      "physical_word_bits": 24,
+      "instances": 192,
+      "category": "Local (spads/RF)",
+      "carries_reduced": false,
+      "scale": 1.0,
+      "energy_saved_pJ": 0.0
+     }
+    ],
+    "energy_saved_by_category_pJ": {},
+    "weight_energy_before_pJ": {
+     "DRAM": 886386688.0,
+     "Global buffer": 0.0,
+     "Local (spads/RF)": 369276129.9800001,
+     "NoC": 37851849.94,
+     "Compute": 0.0,
+     "ECC decode": 0.0,
+     "Reconstruction": 0.0,
+     "Recon overhead": 0.0
+    },
+    "dram_unchanged": "the complete protected codeword is read for correction, so the DRAM term is the embedded arm's, to the digit",
+    "placement_key": "recon1",
+    "fixed_mapping": "FIXED-MAPPING RESULT. Every access count, fanout, multicast factor and hop count here is the one Timeloop chose WITHOUT knowing about reconstruction, and the mapper was not re-run for any placement. So this file answers 'what does moving the boundary cost and save at constant data movement', not 'what is the best this architecture can do' -- packed reduced weights raise the effective weight capacity and may enable better tiling, which is Task 4's question and is deliberately not credited here.",
+    "ecc_codec_energy": "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout."
+   }
+  },
+  {
+   "name": "recon_destination_cluster",
+   "label": "R2 - reconstruct at the destination-cluster boundary  [hypothesis 4/5]",
+   "kind": "reconstruction",
+   "status": "evaluated",
+   "total_energy_pJ": 4801035770.882701,
+   "total_energy_uJ": 4801.0357708827005,
+   "unavailable_reason": null,
+   "energy_by_component_pJ": {
+    "DRAM": 1433440768.0,
+    "Global buffer": 393143336.8699999,
+    "Local (spads/RF)": 631837727.6599997,
+    "NoC": 215116645.07047617,
+    "Compute": 2120234502.2800004,
+    "Reconstruction": 7262791.002224965
+   },
+   "mapping_ids": [
+    "3c1b85aafa3ab0e0",
+    "4946489f0d6007d3",
+    "4f952b756369d55a",
+    "5166252747cb6ad6",
+    "55faa20c7ac0d89a",
+    "58190dd7ac2e2c92",
+    "65526d8741cdb8e2",
+    "7969f7554d852167",
+    "944ce785312d3728",
+    "95b7472967fddfd6",
+    "bbc46c9e26991773",
+    "c0ce85a0bcd741a0"
+   ],
+   "detail": {
+    "placement": {
+     "key": "recon2",
+     "boundary": "R2 - reconstruct at the destination-cluster boundary",
+     "hypothesised_rating": "4/5",
+     "description": "The long-distance hierarchical mesh carries the reduced form and an encoder at each destination cluster restores it before the cluster-local fanout. One encoder per cluster rather than one per PE, and the mesh -- the expensive hop -- moves fewer bits.",
+     "reduced_stages": [
+      "inter_cluster_mesh"
+     ],
+     "reconstruction_site": {
+      "stage": "inter_cluster_mesh",
+      "counter": "ingresses",
+      "reuse_register": false
+     }
+    },
+    "feasibility": {
+     "group_assembly": "not PE-local: the reduced form is only in transit, in codeword order from the ECC engine, so a whole group is always available",
+     "G_rec": 9
+    },
+    "reduced_representation": {
+     "mode": "stream",
+     "meaning": "stream: the retained k bits of each codeword are packed with no per-weight alignment, so values per physical word and operands per flit rise by n/k and every stage scales by k/n. aligned: each reduced weight occupies ceil(weight_bits*k/n) whole bits and nothing is repacked, so wire energy falls but a physical word may hold no more values than before and its access count does not move.",
+     "full_bits_per_weight": 8,
+     "reduced_bits_per_weight": 6.476190476190476,
+     "retained_fraction_k_over_n": 0.8095238095238095,
+     "source": "02_reconstruction_dse_and_implementation.txt section 16; the stream layout is eccenergy/embedded.py's"
+    },
+    "reconstruction_granularity": {
+     "charging": "weight",
+     "meaning": "weight: encoder work is proportional to the weights reconstructed, charged at the synthesized per-codeword energy per n/weight_bits of them (the group is rebuilt once and all of it is consumed). codeword: every access at the boundary rebuilds a whole codeword.",
+     "weights_per_codeword": 7.875,
+     "G_rec_weights_touched_per_codeword": 9,
+     "G_rec_meaning": "weights whose retained bits must be available at once to rebuild one ECC group; a codeword that starts mid-weight reaches into one weight more than its length implies",
+     "source": "02_reconstruction_dse_and_implementation.txt section 15; the layout is eccenergy/embedded.py's"
+    },
+    "reconstruction_counts": {
+     "weights_reconstructed": 13849792.0,
+     "counter": "ingresses",
+     "counter_meaning": "one reconstruction per weight word transported",
+     "amortization_vs_no_retention": 1.0,
+     "reconstruction_events_codewords": 1758703.746031746,
+     "pJ_per_codeword": 4.1296273,
+     "reconstruction_energy_pJ": 7262791.002224965,
+     "reuse_register_writes": 0.0,
+     "pJ_per_reuse_register_write": 0.0,
+     "reuse_register_energy_pJ": 0.0,
+     "reuse_register_entries_required": 0,
+     "reuse_register_bits_required": 0
+    },
+    "reducible_weight_energy_pJ": {
+     "stages_left_reduced": [
+      "inter_cluster_mesh"
+     ],
+     "before_pJ": 24158260.819999997,
+     "ceiling_on_the_saving_pJ": 4601573.4895238085,
+     "note": "the most this boundary could give back if reconstruction were free; the whole on-chip weight path is the ceiling for ANY boundary, and on this architecture it is a small share of inference energy"
+    },
+    "weight_path_stages": [
+     {
+      "stage": "dram",
+      "kind": "dram",
+      "timeloop_levels": [
+       "DRAM"
+      ],
+      "weight_energy_pJ": 886386688.0,
+      "weight_wire_energy_pJ": 0.0,
+      "weight_switching_energy_pJ": 886386688.0,
+      "weight_scalar_reads_total": 13849792.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 0.0,
+      "weights_resident_per_instance": 8192,
+      "physical_word_bits": 64,
+      "instances": 1,
+      "category": "DRAM",
+      "carries_reduced": false,
+      "scale": 1.0,
+      "energy_saved_pJ": 0.0
+     },
+     {
+      "stage": "inter_cluster_mesh",
+      "kind": "network",
+      "timeloop_levels": [
+       "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial"
+      ],
+      "weight_energy_pJ": 24158260.819999997,
+      "weight_wire_energy_pJ": 19288472.748310916,
+      "weight_switching_energy_pJ": 4869788.071689089,
+      "weight_scalar_reads_total": 0.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 13849792.0,
+      "weights_resident_per_instance": 0.0,
+      "physical_word_bits": 8,
+      "instances": 1,
+      "category": "NoC",
+      "carries_reduced": true,
+      "scale": 0.8095238095238098,
+      "energy_after_pJ": 19556687.330476195,
+      "energy_saved_pJ": 4601573.489523802
+     },
+     {
+      "stage": "cluster_local",
+      "kind": "network",
+      "timeloop_levels": [
+       "NoC: inter_PE_spatial <==> ifmap_spad"
+      ],
+      "weight_energy_pJ": 13693589.12,
+      "weight_wire_energy_pJ": 6748491.54640509,
+      "weight_switching_energy_pJ": 6945097.573594907,
+      "weight_scalar_reads_total": 0.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 21895552.0,
+      "weights_resident_per_instance": 0.0,
+      "physical_word_bits": 8,
+      "instances": 16,
+      "category": "NoC",
+      "carries_reduced": false,
+      "scale": 1.0,
+      "energy_saved_pJ": 0.0
+     },
+     {
+      "stage": "weight_spad",
+      "kind": "storage",
+      "timeloop_levels": [
+       "weights_spad"
+      ],
+      "weight_energy_pJ": 369276129.9800001,
+      "weight_wire_energy_pJ": 0.0,
+      "weight_switching_energy_pJ": 369276129.9800001,
+      "weight_scalar_reads_total": 1814073344.0,
+      "weight_scalar_fills_total": 21895552.0,
+      "weight_network_ingresses_total": 0.0,
+      "weights_resident_per_instance": 16,
+      "physical_word_bits": 24,
+      "instances": 192,
+      "category": "Local (spads/RF)",
+      "carries_reduced": false,
+      "scale": 1.0,
+      "energy_saved_pJ": 0.0
+     }
+    ],
+    "energy_saved_by_category_pJ": {
+     "NoC": 4601573.489523802
+    },
+    "weight_energy_before_pJ": {
+     "DRAM": 886386688.0,
+     "Global buffer": 0.0,
+     "Local (spads/RF)": 369276129.9800001,
+     "NoC": 37851849.94,
+     "Compute": 0.0,
+     "ECC decode": 0.0,
+     "Reconstruction": 0.0,
+     "Recon overhead": 0.0
+    },
+    "dram_unchanged": "the complete protected codeword is read for correction, so the DRAM term is the embedded arm's, to the digit",
+    "placement_key": "recon2",
+    "fixed_mapping": "FIXED-MAPPING RESULT. Every access count, fanout, multicast factor and hop count here is the one Timeloop chose WITHOUT knowing about reconstruction, and the mapper was not re-run for any placement. So this file answers 'what does moving the boundary cost and save at constant data movement', not 'what is the best this architecture can do' -- packed reduced weights raise the effective weight capacity and may enable better tiling, which is Task 4's question and is deliberately not credited here.",
+    "ecc_codec_energy": "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout."
+   }
+  },
+  {
+   "name": "recon_pe_spad_input",
+   "label": "R3 - reconstruct at the PE weight-SPad input  [hypothesis 4/5]",
+   "kind": "reconstruction",
+   "status": "evaluated",
+   "total_energy_pJ": 4802646641.544955,
+   "total_energy_uJ": 4802.646641544955,
+   "unavailable_reason": null,
+   "energy_by_component_pJ": {
+    "DRAM": 1433440768.0,
+    "Global buffer": 393143336.8699999,
+    "Local (spads/RF)": 631837727.6599997,
+    "NoC": 212508342.38095236,
+    "Compute": 2120234502.2800004,
+    "Reconstruction": 11481964.354002489
+   },
+   "mapping_ids": [
+    "3c1b85aafa3ab0e0",
+    "4946489f0d6007d3",
+    "4f952b756369d55a",
+    "5166252747cb6ad6",
+    "55faa20c7ac0d89a",
+    "58190dd7ac2e2c92",
+    "65526d8741cdb8e2",
+    "7969f7554d852167",
+    "944ce785312d3728",
+    "95b7472967fddfd6",
+    "bbc46c9e26991773",
+    "c0ce85a0bcd741a0"
+   ],
+   "detail": {
+    "placement": {
+     "key": "recon3",
+     "boundary": "R3 - reconstruct at the PE weight-SPad input",
+     "hypothesised_rating": "4/5",
+     "description": "Both networks carry the reduced form; the encoder sits at the scratchpad write port, so the SPad itself stays full width and keeps its capacity and read cost. The encoder runs once per weight FILLED into a PE, which is the smallest count of any boundary below the network.",
+     "reduced_stages": [
+      "inter_cluster_mesh",
+      "cluster_local"
+     ],
+     "reconstruction_site": {
+      "stage": "weight_spad",
+      "counter": "fills",
+      "reuse_register": false
+     }
+    },
+    "feasibility": {
+     "group_assembly": "not PE-local: the reduced form is only in transit, in codeword order from the ECC engine, so a whole group is always available",
+     "G_rec": 9
+    },
+    "reduced_representation": {
+     "mode": "stream",
+     "meaning": "stream: the retained k bits of each codeword are packed with no per-weight alignment, so values per physical word and operands per flit rise by n/k and every stage scales by k/n. aligned: each reduced weight occupies ceil(weight_bits*k/n) whole bits and nothing is repacked, so wire energy falls but a physical word may hold no more values than before and its access count does not move.",
+     "full_bits_per_weight": 8,
+     "reduced_bits_per_weight": 6.476190476190476,
+     "retained_fraction_k_over_n": 0.8095238095238095,
+     "source": "02_reconstruction_dse_and_implementation.txt section 16; the stream layout is eccenergy/embedded.py's"
+    },
+    "reconstruction_granularity": {
+     "charging": "weight",
+     "meaning": "weight: encoder work is proportional to the weights reconstructed, charged at the synthesized per-codeword energy per n/weight_bits of them (the group is rebuilt once and all of it is consumed). codeword: every access at the boundary rebuilds a whole codeword.",
+     "weights_per_codeword": 7.875,
+     "G_rec_weights_touched_per_codeword": 9,
+     "G_rec_meaning": "weights whose retained bits must be available at once to rebuild one ECC group; a codeword that starts mid-weight reaches into one weight more than its length implies",
+     "source": "02_reconstruction_dse_and_implementation.txt section 15; the layout is eccenergy/embedded.py's"
+    },
+    "reconstruction_counts": {
+     "weights_reconstructed": 21895552.0,
+     "counter": "fills",
+     "counter_meaning": "one reconstruction per weight written into the stage",
+     "amortization_vs_no_retention": 1.0,
+     "reconstruction_events_codewords": 2780387.5555555555,
+     "pJ_per_codeword": 4.1296273,
+     "reconstruction_energy_pJ": 11481964.354002489,
+     "reuse_register_writes": 0.0,
+     "pJ_per_reuse_register_write": 0.0,
+     "reuse_register_energy_pJ": 0.0,
+     "reuse_register_entries_required": 0,
+     "reuse_register_bits_required": 0
+    },
+    "reducible_weight_energy_pJ": {
+     "stages_left_reduced": [
+      "inter_cluster_mesh",
+      "cluster_local"
+     ],
+     "before_pJ": 37851849.94,
+     "ceiling_on_the_saving_pJ": 7209876.179047618,
+     "note": "the most this boundary could give back if reconstruction were free; the whole on-chip weight path is the ceiling for ANY boundary, and on this architecture it is a small share of inference energy"
+    },
+    "weight_path_stages": [
+     {
+      "stage": "dram",
+      "kind": "dram",
+      "timeloop_levels": [
+       "DRAM"
+      ],
+      "weight_energy_pJ": 886386688.0,
+      "weight_wire_energy_pJ": 0.0,
+      "weight_switching_energy_pJ": 886386688.0,
+      "weight_scalar_reads_total": 13849792.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 0.0,
+      "weights_resident_per_instance": 8192,
+      "physical_word_bits": 64,
+      "instances": 1,
+      "category": "DRAM",
+      "carries_reduced": false,
+      "scale": 1.0,
+      "energy_saved_pJ": 0.0
+     },
+     {
+      "stage": "inter_cluster_mesh",
+      "kind": "network",
+      "timeloop_levels": [
+       "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial"
+      ],
+      "weight_energy_pJ": 24158260.819999997,
+      "weight_wire_energy_pJ": 19288472.748310916,
+      "weight_switching_energy_pJ": 4869788.071689089,
+      "weight_scalar_reads_total": 0.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 13849792.0,
+      "weights_resident_per_instance": 0.0,
+      "physical_word_bits": 8,
+      "instances": 1,
+      "category": "NoC",
+      "carries_reduced": true,
+      "scale": 0.8095238095238098,
+      "energy_after_pJ": 19556687.330476195,
+      "energy_saved_pJ": 4601573.489523802
+     },
+     {
+      "stage": "cluster_local",
+      "kind": "network",
+      "timeloop_levels": [
+       "NoC: inter_PE_spatial <==> ifmap_spad"
+      ],
+      "weight_energy_pJ": 13693589.12,
+      "weight_wire_energy_pJ": 6748491.54640509,
+      "weight_switching_energy_pJ": 6945097.573594907,
+      "weight_scalar_reads_total": 0.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 21895552.0,
+      "weights_resident_per_instance": 0.0,
+      "physical_word_bits": 8,
+      "instances": 16,
+      "category": "NoC",
+      "carries_reduced": true,
+      "scale": 0.8095238095238094,
+      "energy_after_pJ": 11085286.430476189,
+      "energy_saved_pJ": 2608302.6895238105
+     },
+     {
+      "stage": "weight_spad",
+      "kind": "storage",
+      "timeloop_levels": [
+       "weights_spad"
+      ],
+      "weight_energy_pJ": 369276129.9800001,
+      "weight_wire_energy_pJ": 0.0,
+      "weight_switching_energy_pJ": 369276129.9800001,
+      "weight_scalar_reads_total": 1814073344.0,
+      "weight_scalar_fills_total": 21895552.0,
+      "weight_network_ingresses_total": 0.0,
+      "weights_resident_per_instance": 16,
+      "physical_word_bits": 24,
+      "instances": 192,
+      "category": "Local (spads/RF)",
+      "carries_reduced": false,
+      "scale": 1.0,
+      "energy_saved_pJ": 0.0
+     }
+    ],
+    "energy_saved_by_category_pJ": {
+     "NoC": 7209876.1790476125
+    },
+    "weight_energy_before_pJ": {
+     "DRAM": 886386688.0,
+     "Global buffer": 0.0,
+     "Local (spads/RF)": 369276129.9800001,
+     "NoC": 37851849.94,
+     "Compute": 0.0,
+     "ECC decode": 0.0,
+     "Reconstruction": 0.0,
+     "Recon overhead": 0.0
+    },
+    "dram_unchanged": "the complete protected codeword is read for correction, so the DRAM term is the embedded arm's, to the digit",
+    "placement_key": "recon3",
+    "fixed_mapping": "FIXED-MAPPING RESULT. Every access count, fanout, multicast factor and hop count here is the one Timeloop chose WITHOUT knowing about reconstruction, and the mapper was not re-run for any placement. So this file answers 'what does moving the boundary cost and save at constant data movement', not 'what is the best this architecture can do' -- packed reduced weights raise the effective weight capacity and may enable better tiling, which is Task 4's question and is deliberately not credited here.",
+    "ecc_codec_energy": "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout."
+   }
+  },
+  {
+   "name": "recon_pe_spad_output",
+   "label": "R4a - reconstruct on every weight-SPad read  [hypothesis 3/5]",
+   "kind": "reconstruction",
+   "status": "evaluated",
+   "total_energy_pJ": 5672121199.173771,
+   "total_energy_uJ": 5672.121199173771,
+   "unavailable_reason": null,
+   "energy_by_component_pJ": {
+    "DRAM": 1433440768.0,
+    "Global buffer": 393143336.8699999,
+    "Local (spads/RF)": 561499417.1876187,
+    "NoC": 212508342.38095236,
+    "Compute": 2120234502.2800004,
+    "Reconstruction": 951294832.4551989
+   },
+   "mapping_ids": [
+    "3c1b85aafa3ab0e0",
+    "4946489f0d6007d3",
+    "4f952b756369d55a",
+    "5166252747cb6ad6",
+    "55faa20c7ac0d89a",
+    "58190dd7ac2e2c92",
+    "65526d8741cdb8e2",
+    "7969f7554d852167",
+    "944ce785312d3728",
+    "95b7472967fddfd6",
+    "bbc46c9e26991773",
+    "c0ce85a0bcd741a0"
+   ],
+   "detail": {
+    "placement": {
+     "key": "recon4",
+     "boundary": "R4a - reconstruct on every weight-SPad read",
+     "hypothesised_rating": "3/5",
+     "description": "The scratchpad stores the reduced form, so its write and read bit-volume fall too, and the encoder sits at its read port. The risk the source discussion names is the whole story here: the encoder now runs once per weight DELIVERED to the datapath, and a weight-stationary inner loop delivers each resident weight thousands of times.",
+     "reduced_stages": [
+      "inter_cluster_mesh",
+      "cluster_local",
+      "weight_spad"
+     ],
+     "reconstruction_site": {
+      "stage": "weight_spad",
+      "counter": "reads",
+      "reuse_register": false
+     }
+    },
+    "feasibility": {
+     "G_rec": 9,
+     "rule": "a PE-local boundary needs G_rec weights of the codeword group resident at once; a smaller resident tile means the retained bits the rebuild depends on were never sent to that PE",
+     "checked_stages": [
+      "weight_spad"
+     ],
+     "infeasible_layers": [],
+     "verdict": "feasible for every mapped layer"
+    },
+    "reduced_representation": {
+     "mode": "stream",
+     "meaning": "stream: the retained k bits of each codeword are packed with no per-weight alignment, so values per physical word and operands per flit rise by n/k and every stage scales by k/n. aligned: each reduced weight occupies ceil(weight_bits*k/n) whole bits and nothing is repacked, so wire energy falls but a physical word may hold no more values than before and its access count does not move.",
+     "full_bits_per_weight": 8,
+     "reduced_bits_per_weight": 6.476190476190476,
+     "retained_fraction_k_over_n": 0.8095238095238095,
+     "source": "02_reconstruction_dse_and_implementation.txt section 16; the stream layout is eccenergy/embedded.py's"
+    },
+    "reconstruction_granularity": {
+     "charging": "weight",
+     "meaning": "weight: encoder work is proportional to the weights reconstructed, charged at the synthesized per-codeword energy per n/weight_bits of them (the group is rebuilt once and all of it is consumed). codeword: every access at the boundary rebuilds a whole codeword.",
+     "weights_per_codeword": 7.875,
+     "G_rec_weights_touched_per_codeword": 9,
+     "G_rec_meaning": "weights whose retained bits must be available at once to rebuild one ECC group; a codeword that starts mid-weight reaches into one weight more than its length implies",
+     "source": "02_reconstruction_dse_and_implementation.txt section 15; the layout is eccenergy/embedded.py's"
+    },
+    "reconstruction_counts": {
+     "weights_reconstructed": 1814073344.0,
+     "counter": "reads",
+     "counter_meaning": "one reconstruction per weight read out of the stage",
+     "amortization_vs_no_retention": 1.0,
+     "reconstruction_events_codewords": 230358519.87301588,
+     "pJ_per_codeword": 4.1296273,
+     "reconstruction_energy_pJ": 951294832.4551989,
+     "reuse_register_writes": 0.0,
+     "pJ_per_reuse_register_write": 0.0,
+     "reuse_register_energy_pJ": 0.0,
+     "reuse_register_entries_required": 0,
+     "reuse_register_bits_required": 0
+    },
+    "reducible_weight_energy_pJ": {
+     "stages_left_reduced": [
+      "inter_cluster_mesh",
+      "cluster_local",
+      "weight_spad"
+     ],
+     "before_pJ": 407127979.9200001,
+     "ceiling_on_the_saving_pJ": 77548186.65142858,
+     "note": "the most this boundary could give back if reconstruction were free; the whole on-chip weight path is the ceiling for ANY boundary, and on this architecture it is a small share of inference energy"
+    },
+    "weight_path_stages": [
+     {
+      "stage": "dram",
+      "kind": "dram",
+      "timeloop_levels": [
+       "DRAM"
+      ],
+      "weight_energy_pJ": 886386688.0,
+      "weight_wire_energy_pJ": 0.0,
+      "weight_switching_energy_pJ": 886386688.0,
+      "weight_scalar_reads_total": 13849792.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 0.0,
+      "weights_resident_per_instance": 8192,
+      "physical_word_bits": 64,
+      "instances": 1,
+      "category": "DRAM",
+      "carries_reduced": false,
+      "scale": 1.0,
+      "energy_saved_pJ": 0.0
+     },
+     {
+      "stage": "inter_cluster_mesh",
+      "kind": "network",
+      "timeloop_levels": [
+       "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial"
+      ],
+      "weight_energy_pJ": 24158260.819999997,
+      "weight_wire_energy_pJ": 19288472.748310916,
+      "weight_switching_energy_pJ": 4869788.071689089,
+      "weight_scalar_reads_total": 0.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 13849792.0,
+      "weights_resident_per_instance": 0.0,
+      "physical_word_bits": 8,
+      "instances": 1,
+      "category": "NoC",
+      "carries_reduced": true,
+      "scale": 0.8095238095238098,
+      "energy_after_pJ": 19556687.330476195,
+      "energy_saved_pJ": 4601573.489523802
+     },
+     {
+      "stage": "cluster_local",
+      "kind": "network",
+      "timeloop_levels": [
+       "NoC: inter_PE_spatial <==> ifmap_spad"
+      ],
+      "weight_energy_pJ": 13693589.12,
+      "weight_wire_energy_pJ": 6748491.54640509,
+      "weight_switching_energy_pJ": 6945097.573594907,
+      "weight_scalar_reads_total": 0.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 21895552.0,
+      "weights_resident_per_instance": 0.0,
+      "physical_word_bits": 8,
+      "instances": 16,
+      "category": "NoC",
+      "carries_reduced": true,
+      "scale": 0.8095238095238094,
+      "energy_after_pJ": 11085286.430476189,
+      "energy_saved_pJ": 2608302.6895238105
+     },
+     {
+      "stage": "weight_spad",
+      "kind": "storage",
+      "timeloop_levels": [
+       "weights_spad"
+      ],
+      "weight_energy_pJ": 369276129.9800001,
+      "weight_wire_energy_pJ": 0.0,
+      "weight_switching_energy_pJ": 369276129.9800001,
+      "weight_scalar_reads_total": 1814073344.0,
+      "weight_scalar_fills_total": 21895552.0,
+      "weight_network_ingresses_total": 0.0,
+      "weights_resident_per_instance": 16,
+      "physical_word_bits": 24,
+      "instances": 192,
+      "category": "Local (spads/RF)",
+      "carries_reduced": true,
+      "scale": 0.8095238095238095,
+      "energy_after_pJ": 298937819.50761914,
+      "energy_saved_pJ": 70338310.47238094
+     }
+    ],
+    "energy_saved_by_category_pJ": {
+     "NoC": 7209876.1790476125,
+     "Local (spads/RF)": 70338310.47238094
+    },
+    "weight_energy_before_pJ": {
+     "DRAM": 886386688.0,
+     "Global buffer": 0.0,
+     "Local (spads/RF)": 369276129.9800001,
+     "NoC": 37851849.94,
+     "Compute": 0.0,
+     "ECC decode": 0.0,
+     "Reconstruction": 0.0,
+     "Recon overhead": 0.0
+    },
+    "dram_unchanged": "the complete protected codeword is read for correction, so the DRAM term is the embedded arm's, to the digit",
+    "placement_key": "recon4",
+    "fixed_mapping": "FIXED-MAPPING RESULT. Every access count, fanout, multicast factor and hop count here is the one Timeloop chose WITHOUT knowing about reconstruction, and the mapper was not re-run for any placement. So this file answers 'what does moving the boundary cost and save at constant data movement', not 'what is the best this architecture can do' -- packed reduced weights raise the effective weight capacity and may enable better tiling, which is Task 4's question and is deliberately not credited here.",
+    "ecc_codec_energy": "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout."
+   }
+  },
+  {
+   "name": "recon_pe_spad_output_reuse_reg",
+   "label": "R4b - SPad output with a reconstructed-weight reuse register  [hypothesis 5/5]",
+   "kind": "reconstruction",
+   "status": "evaluated",
+   "total_energy_pJ": 4733026778.872575,
+   "total_energy_uJ": 4733.026778872575,
+   "unavailable_reason": null,
+   "energy_by_component_pJ": {
+    "DRAM": 1433440768.0,
+    "Global buffer": 393143336.8699999,
+    "Local (spads/RF)": 561499417.1876187,
+    "NoC": 212508342.38095236,
+    "Compute": 2120234502.2800004,
+    "Reconstruction": 11481964.354002489,
+    "Recon overhead": 718447.8
+   },
+   "mapping_ids": [
+    "3c1b85aafa3ab0e0",
+    "4946489f0d6007d3",
+    "4f952b756369d55a",
+    "5166252747cb6ad6",
+    "55faa20c7ac0d89a",
+    "58190dd7ac2e2c92",
+    "65526d8741cdb8e2",
+    "7969f7554d852167",
+    "944ce785312d3728",
+    "95b7472967fddfd6",
+    "bbc46c9e26991773",
+    "c0ce85a0bcd741a0"
+   ],
+   "detail": {
+    "placement": {
+     "key": "recon5",
+     "boundary": "R4b - SPad output with a reconstructed-weight reuse register",
+     "hypothesised_rating": "5/5",
+     "description": "R4a's savings with the reconstruction amortized: a full-width register holds what the encoder rebuilt and reloads only when the required weight changes, so one reconstruction serves every use until the scratchpad tile is replaced. The amortization is read off the mapping -- the loops below the scratchpad walk a tile of `inner_tile` weights and repeat reads/fills times -- so a register covering that tile reconstructs once per FILL, the same count as R3, while keeping the scratchpad reduced. A register smaller than the tile catches nothing, because a cyclic walk is the LRU worst case. See `retention_model()`.",
+     "reduced_stages": [
+      "inter_cluster_mesh",
+      "cluster_local",
+      "weight_spad"
+     ],
+     "reconstruction_site": {
+      "stage": "weight_spad",
+      "counter": "retained",
+      "reuse_register": true
+     }
+    },
+    "feasibility": {
+     "G_rec": 9,
+     "rule": "a PE-local boundary needs G_rec weights of the codeword group resident at once; a smaller resident tile means the retained bits the rebuild depends on were never sent to that PE",
+     "checked_stages": [
+      "weight_spad"
+     ],
+     "infeasible_layers": [],
+     "verdict": "feasible for every mapped layer"
+    },
+    "reduced_representation": {
+     "mode": "stream",
+     "meaning": "stream: the retained k bits of each codeword are packed with no per-weight alignment, so values per physical word and operands per flit rise by n/k and every stage scales by k/n. aligned: each reduced weight occupies ceil(weight_bits*k/n) whole bits and nothing is repacked, so wire energy falls but a physical word may hold no more values than before and its access count does not move.",
+     "full_bits_per_weight": 8,
+     "reduced_bits_per_weight": 6.476190476190476,
+     "retained_fraction_k_over_n": 0.8095238095238095,
+     "source": "02_reconstruction_dse_and_implementation.txt section 16; the stream layout is eccenergy/embedded.py's"
+    },
+    "reconstruction_granularity": {
+     "charging": "weight",
+     "meaning": "weight: encoder work is proportional to the weights reconstructed, charged at the synthesized per-codeword energy per n/weight_bits of them (the group is rebuilt once and all of it is consumed). codeword: every access at the boundary rebuilds a whole codeword.",
+     "weights_per_codeword": 7.875,
+     "G_rec_weights_touched_per_codeword": 9,
+     "G_rec_meaning": "weights whose retained bits must be available at once to rebuild one ECC group; a codeword that starts mid-weight reaches into one weight more than its length implies",
+     "source": "02_reconstruction_dse_and_implementation.txt section 15; the layout is eccenergy/embedded.py's"
+    },
+    "reconstruction_counts": {
+     "weights_reconstructed": 21895552.0,
+     "counter": "retained",
+     "counter_meaning": "one reconstruction per weight per buffer FILL where the reuse register covers the tile the loops walk, per read where it does not -- see reconstructed_weight_retention",
+     "amortization_vs_no_retention": 82.85122676971103,
+     "reconstruction_events_codewords": 2780387.5555555555,
+     "pJ_per_codeword": 4.1296273,
+     "reconstruction_energy_pJ": 11481964.354002489,
+     "reuse_register_writes": 21895552.0,
+     "pJ_per_reuse_register_write": 0.0328125,
+     "reuse_register_energy_pJ": 718447.8,
+     "reuse_register_entries_required": 256,
+     "reuse_register_bits_required": 2048
+    },
+    "reducible_weight_energy_pJ": {
+     "stages_left_reduced": [
+      "inter_cluster_mesh",
+      "cluster_local",
+      "weight_spad"
+     ],
+     "before_pJ": 407127979.9200001,
+     "ceiling_on_the_saving_pJ": 77548186.65142858,
+     "note": "the most this boundary could give back if reconstruction were free; the whole on-chip weight path is the ceiling for ANY boundary, and on this architecture it is a small share of inference energy"
+    },
+    "weight_path_stages": [
+     {
+      "stage": "dram",
+      "kind": "dram",
+      "timeloop_levels": [
+       "DRAM"
+      ],
+      "weight_energy_pJ": 886386688.0,
+      "weight_wire_energy_pJ": 0.0,
+      "weight_switching_energy_pJ": 886386688.0,
+      "weight_scalar_reads_total": 13849792.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 0.0,
+      "weights_resident_per_instance": 8192,
+      "physical_word_bits": 64,
+      "instances": 1,
+      "category": "DRAM",
+      "carries_reduced": false,
+      "scale": 1.0,
+      "energy_saved_pJ": 0.0
+     },
+     {
+      "stage": "inter_cluster_mesh",
+      "kind": "network",
+      "timeloop_levels": [
+       "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial"
+      ],
+      "weight_energy_pJ": 24158260.819999997,
+      "weight_wire_energy_pJ": 19288472.748310916,
+      "weight_switching_energy_pJ": 4869788.071689089,
+      "weight_scalar_reads_total": 0.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 13849792.0,
+      "weights_resident_per_instance": 0.0,
+      "physical_word_bits": 8,
+      "instances": 1,
+      "category": "NoC",
+      "carries_reduced": true,
+      "scale": 0.8095238095238098,
+      "energy_after_pJ": 19556687.330476195,
+      "energy_saved_pJ": 4601573.489523802
+     },
+     {
+      "stage": "cluster_local",
+      "kind": "network",
+      "timeloop_levels": [
+       "NoC: inter_PE_spatial <==> ifmap_spad"
+      ],
+      "weight_energy_pJ": 13693589.12,
+      "weight_wire_energy_pJ": 6748491.54640509,
+      "weight_switching_energy_pJ": 6945097.573594907,
+      "weight_scalar_reads_total": 0.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 21895552.0,
+      "weights_resident_per_instance": 0.0,
+      "physical_word_bits": 8,
+      "instances": 16,
+      "category": "NoC",
+      "carries_reduced": true,
+      "scale": 0.8095238095238094,
+      "energy_after_pJ": 11085286.430476189,
+      "energy_saved_pJ": 2608302.6895238105
+     },
+     {
+      "stage": "weight_spad",
+      "kind": "storage",
+      "timeloop_levels": [
+       "weights_spad"
+      ],
+      "weight_energy_pJ": 369276129.9800001,
+      "weight_wire_energy_pJ": 0.0,
+      "weight_switching_energy_pJ": 369276129.9800001,
+      "weight_scalar_reads_total": 1814073344.0,
+      "weight_scalar_fills_total": 21895552.0,
+      "weight_network_ingresses_total": 0.0,
+      "weights_resident_per_instance": 16,
+      "physical_word_bits": 24,
+      "instances": 192,
+      "category": "Local (spads/RF)",
+      "carries_reduced": true,
+      "scale": 0.8095238095238095,
+      "energy_after_pJ": 298937819.50761914,
+      "energy_saved_pJ": 70338310.47238094
+     }
+    ],
+    "energy_saved_by_category_pJ": {
+     "NoC": 7209876.1790476125,
+     "Local (spads/RF)": 70338310.47238094
+    },
+    "weight_energy_before_pJ": {
+     "DRAM": 886386688.0,
+     "Global buffer": 0.0,
+     "Local (spads/RF)": 369276129.9800001,
+     "NoC": 37851849.94,
+     "Compute": 0.0,
+     "ECC decode": 0.0,
+     "Reconstruction": 0.0,
+     "Recon overhead": 0.0
+    },
+    "dram_unchanged": "the complete protected codeword is read for correction, so the DRAM term is the embedded arm's, to the digit",
+    "placement_key": "recon5",
+    "fixed_mapping": "FIXED-MAPPING RESULT. Every access count, fanout, multicast factor and hop count here is the one Timeloop chose WITHOUT knowing about reconstruction, and the mapper was not re-run for any placement. So this file answers 'what does moving the boundary cost and save at constant data movement', not 'what is the best this architecture can do' -- packed reduced weights raise the effective weight capacity and may enable better tiling, which is Task 4's question and is deliberately not credited here.",
+    "ecc_codec_energy": "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout."
+   }
+  }
+ ],
+ "detail": {
+  "architecture": {
+   "source_yaml": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/archs/eyeriss_v2_like/arch_paper.yaml",
+   "fingerprint": "71d497c0376a",
+   "accumulator_bits": 20,
+   "accumulator_evidence": "Table IV, \"Arithmetic Precision: weights & iacts: 8b fixed-point / psums: 20b fixed-point\"; Table V repeats it for all three variants. Verified against the arXiv PDF, 2026-09-06.",
+   "contract_report": {
+    "arch": "eyeriss_v2_like",
+    "violations": [],
+    "notes": [
+     "published at TSMC 65nm LP 1P9M, modelled at 45nm. Deliberate: a mixed-node comparison would report silicon as architecture.",
+     "interconnect: hierarchical_mesh_with_routers -- wire 0.12 pJ/b/mm (shared); PE_cluster: router 0.0833333 pJ, ingress 0 pJ; PE: router 0 pJ, ingress 0 pJ; datapath, not NoC: ['SIMD'] (archs/_shared/noc.yaml)"
+    ],
+    "facts": {
+     "source": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/archs/eyeriss_v2_like/arch_paper.yaml",
+     "origin": "published",
+     "label": "Eyeriss v2",
+     "accumulator_bits": 20,
+     "accumulator_evidence": "Table IV, \"Arithmetic Precision: weights & iacts: 8b fixed-point / psums: 20b fixed-point\"; Table V repeats it for all three variants. Verified against the arXiv PDF, 2026-09-06.",
+     "citation": "Y.-H. Chen, T.-J. Yang, J. Emer, V. Sze, \"Eyeriss v2: A Flexible Accelerator for Emerging Deep Neural Networks on Mobile Devices\", IEEE JETCAS 9(2), 2019.  arXiv:1807.07928.",
+     "technology_declared": [
+      "45nm"
+     ],
+     "noc": {
+      "structure": "hierarchical_mesh_with_routers",
+      "wire_pj_per_bit_mm": 0.12,
+      "source": "published",
+      "router_pj_per_flit": 0.25,
+      "operands_per_flit": 3.0,
+      "levels": {
+       "PE_cluster": {
+        "router_pj": 0.08333333333333333,
+        "ingress_pj": 0.0
+       },
+       "PE": {
+        "router_pj": 0.0,
+        "ingress_pj": 0.0
+       }
+      },
+      "datapath_levels": [
+       "SIMD"
+      ]
+     },
+     "dram": {
+      "width": 64,
+      "datawidth": 8,
+      "depth": 1048576
+     },
+     "mac": {
+      "multiplier_width": 8,
+      "adder_width": 20
+     },
+     "levels": [
+      {
+       "name": "iact_glb",
+       "class": "smartbuffer_SRAM",
+       "depth": 9216,
+       "width": 64,
+       "datawidth": 8,
+       "entries_each": 73728,
+       "instances": 1,
+       "keep": [
+        "Inputs"
+       ],
+       "bypass": [
+        "Weights",
+        "Outputs"
+       ]
+      },
+      {
+       "name": "psum_glb",
+       "class": "smartbuffer_SRAM",
+       "depth": 24576,
+       "width": 40,
+       "datawidth": 20,
+       "entries_each": 49152,
+       "instances": 1,
+       "keep": [
+        "Outputs"
+       ],
+       "bypass": [
+        "Weights",
+        "Inputs"
+       ]
+      },
+      {
+       "name": "ifmap_spad",
+       "class": "smartbuffer_RF_decoded",
+       "depth": 24,
+       "width": 8,
+       "datawidth": 8,
+       "entries_each": 24,
+       "instances": 192,
+       "keep": [
+        "Inputs"
+       ],
+       "bypass": []
+      },
+      {
+       "name": "weights_spad",
+       "class": "smartbuffer_SRAM",
+       "depth": 96,
+       "width": 24,
+       "datawidth": 8,
+       "entries_each": 288,
+       "instances": 192,
+       "keep": [
+        "Weights"
+       ],
+       "bypass": []
+      },
+      {
+       "name": "psum_spad",
+       "class": "smartbuffer_RF_decoded",
+       "depth": 32,
+       "width": 20,
+       "datawidth": 20,
+       "entries_each": 32,
+       "instances": 192,
+       "keep": [
+        "Outputs"
+       ],
+       "bypass": []
+      }
+     ],
+     "total_fanout": 384,
+     "weight_levels": [
+      {
+       "name": "weights_spad",
+       "entries_each": 288,
+       "instances": 192,
+       "entries_total": 55296
+      }
+     ],
+     "weight_capacity": 55296,
+     "glb_keeps_weights": false
+    }
+   },
+   "provenance": {
+    "source_document": "Chen, Yang, Emer, Sze, IEEE JETCAS 9(2), 2019 (arXiv:1807.07928)",
+    "url": "https://arxiv.org/abs/1807.07928",
+    "verified": "2026-09-06",
+    "levels": {
+     "DRAM": {
+      "quote": "study-wide DRAM model, not from the paper"
+     },
+     "iact_glb + psum_glb": {
+      "quote": "Table IV: Global Buffer 192 KB (SRAM)",
+      "modelled": "72 kB iact (48 banks) + 120 kB psum (64 banks) = 192 kB"
+     },
+     "weights_glb": {
+      "modelled": "!Nothing -- weights have no GLB level in v2",
+      "rationale": "Weights stream from DRAM through the weight routers into the PE spads. This is the single largest architectural difference from v1 in a weight-traffic study, so it is left as the paper describes it. The eyeriss_v2_like_wglb variant exists to bound what that costs."
+     },
+     "weights_spad": {
+      "quote": "Table IV: weight data: 288B (SRAM); Fig. 17: 96 x 24b SRAM",
+      "modelled": "depth 96, width 24, datawidth 8 -> 288 weights/PE, 55,296 on chip",
+      "contested": "Sec. III-D (\"each count-data pair is 12b and is stored in a 12b word of the data SPad\") supports a CSC-native reading of 2 weights per 24b word = 192 weights/PE. The dense-bytes rule in standard.yaml gives 288. The difference is a third of v2's on-chip weight capacity and therefore materially changes its DRAM refetch; it is the largest single modelling judgement in the study. Recorded here so a reader can disagree with it."
+     },
+     "ifmap_spad": {
+      "quote": "Table IV: iact data: 24B (Reg); Fig. 17: 16 x 12b Regs",
+      "modelled": "depth 24, width 8, datawidth 8 -> 24 iacts/PE",
+      "approximation": "Timeloop requires width % datawidth == 0 and the published word is 12b, which 8 does not divide. Modelled as 24 x 8b: same 24 B, same 24 operands, 24 narrow words instead of 16 wide ones. Per-access register energy is therefore for a narrower word than the design has. This is the only place in the study where a published word width cannot be declared as-is."
+     },
+     "psum_spad": {
+      "quote": "Table IV: psum: 80B (Reg); Fig. 17: 32 x 20b Regs",
+      "modelled": "depth 32, width 20, datawidth 20 -- exact"
+     },
+     "mac": {
+      "quote": "Table IV: Arithmetic Precision: weights & iacts: 8b fixed-point / psums: 20b fixed-point",
+      "modelled": "multiplier_width 8, adder_width 20"
+     },
+     "PE_array": {
+      "quote": "Table IV: Number of PEs 192",
+      "modelled": "16 PE clusters x 12 PEs, flattened from the physical 8x2 / 3x4"
+     },
+     "SIMD": {
+      "quote": "Table V: # of MACs ... Eyeriss v2: 384",
+      "modelled": "a 2-wide SIMD container under each PE (192 PEs x 2 = 384 MACs)"
+     }
+    }
+   }
+  },
+  "workload": {
+   "file": "cnn",
+   "layers": [
+    {
+     "name": "conv1",
+     "shape_signature": "C3_M64_R7_S7_P112_Q112_ws2_hs2",
+     "dims": {
+      "C": 3,
+      "M": 64,
+      "R": 7,
+      "S": 7,
+      "P": 112,
+      "Q": 112,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 9408,
+     "macs": 118013952
+    },
+    {
+     "name": "layer1.0.conv1",
+     "shape_signature": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+     "dims": {
+      "C": 64,
+      "M": 64,
+      "R": 3,
+      "S": 3,
+      "P": 56,
+      "Q": 56,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 36864,
+     "macs": 115605504
+    },
+    {
+     "name": "layer1.0.conv2",
+     "shape_signature": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+     "dims": {
+      "C": 64,
+      "M": 64,
+      "R": 3,
+      "S": 3,
+      "P": 56,
+      "Q": 56,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 36864,
+     "macs": 115605504
+    },
+    {
+     "name": "layer1.1.conv1",
+     "shape_signature": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+     "dims": {
+      "C": 64,
+      "M": 64,
+      "R": 3,
+      "S": 3,
+      "P": 56,
+      "Q": 56,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 36864,
+     "macs": 115605504
+    },
+    {
+     "name": "layer1.1.conv2",
+     "shape_signature": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+     "dims": {
+      "C": 64,
+      "M": 64,
+      "R": 3,
+      "S": 3,
+      "P": 56,
+      "Q": 56,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 36864,
+     "macs": 115605504
+    },
+    {
+     "name": "layer2.0.conv1",
+     "shape_signature": "C64_M128_R3_S3_P28_Q28_ws2_hs2",
+     "dims": {
+      "C": 64,
+      "M": 128,
+      "R": 3,
+      "S": 3,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 73728,
+     "macs": 57802752
+    },
+    {
+     "name": "layer2.0.conv2",
+     "shape_signature": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+     "dims": {
+      "C": 128,
+      "M": 128,
+      "R": 3,
+      "S": 3,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 147456,
+     "macs": 115605504
+    },
+    {
+     "name": "layer2.0.downsample.0",
+     "shape_signature": "C64_M128_R1_S1_P28_Q28_ws2_hs2",
+     "dims": {
+      "C": 64,
+      "M": 128,
+      "R": 1,
+      "S": 1,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 8192,
+     "macs": 6422528
+    },
+    {
+     "name": "layer2.1.conv1",
+     "shape_signature": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+     "dims": {
+      "C": 128,
+      "M": 128,
+      "R": 3,
+      "S": 3,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 147456,
+     "macs": 115605504
+    },
+    {
+     "name": "layer2.1.conv2",
+     "shape_signature": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+     "dims": {
+      "C": 128,
+      "M": 128,
+      "R": 3,
+      "S": 3,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 147456,
+     "macs": 115605504
+    },
+    {
+     "name": "layer3.0.conv1",
+     "shape_signature": "C128_M256_R3_S3_P14_Q14_ws2_hs2",
+     "dims": {
+      "C": 128,
+      "M": 256,
+      "R": 3,
+      "S": 3,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 294912,
+     "macs": 57802752
+    },
+    {
+     "name": "layer3.0.conv2",
+     "shape_signature": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 256,
+      "M": 256,
+      "R": 3,
+      "S": 3,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 589824,
+     "macs": 115605504
+    },
+    {
+     "name": "layer3.0.downsample.0",
+     "shape_signature": "C128_M256_R1_S1_P14_Q14_ws2_hs2",
+     "dims": {
+      "C": 128,
+      "M": 256,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 32768,
+     "macs": 6422528
+    },
+    {
+     "name": "layer3.1.conv1",
+     "shape_signature": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 256,
+      "M": 256,
+      "R": 3,
+      "S": 3,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 589824,
+     "macs": 115605504
+    },
+    {
+     "name": "layer3.1.conv2",
+     "shape_signature": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 256,
+      "M": 256,
+      "R": 3,
+      "S": 3,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 589824,
+     "macs": 115605504
+    },
+    {
+     "name": "layer4.0.conv1",
+     "shape_signature": "C256_M512_R3_S3_P7_Q7_ws2_hs2",
+     "dims": {
+      "C": 256,
+      "M": 512,
+      "R": 3,
+      "S": 3,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 1179648,
+     "macs": 57802752
+    },
+    {
+     "name": "layer4.0.conv2",
+     "shape_signature": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+     "dims": {
+      "C": 512,
+      "M": 512,
+      "R": 3,
+      "S": 3,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 2359296,
+     "macs": 115605504
+    },
+    {
+     "name": "layer4.0.downsample.0",
+     "shape_signature": "C256_M512_R1_S1_P7_Q7_ws2_hs2",
+     "dims": {
+      "C": 256,
+      "M": 512,
+      "R": 1,
+      "S": 1,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 131072,
+     "macs": 6422528
+    },
+    {
+     "name": "layer4.1.conv1",
+     "shape_signature": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+     "dims": {
+      "C": 512,
+      "M": 512,
+      "R": 3,
+      "S": 3,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 2359296,
+     "macs": 115605504
+    },
+    {
+     "name": "layer4.1.conv2",
+     "shape_signature": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+     "dims": {
+      "C": 512,
+      "M": 512,
+      "R": 3,
+      "S": 3,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 2359296,
+     "macs": 115605504
+    },
+    {
+     "name": "fc",
+     "shape_signature": "C512_M1000_R1_S1_P1_Q1_ws1_hs1",
+     "dims": {
+      "C": 512,
+      "M": 1000,
+      "R": 1,
+      "S": 1,
+      "P": 1,
+      "Q": 1,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 512000,
+     "macs": 512000
+    }
+   ],
+   "layer_scope": "full",
+   "total_weights": 11678912
+  },
+  "per_layer": [
+   {
+    "layer": "conv1",
+    "shape": "C3_M64_R7_S7_P112_Q112_ws2_hs2",
+    "status": "ok",
+    "weights": 9408,
+    "macs": 118013952,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "95b7472967fddfd6",
+    "mapping_cached": false,
+    "total_energy_pJ": 283324486.69000006,
+    "dram_weight_reads": 9408.0,
+    "dram_weight_energy_pJ": 602112.0
+   },
+   {
+    "layer": "layer1.0.conv1",
+    "shape": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+    "status": "ok",
+    "weights": 36864,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "944ce785312d3728",
+    "mapping_cached": false,
+    "total_energy_pJ": 287293052.6299999,
+    "dram_weight_reads": 516096.0,
+    "dram_weight_energy_pJ": 33030144.0
+   },
+   {
+    "layer": "layer1.0.conv2",
+    "shape": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+    "status": "ok",
+    "weights": 36864,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "944ce785312d3728",
+    "mapping_cached": false,
+    "total_energy_pJ": 287293052.6299999,
+    "dram_weight_reads": 516096.0,
+    "dram_weight_energy_pJ": 33030144.0
+   },
+   {
+    "layer": "layer1.1.conv1",
+    "shape": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+    "status": "ok",
+    "weights": 36864,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "944ce785312d3728",
+    "mapping_cached": false,
+    "total_energy_pJ": 287293052.6299999,
+    "dram_weight_reads": 516096.0,
+    "dram_weight_energy_pJ": 33030144.0
+   },
+   {
+    "layer": "layer1.1.conv2",
+    "shape": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+    "status": "ok",
+    "weights": 36864,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "944ce785312d3728",
+    "mapping_cached": false,
+    "total_energy_pJ": 287293052.6299999,
+    "dram_weight_reads": 516096.0,
+    "dram_weight_energy_pJ": 33030144.0
+   },
+   {
+    "layer": "layer2.0.conv1",
+    "shape": "C64_M128_R3_S3_P28_Q28_ws2_hs2",
+    "status": "ok",
+    "weights": 73728,
+    "macs": 57802752,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "4946489f0d6007d3",
+    "mapping_cached": false,
+    "total_energy_pJ": 144902734.44999996,
+    "dram_weight_reads": 294912.0,
+    "dram_weight_energy_pJ": 18874368.0
+   },
+   {
+    "layer": "layer2.0.conv2",
+    "shape": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+    "status": "ok",
+    "weights": 147456,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "c0ce85a0bcd741a0",
+    "mapping_cached": false,
+    "total_energy_pJ": 264555148.35000002,
+    "dram_weight_reads": 147456.0,
+    "dram_weight_energy_pJ": 9437184.0
+   },
+   {
+    "layer": "layer2.0.downsample.0",
+    "shape": "C64_M128_R1_S1_P28_Q28_ws2_hs2",
+    "status": "ok",
+    "weights": 8192,
+    "macs": 6422528,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "55faa20c7ac0d89a",
+    "mapping_cached": false,
+    "total_energy_pJ": 29795031.230000004,
+    "dram_weight_reads": 8192.0,
+    "dram_weight_energy_pJ": 524288.0
+   },
+   {
+    "layer": "layer2.1.conv1",
+    "shape": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+    "status": "ok",
+    "weights": 147456,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "c0ce85a0bcd741a0",
+    "mapping_cached": false,
+    "total_energy_pJ": 264555148.35000002,
+    "dram_weight_reads": 147456.0,
+    "dram_weight_energy_pJ": 9437184.0
+   },
+   {
+    "layer": "layer2.1.conv2",
+    "shape": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+    "status": "ok",
+    "weights": 147456,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "c0ce85a0bcd741a0",
+    "mapping_cached": false,
+    "total_energy_pJ": 264555148.35000002,
+    "dram_weight_reads": 147456.0,
+    "dram_weight_energy_pJ": 9437184.0
+   },
+   {
+    "layer": "layer3.0.conv1",
+    "shape": "C128_M256_R3_S3_P14_Q14_ws2_hs2",
+    "status": "ok",
+    "weights": 294912,
+    "macs": 57802752,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "5166252747cb6ad6",
+    "mapping_cached": false,
+    "total_energy_pJ": 164601256.04,
+    "dram_weight_reads": 294912.0,
+    "dram_weight_energy_pJ": 18874368.0
+   },
+   {
+    "layer": "layer3.0.conv2",
+    "shape": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 589824,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "4f952b756369d55a",
+    "mapping_cached": false,
+    "total_energy_pJ": 289454981.81,
+    "dram_weight_reads": 589824.0,
+    "dram_weight_energy_pJ": 37748736.0
+   },
+   {
+    "layer": "layer3.0.downsample.0",
+    "shape": "C128_M256_R1_S1_P14_Q14_ws2_hs2",
+    "status": "ok",
+    "weights": 32768,
+    "macs": 6422528,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "7969f7554d852167",
+    "mapping_cached": false,
+    "total_energy_pJ": 29602349.9,
+    "dram_weight_reads": 65536.0,
+    "dram_weight_energy_pJ": 4194304.0
+   },
+   {
+    "layer": "layer3.1.conv1",
+    "shape": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 589824,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "4f952b756369d55a",
+    "mapping_cached": false,
+    "total_energy_pJ": 289454981.81,
+    "dram_weight_reads": 589824.0,
+    "dram_weight_energy_pJ": 37748736.0
+   },
+   {
+    "layer": "layer3.1.conv2",
+    "shape": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 589824,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "4f952b756369d55a",
+    "mapping_cached": false,
+    "total_energy_pJ": 289454981.81,
+    "dram_weight_reads": 589824.0,
+    "dram_weight_energy_pJ": 37748736.0
+   },
+   {
+    "layer": "layer4.0.conv1",
+    "shape": "C256_M512_R3_S3_P7_Q7_ws2_hs2",
+    "status": "ok",
+    "weights": 1179648,
+    "macs": 57802752,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "bbc46c9e26991773",
+    "mapping_cached": false,
+    "total_energy_pJ": 189136821.08999997,
+    "dram_weight_reads": 1179648.0,
+    "dram_weight_energy_pJ": 75497472.0
+   },
+   {
+    "layer": "layer4.0.conv2",
+    "shape": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+    "status": "ok",
+    "weights": 2359296,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "3c1b85aafa3ab0e0",
+    "mapping_cached": false,
+    "total_energy_pJ": 362402545.76000005,
+    "dram_weight_reads": 2359296.0,
+    "dram_weight_energy_pJ": 150994944.0
+   },
+   {
+    "layer": "layer4.0.downsample.0",
+    "shape": "C256_M512_R1_S1_P7_Q7_ws2_hs2",
+    "status": "ok",
+    "weights": 131072,
+    "macs": 6422528,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "58190dd7ac2e2c92",
+    "mapping_cached": false,
+    "total_energy_pJ": 24573916.029999994,
+    "dram_weight_reads": 131072.0,
+    "dram_weight_energy_pJ": 8388608.0
+   },
+   {
+    "layer": "layer4.1.conv1",
+    "shape": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+    "status": "ok",
+    "weights": 2359296,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "3c1b85aafa3ab0e0",
+    "mapping_cached": false,
+    "total_energy_pJ": 362402545.76000005,
+    "dram_weight_reads": 2359296.0,
+    "dram_weight_energy_pJ": 150994944.0
+   },
+   {
+    "layer": "layer4.1.conv2",
+    "shape": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+    "status": "ok",
+    "weights": 2359296,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "3c1b85aafa3ab0e0",
+    "mapping_cached": false,
+    "total_energy_pJ": 362402545.76000005,
+    "dram_weight_reads": 2359296.0,
+    "dram_weight_energy_pJ": 150994944.0
+   },
+   {
+    "layer": "fc",
+    "shape": "C512_M1000_R1_S1_P1_Q1_ws1_hs1",
+    "status": "ok",
+    "weights": 512000,
+    "macs": 512000,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "65526d8741cdb8e2",
+    "mapping_cached": false,
+    "total_energy_pJ": 34027719.66,
+    "dram_weight_reads": 512000.0,
+    "dram_weight_energy_pJ": 32768000.0
+   }
+  ],
+  "per_level": [
+   {
+    "level": "DRAM",
+    "dataspace": "Inputs",
+    "category": "DRAM",
+    "instances": 1,
+    "energy_pJ": 172877824.0,
+    "reads": 2701210.0,
+    "writes": 0.0
+   },
+   {
+    "level": "DRAM",
+    "dataspace": "Outputs",
+    "category": "DRAM",
+    "instances": 1,
+    "energy_pJ": 374176256.0,
+    "reads": 1680896.0,
+    "writes": 4165608.0
+   },
+   {
+    "level": "DRAM",
+    "dataspace": "Weights",
+    "category": "DRAM",
+    "instances": 1,
+    "energy_pJ": 886386688.0,
+    "reads": 13849792.0,
+    "writes": 0.0
+   },
+   {
+    "level": "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial",
+    "dataspace": "Inputs",
+    "category": "NoC",
+    "instances": null,
+    "energy_pJ": 55605269.31,
+    "reads": 32769920.0,
+    "writes": 0.0
+   },
+   {
+    "level": "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial",
+    "dataspace": "Outputs",
+    "category": "NoC",
+    "instances": null,
+    "energy_pJ": 32728184.61,
+    "reads": 12344296.0,
+    "writes": 0.0
+   },
+   {
+    "level": "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial",
+    "dataspace": "Weights",
+    "category": "NoC",
+    "instances": null,
+    "energy_pJ": 24158260.82,
+    "reads": 13849792.0,
+    "writes": 0.0
+   },
+   {
+    "level": "NoC: inter_PE_spatial <==> ifmap_spad",
+    "dataspace": "Inputs",
+    "category": "NoC",
+    "instances": null,
+    "energy_pJ": 52613766.03,
+    "reads": 9082816.0,
+    "writes": 0.0
+   },
+   {
+    "level": "NoC: inter_PE_spatial <==> ifmap_spad",
+    "dataspace": "Outputs",
+    "category": "NoC",
+    "instances": null,
+    "energy_pJ": 40919148.67,
+    "reads": 3939816.0,
+    "writes": 0.0
+   },
+   {
+    "level": "NoC: inter_PE_spatial <==> ifmap_spad",
+    "dataspace": "Weights",
+    "category": "NoC",
+    "instances": null,
+    "energy_pJ": 13693589.120000001,
+    "reads": 3996192.0,
+    "writes": 0.0
+   },
+   {
+    "level": "iact_glb",
+    "dataspace": "Inputs",
+    "category": "Global buffer",
+    "instances": 1,
+    "energy_pJ": 119524878.04,
+    "reads": 32769920.0,
+    "writes": 2701210.0
+   },
+   {
+    "level": "ifmap_spad",
+    "dataspace": "Inputs",
+    "category": "Local (spads/RF)",
+    "instances": 192,
+    "energy_pJ": 28043709.06,
+    "reads": 7613040.0,
+    "writes": 1783664.0
+   },
+   {
+    "level": "mac",
+    "dataspace": "Compute",
+    "category": "Compute",
+    "instances": 384,
+    "energy_pJ": 2120234502.28,
+    "reads": 0.0,
+    "writes": 0.0
+   },
+   {
+    "level": "psum_glb",
+    "dataspace": "Outputs",
+    "category": "Global buffer",
+    "instances": 1,
+    "energy_pJ": 273618458.83,
+    "reads": 9859584.0,
+    "writes": 14025192.0
+   },
+   {
+    "level": "psum_spad",
+    "dataspace": "Outputs",
+    "category": "Local (spads/RF)",
+    "instances": 192,
+    "energy_pJ": 234517888.62,
+    "reads": 31469592.0,
+    "writes": 34305536.0
+   },
+   {
+    "level": "weights_spad",
+    "dataspace": "Weights",
+    "category": "Local (spads/RF)",
+    "instances": 192,
+    "energy_pJ": 369276129.98,
+    "reads": 31972352.0,
+    "writes": 891872.0
+   }
+  ],
+  "mappings": [
+   {}
+  ],
+  "raw_energy_cache": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/results/_raw/eyeriss_v2_like/opt-energy__vic2000__vicx__alg-random_pruned__to2000__noc__paper/fp-71d497c0376a/cnn/layers-full/cls-instances/rw-joint/resnet18.json",
+  "mapper_cache": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/ecc_energy_study/outputs/eyeriss_v2_like/multimodel__opt-energy__vic2000__vicx__alg-random_pruned__to2000__noc__paper/fp-71d497c0376a",
+  "reconstruction_placement": {
+   "weight_path": {
+    "architecture": "eyeriss_v2_like",
+    "model": "resnet18",
+    "stages": [
+     {
+      "stage": "dram",
+      "kind": "dram",
+      "timeloop_levels": [
+       "DRAM"
+      ],
+      "weight_energy_pJ": 886386688.0,
+      "weight_wire_energy_pJ": 0.0,
+      "weight_switching_energy_pJ": 886386688.0,
+      "weight_scalar_reads_total": 13849792.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 0.0,
+      "weights_resident_per_instance": 8192,
+      "physical_word_bits": 64,
+      "instances": 1
+     },
+     {
+      "stage": "inter_cluster_mesh",
+      "kind": "network",
+      "timeloop_levels": [
+       "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial"
+      ],
+      "weight_energy_pJ": 24158260.819999997,
+      "weight_wire_energy_pJ": 19288472.748310916,
+      "weight_switching_energy_pJ": 4869788.071689089,
+      "weight_scalar_reads_total": 0.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 13849792.0,
+      "weights_resident_per_instance": 0.0,
+      "physical_word_bits": 8,
+      "instances": 1
+     },
+     {
+      "stage": "cluster_local",
+      "kind": "network",
+      "timeloop_levels": [
+       "NoC: inter_PE_spatial <==> ifmap_spad"
+      ],
+      "weight_energy_pJ": 13693589.12,
+      "weight_wire_energy_pJ": 6748491.54640509,
+      "weight_switching_energy_pJ": 6945097.573594907,
+      "weight_scalar_reads_total": 0.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 21895552.0,
+      "weights_resident_per_instance": 0.0,
+      "physical_word_bits": 8,
+      "instances": 16
+     },
+     {
+      "stage": "weight_spad",
+      "kind": "storage",
+      "timeloop_levels": [
+       "weights_spad"
+      ],
+      "weight_energy_pJ": 369276129.9800001,
+      "weight_wire_energy_pJ": 0.0,
+      "weight_switching_energy_pJ": 369276129.9800001,
+      "weight_scalar_reads_total": 1814073344.0,
+      "weight_scalar_fills_total": 21895552.0,
+      "weight_network_ingresses_total": 0.0,
+      "weights_resident_per_instance": 16,
+      "physical_word_bits": 24,
+      "instances": 192
+     }
+    ],
+    "stage_definitions": [
+     {
+      "stage": "dram",
+      "label": "DRAM (complete embedded codeword)",
+      "kind": "dram",
+      "timeloop_level_prefixes": [
+       "DRAM"
+      ],
+      "carries_reduced_representation_possible": false,
+      "evidence": "the full protected codeword is read for correction; the reconstructable bits may not be dropped before it (01_project_context Sec. 1, reliability constraint)"
+     },
+     {
+      "stage": "inter_cluster_mesh",
+      "label": "Inter-cluster mesh (HM-NoC)",
+      "kind": "network",
+      "timeloop_level_prefixes": [
+       "NoC: inter_PE_cluster_spatial"
+      ],
+      "carries_reduced_representation_possible": true,
+      "evidence": "JETCAS 2019 Sec. III-C: the hierarchical mesh joins the GLB clusters to the PE clusters through the router clusters. Timeloop's PE_cluster fanout level (meshX 16)."
+     },
+     {
+      "stage": "cluster_local",
+      "label": "Cluster-local distribution to PE rows",
+      "kind": "network",
+      "timeloop_level_prefixes": [
+       "NoC: inter_PE_spatial"
+      ],
+      "carries_reduced_representation_possible": true,
+      "evidence": "JETCAS 2019 Sec. III-C: each router 'connects to one row of PEs within the cluster'. Timeloop's PE fanout level (meshY 12)."
+     },
+     {
+      "stage": "weight_spad",
+      "label": "PE weight scratchpad",
+      "kind": "storage",
+      "timeloop_level_prefixes": [
+       "weights_spad"
+      ],
+      "carries_reduced_representation_possible": true,
+      "evidence": "JETCAS 2019 Table IV: 'weight data: 288B (SRAM)' per PE."
+     }
+    ],
+    "reconstructed_weight_retention": {
+     "register_entries_requested": "tile",
+     "register_entries_required_max": 256,
+     "register_width_bits": 8,
+     "weights_reconstructed_with_retention": 21895552.0,
+     "weights_reconstructed_without_retention": 1814073344.0,
+     "weights_reconstructed_at_buffer_fill": 21895552.0,
+     "amortization_vs_no_retention": 82.85122676971103,
+     "rule": "the loops below the innermost weight buffer walk `inner_tile` distinct weights and repeat reads/fills times; a register that holds that working set reconstructs each weight once per fill, and one smaller than it catches nothing because a cyclic walk is the LRU worst case",
+     "source": "01_project_context_and_architectures.txt Sec. 2.3 and 5.4 (EV2-C): 'Reload/reconstruct when the required weight changes' -- a retained reconstruction, not a latch that must see consecutive uses",
+     "per_layer": [
+      {
+       "layer": "conv1",
+       "shape": "C3_M64_R7_S7_P112_Q112_ws2_hs2",
+       "weights_resident_in_buffer": 112,
+       "inner_tile_walked_by_the_loops": 112,
+       "working_set_weights": 112,
+       "register_entries": 112,
+       "register_covers_the_working_set": true,
+       "buffer_weight_reads_total": 118013952.0,
+       "buffer_weight_fills_total": 18816.0,
+       "uses_per_reconstruction": 6272.0,
+       "weights_reconstructed": 18816.0,
+       "consecutive_run_a_one_entry_latch_would_serve": 1.0,
+       "innermost_weight_dimension": "M",
+       "accesses_are_consecutive_in_the_codeword_bit_stream": false
+      },
+      {
+       "layer": "layer1.0.conv1",
+       "shape": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+       "weights_resident_in_buffer": 128,
+       "inner_tile_walked_by_the_loops": 128,
+       "working_set_weights": 128,
+       "register_entries": 128,
+       "register_covers_the_working_set": true,
+       "buffer_weight_reads_total": 115605504.0,
+       "buffer_weight_fills_total": 2064384.0,
+       "uses_per_reconstruction": 56.0,
+       "weights_reconstructed": 2064384.0,
+       "consecutive_run_a_one_entry_latch_would_serve": 1.0,
+       "innermost_weight_dimension": "M",
+       "accesses_are_consecutive_in_the_codeword_bit_stream": false
+      },
+      {
+       "layer": "layer1.0.conv2",
+       "shape": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+       "weights_resident_in_buffer": 128,
+       "inner_tile_walked_by_the_loops": 128,
+       "working_set_weights": 128,
+       "register_entries": 128,
+       "register_covers_the_working_set": true,
+       "buffer_weight_reads_total": 115605504.0,
+       "buffer_weight_fills_total": 2064384.0,
+       "uses_per_reconstruction": 56.0,
+       "weights_reconstructed": 2064384.0,
+       "consecutive_run_a_one_entry_latch_would_serve": 1.0,
+       "innermost_weight_dimension": "M",
+       "accesses_are_consecutive_in_the_codeword_bit_stream": false
+      },
+      {
+       "layer": "layer1.1.conv1",
+       "shape": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+       "weights_resident_in_buffer": 128,
+       "inner_tile_walked_by_the_loops": 128,
+       "working_set_weights": 128,
+       "register_entries": 128,
+       "register_covers_the_working_set": true,
+       "buffer_weight_reads_total": 115605504.0,
+       "buffer_weight_fills_total": 2064384.0,
+       "uses_per_reconstruction": 56.0,
+       "weights_reconstructed": 2064384.0,
+       "consecutive_run_a_one_entry_latch_would_serve": 1.0,
+       "innermost_weight_dimension": "M",
+       "accesses_are_consecutive_in_the_codeword_bit_stream": false
+      },
+      {
+       "layer": "layer1.1.conv2",
+       "shape": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+       "weights_resident_in_buffer": 128,
+       "inner_tile_walked_by_the_loops": 128,
+       "working_set_weights": 128,
+       "register_entries": 128,
+       "register_covers_the_working_set": true,
+       "buffer_weight_reads_total": 115605504.0,
+       "buffer_weight_fills_total": 2064384.0,
+       "uses_per_reconstruction": 56.0,
+       "weights_reconstructed": 2064384.0,
+       "consecutive_run_a_one_entry_latch_would_serve": 1.0,
+       "innermost_weight_dimension": "M",
+       "accesses_are_consecutive_in_the_codeword_bit_stream": false
+      },
+      {
+       "layer": "layer2.0.conv1",
+       "shape": "C64_M128_R3_S3_P28_Q28_ws2_hs2",
+       "weights_resident_in_buffer": 192,
+       "inner_tile_walked_by_the_loops": 192,
+       "working_set_weights": 192,
+       "register_entries": 192,
+       "register_covers_the_working_set": true,
+       "buffer_weight_reads_total": 57802752.0,
+       "buffer_weight_fills_total": 294912.0,
+       "uses_per_reconstruction": 196.0,
+       "weights_reconstructed": 294912.0,
+       "consecutive_run_a_one_entry_latch_would_serve": 1.0,
+       "innermost_weight_dimension": "M",
+       "accesses_are_consecutive_in_the_codeword_bit_stream": false
+      },
+      {
+       "layer": "layer2.0.conv2",
+       "shape": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+       "weights_resident_in_buffer": 256,
+       "inner_tile_walked_by_the_loops": 256,
+       "working_set_weights": 256,
+       "register_entries": 256,
+       "register_covers_the_working_set": true,
+       "buffer_weight_reads_total": 115605504.0,
+       "buffer_weight_fills_total": 147456.0,
+       "uses_per_reconstruction": 784.0,
+       "weights_reconstructed": 147456.0,
+       "consecutive_run_a_one_entry_latch_would_serve": 1.0,
+       "innermost_weight_dimension": "M",
+       "accesses_are_consecutive_in_the_codeword_bit_stream": false
+      },
+      {
+       "layer": "layer2.0.downsample.0",
+       "shape": "C64_M128_R1_S1_P28_Q28_ws2_hs2",
+       "weights_resident_in_buffer": 256,
+       "inner_tile_walked_by_the_loops": 256,
+       "working_set_weights": 256,
+       "register_entries": 256,
+       "register_covers_the_working_set": true,
+       "buffer_weight_reads_total": 6422528.0,
+       "buffer_weight_fills_total": 16384.0,
+       "uses_per_reconstruction": 392.0,
+       "weights_reconstructed": 16384.0,
+       "consecutive_run_a_one_entry_latch_would_serve": 1.0,
+       "innermost_weight_dimension": "M",
+       "accesses_are_consecutive_in_the_codeword_bit_stream": false
+      },
+      {
+       "layer": "layer2.1.conv1",
+       "shape": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+       "weights_resident_in_buffer": 256,
+       "inner_tile_walked_by_the_loops": 256,
+       "working_set_weights": 256,
+       "register_entries": 256,
+       "register_covers_the_working_set": true,
+       "buffer_weight_reads_total": 115605504.0,
+       "buffer_weight_fills_total": 147456.0,
+       "uses_per_reconstruction": 784.0,
+       "weights_reconstructed": 147456.0,
+       "consecutive_run_a_one_entry_latch_would_serve": 1.0,
+       "innermost_weight_dimension": "M",
+       "accesses_are_consecutive_in_the_codeword_bit_stream": false
+      },
+      {
+       "layer": "layer2.1.conv2",
+       "shape": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+       "weights_resident_in_buffer": 256,
+       "inner_tile_walked_by_the_loops": 256,
+       "working_set_weights": 256,
+       "register_entries": 256,
+       "register_covers_the_working_set": true,
+       "buffer_weight_reads_total": 115605504.0,
+       "buffer_weight_fills_total": 147456.0,
+       "uses_per_reconstruction": 784.0,
+       "weights_reconstructed": 147456.0,
+       "consecutive_run_a_one_entry_latch_would_serve": 1.0,
+       "innermost_weight_dimension": "M",
+       "accesses_are_consecutive_in_the_codeword_bit_stream": false
+      },
+      {
+       "layer": "layer3.0.conv1",
+       "shape": "C128_M256_R3_S3_P14_Q14_ws2_hs2",
+       "weights_resident_in_buffer": 256,
+       "inner_tile_walked_by_the_loops": 256,
+       "working_set_weights": 256,
+       "register_entries": 256,
+       "register_covers_the_working_set": true,
+       "buffer_weight_reads_total": 57802752.0,
+       "buffer_weight_fills_total": 294912.0,
+       "uses_per_reconstruction": 196.0,
+       "weights_reconstructed": 294912.0,
+       "consecutive_run_a_one_entry_latch_would_serve": 1.0,
+       "innermost_weight_dimension": "M",
+       "accesses_are_consecutive_in_the_codeword_bit_stream": false
+      },
+      {
+       "layer": "layer3.0.conv2",
+       "shape": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+       "weights_resident_in_buffer": 128,
+       "inner_tile_walked_by_the_loops": 128,
+       "working_set_weights": 128,
+       "register_entries": 128,
+       "register_covers_the_working_set": true,
+       "buffer_weight_reads_total": 115605504.0,
+       "buffer_weight_fills_total": 1179648.0,
+       "uses_per_reconstruction": 98.0,
+       "weights_reconstructed": 1179648.0,
+       "consecutive_run_a_one_entry_latch_would_serve": 1.0,
+       "innermost_weight_dimension": "M",
+       "accesses_are_consecutive_in_the_codeword_bit_stream": false
+      },
+      {
+       "layer": "layer3.0.downsample.0",
+       "shape": "C128_M256_R1_S1_P14_Q14_ws2_hs2",
+       "weights_resident_in_buffer": 16,
+       "inner_tile_walked_by_the_loops": 16,
+       "working_set_weights": 16,
+       "register_entries": 16,
+       "register_covers_the_working_set": true,
+       "buffer_weight_reads_total": 6422528.0,
+       "buffer_weight_fills_total": 131072.0,
+       "uses_per_reconstruction": 49.0,
+       "weights_reconstructed": 131072.0,
+       "consecutive_run_a_one_entry_latch_would_serve": 1.0,
+       "innermost_weight_dimension": "M",
+       "accesses_are_consecutive_in_the_codeword_bit_stream": false
+      },
+      {
+       "layer": "layer3.1.conv1",
+       "shape": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+       "weights_resident_in_buffer": 128,
+       "inner_tile_walked_by_the_loops": 128,
+       "working_set_weights": 128,
+       "register_entries": 128,
+       "register_covers_the_working_set": true,
+       "buffer_weight_reads_total": 115605504.0,
+       "buffer_weight_fills_total": 1179648.0,
+       "uses_per_reconstruction": 98.0,
+       "weights_reconstructed": 1179648.0,
+       "consecutive_run_a_one_entry_latch_would_serve": 1.0,
+       "innermost_weight_dimension": "M",
+       "accesses_are_consecutive_in_the_codeword_bit_stream": false
+      },
+      {
+       "layer": "layer3.1.conv2",
+       "shape": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+       "weights_resident_in_buffer": 128,
+       "inner_tile_walked_by_the_loops": 128,
+       "working_set_weights": 128,
+       "register_entries": 128,
+       "register_covers_the_working_set": true,
+       "buffer_weight_reads_total": 115605504.0,
+       "buffer_weight_fills_total": 1179648.0,
+       "uses_per_reconstruction": 98.0,
+       "weights_reconstructed": 1179648.0,
+       "consecutive_run_a_one_entry_latch_would_serve": 1.0,
+       "innermost_weight_dimension": "M",
+       "accesses_are_consecutive_in_the_codeword_bit_stream": false
+      },
+      {
+       "layer": "layer4.0.conv1",
+       "shape": "C256_M512_R3_S3_P7_Q7_ws2_hs2",
+       "weights_resident_in_buffer": 256,
+       "inner_tile_walked_by_the_loops": 256,
+       "working_set_weights": 256,
+       "register_entries": 256,
+       "register_covers_the_working_set": true,
+       "buffer_weight_reads_total": 57802752.0,
+       "buffer_weight_fills_total": 1179648.0,
+       "uses_per_reconstruction": 49.0,
+       "weights_reconstructed": 1179648.0,
+       "consecutive_run_a_one_entry_latch_would_serve": 1.0,
+       "innermost_weight_dimension": "M",
+       "accesses_are_consecutive_in_the_codeword_bit_stream": false
+      },
+      {
+       "layer": "layer4.0.conv2",
+       "shape": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+       "weights_resident_in_buffer": 128,
+       "inner_tile_walked_by_the_loops": 128,
+       "working_set_weights": 128,
+       "register_entries": 128,
+       "register_covers_the_working_set": true,
+       "buffer_weight_reads_total": 115605504.0,
+       "buffer_weight_fills_total": 2359296.0,
+       "uses_per_reconstruction": 49.0,
+       "weights_reconstructed": 2359296.0,
+       "consecutive_run_a_one_entry_latch_would_serve": 1.0,
+       "innermost_weight_dimension": "M",
+       "accesses_are_consecutive_in_the_codeword_bit_stream": false
+      },
+      {
+       "layer": "layer4.0.downsample.0",
+       "shape": "C256_M512_R1_S1_P7_Q7_ws2_hs2",
+       "weights_resident_in_buffer": 256,
+       "inner_tile_walked_by_the_loops": 256,
+       "working_set_weights": 256,
+       "register_entries": 256,
+       "register_covers_the_working_set": true,
+       "buffer_weight_reads_total": 6422528.0,
+       "buffer_weight_fills_total": 131072.0,
+       "uses_per_reconstruction": 49.0,
+       "weights_reconstructed": 131072.0,
+       "consecutive_run_a_one_entry_latch_would_serve": 1.0,
+       "innermost_weight_dimension": "M",
+       "accesses_are_consecutive_in_the_codeword_bit_stream": false
+      },
+      {
+       "layer": "layer4.1.conv1",
+       "shape": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+       "weights_resident_in_buffer": 128,
+       "inner_tile_walked_by_the_loops": 128,
+       "working_set_weights": 128,
+       "register_entries": 128,
+       "register_covers_the_working_set": true,
+       "buffer_weight_reads_total": 115605504.0,
+       "buffer_weight_fills_total": 2359296.0,
+       "uses_per_reconstruction": 49.0,
+       "weights_reconstructed": 2359296.0,
+       "consecutive_run_a_one_entry_latch_would_serve": 1.0,
+       "innermost_weight_dimension": "M",
+       "accesses_are_consecutive_in_the_codeword_bit_stream": false
+      },
+      {
+       "layer": "layer4.1.conv2",
+       "shape": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+       "weights_resident_in_buffer": 128,
+       "inner_tile_walked_by_the_loops": 128,
+       "working_set_weights": 128,
+       "register_entries": 128,
+       "register_covers_the_working_set": true,
+       "buffer_weight_reads_total": 115605504.0,
+       "buffer_weight_fills_total": 2359296.0,
+       "uses_per_reconstruction": 49.0,
+       "weights_reconstructed": 2359296.0,
+       "consecutive_run_a_one_entry_latch_would_serve": 1.0,
+       "innermost_weight_dimension": "M",
+       "accesses_are_consecutive_in_the_codeword_bit_stream": false
+      },
+      {
+       "layer": "fc",
+       "shape": "C512_M1000_R1_S1_P1_Q1_ws1_hs1",
+       "weights_resident_in_buffer": 160,
+       "inner_tile_walked_by_the_loops": 160,
+       "working_set_weights": 160,
+       "register_entries": 160,
+       "register_covers_the_working_set": true,
+       "buffer_weight_reads_total": 512000.0,
+       "buffer_weight_fills_total": 512000.0,
+       "uses_per_reconstruction": 1.0,
+       "weights_reconstructed": 512000.0,
+       "consecutive_run_a_one_entry_latch_would_serve": 1.0,
+       "innermost_weight_dimension": "M",
+       "accesses_are_consecutive_in_the_codeword_bit_stream": false
+      }
+     ]
+    },
+    "unclaimed_weight_levels": [],
+    "per_layer": [
+     {
+      "layer": "conv1",
+      "shape": "C3_M64_R7_S7_P112_Q112_ws2_hs2",
+      "weights": 9408,
+      "repeat_count": 1.0,
+      "loop_nest_below_weight_buffer": {
+       "inner_tile": 112,
+       "consecutive_run": 1.0,
+       "innermost_weight_dim": "M",
+       "loops_below": [
+        {
+         "dimension": "R",
+         "bound": 7,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 8,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 2,
+         "kind": "spatial"
+        }
+       ],
+       "weight_level": "weights_spad",
+       "evidence": "below weights_spad: skip spatial M=2; stop at temporal M=8 (changes the weight)",
+       "stream_consecutive": false
+      },
+      "weight_energy_pJ": 24110221.599999998,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 602112.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 602112.0,
+        "weight_scalar_reads_total": 9408.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 9408,
+        "physical_word_bits": 64,
+        "instances": 1
+       },
+       "inter_cluster_mesh": {
+        "stage": "inter_cluster_mesh",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 35827.34,
+        "weight_wire_energy_pJ": 28999.86067444547,
+        "weight_switching_energy_pJ": 6827.479325554527,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 9408.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1
+       },
+       "cluster_local": {
+        "stage": "cluster_local",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 9868.79,
+        "weight_wire_energy_pJ": 5262.500967766026,
+        "weight_switching_energy_pJ": 4606.2890322339745,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 18816.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 12
+       },
+       "weight_spad": {
+        "stage": "weight_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 23462413.47,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 23462413.47,
+        "weight_scalar_reads_total": 118013952.0,
+        "weight_scalar_fills_total": 18816.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 112,
+        "physical_word_bits": 24,
+        "instances": 84
+       }
+      }
+     },
+     {
+      "layer": "layer1.0.conv1",
+      "shape": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+      "weights": 36864,
+      "repeat_count": 1.0,
+      "loop_nest_below_weight_buffer": {
+       "inner_tile": 128,
+       "consecutive_run": 1.0,
+       "innermost_weight_dim": "M",
+       "loops_below": [
+        {
+         "dimension": "C",
+         "bound": 8,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 8,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 2,
+         "kind": "spatial"
+        }
+       ],
+       "weight_level": "weights_spad",
+       "evidence": "below weights_spad: skip spatial M=2; stop at temporal M=8 (changes the weight)",
+       "stream_consecutive": false
+      },
+      "weight_energy_pJ": 61270065.03,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 33030144.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 33030144.0,
+        "weight_scalar_reads_total": 516096.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 36864,
+        "physical_word_bits": 64,
+        "instances": 1
+       },
+       "inter_cluster_mesh": {
+        "stage": "inter_cluster_mesh",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 3108845.57,
+        "weight_wire_energy_pJ": 2526310.6996392184,
+        "weight_switching_energy_pJ": 582534.8703607813,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 516096.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1
+       },
+       "cluster_local": {
+        "stage": "cluster_local",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 1331353.84,
+        "weight_wire_energy_pJ": 656802.3519858134,
+        "weight_switching_energy_pJ": 674551.4880141866,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 2064384.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 16
+       },
+       "weight_spad": {
+        "stage": "weight_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 23799721.62,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 23799721.62,
+        "weight_scalar_reads_total": 115605504.0,
+        "weight_scalar_fills_total": 2064384.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 128,
+        "physical_word_bits": 24,
+        "instances": 192
+       }
+      }
+     },
+     {
+      "layer": "layer1.0.conv2",
+      "shape": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+      "weights": 36864,
+      "repeat_count": 1.0,
+      "loop_nest_below_weight_buffer": {
+       "inner_tile": 128,
+       "consecutive_run": 1.0,
+       "innermost_weight_dim": "M",
+       "loops_below": [
+        {
+         "dimension": "C",
+         "bound": 8,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 8,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 2,
+         "kind": "spatial"
+        }
+       ],
+       "weight_level": "weights_spad",
+       "evidence": "below weights_spad: skip spatial M=2; stop at temporal M=8 (changes the weight)",
+       "stream_consecutive": false
+      },
+      "weight_energy_pJ": 61270065.03,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 33030144.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 33030144.0,
+        "weight_scalar_reads_total": 516096.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 36864,
+        "physical_word_bits": 64,
+        "instances": 1
+       },
+       "inter_cluster_mesh": {
+        "stage": "inter_cluster_mesh",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 3108845.57,
+        "weight_wire_energy_pJ": 2526310.6996392184,
+        "weight_switching_energy_pJ": 582534.8703607813,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 516096.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1
+       },
+       "cluster_local": {
+        "stage": "cluster_local",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 1331353.84,
+        "weight_wire_energy_pJ": 656802.3519858134,
+        "weight_switching_energy_pJ": 674551.4880141866,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 2064384.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 16
+       },
+       "weight_spad": {
+        "stage": "weight_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 23799721.62,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 23799721.62,
+        "weight_scalar_reads_total": 115605504.0,
+        "weight_scalar_fills_total": 2064384.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 128,
+        "physical_word_bits": 24,
+        "instances": 192
+       }
+      }
+     },
+     {
+      "layer": "layer1.1.conv1",
+      "shape": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+      "weights": 36864,
+      "repeat_count": 1.0,
+      "loop_nest_below_weight_buffer": {
+       "inner_tile": 128,
+       "consecutive_run": 1.0,
+       "innermost_weight_dim": "M",
+       "loops_below": [
+        {
+         "dimension": "C",
+         "bound": 8,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 8,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 2,
+         "kind": "spatial"
+        }
+       ],
+       "weight_level": "weights_spad",
+       "evidence": "below weights_spad: skip spatial M=2; stop at temporal M=8 (changes the weight)",
+       "stream_consecutive": false
+      },
+      "weight_energy_pJ": 61270065.03,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 33030144.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 33030144.0,
+        "weight_scalar_reads_total": 516096.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 36864,
+        "physical_word_bits": 64,
+        "instances": 1
+       },
+       "inter_cluster_mesh": {
+        "stage": "inter_cluster_mesh",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 3108845.57,
+        "weight_wire_energy_pJ": 2526310.6996392184,
+        "weight_switching_energy_pJ": 582534.8703607813,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 516096.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1
+       },
+       "cluster_local": {
+        "stage": "cluster_local",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 1331353.84,
+        "weight_wire_energy_pJ": 656802.3519858134,
+        "weight_switching_energy_pJ": 674551.4880141866,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 2064384.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 16
+       },
+       "weight_spad": {
+        "stage": "weight_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 23799721.62,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 23799721.62,
+        "weight_scalar_reads_total": 115605504.0,
+        "weight_scalar_fills_total": 2064384.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 128,
+        "physical_word_bits": 24,
+        "instances": 192
+       }
+      }
+     },
+     {
+      "layer": "layer1.1.conv2",
+      "shape": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+      "weights": 36864,
+      "repeat_count": 1.0,
+      "loop_nest_below_weight_buffer": {
+       "inner_tile": 128,
+       "consecutive_run": 1.0,
+       "innermost_weight_dim": "M",
+       "loops_below": [
+        {
+         "dimension": "C",
+         "bound": 8,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 8,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 2,
+         "kind": "spatial"
+        }
+       ],
+       "weight_level": "weights_spad",
+       "evidence": "below weights_spad: skip spatial M=2; stop at temporal M=8 (changes the weight)",
+       "stream_consecutive": false
+      },
+      "weight_energy_pJ": 61270065.03,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 33030144.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 33030144.0,
+        "weight_scalar_reads_total": 516096.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 36864,
+        "physical_word_bits": 64,
+        "instances": 1
+       },
+       "inter_cluster_mesh": {
+        "stage": "inter_cluster_mesh",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 3108845.57,
+        "weight_wire_energy_pJ": 2526310.6996392184,
+        "weight_switching_energy_pJ": 582534.8703607813,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 516096.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1
+       },
+       "cluster_local": {
+        "stage": "cluster_local",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 1331353.84,
+        "weight_wire_energy_pJ": 656802.3519858134,
+        "weight_switching_energy_pJ": 674551.4880141866,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 2064384.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 16
+       },
+       "weight_spad": {
+        "stage": "weight_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 23799721.62,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 23799721.62,
+        "weight_scalar_reads_total": 115605504.0,
+        "weight_scalar_fills_total": 2064384.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 128,
+        "physical_word_bits": 24,
+        "instances": 192
+       }
+      }
+     },
+     {
+      "layer": "layer2.0.conv1",
+      "shape": "C64_M128_R3_S3_P28_Q28_ws2_hs2",
+      "weights": 73728,
+      "repeat_count": 1.0,
+      "loop_nest_below_weight_buffer": {
+       "inner_tile": 192,
+       "consecutive_run": 1.0,
+       "innermost_weight_dim": "M",
+       "loops_below": [
+        {
+         "dimension": "R",
+         "bound": 3,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "C",
+         "bound": 8,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 8,
+         "kind": "temporal"
+        }
+       ],
+       "weight_level": "weights_spad",
+       "evidence": "below weights_spad: stop at temporal M=8 (changes the weight)",
+       "stream_consecutive": false
+      },
+      "weight_energy_pJ": 31100077.690000005,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 18874368.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 18874368.0,
+        "weight_scalar_reads_total": 294912.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 73728,
+        "physical_word_bits": 64,
+        "instances": 1
+       },
+       "inter_cluster_mesh": {
+        "stage": "inter_cluster_mesh",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 469671.94,
+        "weight_wire_energy_pJ": 374504.23806270637,
+        "weight_switching_energy_pJ": 95167.7019372936,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 294912.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1
+       },
+       "cluster_local": {
+        "stage": "cluster_local",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 150302.51,
+        "weight_wire_energy_pJ": 78106.76818072649,
+        "weight_switching_energy_pJ": 72195.74181927349,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 294912.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 8
+       },
+       "weight_spad": {
+        "stage": "weight_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 11605735.24,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 11605735.24,
+        "weight_scalar_reads_total": 57802752.0,
+        "weight_scalar_fills_total": 294912.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 192,
+        "physical_word_bits": 24,
+        "instances": 64
+       }
+      }
+     },
+     {
+      "layer": "layer2.0.conv2",
+      "shape": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+      "weights": 147456,
+      "repeat_count": 1.0,
+      "loop_nest_below_weight_buffer": {
+       "inner_tile": 256,
+       "consecutive_run": 1.0,
+       "innermost_weight_dim": "M",
+       "loops_below": [
+        {
+         "dimension": "C",
+         "bound": 8,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 32,
+         "kind": "temporal"
+        }
+       ],
+       "weight_level": "weights_spad",
+       "evidence": "below weights_spad: stop at temporal M=32 (changes the weight)",
+       "stream_consecutive": false
+      },
+      "weight_energy_pJ": 33043700.75,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 9437184.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 9437184.0,
+        "weight_scalar_reads_total": 147456.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 147456,
+        "physical_word_bits": 64,
+        "instances": 1
+       },
+       "inter_cluster_mesh": {
+        "stage": "inter_cluster_mesh",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 496198.22,
+        "weight_wire_energy_pJ": 401073.46482353203,
+        "weight_switching_energy_pJ": 95124.75517646794,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 147456.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1
+       },
+       "cluster_local": {
+        "stage": "cluster_local",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 75151.25,
+        "weight_wire_energy_pJ": 39053.38149204443,
+        "weight_switching_energy_pJ": 36097.86850795557,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 147456.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 16
+       },
+       "weight_spad": {
+        "stage": "weight_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 23035167.28,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 23035167.28,
+        "weight_scalar_reads_total": 115605504.0,
+        "weight_scalar_fills_total": 147456.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 256,
+        "physical_word_bits": 24,
+        "instances": 144
+       }
+      }
+     },
+     {
+      "layer": "layer2.0.downsample.0",
+      "shape": "C64_M128_R1_S1_P28_Q28_ws2_hs2",
+      "weights": 8192,
+      "repeat_count": 1.0,
+      "loop_nest_below_weight_buffer": {
+       "inner_tile": 256,
+       "consecutive_run": 1.0,
+       "innermost_weight_dim": "M",
+       "loops_below": [
+        {
+         "dimension": "C",
+         "bound": 8,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 16,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 2,
+         "kind": "spatial"
+        }
+       ],
+       "weight_level": "weights_spad",
+       "evidence": "below weights_spad: skip spatial M=2; stop at temporal M=16 (changes the weight)",
+       "stream_consecutive": false
+      },
+      "weight_energy_pJ": 1835998.4500000002,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 524288.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 524288.0,
+        "weight_scalar_reads_total": 8192.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 8192,
+        "physical_word_bits": 64,
+        "instances": 1
+       },
+       "inter_cluster_mesh": {
+        "stage": "inter_cluster_mesh",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 20306.51,
+        "weight_wire_energy_pJ": 16342.402949738595,
+        "weight_switching_energy_pJ": 3964.107050261403,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 8192.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1
+       },
+       "cluster_local": {
+        "stage": "cluster_local",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 8350.14,
+        "weight_wire_energy_pJ": 4339.265187631342,
+        "weight_switching_energy_pJ": 4010.8748123686582,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 16384.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 8
+       },
+       "weight_spad": {
+        "stage": "weight_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 1283053.8,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 1283053.8,
+        "weight_scalar_reads_total": 6422528.0,
+        "weight_scalar_fills_total": 16384.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 256,
+        "physical_word_bits": 24,
+        "instances": 64
+       }
+      }
+     },
+     {
+      "layer": "layer2.1.conv1",
+      "shape": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+      "weights": 147456,
+      "repeat_count": 1.0,
+      "loop_nest_below_weight_buffer": {
+       "inner_tile": 256,
+       "consecutive_run": 1.0,
+       "innermost_weight_dim": "M",
+       "loops_below": [
+        {
+         "dimension": "C",
+         "bound": 8,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 32,
+         "kind": "temporal"
+        }
+       ],
+       "weight_level": "weights_spad",
+       "evidence": "below weights_spad: stop at temporal M=32 (changes the weight)",
+       "stream_consecutive": false
+      },
+      "weight_energy_pJ": 33043700.75,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 9437184.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 9437184.0,
+        "weight_scalar_reads_total": 147456.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 147456,
+        "physical_word_bits": 64,
+        "instances": 1
+       },
+       "inter_cluster_mesh": {
+        "stage": "inter_cluster_mesh",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 496198.22,
+        "weight_wire_energy_pJ": 401073.46482353203,
+        "weight_switching_energy_pJ": 95124.75517646794,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 147456.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1
+       },
+       "cluster_local": {
+        "stage": "cluster_local",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 75151.25,
+        "weight_wire_energy_pJ": 39053.38149204443,
+        "weight_switching_energy_pJ": 36097.86850795557,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 147456.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 16
+       },
+       "weight_spad": {
+        "stage": "weight_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 23035167.28,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 23035167.28,
+        "weight_scalar_reads_total": 115605504.0,
+        "weight_scalar_fills_total": 147456.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 256,
+        "physical_word_bits": 24,
+        "instances": 144
+       }
+      }
+     },
+     {
+      "layer": "layer2.1.conv2",
+      "shape": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+      "weights": 147456,
+      "repeat_count": 1.0,
+      "loop_nest_below_weight_buffer": {
+       "inner_tile": 256,
+       "consecutive_run": 1.0,
+       "innermost_weight_dim": "M",
+       "loops_below": [
+        {
+         "dimension": "C",
+         "bound": 8,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 32,
+         "kind": "temporal"
+        }
+       ],
+       "weight_level": "weights_spad",
+       "evidence": "below weights_spad: stop at temporal M=32 (changes the weight)",
+       "stream_consecutive": false
+      },
+      "weight_energy_pJ": 33043700.75,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 9437184.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 9437184.0,
+        "weight_scalar_reads_total": 147456.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 147456,
+        "physical_word_bits": 64,
+        "instances": 1
+       },
+       "inter_cluster_mesh": {
+        "stage": "inter_cluster_mesh",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 496198.22,
+        "weight_wire_energy_pJ": 401073.46482353203,
+        "weight_switching_energy_pJ": 95124.75517646794,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 147456.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1
+       },
+       "cluster_local": {
+        "stage": "cluster_local",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 75151.25,
+        "weight_wire_energy_pJ": 39053.38149204443,
+        "weight_switching_energy_pJ": 36097.86850795557,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 147456.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 16
+       },
+       "weight_spad": {
+        "stage": "weight_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 23035167.28,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 23035167.28,
+        "weight_scalar_reads_total": 115605504.0,
+        "weight_scalar_fills_total": 147456.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 256,
+        "physical_word_bits": 24,
+        "instances": 144
+       }
+      }
+     },
+     {
+      "layer": "layer3.0.conv1",
+      "shape": "C128_M256_R3_S3_P14_Q14_ws2_hs2",
+      "weights": 294912,
+      "repeat_count": 1.0,
+      "loop_nest_below_weight_buffer": {
+       "inner_tile": 256,
+       "consecutive_run": 1.0,
+       "innermost_weight_dim": "M",
+       "loops_below": [
+        {
+         "dimension": "C",
+         "bound": 16,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 8,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 2,
+         "kind": "spatial"
+        }
+       ],
+       "weight_level": "weights_spad",
+       "evidence": "below weights_spad: skip spatial M=2; stop at temporal M=8 (changes the weight)",
+       "stream_consecutive": false
+      },
+      "weight_energy_pJ": 30878606.340000004,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 18874368.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 18874368.0,
+        "weight_scalar_reads_total": 294912.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 294912,
+        "physical_word_bits": 64,
+        "instances": 1
+       },
+       "inter_cluster_mesh": {
+        "stage": "inter_cluster_mesh",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 208309.69,
+        "weight_wire_energy_pJ": 160674.6107857822,
+        "weight_switching_energy_pJ": 47635.07921421783,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 294912.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1
+       },
+       "cluster_local": {
+        "stage": "cluster_local",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 190193.41,
+        "weight_wire_energy_pJ": 93828.9095408341,
+        "weight_switching_energy_pJ": 96364.5004591659,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 294912.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 4
+       },
+       "weight_spad": {
+        "stage": "weight_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 11605735.24,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 11605735.24,
+        "weight_scalar_reads_total": 57802752.0,
+        "weight_scalar_fills_total": 294912.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 256,
+        "physical_word_bits": 24,
+        "instances": 48
+       }
+      }
+     },
+     {
+      "layer": "layer3.0.conv2",
+      "shape": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+      "weights": 589824,
+      "repeat_count": 1.0,
+      "loop_nest_below_weight_buffer": {
+       "inner_tile": 128,
+       "consecutive_run": 1.0,
+       "innermost_weight_dim": "M",
+       "loops_below": [
+        {
+         "dimension": "C",
+         "bound": 16,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 4,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 2,
+         "kind": "spatial"
+        }
+       ],
+       "weight_level": "weights_spad",
+       "evidence": "below weights_spad: skip spatial M=2; stop at temporal M=4 (changes the weight)",
+       "stream_consecutive": false
+      },
+      "weight_energy_pJ": 62634262.19,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 37748736.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 37748736.0,
+        "weight_scalar_reads_total": 589824.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 589824,
+        "physical_word_bits": 64,
+        "instances": 1
+       },
+       "inter_cluster_mesh": {
+        "stage": "inter_cluster_mesh",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 677981.62,
+        "weight_wire_energy_pJ": 535182.8847929967,
+        "weight_switching_energy_pJ": 142798.73520700322,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 589824.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1
+       },
+       "cluster_local": {
+        "stage": "cluster_local",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 760773.63,
+        "weight_wire_energy_pJ": 375315.6332299946,
+        "weight_switching_energy_pJ": 385457.9967700054,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 1179648.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 4
+       },
+       "weight_spad": {
+        "stage": "weight_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 23446770.94,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 23446770.94,
+        "weight_scalar_reads_total": 115605504.0,
+        "weight_scalar_fills_total": 1179648.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 128,
+        "physical_word_bits": 24,
+        "instances": 24
+       }
+      }
+     },
+     {
+      "layer": "layer3.0.downsample.0",
+      "shape": "C128_M256_R1_S1_P14_Q14_ws2_hs2",
+      "weights": 32768,
+      "repeat_count": 1.0,
+      "loop_nest_below_weight_buffer": {
+       "inner_tile": 16,
+       "consecutive_run": 1.0,
+       "innermost_weight_dim": "M",
+       "loops_below": [
+        {
+         "dimension": "C",
+         "bound": 4,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 4,
+         "kind": "temporal"
+        }
+       ],
+       "weight_level": "weights_spad",
+       "evidence": "below weights_spad: stop at temporal M=4 (changes the weight)",
+       "stream_consecutive": false
+      },
+      "weight_energy_pJ": 5926694.54,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 4194304.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 4194304.0,
+        "weight_scalar_reads_total": 65536.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 32768,
+        "physical_word_bits": 64,
+        "instances": 1
+       },
+       "inter_cluster_mesh": {
+        "stage": "inter_cluster_mesh",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 336693.54,
+        "weight_wire_energy_pJ": 273285.9070914757,
+        "weight_switching_energy_pJ": 63407.632908524334,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 65536.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1
+       },
+       "cluster_local": {
+        "stage": "cluster_local",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 66801.11,
+        "weight_wire_energy_pJ": 34714.11630441309,
+        "weight_switching_energy_pJ": 32086.99369558691,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 131072.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 16
+       },
+       "weight_spad": {
+        "stage": "weight_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 1328895.89,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 1328895.89,
+        "weight_scalar_reads_total": 6422528.0,
+        "weight_scalar_fills_total": 131072.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 16,
+        "physical_word_bits": 24,
+        "instances": 128
+       }
+      }
+     },
+     {
+      "layer": "layer3.1.conv1",
+      "shape": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+      "weights": 589824,
+      "repeat_count": 1.0,
+      "loop_nest_below_weight_buffer": {
+       "inner_tile": 128,
+       "consecutive_run": 1.0,
+       "innermost_weight_dim": "M",
+       "loops_below": [
+        {
+         "dimension": "C",
+         "bound": 16,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 4,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 2,
+         "kind": "spatial"
+        }
+       ],
+       "weight_level": "weights_spad",
+       "evidence": "below weights_spad: skip spatial M=2; stop at temporal M=4 (changes the weight)",
+       "stream_consecutive": false
+      },
+      "weight_energy_pJ": 62634262.19,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 37748736.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 37748736.0,
+        "weight_scalar_reads_total": 589824.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 589824,
+        "physical_word_bits": 64,
+        "instances": 1
+       },
+       "inter_cluster_mesh": {
+        "stage": "inter_cluster_mesh",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 677981.62,
+        "weight_wire_energy_pJ": 535182.8847929967,
+        "weight_switching_energy_pJ": 142798.73520700322,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 589824.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1
+       },
+       "cluster_local": {
+        "stage": "cluster_local",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 760773.63,
+        "weight_wire_energy_pJ": 375315.6332299946,
+        "weight_switching_energy_pJ": 385457.9967700054,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 1179648.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 4
+       },
+       "weight_spad": {
+        "stage": "weight_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 23446770.94,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 23446770.94,
+        "weight_scalar_reads_total": 115605504.0,
+        "weight_scalar_fills_total": 1179648.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 128,
+        "physical_word_bits": 24,
+        "instances": 24
+       }
+      }
+     },
+     {
+      "layer": "layer3.1.conv2",
+      "shape": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+      "weights": 589824,
+      "repeat_count": 1.0,
+      "loop_nest_below_weight_buffer": {
+       "inner_tile": 128,
+       "consecutive_run": 1.0,
+       "innermost_weight_dim": "M",
+       "loops_below": [
+        {
+         "dimension": "C",
+         "bound": 16,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 4,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 2,
+         "kind": "spatial"
+        }
+       ],
+       "weight_level": "weights_spad",
+       "evidence": "below weights_spad: skip spatial M=2; stop at temporal M=4 (changes the weight)",
+       "stream_consecutive": false
+      },
+      "weight_energy_pJ": 62634262.19,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 37748736.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 37748736.0,
+        "weight_scalar_reads_total": 589824.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 589824,
+        "physical_word_bits": 64,
+        "instances": 1
+       },
+       "inter_cluster_mesh": {
+        "stage": "inter_cluster_mesh",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 677981.62,
+        "weight_wire_energy_pJ": 535182.8847929967,
+        "weight_switching_energy_pJ": 142798.73520700322,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 589824.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1
+       },
+       "cluster_local": {
+        "stage": "cluster_local",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 760773.63,
+        "weight_wire_energy_pJ": 375315.6332299946,
+        "weight_switching_energy_pJ": 385457.9967700054,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 1179648.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 4
+       },
+       "weight_spad": {
+        "stage": "weight_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 23446770.94,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 23446770.94,
+        "weight_scalar_reads_total": 115605504.0,
+        "weight_scalar_fills_total": 1179648.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 128,
+        "physical_word_bits": 24,
+        "instances": 24
+       }
+      }
+     },
+     {
+      "layer": "layer4.0.conv1",
+      "shape": "C256_M512_R3_S3_P7_Q7_ws2_hs2",
+      "weights": 1179648,
+      "repeat_count": 1.0,
+      "loop_nest_below_weight_buffer": {
+       "inner_tile": 256,
+       "consecutive_run": 1.0,
+       "innermost_weight_dim": "M",
+       "loops_below": [
+        {
+         "dimension": "C",
+         "bound": 16,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 16,
+         "kind": "temporal"
+        }
+       ],
+       "weight_level": "weights_spad",
+       "evidence": "below weights_spad: stop at temporal M=16 (changes the weight)",
+       "stream_consecutive": false
+      },
+      "weight_energy_pJ": 90095619.31,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 75497472.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 75497472.0,
+        "weight_scalar_reads_total": 1179648.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 1179648,
+        "physical_word_bits": 64,
+        "instances": 1
+       },
+       "inter_cluster_mesh": {
+        "stage": "inter_cluster_mesh",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 1878687.75,
+        "weight_wire_energy_pJ": 1498016.9442770847,
+        "weight_switching_energy_pJ": 380670.8057229154,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 1179648.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1
+       },
+       "cluster_local": {
+        "stage": "cluster_local",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 760773.63,
+        "weight_wire_energy_pJ": 375315.6332299946,
+        "weight_switching_energy_pJ": 385457.9967700054,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 1179648.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 8
+       },
+       "weight_spad": {
+        "stage": "weight_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 11958685.93,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 11958685.93,
+        "weight_scalar_reads_total": 57802752.0,
+        "weight_scalar_fills_total": 1179648.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 256,
+        "physical_word_bits": 24,
+        "instances": 48
+       }
+      }
+     },
+     {
+      "layer": "layer4.0.conv2",
+      "shape": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+      "weights": 2359296,
+      "repeat_count": 1.0,
+      "loop_nest_below_weight_buffer": {
+       "inner_tile": 128,
+       "consecutive_run": 1.0,
+       "innermost_weight_dim": "M",
+       "loops_below": [
+        {
+         "dimension": "C",
+         "bound": 8,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 8,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 2,
+         "kind": "spatial"
+        }
+       ],
+       "weight_level": "weights_spad",
+       "evidence": "below weights_spad: skip spatial M=2; stop at temporal M=8 (changes the weight)",
+       "stream_consecutive": false
+      },
+      "weight_energy_pJ": 178100340.6,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 150994944.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 150994944.0,
+        "weight_scalar_reads_total": 2359296.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 2359296,
+        "physical_word_bits": 64,
+        "instances": 1
+       },
+       "inter_cluster_mesh": {
+        "stage": "inter_cluster_mesh",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 1666477.5,
+        "weight_wire_energy_pJ": 1285396.8708597443,
+        "weight_switching_energy_pJ": 381080.62914025603,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 2359296.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1
+       },
+       "cluster_local": {
+        "stage": "cluster_local",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 1521547.25,
+        "weight_wire_energy_pJ": 750631.2615266474,
+        "weight_switching_energy_pJ": 770915.9884733525,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 2359296.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 4
+       },
+       "weight_spad": {
+        "stage": "weight_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 23917371.85,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 23917371.85,
+        "weight_scalar_reads_total": 115605504.0,
+        "weight_scalar_fills_total": 2359296.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 128,
+        "physical_word_bits": 24,
+        "instances": 48
+       }
+      }
+     },
+     {
+      "layer": "layer4.0.downsample.0",
+      "shape": "C256_M512_R1_S1_P7_Q7_ws2_hs2",
+      "weights": 131072,
+      "repeat_count": 1.0,
+      "loop_nest_below_weight_buffer": {
+       "inner_tile": 256,
+       "consecutive_run": 1.0,
+       "innermost_weight_dim": "M",
+       "loops_below": [
+        {
+         "dimension": "C",
+         "bound": 8,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 32,
+         "kind": "temporal"
+        }
+       ],
+       "weight_level": "weights_spad",
+       "evidence": "below weights_spad: stop at temporal M=32 (changes the weight)",
+       "stream_consecutive": false
+      },
+      "weight_energy_pJ": 9992933.32,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 8388608.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 8388608.0,
+        "weight_scalar_reads_total": 131072.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 131072,
+        "physical_word_bits": 64,
+        "instances": 1
+       },
+       "inter_cluster_mesh": {
+        "stage": "inter_cluster_mesh",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 208743.08,
+        "weight_wire_energy_pJ": 166446.32448398462,
+        "weight_switching_energy_pJ": 42296.75551601536,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 131072.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1
+       },
+       "cluster_local": {
+        "stage": "cluster_local",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 66801.11,
+        "weight_wire_energy_pJ": 34714.11630441309,
+        "weight_switching_energy_pJ": 32086.99369558691,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 131072.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 8
+       },
+       "weight_spad": {
+        "stage": "weight_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 1328781.13,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 1328781.13,
+        "weight_scalar_reads_total": 6422528.0,
+        "weight_scalar_fills_total": 131072.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 256,
+        "physical_word_bits": 24,
+        "instances": 64
+       }
+      }
+     },
+     {
+      "layer": "layer4.1.conv1",
+      "shape": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+      "weights": 2359296,
+      "repeat_count": 1.0,
+      "loop_nest_below_weight_buffer": {
+       "inner_tile": 128,
+       "consecutive_run": 1.0,
+       "innermost_weight_dim": "M",
+       "loops_below": [
+        {
+         "dimension": "C",
+         "bound": 8,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 8,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 2,
+         "kind": "spatial"
+        }
+       ],
+       "weight_level": "weights_spad",
+       "evidence": "below weights_spad: skip spatial M=2; stop at temporal M=8 (changes the weight)",
+       "stream_consecutive": false
+      },
+      "weight_energy_pJ": 178100340.6,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 150994944.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 150994944.0,
+        "weight_scalar_reads_total": 2359296.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 2359296,
+        "physical_word_bits": 64,
+        "instances": 1
+       },
+       "inter_cluster_mesh": {
+        "stage": "inter_cluster_mesh",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 1666477.5,
+        "weight_wire_energy_pJ": 1285396.8708597443,
+        "weight_switching_energy_pJ": 381080.62914025603,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 2359296.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1
+       },
+       "cluster_local": {
+        "stage": "cluster_local",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 1521547.25,
+        "weight_wire_energy_pJ": 750631.2615266474,
+        "weight_switching_energy_pJ": 770915.9884733525,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 2359296.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 4
+       },
+       "weight_spad": {
+        "stage": "weight_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 23917371.85,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 23917371.85,
+        "weight_scalar_reads_total": 115605504.0,
+        "weight_scalar_fills_total": 2359296.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 128,
+        "physical_word_bits": 24,
+        "instances": 48
+       }
+      }
+     },
+     {
+      "layer": "layer4.1.conv2",
+      "shape": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+      "weights": 2359296,
+      "repeat_count": 1.0,
+      "loop_nest_below_weight_buffer": {
+       "inner_tile": 128,
+       "consecutive_run": 1.0,
+       "innermost_weight_dim": "M",
+       "loops_below": [
+        {
+         "dimension": "C",
+         "bound": 8,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 8,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 2,
+         "kind": "spatial"
+        }
+       ],
+       "weight_level": "weights_spad",
+       "evidence": "below weights_spad: skip spatial M=2; stop at temporal M=8 (changes the weight)",
+       "stream_consecutive": false
+      },
+      "weight_energy_pJ": 178100340.6,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 150994944.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 150994944.0,
+        "weight_scalar_reads_total": 2359296.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 2359296,
+        "physical_word_bits": 64,
+        "instances": 1
+       },
+       "inter_cluster_mesh": {
+        "stage": "inter_cluster_mesh",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 1666477.5,
+        "weight_wire_energy_pJ": 1285396.8708597443,
+        "weight_switching_energy_pJ": 381080.62914025603,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 2359296.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1
+       },
+       "cluster_local": {
+        "stage": "cluster_local",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 1521547.25,
+        "weight_wire_energy_pJ": 750631.2615266474,
+        "weight_switching_energy_pJ": 770915.9884733525,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 2359296.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 4
+       },
+       "weight_spad": {
+        "stage": "weight_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 23917371.85,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 23917371.85,
+        "weight_scalar_reads_total": 115605504.0,
+        "weight_scalar_fills_total": 2359296.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 128,
+        "physical_word_bits": 24,
+        "instances": 48
+       }
+      }
+     },
+     {
+      "layer": "fc",
+      "shape": "C512_M1000_R1_S1_P1_Q1_ws1_hs1",
+      "weights": 512000,
+      "repeat_count": 1.0,
+      "loop_nest_below_weight_buffer": {
+       "inner_tile": 160,
+       "consecutive_run": 1.0,
+       "innermost_weight_dim": "M",
+       "loops_below": [
+        {
+         "dimension": "C",
+         "bound": 8,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 10,
+         "kind": "temporal"
+        },
+        {
+         "dimension": "M",
+         "bound": 2,
+         "kind": "spatial"
+        }
+       ],
+       "weight_level": "weights_spad",
+       "evidence": "below weights_spad: skip spatial M=2; stop at temporal M=10 (changes the weight)",
+       "stream_consecutive": false
+      },
+      "weight_energy_pJ": 33159345.930000003,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 32768000.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 32768000.0,
+        "weight_scalar_reads_total": 512000.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 512000,
+        "physical_word_bits": 64,
+        "instances": 1
+       },
+       "inter_cluster_mesh": {
+        "stage": "inter_cluster_mesh",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_cluster_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 42666.67,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 42666.67,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 512000.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1
+       },
+       "cluster_local": {
+        "stage": "cluster_local",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 42666.67,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 42666.67,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 512000.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1
+       },
+       "weight_spad": {
+        "stage": "weight_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 306012.59,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 306012.59,
+        "weight_scalar_reads_total": 512000.0,
+        "weight_scalar_fills_total": 512000.0,
+        "weight_network_ingresses_total": 0.0,
+        "weights_resident_per_instance": 160,
+        "physical_word_bits": 24,
+        "instances": 1
+       }
+      }
+     }
+    ]
+   },
+   "packing": {
+    "mode": "stream",
+    "meaning": "stream: the retained k bits of each codeword are packed with no per-weight alignment, so values per physical word and operands per flit rise by n/k and every stage scales by k/n. aligned: each reduced weight occupies ceil(weight_bits*k/n) whole bits and nothing is repacked, so wire energy falls but a physical word may hold no more values than before and its access count does not move.",
+    "full_bits_per_weight": 8,
+    "reduced_bits_per_weight": 6.476190476190476,
+    "retained_fraction_k_over_n": 0.8095238095238095,
+    "source": "02_reconstruction_dse_and_implementation.txt section 16; the stream layout is eccenergy/embedded.py's"
+   },
+   "granularity": {
+    "charging": "weight",
+    "meaning": "weight: encoder work is proportional to the weights reconstructed, charged at the synthesized per-codeword energy per n/weight_bits of them (the group is rebuilt once and all of it is consumed). codeword: every access at the boundary rebuilds a whole codeword.",
+    "weights_per_codeword": 7.875,
+    "G_rec_weights_touched_per_codeword": 9,
+    "G_rec_meaning": "weights whose retained bits must be available at once to rebuild one ECC group; a codeword that starts mid-weight reaches into one weight more than its length implies",
+    "source": "02_reconstruction_dse_and_implementation.txt section 15; the layout is eccenergy/embedded.py's"
+   },
+   "reconstruction_datapath_pJ_per_codeword": 4.1296273,
+   "reconstruction_datapath_provenance": "BCH_N63_results.json [BCH_63_51_t2] n=63 k=51 t=2 (incremental+idle): inc=1.8995000 idle=2.2301273",
+   "reuse_register_pJ_per_write": 0.0328125,
+   "reuse_register_provenance": "timeloop-mapper.ERT_summary.yaml: cheapest per-PE register write, system_top_level.ifmap_spad[1..192] = 0.0328125 pJ (Accelergy, this design's own ERT). Conservative: a one-entry latch costs less than the register file this is taken from.",
+   "placements_defined": [
+    {
+     "key": "recon1",
+     "variant": "recon_source_noc_ingress",
+     "boundary": "R1 - reconstruct at the source / weight-NoC ingress",
+     "hypothesised_rating": "2/5",
+     "reduced_stages": [],
+     "reconstruction_site": "dram",
+     "access_counter": "reads",
+     "reuse_register": false,
+     "description": "The ECC engine strips the reconstructable bits and one (or a few) encoders put them straight back before the weight enters the network. Nothing on chip carries the reduced form, so nothing on chip gets cheaper; the encoder runs once per codeword fetched from DRAM. It is in the study as the control: it isolates the cost of reconstruction from any of its benefits."
+    },
+    {
+     "key": "recon2",
+     "variant": "recon_destination_cluster",
+     "boundary": "R2 - reconstruct at the destination-cluster boundary",
+     "hypothesised_rating": "4/5",
+     "reduced_stages": [
+      "inter_cluster_mesh"
+     ],
+     "reconstruction_site": "inter_cluster_mesh",
+     "access_counter": "ingresses",
+     "reuse_register": false,
+     "description": "The long-distance hierarchical mesh carries the reduced form and an encoder at each destination cluster restores it before the cluster-local fanout. One encoder per cluster rather than one per PE, and the mesh -- the expensive hop -- moves fewer bits."
+    },
+    {
+     "key": "recon3",
+     "variant": "recon_pe_spad_input",
+     "boundary": "R3 - reconstruct at the PE weight-SPad input",
+     "hypothesised_rating": "4/5",
+     "reduced_stages": [
+      "inter_cluster_mesh",
+      "cluster_local"
+     ],
+     "reconstruction_site": "weight_spad",
+     "access_counter": "fills",
+     "reuse_register": false,
+     "description": "Both networks carry the reduced form; the encoder sits at the scratchpad write port, so the SPad itself stays full width and keeps its capacity and read cost. The encoder runs once per weight FILLED into a PE, which is the smallest count of any boundary below the network."
+    },
+    {
+     "key": "recon4",
+     "variant": "recon_pe_spad_output",
+     "boundary": "R4a - reconstruct on every weight-SPad read",
+     "hypothesised_rating": "3/5",
+     "reduced_stages": [
+      "inter_cluster_mesh",
+      "cluster_local",
+      "weight_spad"
+     ],
+     "reconstruction_site": "weight_spad",
+     "access_counter": "reads",
+     "reuse_register": false,
+     "description": "The scratchpad stores the reduced form, so its write and read bit-volume fall too, and the encoder sits at its read port. The risk the source discussion names is the whole story here: the encoder now runs once per weight DELIVERED to the datapath, and a weight-stationary inner loop delivers each resident weight thousands of times."
+    },
+    {
+     "key": "recon5",
+     "variant": "recon_pe_spad_output_reuse_reg",
+     "boundary": "R4b - SPad output with a reconstructed-weight reuse register",
+     "hypothesised_rating": "5/5",
+     "reduced_stages": [
+      "inter_cluster_mesh",
+      "cluster_local",
+      "weight_spad"
+     ],
+     "reconstruction_site": "weight_spad",
+     "access_counter": "retained",
+     "reuse_register": true,
+     "description": "R4a's savings with the reconstruction amortized: a full-width register holds what the encoder rebuilt and reloads only when the required weight changes, so one reconstruction serves every use until the scratchpad tile is replaced. The amortization is read off the mapping -- the loops below the scratchpad walk a tile of `inner_tile` weights and repeat reads/fills times -- so a register covering that tile reconstructs once per FILL, the same count as R3, while keeping the scratchpad reduced. A register smaller than the tile catches nothing, because a cyclic walk is the LRU worst case. See `retention_model()`."
+    }
+   ],
+   "placements_requested": [
+    "recon1",
+    "recon2",
+    "recon3",
+    "recon4",
+    "recon5"
+   ]
+  }
+ },
+ "provenance": {
+  "config": {
+   "experiment": "recon",
+   "sweep": "arch",
+   "sweep_archs": [
+    "eyeriss_v2_like"
+   ],
+   "sweep_models": [
+    "resnet18"
+   ],
+   "sweep_ks": [
+    51
+   ],
+   "panel_models": [],
+   "const_arch": "eyeriss_v2_like",
+   "const_model": "resnet18",
+   "const_k": 51,
+   "approaches": [
+    "baseline",
+    "embedded",
+    "recon"
+   ],
+   "weight_bits": 8,
+   "activation_bits": 8,
+   "acc_bits_override": null,
+   "code_n": 63,
+   "emb_weights_per_cw_override": null,
+   "parity_grouping": "layer",
+   "parity_charge_padding": true,
+   "decode_enabled": false,
+   "decode_pj_base": 40.0,
+   "decode_pj_emb": 40.0,
+   "recon_charges_decode": true,
+   "recon_json": "data/dc/BCH_N63_results.json",
+   "recon_include_idle": true,
+   "recon_pj_override": null,
+   "recon_incremental_fallback_pj": 1.8995,
+   "recon_idle_fallback_pj": 2.2301273,
+   "recon_modeling": true,
+   "recon_optimizer": false,
+   "recon_placement_keys": [
+    "recon1",
+    "recon2",
+    "recon3",
+    "recon4",
+    "recon5"
+   ],
+   "recon_stem": "ReconSweep",
+   "recon_packing": "stream",
+   "recon_granularity": "weight",
+   "recon_reuse_reg_pj": null,
+   "recon_reuse_reg_entries": "tile",
+   "recon_onchip_fraction": null,
+   "recon_placement_charges_decode": true,
+   "weak_enabled": false,
+   "weak_n": 63,
+   "weak_k": 57,
+   "baseline_inflates_onchip": false,
+   "split_read_write": false,
+   "classify_mode": "instances",
+   "arch_fidelity": "paper",
+   "force_technology": "",
+   "force_datawidth": null,
+   "dram_depth": 1048576,
+   "global_cycle_seconds": "1e-9",
+   "noc_enabled": true,
+   "noc_wire_pj_per_bit_mm": null,
+   "noc_router_pj": null,
+   "noc_scale": 1.0,
+   "layers": [],
+   "phase": "Pre",
+   "overwrite": false,
+   "cache_strict": true,
+   "rerun_optimiser": false,
+   "run_note": "",
+   "opt_metric": "energy",
+   "victory": 2000,
+   "victory_scaling": "levels",
+   "mapper_threads": 18,
+   "mapper_timeout": 2000,
+   "mapper_algorithm": "random_pruned",
+   "mapper_seed": null,
+   "mapper_search_size": null,
+   "mapper_max_permutations": 16,
+   "results_dir": "results",
+   "replot_only": false,
+   "from_cache": true,
+   "palette": "house",
+   "dpi": 400,
+   "formats": [
+    "png",
+    "pdf"
+   ],
+   "title_note": "",
+   "nice_labels": true,
+   "stem_override": "ReconSweep",
+   "archs": [
+    "eyeriss_v2_like"
+   ],
+   "models": [
+    "resnet18"
+   ],
+   "code_k": 51,
+   "code_t": 2,
+   "workload": "cnn",
+   "stem": "ReconSweep",
+   "arch_variant_slug": "opt-energy__vic2000__vicx__alg-random_pruned__to2000__noc__paper",
+   "weights_per_codeword": 6,
+   "emb_weights_per_cw": 6,
+   "parity_frac": 0.23529411764705888,
+   "sram_scale": 0.8095238095238095,
+   "weak_overhead": 1.0
+  },
+  "config_hash": "19764876",
+  "mapper_settings": {
+   "optimization_metric": "energy",
+   "victory_condition_base": 2000,
+   "victory_scaling": "levels",
+   "algorithm": "random_pruned",
+   "timeout": 2000,
+   "search_size": null,
+   "max_permutations_per_if_visit": 16,
+   "num_threads": 18,
+   "seed": null,
+   "seed_supported": false,
+   "seed_note": "timeloop-mapper v4 exposes no random seed; pytimeloop's Mapper spec has no `random_seed` attribute. ECC_MAPPER_SEED is RECORDED so a result says which value was asked for, but it does not make the search deterministic. What does bound it is the thread count and victory condition, both of which are in the fingerprint -- so pin ECC_MAPPER_THREADS for a reproducible run rather than leaving it at 'all cores', which differs per machine."
+  },
+  "mapper_fingerprint": "658f1a97",
+  "command": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/eccenergy/__main__.py recon --eval",
+  "git_commit": "25884c5944d1aaf834348cf9d3456e91fd9cb60c",
+  "started_utc": "2026-09-07T22:50:35+00:00",
+  "finished_utc": "2026-09-07T22:50:35+00:00",
+  "runtime_seconds": 0.0,
+  "host": "login11.ufhpc",
+  "user": "vkamineni",
+  "platform": "Linux-5.14.0-687.36.1.el9_8.x86_64-x86_64-with-glibc2.35",
+  "project_root": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling"
+ }
+}

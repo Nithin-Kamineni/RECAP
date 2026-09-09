@@ -4,6 +4,11 @@ PART 1: PROJECT FOUNDATIONS AND ARCHITECTURES — SECTIONS 1–11
 Source conversation:
 https://chatgpt.com/share/6a9cf72e-979c-83e9-932b-c6193b111007
 
+Revised 2026-09-09: the ECC decoder moves onto the DRAM die and off the
+fetch path, so the reduced representation starts at the DRAM interface
+instead of at an on-chip ECC engine. Every diagram and table below is
+written against that model. Section 1 defines it; nothing else is new.
+
 PURPOSE OF THIS FILE
 
 This file provides project context for an LLM coding assistant implementing
@@ -17,9 +22,10 @@ The primary target is Eyeriss v2. The methodology should also support:
 - Generic input-stationary (IS) architectures.
 - Simba.
 
-The central idea is to retain only the independent portion of an embedded-ECC
-weight representation within selected parts of the on-chip hierarchy, then
-reconstruct the omitted dependent bits using XOR encoders before computation.
+The central idea is to let only the independent (message) portion of an
+embedded-ECC weight representation leave the DRAM die, carry that reduced
+form through selected parts of the on-chip hierarchy, and reconstruct the
+omitted dependent bits with XOR encoders before computation.
 
 Example:
 - Original embedded weight representation: 8 bits.
@@ -27,7 +33,7 @@ Example:
 - Remaining bits: deterministically reconstructed from ECC relationships.
 
 IMPORTANT:
-The per-weight example is illustrative. Actual ECC dependencies may span
+The per-weight example is illustrative. Actual ECC dependencies span
 multiple weights in a codeword. Part 2, section 15 explains this constraint.
 Do not implement an independent per-weight encoder unless the ECC mapping
 actually supports it.
@@ -43,8 +49,8 @@ Three central quantities:
 3. How much spatial fanout occurs before or after reconstruction?
 
 Working framing:
-"Reconstruction-boundary optimization across the accelerator
-memory/interconnect hierarchy."
+"Reconstruction-boundary optimization from the DRAM interface across the
+accelerator memory/interconnect hierarchy."
 
 STATUS OF THE MATERIAL
 
@@ -79,25 +85,34 @@ DRAM --> SRAM --> RF --> PE
           ^
        Encoder?
 
-The more useful model separates the off-chip reliability domain from the
-on-chip reduced-representation domain:
+A decoder on the fetch path forces the complete n-bit codeword across the
+DRAM interface on every fetch. The model used here puts the decoder ON THE
+DRAM DIE and OFF the fetch path:
 
-                       OFF-CHIP RELIABILITY DOMAIN
+                          DRAM DIE  (reliability domain)
 +----------------------------------------------------------------+
-| DRAM: full embedded-ECC representation                          |
+| DRAM array: complete embedded-ECC codeword (n bits)            |
 |          |                                                     |
 |          v                                                     |
-| ECC decode / error correction                                  |
+| On-die ECC decode / correction                                 |
+|   runs at write, on a scrub pass, or on a prior access --      |
+|   NOT on the fetch path                                        |
+|          |                                                     |
+|          v                                                     |
+| Fetch: drive only the k message bits off the die;              |
+|        the n-k parity positions never leave it                 |
 +----------+-----------------------------------------------------+
            |
-           | Discard bits that can be deterministically rebuilt.
+           |  DRAM INTERFACE (I/O, link, controller-to-accelerator port)
+           |  carries k of every n bits  <-- the first saving, shared by
+           |                                 EVERY reconstruction boundary
            v
-       Reduced representation
+       Reduced representation on chip
        Example: 4 retained bits instead of 8 full bits
            |
            |    ON-CHIP RECONSTRUCTION DOMAIN
            |
-           +-------------- R1
+           +-------------- R1  (chip ingress)
            v
        Global storage
            |
@@ -121,46 +136,41 @@ Research question:
 
 How deep into the accelerator can the reduced representation be propagated
 before the cost of repeated reconstruction becomes larger than the
-additional storage and communication energy saved?
+additional storage and communication energy saved? The DRAM-interface
+saving is common to every boundary; the boundaries differ on chip.
 
 Reliability constraint:
 
-If the complete embedded-ECC representation in DRAM provides error
-correction, the reconstructable bits generally must not be discarded
-before the DRAM-side ECC check and correction.
+The reconstructable bits must not be discarded before ECC correction. With
+an on-die decoder that constraint is met on the die: the array keeps and
+reads the complete codeword, correction happens before any fetch, and the
+discard happens at the die's output.
 
 Required conceptual sequence:
 
-DRAM full ECC codeword
-        |
-        v
-Read complete protected codeword
-        |
-        v
-ECC syndrome computation / correction
-        |
-        v
-Corrected codeword
-        |
-        v
-Retain independent/systematic portion
-        |
-        v
-Accelerator reduced-representation datapath
+Array holds full codeword --> on-die correction (off the fetch path)
+    --> fetch selects k message bits --> interface carries k bits
+    --> accelerator reduced-representation datapath
 
-Potential benefits:
-- Lower memory-controller-to-accelerator bandwidth.
-- Lower on-chip SRAM capacity requirements.
-- Lower on-chip SRAM access traffic or access count.
-- Lower NoC traffic.
-- Lower PE weight-storage traffic.
+What IS credited at the DRAM:
+- DRAM interface energy scales by k/n under every reconstruction boundary.
 
-Do not automatically claim reduced DRAM-array read energy. The complete
-protected codeword may still need to be read to perform error correction.
+What is NOT credited at the DRAM:
+- DRAM array energy. The array stores and, for correction, reads the
+  complete codeword. Whether a message-only fetch touches fewer array bits
+  depends on burst granularity and the codeword layout; do not assume it.
+- Decoder energy. The decoder is the same BCH decoder relocated to the
+  DRAM die; it runs once per corrected codeword and sits outside the
+  placement comparison. Record that it is DRAM-process logic.
+
+Reference bars are unchanged: the conventional baseline is side-band ECC,
+so its external parity is read from the array AND crosses the interface;
+the embedded arm without reconstruction consumes every weight bit on chip,
+so its complete codeword crosses the interface too.
 
 Reconstructing at an SRAM input restores full-width data before storage,
 so that SRAM does not receive the reduced-storage benefit. Upstream
-transport may still benefit if it carried the reduced representation.
+transport, starting with the DRAM interface, still benefits.
 
 
 ======================================================================
@@ -169,32 +179,36 @@ transport may still benefit if it carried the reduced representation.
 
 Illustrative assumptions:
 - Full weight representation: 8 bits.
-- Reduced representation: 4 bits.
+- Reduced representation: 4 bits, born at the DRAM output pins.
 - Reconstruction: several XOR operations.
 
 2.1 EARLY RECONSTRUCTION
 
-4-bit SRAM
+DRAM (on-die ECC)
    |
-   | Read 4 bits
+   | 4 bits
    v
-Encoder
+Encoder at chip ingress
    |
    | 8 bits
    v
-NoC --8 bits--> RF --8 bits--> MAC
+8-bit SRAM --8 bits--> NoC --8 bits--> RF --8 bits--> MAC
 
 Benefits:
-- Reduced SRAM storage.
-- Potential SRAM access-energy savings.
+- Reduced DRAM-interface traffic.
 
 Limitations:
+- No reduced-width SRAM storage or traffic.
 - No reduced-width NoC traffic after the encoder.
 - No reduced-width RF storage or traffic.
 
 
 2.2 LATE RECONSTRUCTION
 
+DRAM (on-die ECC)
+   |
+   | 4 bits
+   v
 4-bit SRAM
    |
    +--4 bits--> NoC --4 bits--> 4-bit RF
@@ -207,8 +221,8 @@ Limitations:
                                  MAC
 
 Potential benefits:
-- Reduced SRAM storage.
-- Reduced SRAM traffic.
+- Reduced DRAM-interface traffic.
+- Reduced SRAM storage and traffic.
 - Reduced NoC traffic.
 - Reduced RF storage.
 - Reduced RF read bit-volume.
@@ -219,6 +233,10 @@ The encoder may execute once for every MAC use of the weight.
 
 2.3 LATE RECONSTRUCTION WITH A RECONSTRUCTED-WEIGHT LATCH/CACHE
 
+DRAM (on-die ECC)
+   |
+   | 4 bits
+   v
 4-bit SRAM
    |
    +--4 bits--> NoC --4 bits--> 4-bit weight SPad
@@ -273,6 +291,10 @@ All ratings assume the reduced representation is physically exploited:
 - Narrower transfers.
 - Appropriate memory organization.
 
+The DRAM-interface saving is the same for every boundary of one
+architecture, so it does not change the relative ratings. It changes the
+absolute saving of every boundary, including the earliest.
+
 Merely leaving unused bits in a full-width word does not establish
 proportional energy savings.
 
@@ -304,19 +326,42 @@ E_rec:
 E_control(r):
     Additional control energy associated with placement r.
 
+DRAM term. A DRAM read has two physical parts, and only one of them gets
+smaller when fewer bits leave the die:
+
+E_array      reading the complete n-bit codeword out of the array. A row
+             activation and a burst move whole words; they cannot pick the
+             k message bits out of a chunk. Never reduced.
+E_interface  driving bits off the die: I/O drivers, link, controller port.
+             Proportional to the bits sent, so reduced to k of n.
+
+E_DRAM(embedded, no reconstruction) = E_array + E_interface
+E_DRAM(r), every boundary           = E_array + E_interface * k/n
+
+The modeling tool bills DRAM as ONE per-bit number that contains both
+parts, so the evaluator needs the interface share of that number:
+
+f_if = E_interface / (E_array + E_interface)
+
+f_if is the only new parameter. It comes from a cited DRAM energy breakdown,
+not from code; when it is uncertain, print the DRAM saving at several values.
+f_if = 0 would mean no DRAM saving at all; f_if = 1 would claim the array
+also reads fewer bits, which needs physical justification.
+
 Conceptual model:
 
 E(r) =
-    SUM over l in partial(r) [A_l * E_l(k)]
+    E_DRAM(r)
+  + SUM over l in partial(r) [A_l * E_l(k)]
   + SUM over l in full(r)    [A_l * E_l(n)]
   + N_rec(r) * E_rec
   + E_control(r)
 
 Boundary interpretation:
 
-Reduced representation | Full representation
-                       ^
-                  Reconstruction
+DRAM interface | Reduced representation | Full representation
+               |                        ^
+        always reduced             Reconstruction
 
 Moving the boundary toward computation can save more data movement, but
 may increase N_rec.
@@ -365,10 +410,10 @@ weight ports feeding the weight network.
 
 Weight-path abstraction:
 
-DRAM
+DRAM array (complete embedded codeword; on-die ECC, off the fetch path)
   |
   v
-Memory interface / ECC correction
+DRAM interface: k message bits per codeword
   |
   v
 Weight input port
@@ -406,19 +451,19 @@ being modeled.
 Candidate placements are alternatives, not a chain of encoders that all
 operate simultaneously.
 
-FULL EMBEDDED-ECC DATA
-        |
-       DRAM
+ DRAM array: complete embedded-ECC codeword
         |
         v
- ECC correction
+ On-die ECC correction  (off the fetch path)
         |
         v
- Strip ECC-derived bits
+ Fetch selects message bits; parity stays on the die
         |
-        | Reduced representation
+        | DRAM interface: k of n bits   <-- saved under every boundary
+        v
+ Weight input port
         |
-        +---- R1: reconstruct at source                  [2/5]
+        +---- R1: reconstruct at chip ingress            [2/5]
         |
         v
  Weight HM-NoC ingress
@@ -450,6 +495,10 @@ FULL EMBEDDED-ECC DATA
         |     R4b: retain reconstructed values for reuse  [5/5]
         v
        MAC
+
+Why R1 is no longer a zero-saving control:
+its encoder sits at the weight input port, so the interface already carried
+k bits. It isolates the DRAM-interface saving from every on-chip saving.
 
 Why R2 matters:
 
@@ -483,9 +532,9 @@ This is a compromise between:
 
 | Hardware level | Function | Representation | Reconstruction option | Boundary | Advantages | Disadvantages | Rating |
 |----------------|----------|----------------|-----------------------|----------|------------|---------------|--------|
-| DRAM | Stores protected embedded-ECC weights | Full codeword | No | N/A | Retains off-chip protection | Complete protected representation needed for correction | N/A |
-| Memory interface / ECC | Reads, checks, corrects ECC group | Full to reduced | Strip, not reconstruct | Output | Earliest safe removal of dependent bits | Codeword assembly and correction required | Essential |
-| Weight-NoC source/input | Injects weights | Reduced before encoder | R1 | Source input/output | One or a few encoders; simple | Expands traffic before NoC | 2/5 |
+| DRAM array | Stores protected embedded-ECC weights; on-die decoder corrects them off the fetch path | Full codeword | No | N/A | Retains off-chip protection; array unchanged | Complete codeword stored and read for correction; no array saving claimed | N/A |
+| DRAM interface (I/O, link, controller port) | Drives only the k message bits of each corrected codeword to the chip | Reduced | Strip on the die, not reconstruct | DRAM output pins | Interface energy x k/n under EVERY boundary; the earliest saving | On-die decoder logic; message-bit selection within a burst | Essential |
+| Weight input port / NoC source | Injects weights | Reduced before encoder | R1 | Chip ingress | Keeps the interface saving; one or a few encoders; simple | Expands traffic before the NoC; nothing on chip reduced | 2/5 |
 | Inter-cluster mesh | Routes between clusters | Reduced preferred | R2 | Mesh output | Saves long-distance NoC traffic; fewer encoders than PE-local placement | Local network carries full weights | 4/5 |
 | Cluster router/local distribution | Multicast/unicast to PEs | Reduced preferred | Cluster-local boundary | Output | Keeps much of HM-NoC reduced; localizes reconstruction | Replication and throughput requirements depend on distribution | 4/5 |
 | PE weight-SPad input | Fills local weight memory | Reduced to full | R3 | SPad input | Reduced NoC traffic; reconstruction once per local fill | SPad remains full-width | 4/5 |
@@ -496,14 +545,19 @@ This is a compromise between:
 
 5.4 INITIAL EYERISS V2 VARIANTS
 
+Every variant starts the same way:
+
+DRAM array (on-die ECC) --k bits--> DRAM interface --k bits--> chip
+
 EV2-A: RECONSTRUCT AT PE WEIGHT-SPAD INPUT
 
-DRAM/ECC
+DRAM (on-die ECC)
    |
    v
 4 bits ---- HM-NoC ----> Encoder --8 bits--> Weight SPad --> MAC
 
 Expected savings:
+- DRAM-interface traffic.
 - Memory-interface-to-PE traffic.
 - Hierarchical-mesh bandwidth.
 - NoC switching.
@@ -519,7 +573,7 @@ ECC-group dependencies and transfers.
 
 EV2-B: RECONSTRUCT AT WEIGHT-SPAD OUTPUT
 
-DRAM/ECC
+DRAM (on-die ECC)
    |
    v
 4 bits ---- HM-NoC ----> 4-bit Weight SPad --> Encoder --8 bits--> MAC
@@ -544,6 +598,7 @@ EV2-C: WEIGHT-SPAD OUTPUT PLUS DECODED-WEIGHT LATCH
 Leading hypothesis from the source discussion: 5/5.
 
 Potential benefits:
+- Reduced DRAM-interface traffic.
 - Reduced HM-NoC traffic.
 - Reduced SPad storage.
 - Reduced SPad bit traffic.
@@ -563,10 +618,10 @@ to the implementation.
 
 Canonical hierarchy:
 
-DRAM
+DRAM array (on-die ECC)
   |
   v
-Memory controller
+DRAM interface / memory controller: k bits per codeword
   |
   v
 Global/weight buffer
@@ -586,8 +641,9 @@ MAC <--- Streaming activations
 
 6.1 RECONSTRUCTION LOCATIONS
 
-DRAM / ECC correction
+ DRAM array: complete codeword, corrected on the die
         |
+        | DRAM interface: k of n bits   <-- saved under every boundary
         v
    Reduced weights
         |
@@ -638,8 +694,8 @@ register and reuse mechanism already present.
 
 | Hardware level | Function | Weight representation/behavior | Reconstruction | Boundary | Advantages | Disadvantages | Rating |
 |----------------|----------|--------------------------------|----------------|----------|------------|---------------|--------|
-| DRAM | Stores model weights | Full ECC | No | N/A | Off-chip reliability | Expensive accesses | N/A |
-| Controller/ECC | Corrects and removes reconstructable portion | Full to reduced | Strip | Output | Establishes reduced representation | ECC logic required | Essential |
+| DRAM array | Stores model weights; on-die decoder corrects off the fetch path | Full ECC | No | N/A | Off-chip reliability | Complete codeword read for correction; no array saving | N/A |
+| DRAM interface / controller | Carries only the k message bits per corrected codeword | Full to reduced | Strip on the die | DRAM output pins | Interface energy x k/n under every boundary | On-die decoder logic | Essential |
 | Global/weight buffer | Holds weight tiles | Reduced preferred | R1 | Buffer output | Global storage/access savings | Full-width downstream NoC | 3/5 |
 | Weight NoC | Broadcasts/multicasts weights | Reduced preferred | R2 | NoC output/PE input | Reduced network traffic | Destination encoder replication | 4/5 |
 | PE weight RF | Holds local weights | Reduced preferred | R3a | RF output | Reduced RF storage/read width | Repeated reconstruction without retained full weights | 2/5 |
@@ -648,6 +704,9 @@ register and reuse mechanism already present.
 
 Preferred hypothesis:
 
+Reduced DRAM interface
+      |
+      v
 Reduced global buffer
       |
       v
@@ -693,10 +752,10 @@ DRAM --> Global weight buffer --> Weight RF
 
 Useful abstraction:
 
-DRAM
+DRAM array (on-die ECC)
   |
   v
-Memory interface / iFIFO
+DRAM interface / iFIFO: k bits per codeword
   |
   v
 GLB or weight-bypass path, depending on model
@@ -719,11 +778,9 @@ array levels instead of optimizing only one tensor.
 
 7.1 RECONSTRUCTION DIAGRAM
 
-DRAM
+DRAM array: complete codeword, corrected on the die
   |
-  v
-ECC correction / strip
-  |
+  | DRAM interface: k of n bits   <-- saved under every boundary
   v
 Reduced weights
   |
@@ -785,8 +842,8 @@ variable.
 
 | Level | Function | Reconstruction option | Boundary | Main saving | Main cost | Rating |
 |-------|----------|-----------------------|----------|-------------|-----------|--------|
-| DRAM | Protected weight storage | No | N/A | N/A | Must retain ECC protection | N/A |
-| ECC/interface | Correct and strip | Strip only | Output | Establishes reduced representation | ECC logic | Essential |
+| DRAM array | Protected weight storage; on-die correction off the fetch path | No | N/A | N/A | Complete codeword read for correction | N/A |
+| DRAM interface / iFIFO | Carries k message bits per codeword | Strip on the die | DRAM output pins | Interface energy x k/n, every boundary | On-die decoder logic | Essential |
 | Weight source/GLB if modeled | Supplies weight tile | Source reconstruction | Output | Potential source-storage saving | Full downstream network | 3/5 |
 | Flat array NoC | Multicasts/distributes weights | Destination reconstruction | Output | Network-width saving | More encoder instances | 4/5 |
 | PE FIFO | Buffers incoming weights | FIFO-output reconstruction | Output | Keeps transport reduced | FIFO-only storage benefit may be small | 3/5 |
@@ -807,7 +864,10 @@ Inputs  ----> PE
 
 Canonical hierarchy:
 
-DRAM
+DRAM array (on-die ECC)
+  |
+  v
+DRAM interface: k bits per codeword
   |
   v
 Weight buffer / global SRAM
@@ -833,8 +893,9 @@ while it is still being transported.
 
 8.1 RECONSTRUCTION DIAGRAM
 
-DRAM/ECC
+DRAM array: complete codeword, corrected on the die
     |
+    | DRAM interface: k of n bits   <-- saved under every boundary
     v
 Reduced weights
     |
@@ -870,8 +931,8 @@ multicast, forwarding, and buffering still determine the counts.
 
 | Level | Function | Weight behavior | Reconstruction | Advantages | Disadvantages | Rating |
 |-------|----------|-----------------|----------------|------------|---------------|--------|
-| DRAM | Full embedded-ECC storage | Stored | No | Complete protection | N/A | N/A |
-| ECC/controller | Correct and strip | Full to reduced | Strip | Reduced downstream stream | ECC cost | Essential |
+| DRAM array | Full embedded-ECC storage; on-die correction off the fetch path | Stored | No | Complete protection | Complete codeword read; no array saving | N/A |
+| DRAM interface / controller | Carries k message bits per codeword | Full to reduced | Strip on the die | Interface energy x k/n, every boundary | On-die decoder logic | Essential |
 | Weight SRAM/GLB | Buffers weights | Reduced | Output | SRAM saving | Expands before NoC | 3/5 |
 | Weight NoC | Delivers weights | Reduced | Destination | Reduced bandwidth/switching | Encoder duplication may be needed | 5/5 |
 | PE input FIFO | Buffers incoming weights | Reduced | FIFO output | Narrow local FIFO | Reconstruction per delivered weight/group | 4/5 |
@@ -880,13 +941,14 @@ multicast, forwarding, and buffering still determine the counts.
 
 Promising path:
 
-4-bit weight ---- NoC ----> PE --> XOR --> MAC
+DRAM (on-die ECC) --4 bits--> NoC ----> PE --> XOR --> MAC
 
 Earlier alternative:
 
-4-bit weight --> XOR --> 8-bit weight ---- NoC ----> PE
+DRAM (on-die ECC) --4 bits--> XOR --> 8-bit weight ---- NoC ----> PE
 
-The earlier alternative sacrifices reduced-width NoC traffic.
+The earlier alternative keeps the interface saving but sacrifices
+reduced-width NoC traffic.
 
 High multicast fanout can change the result:
 
@@ -920,8 +982,9 @@ reuse.
 
 9.1 RECONSTRUCTION DIAGRAM
 
-DRAM/ECC
+DRAM array: complete codeword, corrected on the die
     |
+    | DRAM interface: k of n bits   <-- saved under every boundary
     v
 Reduced weights
     |
@@ -944,16 +1007,16 @@ XOR reconstruction
 MAC <--- Stationary activation RF
 
 Many weights may be applied to the same stationary input, creating
-substantial weight traffic. Reducing weight transport can therefore be
-valuable.
+substantial weight traffic. Reducing weight transport, from the DRAM
+interface onward, can therefore be valuable.
 
 
 9.2 INPUT-STATIONARY TABLE
 
 | Level | Role | Weight behavior | Reconstruction | Benefit | Cost | Rating |
 |-------|------|-----------------|----------------|---------|------|--------|
-| DRAM | Protected model storage | Stored | No | ECC protection | N/A | N/A |
-| ECC/controller | Correct and strip | Full to reduced | Strip | Reduced downstream representation | ECC logic | Essential |
+| DRAM array | Protected model storage; on-die correction off the fetch path | Stored | No | ECC protection | Complete codeword read; no array saving | N/A |
+| DRAM interface / controller | Carries k message bits per codeword | Full to reduced | Strip on the die | Interface energy x k/n, every boundary | On-die decoder logic | Essential |
 | Global weight buffer | Supplies changing weights | Reduced | Output | SRAM saving | Full downstream traffic | 3/5 |
 | Weight NoC | Streams filters past activations | Reduced | NoC output | Transport/bandwidth reduction | Replicated encoders | 5/5 |
 | PE weight FIFO/register | Temporary buffering | Reduced | Output | Local-buffer saving | Reconstruction for each new weight/group | 4/5 |
@@ -1001,10 +1064,10 @@ registers.
 
 10.1 FLOW
 
-DRAM
+DRAM array (on-die ECC)
   |
   v
-Memory controller / ECC
+DRAM interface / memory controller: k bits per codeword
   |
   v
 Global PE / global storage
@@ -1036,8 +1099,9 @@ Do not invent a storage level merely because it appears in this diagram.
 
 10.2 RECONSTRUCTION DIAGRAM
 
-DRAM/ECC
+DRAM array: complete codeword, corrected on the die
    |
+   | DRAM interface: k of n bits   <-- saved under every boundary
    v
 Reduced representation
    |
@@ -1078,8 +1142,8 @@ Vector-MAC stationary register
 
 | Level | Function | Representation | Reconstruction | Advantages | Disadvantages | Rating |
 |-------|----------|----------------|----------------|------------|---------------|--------|
-| DRAM | Stores model | Full ECC | No | Full reliability | No on-chip saving yet | N/A |
-| Memory/ECC controller | Checks, corrects, strips | Full to reduced | Strip | Establishes reduced representation | ECC hardware | Essential |
+| DRAM array | Stores model; on-die decoder corrects off the fetch path | Full ECC | No | Full reliability | Complete codeword read; no array saving | N/A |
+| DRAM interface / memory controller | Carries k message bits per codeword | Full to reduced | Strip on the die | Interface energy x k/n, every boundary | On-die decoder logic | Essential |
 | Global PE/source storage | Supplies chiplet-level data | Reduced | R1 | Centralized encoder simplicity | Expands before NoP and NoC | 2/5 |
 | NoP | Package/chiplet communication | Reduced | R2 at output | Saves package communication | Chiplet NoC carries full data | 3/5 |
 | Chiplet NoC | Routes to PEs | Reduced | R3 at output | Saves NoP and NoC traffic | Full PE weight-buffer storage | 4/5 |
@@ -1089,6 +1153,9 @@ Vector-MAC stationary register
 
 Promising implementation:
 
+Reduced DRAM interface
+              |
+              v
 Reduced distributed weight buffer
               |
               v
@@ -1113,7 +1180,9 @@ assuming an additional register is necessary.
 11. CROSS-ARCHITECTURE COMPARISON
 ======================================================================
 
-These rankings are hypotheses.
+These rankings are hypotheses. The DRAM-interface saving is common to every
+column of one row, so it moves every boundary of an architecture by the
+same amount and does not reorder the columns.
 
 | Architecture | Early/global reconstruction | After NoC | Local weight-storage output | Local output + decoded reuse register | Likely best candidate |
 |--------------|-----------------------------|-----------|-----------------------------|---------------------------------------|-----------------------|
@@ -1132,6 +1201,9 @@ immediately before a small stationary decoded-weight register.
 Architectures with streaming weights favor reconstruction after the
 weight-distribution network, subject to fanout, forwarding, and encoder
 throughput costs.
+
+Architectures whose weight energy is dominated by DRAM refetch gain most
+from the interface term, which every boundary receives.
 
 Do not hard-code these rankings as the outcome of the DSE.
 The implementation must measure the relevant counts and costs.

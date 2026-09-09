@@ -1,6 +1,35 @@
 PROGRESS CHECKLIST  --  ECC accelerator energy modelling
 ========================================================
-Last updated : 2026-09-07 (Task 2 embedded ECC implemented + evaluated; NoC model added earlier the same day)
+Last updated : 2026-09-08 (R4b REUSE-REGISTER AUDIT, closed -- see FINDINGS.md section 7.1
+               and recon.ReuseRegister. R4b was charging its register a write and nothing
+               else while its whole reconstruction saving came from that register serving
+               the scratchpad reads; the register now holds only the n-k regenerated bits,
+               which is consistent, costs the PE nothing in storage, and moves the headline
+               1.36% -> 1.30% at BCH(63,51). Previously 2026-09-07: Task 3 SECOND-PASS
+               REVIEW -- is the K/N reduction applied, and is its magnitude right? -- see
+               the TASK 3 REVIEW block below and FINDINGS.md section 15 "Review, second
+               pass". Task 3 implemented + evaluated, Task 2 embedded ECC and the NoC
+               model earlier the same day)
+
+R4b REUSE-REGISTER AUDIT (2026-09-08)  -- read FINDINGS 7.1 before reopening R4b
+---------------------------------------------------------------------------------
+✅ Found: N_rec=fills for R4b assumed the register served 82.85 uses/reconstruction,
+   while the SPad's 1,814,073,344 reads (97.6% of its 369.276 uJ) were still billed
+✅ Fixed: ECC_RECON_REUSE_REG_MODEL. Default `complement` -- the register holds only
+   the n-k bits the encoder regenerates, weight_bits*(1-K/N) per weight, so it cannot
+   serve a read alone. SPad read count legitimately unchanged; PE weight storage
+   1.00x the baseline at every K (was reported as 1.81x)
+✅ The opposite reading is a RUNNABLE row, not prose: `full_width` serves the reads
+   (+6.13%), and every result now carries what the same register would give a PE with
+   NO ECC (+6.17%, ECC's own marginal +0.16%) -- which collapses to about zero once
+   the register is priced at weights_spad's energy instead of ifmap_spad's, because a
+   2048-bit register cannot beat the 2304-bit register file it sits in front of
+✅ `free` reproduces the pre-2026-09-08 numbers exactly, so the diff is checkable
+✅ 31 tests (was 26), none skipped; 11 mutations caught (was 6). The full_width
+   read-removal mutation went UNCAUGHT until a test ran it against the real cache --
+   the synthetic fixture has no ERT, so that path never executed
+✅ Task 1/2 frozen code unchanged: baseline 5,657.062 uJ / embedded 4,798.375 uJ
+   bit-identical across every run before and after
 Legend       : ✅ done   ❌ not done / wrong   ⚠️ done with caveats or partially
 
 How to read this: one line per task or subtask, each marked with exactly one
@@ -227,16 +256,192 @@ TASK 2  --  EMBEDDED ECC (DRAM effect only)          ✅ DONE 2026-09-07
    (ECC_EMB_WEIGHTS_PER_CW); a codec-energy question, deliberately left for when codec energy enters
 ⚠️ eyeriss_v2 noc_share_within_published_band still FAILS (5.3% < 6%) -- pre-existing, same in Task 1
 ❌ No inference-accuracy claim (LSB overwrite) -- Input_Embedding's question, not this one's
-TASK 3  --  EYERISS V2 RECONSTRUCTION, FIXED MAPPING ❌ not started
+
+
+TASK 3  --  EYERISS V2 RECONSTRUCTION, EVALUATOR ONLY, FIXED MAPPING   ✅ DONE 2026-09-07
+----------------------------------------------------------------------------------------
+✅ Architecture / model / layers / BCH / precision / mapping all FIXED; only the boundary varies
+   (env.sh section 4 takes precedence over section 3 when ECC_RECON_MODELING=1)
+✅ Mapping optimiser NOT re-run: RECON_OPTIMIZER=False is the only accepted value, `True` stops
+   the run naming Task 4 rather than mislabelling fixed-mapping numbers. `evaluation_only_rerun`
+   and `fixed_mapping_shared_across_variants` are checked on every result file
+✅ No new arch YAMLs needed: a placement changes only how the evaluator charges the weight path,
+   so the mapping fingerprint is unchanged and the whole Task 1/2 mapper cache is reused as-is
+✅ All five weight-path boundaries of 01_..._architectures.txt §5.2 evaluated: R1 source/NoC
+   ingress, R2 destination cluster, R3 SPad input, R4a SPad output repeated, R4b SPad + reuse reg
+✅ Weight path READ from the model, not assumed: WEIGHT_PATHS names the Timeloop levels, and
+   `weight_path_reconciles_with_raw_record` re-derives per-category weight energy from the
+   cached stats and compares it with the Raw record. eyeriss_v2_like has NO weight GLB (its GLB
+   banks are iacts+psums), so there is deliberately no global-buffer boundary
+✅ Reduced representation applied only AFTER ECC correction: DRAM is the embedded arm's number
+   to the digit, checked per placement (`dram_identical_to_embedded_reference`)
+✅ Encoder work counted from ACTUAL reuse/fanout: total access counts (per-instance x utilized
+   instances) at each boundary -- 13.85M DRAM reads, 13.85M mesh ingresses, 21.9M SPad fills,
+   1.81 BILLION SPad reads. The 82.85x SPad read/fill ratio is the whole result: it is what
+   R4a pays and what R4b's retained reconstruction amortizes away
+✅ Encoder + buffer/control costs charged: reconstruction 4.1296 pJ/codeword (DC, BCH_63_51_t2)
+   and R4b's register at 0.0328 pJ/write from this design's OWN Accelergy ERT. `Recon overhead`
+   is its own plotted category so the overhead is visible, not hidden inside `Reconstruction`
+✅ Physical packing explicit (§16): ECC_RECON_PACKING=stream|aligned. `aligned` costs the SPad
+   its entire saving -- ceil(8x51/63)=7 bits, floor(24/7)=3 values per 24-bit word, same as at 8
+✅ ECC-group dependency explicit (§15): G_rec=9 computed from the layout, not assumed
+✅ Infeasible local placements REJECTED, not estimated: mobilenet_v2's 7 depthwise layers hold 3
+   weights per PE, so R4a/R4b are `unsupported` there with the layers named
+✅ No capacity-driven reuse or new tiling credited; no operand-retention saving credited to ANY
+   bar (R4b's register would cut SPad reads, but so would the same register in a baseline PE --
+   the comparison the plan asks for), so read counts are Timeloop's everywhere
+✅ Table + energy-breakdown plot: results/tables/ReconSweep.csv, results/figures/ReconSweep.png,
+   with reconstruction counts, overheads, totals and savings vs BOTH references. Labelled
+   FIXED MAPPING on the figure itself
+✅ Evaluation-only reruns for cost changes: `bash hpc/run_all.sh --replot` redraws in seconds
+✅ Tests: eccenergy/tests/test_recon.py 15/15 on a synthetic stats.txt/map.txt (no cache, no
+   container needed), two of them pinning the corrected R4b behaviour in BOTH directions;
+   test_results_store / test_embedded / test_noc / test_mapper_lock unchanged
+✅ Task 1 and Task 2 verified UNCHANGED: 5,075.3712 uJ and 4,798.3746 uJ before and after.
+   ecc.py, parity.py, embedded.py, experiments/baseline.py, experiments/embedded.py untouched
+✅ R4b WINS and beats embedded-only ECC. resnet18 vs embedded: R1 -0.15%, R2 -0.06%,
+   R3 -0.09%, R4a -18.21%, R4b +1.36% (+6.75% vs conventional). R4b captures 65.3 of the
+   77.5 uJ available = 84% of the ceiling. Ordering matches the source's ratings:
+   R4b (5/5) > R2/R3 (4/5, break-even) > R4a (3/5). R1 worse than embedded is CORRECT (2/5)
+✅ The CEILING is printed first on every run, so a small saving reads as arithmetic and not as
+   a missing term: on-chip weight energy 407 of 4,798 uJ = 8.5%, x(1-K/N) = 77.5 uJ = 1.62% is
+   the most ANY boundary can save; 91% of it is the SPad; DRAM's 18.5% is not reducible at all
+❌ FIXED AFTER REVIEW -- the first version of this model reported R4b as the WORST boundary.
+   The reuse model asked how many uses one weight gets IN A ROW (what a 1-entry latch serves),
+   which the loop nest says is 1 on every mapping here, so R4b came out as R4a plus a register
+   it never used. But Sec. 5.4's EV2-C is "reload/reconstruct when the required weight CHANGES"
+   -- a RETAINED reconstruction, so the question is CAPACITY, not consecutiveness. The loops
+   below the SPad walk a tile of 16-256 weights (== the SPad's utilized capacity on all 12
+   resnet18 shapes) and repeat 1-6272x, so a register covering that tile reconstructs once per
+   FILL: 82.85x fewer than R4a and the SAME count as R3. R4b is R3's encoder count with R4a's
+   storage saving, which is exactly why the source rates it above both.
+   Now: recon.retention_model() + recon.weight_loop_nest(), which report inner_tile,
+   consecutive_run, innermost_weight_dim and stream-consecutiveness SEPARATELY
+✅ ECC_RECON_REUSE_REG_ENTRIES (default `tile`) makes the capacity a knob. `1` (a latch) or `9`
+   (a group buffer) collapse R4b back onto R4a at -19.45%, because a cyclic walk is the LRU
+   worst case and there is no partial hit rate -- that is a real case, not the default one
+⚠️ R4b's +1.36% is contingent on TWO things, both measured: `stream` packing (under `aligned`
+   it becomes -0.19%, because floor(24/7)=3 seven-bit values fit a 24-bit word, the same 3 as
+   at 8 bits) and a register covering the working set (a latch gives -19.45%)
+⚠️ R4b's real overhead is CAPACITY, not energy: the register needs up to 256 full-width weights
+   per PE against a 288-weight SPad, so the PE holds 6.48b reduced + 8b register = 14.48b per
+   resident weight vs the baseline's 8b -- 1.81x the PE weight storage. Only its WRITE energy
+   is charged (0.718 uJ); area and leakage are not modelled and the required capacity is
+   reported per layer so the omission is visible
+⚠️ CSC metadata not modelled (design is modelled dense), so R4a/R4b's SPad saving is an upper
+   bound on what a CSC v2 would see. Warning on every result file
+⚠️ The idle term is 54% of the reconstruction energy (2.2301 of 4.1296 pJ/codeword).
+   ECC_RECON_INCLUDE_IDLE=0 halves it and still does not rescue R4a (437 uJ vs a 77 uJ saving)
+⚠️ eyeriss_v2 noc_share_within_published_band still FAILS (4.6% < 6%) -- pre-existing, same in
+   Tasks 1 and 2
+❌ FOUND, NOT FIXED: archs/_shared/noc.yaml declares v2's intra-cluster level router_pj: 0.0 but
+   the flattened architecture carries router_energy: 0.0833 on inter_PE_spatial (6.9 of the
+   cluster-local stage's 13.7 uJ is switching). Affects every bar equally and scales identically
+   under `stream`, so it does not bias this comparison, but the declaration and
+   archs._inject_noc disagree and one of them is wrong
+❌ Latency and area overhead not reported -- Task 3 asks for energy; Task 4 asks for those
+❌ No inference-accuracy claim -- Input_Embedding's question, not this one's
+
+   -- TASK 3 REVIEW (2026-09-07, second pass): "why is no reduction visible?" --
+✅ (A) HELD. The K/N reduction IS applied, to every reducible stage of every boundary, exactly
+   (`before x K/N` to 4e-16 relative) and to no other stage (untouched stages compare `==`).
+   Measured on the REAL cache: mesh 24.158 -> 19.557 uJ at R2/R3/R4a/R4b; cluster_local
+   13.694 -> 11.085 at R3 onward; weight_spad 369.276 -> 298.938 at R4a/R4b. Category NoC
+   219.718 -> 215.117 (R2) -> 212.508 (R3); Local 631.838 -> 561.499 (R4a/R4b). The asker's
+   arithmetic was right: R2 saves 4.602 uJ on the mesh and R3 a further 2.608 -- 0.096% and
+   0.150% of a 4,798 uJ bar, which is why nothing shows
+✅ 7 property tests added, each run on the SYNTHETIC stats AND the real mapper cache the
+   published figure came from: per-stage exactness, non-weight-untouched, monotonicity down
+   the path (the one that would catch "R3's NoC is not below R2's"), the closed-form identity,
+   nothing-goes-up, a K sweep over 57/51/45/39/36/30, and an INDEPENDENT re-scan proving every
+   weight-carrying level is claimed by exactly one stage. test_recon.py 15 -> 26, all pass
+✅ MUTATION-TESTED (6 deliberate breakages of recon.py, each reverted): SPad reduction dropped
+   -> 7 tests fail; network scales forced to 1 -> 5; scale hard-wired to 51/63 ignoring K -> 1
+   (the code sweep ALONE catches it); R2 reducing the wrong stage -> 2; a silent 1% DRAM credit
+   -> 4; the mesh saving applied twice -> 4
+❌ FIXED: eyeriss_v2_like_wglb's weight path has a reducible `weight_glb` stage that NO
+   placement reduces, so R2/R3/R4a/R4b would each have reported it at FULL width while still
+   claiming their own savings -- every boundary understated, silently. feasibility() cannot see
+   it (it only inspects stages a placement DOES claim). recon.validate_placement_space() now
+   enforces the invariant the physics implies -- `reduced` must be a PREFIX of the reducible
+   stages in path order, and every reducible stage must be reached by some boundary -- recorded
+   as `placement_space_covers_the_whole_weight_path` on every result and raised in run().
+   eyeriss_v2_like passes; wglb now fails loudly. No eyeriss_v2_like number moves (console
+   output byte-identical before and after)
+⚠️ (B) DID NOT HOLD as stated. The five weight-path numbers are right for what the model
+   contains, and none of the three candidate missing terms rescues the figure:
+   1. DRAM-to-accelerator LINK: CANNOT be separated. Accelergy's CactiDRAM is a flat
+      `type2energy["LPDDR4"]=8 pJ/bit x width` using only (type, width) -- its own log says
+      "Arguments used: (type, width)". No array/IO split exists to peel off, and Timeloop
+      charges the DRAM<->chip network zero besides. Recorded as a LIMITATION, not guessed.
+      Sized so the omission is visible: a 10/25/50% link fraction would lift the ceiling from
+      1.62% to 1.97/2.50/3.38%. And NO boundary here would claim it -- R1..R4b all put the
+      encoder at or below the accelerator's NoC ingress, downstream of the link. A boundary
+      that shrinks it ("correct at the memory controller, ship K/N bits") is a SIXTH boundary
+      and a different partitioning assumption; it also offsets every bar equally. Task 5
+   2. WEIGHT NoC is NOT under-counted, and would barely matter if it were. Weight multicast on
+      the mesh is 1, 2 or 4 across the 12 resnet18 shapes (not "1, scattered"); weight
+      ingresses equal the DRAM weight reads exactly (13,849,792), the floor. Weight NoC is
+      0.79% of the run; scaling the whole NoC to the published band moves the ceiling from
+      1.616% to 1.641% (x1.330) or 1.711% (x2.315)
+   3. GLB: eyeriss_v2_like genuinely has NO weight GLB -- confirmed level by level from the raw
+      record (iact_glb=Inputs, psum_glb=Outputs only), so 0.00 uJ is correct, not a gap
+⚠️ noc_share_within_published_band FAIL may be a DENOMINATOR question, not the coefficients:
+   audit.py divides by raw.total, which INCLUDES DRAM (4.579%). Against ON-CHIP energy alone
+   it is 219.718/(4798.375-1433.441) = 6.53%, INSIDE the paper's 6-10% band. Which denominator
+   JETCAS Fig. 18 uses is a fact about the paper and is NOT settled here (no copy in this
+   repo). Verdict left unchanged -- the check is Task 1's and Task 1's code is frozen
+❌ STILL NOT FIXED, mechanism now known: archs._inject_noc writes `router_energy` only
+   `if router:`, so a DECLARED ZERO is never emitted and inter_PE_spatial inherits its parent's
+   0.0833 pJ (confirmed in the flattened architecture). Size: 44.94 uJ = 20.5% of the whole NoC
+   and 0.94% of the run; 6.80 uJ of it is weight energy. Correcting it puts the NoC at
+   174.78 uJ (3.68% incl DRAM, FURTHER below the band) and cuts R3's saving 7.210 -> 5.914 uJ.
+   Not fixed here because it moves the mapping fingerprint (whole cache cold) AND Tasks 1/2's
+   frozen 5,075.3712 / 4,798.3746 uJ. One line; belongs in the next cold mapping pass
+⚠️ eyeriss_v2_like_wglb remains UNMEASURED (no mapper cache). Measured cost of a cold
+   --map-only at the current settings, from SLURM job 41296638: eyeriss_v2_like x resnet18
+   (12 shapes) = 2h26m on 18 cores; x mobilenet_v2 (31 shapes) = 3h00m. wglb adds a storage
+   level and ECC_VICTORY_SCALING=levels raises the budget with depth, so 2.5-4 h (~45-70
+   core-hours) for resnet18 is a LOWER bound. Worth doing -- it is the only way to measure a
+   global-buffer boundary -- but quote it as a BOUND, not as Eyeriss v2. NOT LAUNCHED: a cold
+   run needs an explicit go-ahead
+✅ FIGURE WIDENED (approved, then made). A 4.60 uJ change on a 4,798 uJ bar is ~1 pixel, so
+   ReconSweep.png showed five boundaries that looked identical. plots/stacked.py::draw_panel
+   gained TWO PARAMETERS and is still the only routine that draws a bar:
+   (a) `bar_notes` -- one caller-supplied line per bar; the placement figure prints the uJ
+       moved on chip and the uJ paid for reconstruction, because a percentage cannot separate
+       R2's 0.096% from R3's 0.150% and those two numbers ARE the result
+   (b) `grouped_stacks(zoom_stacks=...)` -- a SECOND panel drawn by calling draw_panel again
+       (as panels.py already does), same groups/palette/legend, its own unit. Scoped to the
+       on-chip weight path: 407.1 uJ full width -> 402.5 (R2) -> 399.9 (R3) -> 336.8 (R4a/R4b),
+       so the SPad saving is 19% of the panel instead of 1.5% of a bar. Excludes DRAM (not
+       reducible) and the recon cost (it belongs to the bar above) uniformly, and says so
+   Still ONE image, one table, one manifest. THREE SWEEPS UNTOUCHED: `run.sh --replot` and
+   `ECC_SWEEP=bch ... --replot` reproduce ArchitectureSweep.png and BCHsweep.csv BYTE-FOR-BYTE
+   under the new draw_panel (md5 before/after)
+✅ test_recon 26/26, test_results_store / test_embedded / test_noc / test_mapper_lock all pass;
+   `run.sh validate` PASS (6 architectures). test_recon also now runs clean on the HOST python
+   (skips the pandas cases instead of failing -- Path.write_text(newline=) is 3.10+, and three
+   tests imported pandas-backed modules before their own pandas guard)
+
+
 TASK 4  --  EYERISS V2 RECONSTRUCTION + MAPPER       ❌ not started
+   Next up. RECON_OPTIMIZER=True is the switch and currently refuses, by design. Two things
+   §15 points Task 4 at: (1) R4b already needs 1.81x the baseline's PE weight storage, so a
+   reconstruction-aware mapper has LESS headroom than the reduced SPad alone suggests -- the
+   question is whether it can shrink the working set the register must cover; (2) R4b's whole
+   saving rests on `stream` packing, and representing the packed width per level in the mapper
+   is where that stops being an assumption.
 TASK 5  --  OTHER ARCHITECTURES                      ❌ not started
+   Add WEIGHT_PATHS[<name>] and PLACEMENTS[<name>] to eccenergy/recon.py TOGETHER, then
+   ECC_RECON_MODELING=1 ECC_RECON_ARCH=<name> bash run.sh recon --eval
 
 
 CONFIGURATION  --  ONE env.sh, ONE COMMAND                ✅ DONE 2026-09-07
 ------------------------------------------------------------------
 ✅ env.sh at the project root is now THE knob file: every ECC_* variable, one per line with a
    comment, in ten sections (1 most-changed, 2 mapping optimiser, 3 what the pipeline runs,
-   4 recon placement PLACEHOLDER, 5 hardware, 6 ECC accounting, 7 cluster, 8 output, 9 misc,
+   4 recon placement study (Task 3), 5 hardware, 6 ECC accounting, 7 cluster, 8 output, 9 misc,
    10 derived). Sourced by run.sh, hpc/run_all.sh, hpc/map.sbatch and hpc/tl.sh
 ✅ Removed the four hand-synchronised copies of the mapper defaults (run.sh had
    hybrid/500/10000, map.sbatch + eval_panel.sh + sweep.sh had random_pruned/2000/2000): the
@@ -257,9 +462,14 @@ CONFIGURATION  --  ONE env.sh, ONE COMMAND                ✅ DONE 2026-09-07
 ✅ Verified: `bash hpc/run_all.sh --eval-only` reproduces results/tables/ArchitectureSweep.csv
    and the figures byte-for-byte (git diff empty); test_results_store, test_embedded,
    test_mapper_lock pass; test_noc's one failure is the pre-existing missing-pandas import
-⚠️ Section 4 (recon placement study) is a PLACEHOLDER: ECC_RECON_MODELING, ECC_RECON_ARCH/
-   MODEL/K, ECC_RECON_PLACEMENTS, ECC_RECON_PLACEMENT_LABELS, ECC_RECON_RESULTS_JSON,
-   ECC_RECON_STEM, ECC_RECON_RERUN, ECC_RECON_ONCHIP_FRACTION. No code reads any of them yet
+✅ Section 4 (recon placement study) is LIVE as of Task 3: ECC_RECON_MODELING switches the whole
+   pipeline to it and section 4 then takes precedence over section 3. New: RECON_OPTIMIZER (the
+   Task 4 placeholder, refused if True), ECC_RECON_PACKING, ECC_RECON_ENCODER_GRANULARITY,
+   ECC_RECON_REUSE_REG_ENTRIES, ECC_RECON_REUSE_REG_PJ, stem ReconSweep. Removed: ECC_RECON_PLACEMENT_LABELS (a property of
+   the weight path -- it lives with it in eccenergy/recon.py), ECC_RECON_RESULTS_JSON and
+   ECC_RECON_RERUN (the results go through the normal result store). ECC_RECON_PLACEMENTS is a
+   bash associative array and cannot be exported, so section 10 flattens the entry for
+   ECC_RECON_ARCH into ECC_RECON_PLACEMENT_LIST, which is what config.py reads
 ✅ Pipeline verified on SLURM, not just locally (jobs 41332209 map array + 41332210 eval):
    12/12 map tasks COMPLETED (~5 s each, raw-cache hits), dependent eval job COMPLETED in 56 s
    and rewrote results/figures/ArchitectureSweep.{png,pdf} + tables + manifest; git diff on
@@ -276,3 +486,47 @@ CONFIGURATION  --  ONE env.sh, ONE COMMAND                ✅ DONE 2026-09-07
       pointed outside the project. hpc/run_all.sh now resolves the root from its own location,
       then an inherited ECC_PROJECT_ROOT, then SLURM_SUBMIT_DIR, and exits with a clear
       message if none holds an env.sh. map.sbatch was never affected (absolute cd)
+
+2026-09-08  NoC REVISION (FINDINGS.md §4.1) -- implemented, tests + validate pass, unmapped
+✅ E  archs._inject_noc writes router_energy / energy-per-ingress on every charged level, zero
+      included (v2's PE row no longer inherits the cluster router: -29.7 uJ fixed-mapping)
+✅ C  noc.yaml `tile_width_um` per level -> injected `tile_width`; v2 mesh hop 430 um (PE cluster
+      + GLB cluster + 2.6% routers), PE row 108 um (= Timeloop's own; declared so it does not
+      inherit). validate refuses a partial declaration. test re-derives both from the cached ART
+✅ A  noc.yaml shared.pe_latch_pj 0.5 on v2's PE row (`ingress_pj: pe_latch`), bracket 0 / 0.9152;
+      ECC_NOC_PE_LATCH_PJ overrides, slug `nocl<v>`, in the fingerprint
+✅ D  eccenergy/noc_post.py: spatial reductions (Aladdin adder 0.0065625 pJ/bit x psum width + one
+      psum-wide hop) and Outputs wire re-billed 8b -> accumulator width. EVALUATOR-ONLY (Timeloop's
+      pat::AdderEnergy is a stub and word_bits is per network). Stamp on every Raw; load_raw
+      rejects a mismatch. timeloop._parse_networks now carries reductions/hops/per-hop/instances
+✅    Register writes: aladdin_register.csv has write = 0 pJ. regfile_decoded write/update charged
+      at the read row; new register_rw.yaml for the simple_* bare registers (arch_paper.yaml
+      updated). archs.components_digest() is in arch_fingerprint -> EVERY cache cold
+✅    audit.py: v2 band read against on-chip energy, both shares reported
+❌    Not mapped. Smoke mapping (single layer, bounded) of v2 + output-stationary: see §4.1.1
+      Decision pending: ECC_OPT_METRIC=edp (user leaning yes; NoC latch to be re-read after it)
+✅    Smoke mapping (SLURM 41452254/41452255, one layer, ss400/vic100): tile_width honoured (412.80 /
+      103.68 fJ per hop), PE row router 0 / ingress 0.5, psum_spad write=update=read=0.13263,
+      register_rw compiles, evaluator rows + stamp present, baseline --eval hand check PASS
+❌    NEW open defect 8.7: Neurosim plug-in fails (read-only image FS) and Accelergy takes its 0 pJ
+      for some address generators -- present in every cached run since the image was built
+
+2026-09-09  FIRST EDP MAPPINGS -> NoC 16-19% of on-chip on 11 layers; diagnosed (FINDINGS 4.1.2)
+✅    mesh wire 3x (1-D 16-row, EDP fills all clusters, 7.5-13 mean hops) = the error; latch additive only
+✅    v2 PE clusters now 8x2 (arch_paper.yaml), no forced split; pe_latch_pj -> 0; band vs mesh only
+      (noc.yaml paper_band_levels, audit.py mesh_share_of_onchip) -- ASSUMPTION about Fig. 18 to verify
+✅    hpc/map_by_shape.sh: one SLURM job per shape + dependent eval; 12 jobs 41474947-58, eval 41474959
+      -> results/figures/ReconSweep.png (8x2, EDP, latch 0). 1-D full run 41454163/64 kept -> *_1Drow_latch0.5
+✅    legacy/plot_unfinished_recon.sh: temporary partial-layer figure from whatever is mapped (ReconSweep_unfinshed)
+❌    cancelled 41454165-68 (latch 0 / 0.9152 brackets: identical mappings, no longer needed)
+
+2026-09-09  8x2 WHOLE MODEL DONE -> results/figures/ReconSweep.png (FINDINGS 4.1.3)
+✅    12 per-shape jobs 41474947-58 all mapped (14 min .. ~35 min each); eval re-run from the host
+      total 5940 uJ; NoC all 626 uJ = 14.9% on-chip; mesh only 249 uJ = 5.9% on-chip (band lower edge)
+❌→✅ two incidents: map.sbatch's own --array made per-shape jobs 12-task arrays (eval afterok never
+      satisfied) -> map_by_shape.sh passes --array=0-0; a queued eval picked up the edited YAML's
+      fingerprint and wrote a 1-layer 'layers-full' record that the next eval reused -> deleted,
+      energy.load_raw now rejects records with unmapped layers (tested)
+❌    ReconSweep_1Drow_latch0.5.* was that 1-layer figure; deleted. 1-D raw (fp-3eb860ea2b2a) is intact
+❌    R4a/R4b unsupported on resnet18 under EDP (layer4 keeps < 9 weights resident per PE)
+

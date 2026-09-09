@@ -10,7 +10,9 @@ if a check changes here, change it there too, and vice versa. Task 2
 """
 from __future__ import annotations
 
-from ..archs import accumulator_bits, arch_source, noc_terms, validate_arch
+from .. import noc_post
+from ..archs import (accumulator_bits, arch_source, noc_band_levels, noc_terms,
+                     pe_latch_pj, validate_arch)
 
 
 def components(series):
@@ -42,11 +44,37 @@ def common_checks(builder, cfg, arch, raw, parity_detail, mapping_ids):
     # 0.00 before archs/_shared/noc.yaml existed.
     noc_pj = float(raw.base.get("NoC", 0.0))
     noc_share = noc_pj / raw.total if raw.total > 0 else 0.0
+    # The paper's share (Fig. 18) is a gate-level breakdown of the CHIP, so
+    # the band is read against on-chip energy; the Timeloop total, which
+    # includes DRAM, is reported beside it (FINDINGS.md, open defect 8.2).
+    onchip = raw.total - float(raw.base.get("DRAM", 0.0))
+    noc_share_onchip = noc_pj / onchip if onchip > 0 else 0.0
+    # What the paper calls the NoC (noc.yaml `paper_band_levels`): the
+    # networks hanging off those spatial levels, as Timeloop printed them --
+    # not the intra-cluster wiring and not the evaluator-only rows (tagged
+    # with a trailing "]"), which Fig. 18 is read as booking under the PEs.
+    band_levels = noc_band_levels(arch) if cfg.noc_enabled else []
+    mesh_pj = sum(float(l["energy_pJ"]) for l in raw.levels
+                  if str(l["level"]).startswith("NoC: ")
+                  and not str(l["level"]).endswith("]")
+                  and any(str(l["level"]).startswith(f"NoC: inter_{n}_spatial") for n in band_levels))
+    mesh_share_onchip = mesh_pj / onchip if onchip > 0 else 0.0
+    eval_only_pj = sum(float(l["energy_pJ"]) for l in raw.levels
+                       if str(l["level"]).startswith("NoC: ") and str(l["level"]).endswith("]"))
     terms = noc_terms(arch, cfg) if cfg.noc_enabled else {}
+    post = noc_post.coefficients(arch, cfg) if cfg.noc_enabled else {"enabled": False}
     builder.check("noc_energy_costed",
                   (not cfg.noc_enabled) or noc_pj > 0,
                   {"enabled": cfg.noc_enabled, "noc_pJ": noc_pj,
                    "share_of_timeloop_total": noc_share,
+                   "share_of_onchip": noc_share_onchip,
+                   "paper_band_levels": band_levels,
+                   "mesh_pJ": mesh_pj,
+                   "mesh_share_of_onchip": mesh_share_onchip,
+                   "evaluator_only_pJ": eval_only_pj,
+                   "evaluator_only_terms": post,
+                   "pe_latch_pj": pe_latch_pj(cfg) if cfg.noc_enabled else None,
+                   "tile_width_um": terms.get("tile_width_um"),
                    "wire_pj_per_bit_mm": terms.get("wire"),
                    "router_pj_per_flit": terms.get("router_pj_per_flit"),
                    "operands_per_flit": terms.get("operands_per_flit"),
@@ -61,12 +89,24 @@ def common_checks(builder, cfg, arch, raw, parity_detail, mapping_ids):
         # total energy consumption". The published band is for the paper's own
         # workloads, so a miss on one model is a prompt to look, not proof the
         # constants are wrong -- but a miss on EVERY model is.
+        share_for_band = mesh_share_onchip if band_levels else noc_share_onchip
         builder.check("noc_share_within_published_band_eyeriss_v2",
-                      0.06 <= noc_share <= 0.10,
-                      {"modelled_share": noc_share, "published_band": [0.06, 0.10],
+                      0.06 <= share_for_band <= 0.10,
+                      {"compared": ("hierarchical mesh only (noc.yaml paper_band_levels)"
+                                    if band_levels else "all interconnect"),
+                       "mesh_share_of_onchip": mesh_share_onchip,
+                       "all_interconnect_share_of_onchip": noc_share_onchip,
+                       "all_interconnect_share_of_timeloop_total": noc_share,
+                       "published_band": [0.06, 0.10],
                        "source": "arXiv:1807.07928 Sec. V, Fig. 18",
-                       "read_as": "published share is for SPARSE runs at 65nm; this "
-                                  "model is dense (pushes the share up) at 45nm "
+                       "read_as": "Fig. 18 is a gate-level breakdown of the chip, so the "
+                                  "band is a share of ON-CHIP energy, and its 'hierarchical "
+                                  "mesh' is the inter-cluster links and router clusters -- "
+                                  "the PE-row wiring and PE-to-PE psum passing inside a "
+                                  "cluster are read as booked under the PE array "
+                                  "(2026-09-09; an ASSUMPTION about the figure's category "
+                                  "boundaries). Published share is for SPARSE runs at 65nm; "
+                                  "this model is dense (pushes the share up) at 45nm "
                                   "(pushes it down). A few points either side is "
                                   "consistent; 15%+ is not."})
     if cfg.noc_enabled:
@@ -83,6 +123,24 @@ def common_checks(builder, cfg, arch, raw, parity_detail, mapping_ids):
 def common_caveats(builder, cfg, arch, raw, parity_detail):
     """Task 1's approximations and warnings, verbatim."""
     builder.approximate(parity_detail["traffic"]["method"])
+    mac = getattr(raw, "mac", None) or {}
+    if cfg.mac_pj_override is not None:
+        builder.warn(
+            f"ECC_MAC_PJ_OVERRIDE={cfg.mac_pj_override:g} pJ per MAC "
+            f"({mac.get('citation', cfg.mac_citation()[1])}): the Compute category "
+            f"was rescaled in the evaluator from the ERT's "
+            f"{mac.get('ert_pj_per_mac', float('nan')):.5f} pJ/MAC to MACs x this "
+            f"value. Every ECC PERCENTAGE in this file has a different denominator "
+            f"from the primary result; no saved pJ changed. "
+            f"{mac.get('mapping_note', '')}")
+    else:
+        builder.approximate(
+            f"MAC energy is the Accelergy ERT's {mac.get('ert_pj_per_mac', float('nan')):.5f} "
+            f"pJ per 8-bit MAC (intmac = aladdin_multiplier 8x8 + aladdin_adder 20b, "
+            f"Library plug-in, one 32-bit/40 nm table row each scaled linearly in "
+            f"width and 1.2652x from 40 to 45 nm). It is the denominator of every "
+            f"percentage here; FINDINGS 7.3 and provenance.yaml mac_energy_pj record "
+            f"the cited alternatives and ECC_MAC_PJ_OVERRIDE re-evaluates under one.")
     builder.approximate(
         "External parity is billed at the measured per-access energy of a "
         "DRAM weight read on this architecture, not at an independently "
@@ -140,6 +198,7 @@ def common_detail(builder, cfg, ses, arch, model, raw, arch_report, prov):
         },
         per_layer=raw.per_layer,
         per_level=raw.levels,
+        mac_energy=getattr(raw, "mac", None),
         mappings=[(ses.mappers.get(arch).mappings if arch in ses.mappers
                    else {})],
         raw_energy_cache=str(

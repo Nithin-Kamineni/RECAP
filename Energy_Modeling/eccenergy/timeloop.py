@@ -700,17 +700,39 @@ def _parse_networks(ntext, layer_label, scale=1.0):
     for block in blocks:
         name = next((ln.strip() for ln in block.split("\n") if ln.strip()), "?")
         parts = re.split(r"\n\s+(Weights|Inputs|Outputs)\s*:\s*\n", block)
+        # Instances of this network = Energy (total) / Energy (per-instance),
+        # printed per dataspace; take it from any dataspace that moved energy.
+        # Not printed as such: Timeloop reports instances only for storage.
+        net_instances = None
+        for sec in parts[2::2]:
+            e_t = _grab(r"\n\s+Energy \(total\)\s*:\s*([\d.eE+-]+)\s*pJ", sec)
+            e_i = _grab(r"\n\s+Energy \(per-instance\)\s*:\s*([\d.eE+-]+)\s*pJ", sec)
+            if e_t and e_i:
+                net_instances = round(e_t / e_i)
+                break
         for ds, sec in zip(parts[1::2], parts[2::2]):
             ingresses = _grab(r"\n\s+Ingresses\s*:\s*([\d.eE+-]+)", sec)
             e_net = _grab(r"\n\s+Energy \(total\)\s*:\s*([\d.eE+-]+)\s*pJ", sec) or 0.0
             e_link = _grab(r"\n\s+Link transfer energy \(total\)\s*:\s*([\d.eE+-]+)\s*pJ", sec) or 0.0
             e_red = _grab(r"\n\s+Spatial Reduction Energy \(total\)\s*:\s*([\d.eE+-]+)\s*pJ", sec) or 0.0
+            # Counts the evaluator-only terms (noc_post.py) are charged from.
+            # Pure Timeloop output, per instance except where scaled like
+            # `reads`: `spatial_reductions` is the number of partial sums added
+            # into a neighbour, `hops` the mean hop count of an ingress, and
+            # `per_hop_pJ` what one hop of one `network_word_bits` word costs.
+            reductions = _grab(r"\n\s+Spatial reductions\s*:\s*([\d.eE+-]+)", sec)
+            hops = _grab(r"\n\s+Average number of hops\s*:\s*([\d.eE+-]+)", sec)
+            per_hop = _grab(r"\n\s+Energy \(per-hop\)\s*:\s*([\d.eE+-]+)\s*fJ", sec)
             rows.append(dict(
                 layer=layer_label, level=f"NoC: {name}", dataspace=ds,
                 instances=None,
                 reads=None if ingresses is None else ingresses * scale,
                 writes=0.0,
-                energy_pJ=(e_net + e_link + e_red) * scale))
+                energy_pJ=(e_net + e_link + e_red) * scale,
+                spatial_reductions=None if reductions is None else reductions * scale,
+                hops=hops,
+                per_hop_pJ=None if per_hop is None else per_hop / 1000.0,
+                net_instances=net_instances))
     return rows
 
 

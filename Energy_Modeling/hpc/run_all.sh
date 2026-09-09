@@ -27,6 +27,14 @@
 #      ECC_MAPPER_SEARCH_SIZE=20000 bash hpc/run_all.sh   # bounded dev pass
 #      ECC_MAP_TIME=08:00:00 ECC_CONCURRENCY=6 bash hpc/run_all.sh
 #
+#  WITH ECC_RECON_MODELING=1 (env.sh section 4) every mode below runs the
+#  reconstruction PLACEMENT study of Task 3 instead: one architecture, one model,
+#  one code, and the x axis is WHERE the reconstruction boundary sits. It is an
+#  evaluator-only comparison, so `--eval-only` is the mode to use and the
+#  mapping array only has the one pair to solve.
+#
+#      ECC_RECON_MODELING=1 bash hpc/run_all.sh --eval-only
+#
 #  MODES
 #      (none)        map, then evaluate and plot when the mapping succeeds
 #      --map-only    submit the mapping array and stop
@@ -40,6 +48,7 @@
 #                    evaluate and plot. Only inside an allocation (srun), never
 #                    on a login node.
 # =============================================================================
+
 set -euo pipefail
 
 # FIND THE PROJECT ROOT. Not derivable from ${BASH_SOURCE[0]} alone: when this
@@ -101,6 +110,17 @@ _run() {
 # architecture sweep, one bar group per swept value otherwise. $1 is --eval
 # (read the mapper cache) or --replot (read results/_raw/ only).
 _plot() {
+    if [ "${ECC_EXPERIMENT}" = "recon" ]; then
+        # The reconstruction placement study evaluates and draws in ONE command
+        # -- its bars ARE its result file -- so after stage_eval has run it a
+        # separate plot stage would repeat the whole thing. In --replot mode
+        # there is no stage_eval, so this IS the run.
+        if [ "$1" = "--replot" ]; then
+            echo "############ plot: reconstruction placement ############"
+            _run recon --replot
+        fi
+        return 0
+    fi
     echo "############ plot: ${ECC_EXPERIMENT} on the ${ECC_SWEEP} axis ############"
     if [ "${ECC_EXPERIMENT}" = "panels" ]; then
         _run panels "$1"
@@ -180,6 +200,14 @@ banner() {
     local n
     n=$(grep -cve '^[[:space:]]*$' "${ECC_TASKFILE}" 2>/dev/null || echo 0)
     echo "=============================================================================="
+    if [ "${ECC_RECON_MODELING}" = "1" ]; then
+        echo " STUDY      : reconstruction PLACEMENT (Task 3), fixed mapping."
+        echo "              section 4 of env.sh holds arch/model/code; the x axis"
+        echo "              is WHERE the boundary sits."
+        echo " placements : ${ECC_RECON_PLACEMENT_LIST:-every one this design defines}"\
+             "  packing=${ECC_RECON_PACKING} encoder=${ECC_RECON_ENCODER_GRANULARITY}"
+        echo " remapping  : RECON_OPTIMIZER=${RECON_OPTIMIZER} (True is Task 4, not implemented)"
+    fi
     echo " archs      : ${ECC_ARCHS}"
     echo " models     : ${ECC_MODELS}"
     echo " code       : BCH(${ECC_CODE_N}, ${ECC_KS})   arms: ${ECC_APPROACHES}"

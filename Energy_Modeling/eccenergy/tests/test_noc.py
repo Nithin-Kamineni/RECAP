@@ -153,8 +153,18 @@ def test_injection_is_valid_yaml_on_every_arch_and_moves_the_fingerprint():
         n_storage = len(re.findall(r"^\s*depth:\s*\d", on, re.M))
         assert n_comp > n_storage, arch                 # the MAC is a component too
         n_datapath = len(present) - n_spatial           # nested lanes get explicit zeros
-        assert sum(1 for v in r_vals if not v) == n_comp + n_datapath, (arch, n_comp, n_datapath, r_vals)
-        assert sum(1 for v in g_vals if not v) == n_comp + n_datapath, (arch, n_comp, n_datapath, g_vals)
+        # ... and, since 2026-09-08, a charged level whose own term is zero is
+        # written as an explicit zero too (a nested NoC level would otherwise
+        # inherit its parent's router: FINDINGS open defect 8.1).
+        zero_r = sum(1 for r, _ in per_level.values() if not r)
+        zero_g = sum(1 for _, g in per_level.values() if not g)
+        assert sum(1 for v in r_vals if not v) == n_comp + n_datapath + zero_r, (arch, n_comp, n_datapath, r_vals)
+        assert sum(1 for v in g_vals if not v) == n_comp + n_datapath + zero_g, (arch, n_comp, n_datapath, g_vals)
+        # every charged level carries BOTH switching terms, whatever their value
+        for b in A._node_blocks(on.split("\n")):
+            if b["kind"] == "Container" and b["spatial"] is not None and b["name"] in charged:
+                blk = "\n".join(on.split("\n")[b["spatial"] + 1: b["spatial"] + 8])
+                assert "router_energy:" in blk and "energy-per-ingress:" in blk, (arch, b["name"], blk)
         # loop depth (and so victory scaling) must not move
         assert A.loop_levels(on) == A.loop_levels(plain), arch
         assert A.arch_fingerprint(arch, cfg) != A.arch_fingerprint(arch, off), arch
@@ -171,7 +181,8 @@ def test_contract_charges_routers_only_where_the_design_has_them():
     # only the router-cluster level is a router hop; the PE row is wiring.
     t = A.noc_terms("eyeriss_v2_like", cfg)
     assert abs(t["levels"]["PE_cluster"][0] - 0.25 / 3) < 1e-9, t
-    assert t["levels"]["PE"] == (0.0, 0.0), t
+    assert t["levels"]["PE_cluster"][1] == 0.0, t              # switching is in the routers
+    assert t["levels"]["PE"] == (0.0, 0.0), t                  # no second router; latch 0 by default (2026-09-09)
     assert A.noc_terms("simba_like", cfg)["levels"]["PE"][0] == 0.25   # no published packing
     for a in ("eyeriss_like", "eyeriss_like_wglb", "simple_weight_stationary",
               "simple_output_stationary", "simple_input_stationary"):
@@ -268,6 +279,207 @@ def test_noc_category_and_recon_scaling():
     assert "NoC" in onchip_cats(cfg)                  # decision 2026-09-07
     cats = plot_cats(cfg)
     assert cats.index("NoC") == cats.index("Compute") - 1   # stacks just under Compute
+
+
+# ------------------------------------------------ 2026-09-08 revision
+def test_v2_pe_latch_is_bracketed_and_the_knob_moves_the_cache():
+    """Default 0 (2026-09-09); ECC_NOC_PE_LATCH_PJ runs the bracket (0.5, v1's calibrated 0.9152)."""
+    from .. import archs as A
+    cfg = _cfg(ECC_ARCH_FIDELITY="paper", ECC_NOC="1")
+    assert A.pe_latch_pj(cfg) == 0.0
+    assert A.noc_terms("eyeriss_v2_like", cfg)["levels"]["PE"][1] == 0.0
+    assert A.noc_terms("eyeriss_v2_like_wglb", cfg)["levels"]["PE"][1] == 0.0
+    # nobody else pays it: v1 and the generic designs are on the calibrated
+    # ingress, simba on routers only
+    for a in ("eyeriss_like", "simple_weight_stationary", "simba_like"):
+        text = A._patched_text(a, cfg, quiet=True)
+        assert "energy-per-ingress: 0.5\n" not in text, a
+    lo = _cfg(ECC_ARCH_FIDELITY="paper", ECC_NOC="1", ECC_NOC_PE_LATCH_PJ="0.5")
+    hi = _cfg(ECC_ARCH_FIDELITY="paper", ECC_NOC="1", ECC_NOC_PE_LATCH_PJ="0.9152")
+    assert A.noc_terms("eyeriss_v2_like", lo)["levels"]["PE"][1] == 0.5
+    assert abs(A.noc_terms("eyeriss_v2_like", hi)["levels"]["PE"][1] - 0.9152) < 1e-12
+    assert "nocl0.9152" in hi.arch_variant_slug and "nocl0.5" in lo.arch_variant_slug
+    assert "nocl" not in cfg.arch_variant_slug
+    fps = {A.arch_fingerprint("eyeriss_v2_like", c) for c in (cfg, lo, hi)}
+    assert len(fps) == 3, fps
+    # 8x2 cluster mesh (2026-09-09): both dims declared, no forced split
+    text = A._patched_text("eyeriss_v2_like", cfg, quiet=True)
+    assert "spatial: {meshX: 8, meshY: 2}" in text and "spatial: {meshX: 16}" not in text
+    # the upper bound really is v1's number
+    assert abs(A.calibrated_ingress(cfg) - 0.9152) < 5e-4
+
+
+def test_v2_injection_zeros_the_inner_router_and_declares_both_pitches():
+    """The 8.1 defect: PE row inherited the cluster router. Now explicit, with tile widths."""
+    from .. import archs as A
+    cfg = _cfg(ECC_ARCH_FIDELITY="paper", ECC_NOC="1")
+    text = A._patched_text("eyeriss_v2_like", cfg, quiet=True)
+    lines = text.split("\n")
+    blocks = {b["name"]: b for b in A._node_blocks(lines)
+              if b["kind"] == "Container" and b["spatial"] is not None}
+    clu = "\n".join(lines[blocks["PE_cluster"]["spatial"] + 1: blocks["PE_cluster"]["spatial"] + 8])
+    pe = "\n".join(lines[blocks["PE"]["spatial"] + 1: blocks["PE"]["spatial"] + 8])
+    assert "router_energy: 0.08333" in clu and "energy-per-ingress: 0.0" in clu, clu
+    assert "tile_width: 430.0" in clu, clu
+    assert "router_energy: 0.0\n" in pe + "\n" and "energy-per-ingress: 0.0" in pe, pe
+    assert "tile_width: 108.0" in pe, pe
+    assert A.noc_band_levels("eyeriss_v2_like") == ["PE_cluster"]
+    assert A.noc_band_levels("eyeriss_like") == []
+    # SIMD is datapath: wire, router, ingress zero and no pitch of its own
+    simd = "\n".join(lines[blocks["SIMD"]["spatial"] + 1: blocks["SIMD"]["spatial"] + 5])
+    assert "wire_energy: 0.0" in simd and "tile_width" not in simd, simd
+    assert not _duplicate_keys(text)
+    # nobody else declares a pitch: their hop length stays Timeloop's area-derived one
+    for a in ARCHS:
+        if not a.startswith("eyeriss_v2_like"):
+            assert "tile_width:" not in A._patched_text(a, cfg, quiet=True), a
+    # and the contract refuses a partial declaration (the inner level would
+    # inherit the outer pitch)
+    saved = A._NOC["architectures"]["eyeriss_v2_like"]["noc_levels"]["PE"]
+    A._NOC["architectures"]["eyeriss_v2_like"]["noc_levels"]["PE"] = {
+        k: v for k, v in saved.items() if k != "tile_width_um"}
+    try:
+        rep = A.validate_arch("eyeriss_v2_like", cfg)
+    finally:
+        A._NOC["architectures"]["eyeriss_v2_like"]["noc_levels"]["PE"] = saved
+    assert any("tile_width_um" in v for v in rep["violations"]), rep["violations"]
+    assert not any("tile_width_um" in v for v in A.validate_arch("eyeriss_v2_like", cfg)["violations"])
+
+
+def test_declared_pitches_match_the_cached_art():
+    """108 um and 430 um are DERIVED numbers; re-derive them from any cached ART."""
+    import glob
+    import math
+    from .. import archs as A
+    from ..paths import WORK
+    arts = sorted(glob.glob(str(WORK / "outputs" / "eyeriss_v2_like"
+                                / "*" / "*" / "*" / "timeloop-mapper.ART_summary.yaml")),
+                  key=os.path.getmtime)
+    if not arts:
+        print("        (no cached eyeriss_v2_like ART on this machine -- skipped)")
+        return
+    art = yaml.safe_load(pathlib.Path(arts[-1]).read_text())      # the newest ART
+    area = {}
+    # the summary is {"ART_summary": {"version":..., "table_summary": [{name, area, ...}]}}
+    table = art["ART_summary"]["table_summary"]
+    for e in table:
+        name = re.sub(r"\[.*?\]", "", e["name"]).split(".")[-1]   # strip [1..192] BEFORE splitting on dots
+        area[name] = float(e["area"])
+    pe = area["ifmap_spad"] + area["weights_spad"] + area["psum_spad"] + 2 * area["mac"]
+    glb_cluster = (area["iact_glb"] + area["psum_glb"]) / 16
+    pe_pitch = math.sqrt(pe)
+    cluster_pitch = math.sqrt((12 * pe + glb_cluster) / (1 - 0.026))
+    lv = A.load_noc()["architectures"]["eyeriss_v2_like"]["noc_levels"]
+    assert abs(pe_pitch - lv["PE"]["tile_width_um"]) / pe_pitch < 0.01, (pe_pitch, lv["PE"])
+    assert abs(cluster_pitch - lv["PE_cluster"]["tile_width_um"]) / cluster_pitch < 0.01, \
+        (cluster_pitch, lv["PE_cluster"])
+    # and Timeloop's own derived pitch is the cluster alone, as documented
+    assert abs(math.sqrt(12 * pe) - 374.8) < 2.0, math.sqrt(12 * pe)
+
+
+def test_component_library_is_in_the_fingerprint():
+    """Editing archs/_shared/components changes every ERT; the cache must move."""
+    from .. import archs as A
+    cfg = _cfg(ECC_ARCH_FIDELITY="paper", ECC_NOC="1")
+    before = A.arch_fingerprint("eyeriss_like", cfg)
+    real = A.components_digest
+    A.components_digest = lambda: "deadbeefcafe"
+    try:
+        after = A.arch_fingerprint("eyeriss_like", cfg)
+    finally:
+        A.components_digest = real
+    assert before != after
+    assert A.arch_fingerprint("eyeriss_like", cfg) == before
+    assert len(real()) == 12 and real() != "deadbeefcafe"
+
+
+def test_register_writes_are_costed_everywhere():
+    """Aladdin's register table has write = 0; every register in the study now pays a read for it."""
+    import glob
+    from ..paths import ARCH_COMPONENTS, ARCH_SRC
+    rfd = yaml.safe_load((ARCH_COMPONENTS / "regfile_decoded.yaml").read_text())
+    rw = yaml.safe_load((ARCH_COMPONENTS / "register_rw.yaml").read_text())
+    for doc, cls in ((rfd, "regfile_decoded"), (rw, "register_rw")):
+        c = next(c for c in doc["compound_components"]["classes"] if c["name"] == cls)
+        acts = {a["name"]: a for a in c["actions"]}
+        for an in ("write", "update"):
+            sub = acts[an]["subcomponents"][0]
+            assert sub["name"].startswith("storage[1..width]"), (cls, an, sub)
+            assert sub["actions"] == [{"name": "read"}], (cls, an, sub)
+    for f in glob.glob(str(ARCH_SRC / "simple_*" / "arch_paper.yaml")):
+        text = pathlib.Path(f).read_text()
+        assert "subclass: aladdin_register" not in text, f
+        assert text.count("subclass: register_rw") == 3, f
+
+
+def test_evaluator_only_terms_are_parsed_and_charged():
+    """Spatial reductions (adder + one psum-wide hop) and the psum word width, from the fixture."""
+    from .. import noc_post
+    from ..timeloop import parse_stats
+    cfg = _cfg(ECC_ARCH_FIDELITY="paper", ECC_NOC="1")
+    rows = parse_stats(FIXTURE, "L")
+    net = [r for r in rows if r["level"].startswith("NoC")]
+    out = next(r for r in net if r["dataspace"] == "Outputs")
+    # the parser carries Timeloop's counts through unchanged
+    assert out["reads"] == 2000.0 and out["hops"] == 2.5 and out["net_instances"] == 1
+    assert abs(out["per_hop_pJ"] - 0.03672) < 1e-9 and out["spatial_reductions"] == 0
+    # eyeriss_like accumulates at 16b, the network billed 8b of wire: +1x the wire term
+    c = noc_post.coefficients("eyeriss_like", cfg)
+    assert c["enabled"] and c["outputs_word_bits"] == 16 and c["network_word_bits"] == 8
+    aug = noc_post.augment(rows, "eyeriss_like", cfg)
+    added = [r for r in aug if r["level"].endswith("]")]
+    assert [r["level"].split(" [")[-1] for r in added] == ["psum word width]"], added
+    assert abs(added[0]["energy_pJ"] - 2000 * 2.5 * 0.03672 * 1) < 1e-6, added[0]
+    assert added[0]["energy_pJ"] == out["energy_pJ"] * 1.0 or abs(added[0]["energy_pJ"] - 183.62) < 0.05
+    # pure Timeloop rows are untouched and the total moved by exactly that row
+    assert abs(sum(r["energy_pJ"] for r in aug) - sum(r["energy_pJ"] for r in rows)
+               - added[0]["energy_pJ"]) < 1e-6
+    # a reduction: one 16-bit add (0.0065625 x 16) + one hop of 16-bit wire, x instances
+    row = dict(level="NoC: x <==> y", dataspace="Outputs", layer="L", reads=10.0, hops=2.0,
+               per_hop_pJ=0.08, net_instances=4, spatial_reductions=1000.0, energy_pJ=1.0)
+    red = [r for r in noc_post.augment([row], "eyeriss_like", cfg) if "reduction" in r["level"]][0]
+    expect = 1000 * 4 * (0.0065625 * 16 + 1 * 16 * 0.08 / 8)
+    assert abs(red["energy_pJ"] - expect) < 1e-9, (red, expect)
+    # v2 accumulates at 20b
+    c2 = noc_post.coefficients("eyeriss_v2_like", cfg)
+    assert c2["outputs_word_bits"] == 20
+    # off with the NoC, and the stamp follows the coefficients
+    off = _cfg(ECC_ARCH_FIDELITY="paper", ECC_NOC="0")
+    assert noc_post.augment(rows, "eyeriss_like", off) == rows
+    assert noc_post.stamp("eyeriss_like", cfg) != noc_post.stamp("eyeriss_v2_like", cfg)
+    assert noc_post.stamp("eyeriss_like", cfg) != noc_post.stamp("eyeriss_like", off)
+
+
+def test_raw_record_is_stale_when_the_evaluator_terms_change():
+    import tempfile
+    from .. import energy as E, noc_post
+    from ..paths import Results
+    cfg = _cfg(ECC_ARCH_FIDELITY="paper", ECC_NOC="1")
+    import pandas as pd
+    cats = E.plot_cats(cfg)
+    ser = pd.Series({c: 1.0 for c in cats})
+    with tempfile.TemporaryDirectory() as d:
+        res = Results(dataclasses.replace(cfg, results_dir=d))
+        res.prepare()
+        raw = E.Raw(ser, ser, ser, 1.0, 1.0, 1, 0, 1, [], [],
+                    noc_post=noc_post.stamp("eyeriss_like", cfg))
+        E.save_raw(res, "eyeriss_like", "m", raw, "v", "fp")
+        assert E.load_raw(res, cfg, "eyeriss_like", "m", "v", "fp") is not None
+        other = _cfg(ECC_ARCH_FIDELITY="paper", ECC_NOC="1", ECC_NOC_SCALE="2")
+        assert E.load_raw(res, other, "eyeriss_like", "m", "v", "fp") is None   # stale
+        raw.noc_post = None                                                     # pre-2026-09-08 record
+        E.save_raw(res, "eyeriss_like", "m", raw, "v", "fp")
+        assert E.load_raw(res, cfg, "eyeriss_like", "m", "v", "fp") is None
+        # a record aggregated while shapes were still mapping is stale too
+        # (2026-09-09: a one-layer record was served as the whole model)
+        raw.noc_post = noc_post.stamp("eyeriss_like", cfg)
+        raw.per_layer = [{"layer": "a", "shape": "s1", "status": "ok"},
+                         {"layer": "b", "shape": "s2", "status": "unmapped"}]
+        E.save_raw(res, "eyeriss_like", "m", raw, "v", "fp")
+        assert E.load_raw(res, cfg, "eyeriss_like", "m", "v", "fp") is None
+        raw.per_layer[1]["status"] = "ok"
+        E.save_raw(res, "eyeriss_like", "m", raw, "v", "fp")
+        assert E.load_raw(res, cfg, "eyeriss_like", "m", "v", "fp") is not None
 
 
 def main():

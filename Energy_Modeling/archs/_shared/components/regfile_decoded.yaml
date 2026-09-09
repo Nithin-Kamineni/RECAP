@@ -74,11 +74,23 @@ compound_components:
         global_cycle_seconds: global_cycle_seconds
 
     actions:
+    # WRITE IS COSTED AS A READ -- deliberately (2026-09-08). Accelergy's
+    # Aladdin register table (accelergy-library-plug-in,
+    # library/aladdin/aladdin_register.csv) is
+    #     40nm, 1 bit: read 0.009 pJ | write 0 | leak|update 0
+    # so every register-file write and every partial-sum UPDATE in this
+    # study was free: Eyeriss v2's psum_spad showed write 0.0 / update 0.0
+    # in its ERT against read 0.13 pJ, with more updates than reads on the
+    # layers examined. A flip-flop write (D-input transition plus the
+    # clocked master/slave toggle) costs no less than reading its Q through
+    # the output mux, so the read row is used for both. Symmetric, stated,
+    # and applied to every register in the study (register_rw.yaml covers
+    # the bare registers of the simple_* designs). Not a calibration.
     - &rfd_write
       name: write
       subcomponents:
       - name: storage[1..width]
-        actions: [{name: write}]
+        actions: [{name: read}]     # the table's write row is 0; see above
     - name: read
       subcomponents:
       - name: storage[1..width]
@@ -87,8 +99,13 @@ compound_components:
       subcomponents:
       - name: storage[1..width*depth]
         actions: [{name: leak, arguments: {global_cycle_seconds: global_cycle_seconds}}]
+    # `update` is a WRITE, spelled out rather than merged: Accelergy's loader
+    # took only the first subcomponent through the `<<` merge key (measured
+    # 2026-09-08: update 0.0424 pJ vs write 0.0752 pJ on v2's ifmap_spad).
     - name: update
-      << : *rfd_write
+      subcomponents:
+      - name: storage[1..width]
+        actions: [{name: read}]     # the table's write row is 0; see above
 
   # Structurally identical to _components/smartbuffer_RF.yaml -- same
   # CACTI-style width/depth clamps, same 2^0.78 depth scaling, same two
@@ -150,5 +167,10 @@ compound_components:
         actions: [{name: leak, energy_scale: static_energy_scale}]
       - name: address_generators[0..1]
         actions: [{name: leak}]
+    # spelled out, not merged -- see regfile_decoded.update above
     - name: update
-      << : *sbrfd_write
+      subcomponents:
+      - name: storage
+        actions: [{name: write, energy_scale: dynamic_energy_scale}]
+      - name: address_generators[0]
+        actions: [{name: add}]

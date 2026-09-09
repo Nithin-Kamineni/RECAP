@@ -5,6 +5,9 @@ Source conversation:
 https://chatgpt.com/share/6a9cf72e-979c-83e9-932b-c6193b111007
 
 Read Part 1 for project foundations and architecture-specific datapaths.
+Part 1, section 1 defines the DRAM model used throughout: the ECC decoder
+is on the DRAM die and off the fetch path, only the k message bits of each
+codeword cross the DRAM interface, and the DRAM array is never credited.
 
 This file begins at:
 "12. The fanout/reuse tradeoff is the central DSE"
@@ -117,6 +120,9 @@ A hierarchical network also permits intermediate placement:
 - After local fanout.
 - At individual PE inputs.
 
+The DRAM interface sits above every fanout point, so its saving is the
+same whichever of these is chosen.
+
 
 ======================================================================
 13. EXAMPLE SHOWING WHY THE OPTIMUM MOVES
@@ -130,6 +136,9 @@ Illustrative representation:
 
 This assumes independent reconstruction is feasible at the stated
 granularity. See section 15 for group dependencies.
+
+The DRAM interface carries 4 bits per weight under all three options and
+is left out of the comparison below.
 
 
 OPTION A: RECONSTRUCT BEFORE PE RF
@@ -284,6 +293,10 @@ G_rec =
 
 The exact dependency set can be more informative than a single scalar.
 
+The same granularity applies at the DRAM side: the on-die decoder needs
+the complete codeword, and the fetch must select the k message bits of a
+codeword as a unit, not per weight.
+
 Immediate implementation task:
 Inspect the actual ECC generator relationships and weight-to-codeword
 mapping before designing a PE-local encoder.
@@ -356,6 +369,11 @@ Model:
 - Group-assembly requirements.
 - Number of useful values delivered per access.
 
+The same rule holds at the DRAM. A message-only fetch saves interface
+bits only if the k message bits of successive codewords are driven as a
+packed stream; it saves array energy only if the burst that is read is
+narrower, which is not assumed.
+
 Reduced logical bit count and reduced physical energy are related but are
 not interchangeable.
 
@@ -367,23 +385,31 @@ not interchangeable.
 For each architecture, define applicable variants:
 
 BASE
-    Full representation throughout the modeled on-chip hierarchy.
+    Full representation throughout the modeled on-chip hierarchy. The
+    complete codeword crosses the DRAM interface.
 
 REC-L0
-    Reconstruct at global-buffer/input-buffer output.
+    Reconstruct at chip ingress (the weight input port). The DRAM
+    interface carries k bits; nothing on chip is reduced.
 
 REC-L1
-    Reconstruct after the global NoC.
+    Reconstruct at global-buffer/input-buffer output.
 
 REC-L2
-    Reconstruct at PE-local-memory input.
+    Reconstruct after the global NoC.
 
 REC-L3
-    Reconstruct at PE-local-memory output.
+    Reconstruct at PE-local-memory input.
 
 REC-L4
+    Reconstruct at PE-local-memory output.
+
+REC-L5
     Reconstruct at PE-local-memory output and retain reconstructed values
     in a decoded-weight reuse register/cache.
+
+Every REC-L* variant carries k bits per codeword across the DRAM interface
+and reads the complete codeword from the DRAM array.
 
 Not every architecture contains every listed level. Mark nonexistent or
 inapplicable boundaries explicitly instead of inventing them.
@@ -412,6 +438,7 @@ Other central dimensions from the discussion:
 - Reconstructed-weight retention.
 - Physical memory packing.
 - Sparse metadata overhead.
+- Interface share of DRAM energy (f_if, Part 1 section 4).
 
 
 ======================================================================
@@ -422,8 +449,9 @@ Collect per layer and per architecture/variant.
 
 | Metric | Purpose |
 |--------|---------|
-| DRAM bits read | Establish off-chip traffic baseline |
-| DRAM-to-accelerator transmitted bits | Identify post-ECC bandwidth reduction |
+| DRAM array bits read | Complete codewords read for correction; identical under every variant |
+| DRAM interface bits transmitted | k/n of the array bits under every reconstruction variant; the first saving |
+| DRAM array vs interface energy | The split of the DRAM term; report f_if beside it |
 | Global-buffer weight writes | Quantify higher-level weight-storage traffic |
 | Global-buffer weight reads | Quantify higher-level weight-storage traffic |
 | Weight-NoC bits and bit-hops | Quantify transport cost and placement benefit |
@@ -469,6 +497,8 @@ Additional implementation accounting needed where applicable:
 - Added pipeline registers.
 - Baseline versus proposed execution time.
 - Encoder and added-buffer leakage over execution time.
+- On-die decoder: count and location recorded; energy outside the
+  placement comparison unless the study says otherwise.
 
 Avoid double-counting costs already included in component energy models.
 
@@ -503,6 +533,18 @@ Energy per physical access
 
 Use reduced physical representations where appropriate.
 
+The DRAM level needs one extra step. Accelergy's DRAM model is one flat
+per-bit constant with no array/interface decomposition, and Timeloop charges
+the DRAM-to-chip network zero. So the evaluator splits the DRAM weight energy
+itself (Part 1, section 4):
+
+E_array      = (1 - f_if) x DRAM weight energy    complete codeword, unchanged
+E_interface  =      f_if  x DRAM weight energy    x k/n under every boundary
+
+f_if, the interface share of the per-bit DRAM energy, is a cited parameter
+recorded in the provenance file. If no citation is available, refuse to
+produce a single number and print the DRAM saving at several f_if values.
+
 Do not assume that changing a logical datawidth alone automatically models:
 - Correct physical packing.
 - Changed access counts.
@@ -511,6 +553,7 @@ Do not assume that changing a logical datawidth alone automatically models:
 - ECC-group dependencies.
 - Reconstruction caching.
 - Encoder throughput.
+- The array/interface split of DRAM energy.
 
 Encoder integration options:
 1. Add an explicit reconstruction component to Accelergy.
@@ -607,6 +650,10 @@ Appropriate sources can include:
 The source discussion emphasizes that Eyeriss-v2 weight storage includes
 actual SRAM structures, not merely generic synthesized registers.
 
+The on-die decoder is DRAM-process logic. If its energy is ever brought
+into the comparison, characterize it for that process, not with the
+accelerator's logic library.
+
 
 ======================================================================
 21. EXPECTED QUALITATIVE ENERGY TREND
@@ -616,7 +663,9 @@ Hypothesis from the source discussion:
 
 Energy
   ^
-  |\
+  |  embedded, no reconstruction
+  |- - - - - - - - - - - - - - - - - - - - - - - - -
+  |\   <-- interface saving, every boundary
   | \
   |  \                      Repeated
   |   \                   reconstruction
@@ -631,7 +680,8 @@ Energy
 
 Possible explanation:
 
-Moving reconstruction toward computation initially saves:
+Every boundary starts below the embedded reference by the DRAM-interface
+saving. Moving reconstruction toward computation then saves:
 - Upstream storage traffic.
 - NoC traffic.
 - Local-buffer traffic.
@@ -641,7 +691,8 @@ for each MAC use.
 
 A decoded-weight latch/cache may shift the best placement later:
 
-Reduced transport --> Reduced SPad --> XOR --> Small full latch --> MAC
+Reduced interface --> Reduced transport --> Reduced SPad --> XOR
+    --> Small full latch --> MAC
 
 IMPORTANT:
 The U-shaped curve is a hypothesis, not an expected output to force.
@@ -654,6 +705,9 @@ Do not generate synthetic "results" that merely reproduce this sketch.
 ======================================================================
 22. ARCHITECTURE-SPECIFIC HYPOTHESES
 ======================================================================
+
+Every candidate below begins with a reduced DRAM interface; the diagrams
+show the on-chip part.
 
 22.1 EYERISS V2
 
@@ -795,10 +849,10 @@ The contribution should be broader than:
 
 Proposed framing:
 
-Embedded ECC creates deterministically redundant weight bits. Rather than
-propagating those bits through the entire accelerator hierarchy, remove
-them after off-chip error correction and regenerate them at a selected
-reconstruction boundary.
+Embedded ECC creates deterministically redundant weight bits. With the
+decoder on the DRAM die and off the fetch path, those bits never need to
+leave the die: only the message bits cross the DRAM interface, and they are
+regenerated at a selected reconstruction boundary inside the accelerator.
 
 Moving this boundary closer to computation can reduce storage and
 communication costs, but can increase reconstruction multiplicity through
@@ -813,7 +867,8 @@ Conceptual DSE:
            +-------------------+-------------------+
            v                   v                   v
     Storage hierarchy    Network fanout     Temporal reuse
-           |                   |                   |
+    (from the DRAM             |                   |
+     interface down)           |                   |
            +-------------------+-------------------+
                                |
                                v
@@ -836,15 +891,21 @@ Eyeriss v2 remains the initial and primary implementation target.
 ======================================================================
 
 Before implementing all architectures, run a four-point Eyeriss-v2 study.
+All four points read the complete codeword from the DRAM array; the three
+reconstruction points carry k bits per codeword across the DRAM interface.
 
 
 EV2-BASE
 
-Full weight representation everywhere in the on-chip weight path.
+Complete codeword across the DRAM interface; full weight representation
+everywhere in the on-chip weight path.
 
 
 EV2-NOC
 
+Reduced DRAM interface
+      |
+      v
 Reduced weight through HM-NoC
       |
       v
@@ -856,6 +917,9 @@ Full weight SPad
 
 EV2-SPAD
 
+Reduced DRAM interface
+      |
+      v
 Reduced weight through HM-NoC
       |
       v
@@ -867,6 +931,9 @@ Reconstruct at SPad output for each required read/use
 
 EV2-CACHE
 
+Reduced DRAM interface
+      |
+      v
 Reduced weight through HM-NoC
       |
       v
@@ -881,6 +948,7 @@ Retain reconstructed weight in a small reuse register/cache
 
 MEASURE
 
+- DRAM energy, array and interface shares reported separately.
 - NoC energy.
 - Weight-SPad energy.
 - Encoder energy.
@@ -938,7 +1006,7 @@ the central placement tradeoff.
 
 
 ======================================================================
-25. FIVE MAIN RISKS TO THE STUDY
+25. SIX MAIN RISKS TO THE STUDY
 ======================================================================
 
 1. ECC DEPENDENCY GRANULARITY
@@ -991,6 +1059,17 @@ Encoder energy per useful MAC after amortization.
 Count actual reconstructed-result reuse under the execution schedule.
 
 
+6. THE DRAM ARRAY/INTERFACE SPLIT
+
+The DRAM-interface saving is worth f_if x (1 - k/n) of the DRAM weight
+energy, and the modeling tool supplies no f_if. An uncited f_if turns the
+largest term of the study into an assumption; cite it, and report the
+saving at several values while it is uncertain.
+
+Do not credit the DRAM array: a message-only fetch reads the same bursts
+unless a narrower array access is demonstrated.
+
+
 ======================================================================
 FINAL ARCHITECTURAL FRAMING FROM THE SOURCE
 ======================================================================
@@ -1003,7 +1082,10 @@ RF output
 
 Model the actual applicable hierarchy:
 
-ECC correction
+DRAM array: complete codeword, corrected on the die, off the fetch path
+      |
+      v
+DRAM interface: k message bits per codeword   (reduced under every boundary)
       |
       v
 Source/global storage, if present
@@ -1026,13 +1108,17 @@ Decoded reuse register
       v
 MAC
 
-Treat every feasible boundary as a DSE candidate.
+Treat every feasible boundary at or below the chip ingress as a DSE
+candidate.
 
 Two leading hypotheses:
 
 
 EYERISS V2
 
+Reduced DRAM interface
+      |
+      v
 Reduced HM-NoC
       |
       v
@@ -1050,6 +1136,9 @@ MAC
 
 SIMBA / GENERIC WEIGHT STATIONARY
 
+Reduced DRAM interface
+      |
+      v
 Reduced weight hierarchy
       |
       v
@@ -1065,8 +1154,8 @@ Stationary full-weight MAC register
 Many MAC uses
 
 Objective:
-Keep storage and transport reduced while avoiding repeated regeneration
-of the same XOR-derived weight.
+Keep transport and storage reduced from the DRAM output pins down while
+avoiding repeated regeneration of the same XOR-derived weight.
 
 
 ======================================================================
@@ -1091,6 +1180,10 @@ The source discussion identifies these reference families:
 - Accelergy documentation and energy-estimation components:
   Component actions, energy tables, memory and custom encoder integration.
 
+- On-die DRAM ECC and DRAM energy decomposition:
+  LPDDR4/LPDDR5/DDR5 on-die ECC descriptions; array versus I/O energy
+  breakdowns, which are the only legitimate sources for f_if.
+
 Verify exact implementation claims and record usable bibliographic
 references in the project rather than retaining chat-local citation IDs.
 
@@ -1108,17 +1201,21 @@ Before making architectural changes:
 2. Identify the actual baseline architecture configuration.
 3. Inspect the ECC parameters, generator relationships, and weight mapping.
 4. Establish reconstruction granularity and dependency availability.
-5. Define physically packed reduced representations, including metadata.
-6. Implement the initial Eyeriss-v2 variants.
-7. Derive reconstruction counts from actual events and reuse schedules.
-8. Characterize the corresponding encoder implementation.
-9. Combine costs without double-counting.
-10. Compare energy, area, and latency against an equivalent baseline.
+5. Split the DRAM weight energy into array and interface shares with a
+   cited f_if; scale only the interface share by k/n.
+6. Define physically packed reduced representations, including metadata.
+7. Implement the initial Eyeriss-v2 variants.
+8. Derive reconstruction counts from actual events and reuse schedules.
+9. Characterize the corresponding encoder implementation.
+10. Combine costs without double-counting.
+11. Compare energy, area, and latency against an equivalent baseline.
 
 Do not assume:
 - A default Eyeriss-like model is Eyeriss v2.
 - Weights reside in a global buffer in every architecture.
 - Half the value bits means half the SRAM or NoC energy.
+- The flat DRAM constant is all interface, or all array.
+- A message-only fetch reads fewer DRAM array bits.
 - Every weight can be reconstructed independently.
 - A single latch captures all reuse.
 - Late reconstruction always wins.

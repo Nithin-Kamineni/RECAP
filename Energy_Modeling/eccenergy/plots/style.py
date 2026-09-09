@@ -24,6 +24,7 @@ HOUSE = {
     "Compute": "#B03A2E",
     "ECC decode": "#7D3C98",
     "Reconstruction": "#1F9E8F",
+    "Recon overhead": "#8E6C3A",
 }
 
 #: Okabe-Ito. The house palette's global-buffer green and on-chip amber are
@@ -43,11 +44,13 @@ CVD.update({
     "Compute": "#D55E00",
     "ECC decode": "#7D3C98",
     "Reconstruction": "#CC79A7",
+    "Recon overhead": "#8E6C3A",
 })
 
 #: Category names as they should read in a legend.
 NICE_CATEGORY = {
     "Local (spads/RF)": "On-chip SRAM/RF",
+    "Recon overhead": "Recon buffer/control",
     "NoC": "NoC / interconnect",
     "Local (read)": "On-chip SRAM/RF (read)",
     "Local (write)": "On-chip SRAM/RF (write)",

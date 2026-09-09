@@ -131,7 +131,7 @@ architecture:
     - !Component # Weight register
       name: weight_reg
       class: storage
-      subclass: aladdin_register
+      subclass: register_rw    # aladdin_register with write costed (archs/_shared/components/register_rw.yaml)
       attributes:
         depth: 1
         width: 8            # one 8-bit weight
@@ -143,7 +143,7 @@ architecture:
     - !Component # Input activation register
       name: input_activation_reg
       class: storage
-      subclass: aladdin_register
+      subclass: register_rw    # aladdin_register with write costed (archs/_shared/components/register_rw.yaml)
       attributes:
         depth: 1
         width: 8            # one 8-bit activation
@@ -155,7 +155,7 @@ architecture:
     - !Component # Output activation register -- holds a partial sum
       name: output_activation_reg
       class: storage
-      subclass: aladdin_register
+      subclass: register_rw    # aladdin_register with write costed (archs/_shared/components/register_rw.yaml)
       attributes:
         depth: 1
         width: 16           # accumulator width

@@ -11,6 +11,7 @@ import json
 
 import pandas as pd
 
+from . import noc_post
 from .timeloop import classify, parse_stats
 
 #: Categories that come from Timeloop.
@@ -24,8 +25,14 @@ PHYS_CATS = ("DRAM", "Global buffer", "Local (spads/RF)", "NoC", "Compute")
 #: network has ingresses, not reads and writes.
 PHYS_CATS_SPLIT = ("DRAM", "Global buffer (read)", "Global buffer (write)",
                    "Local (read)", "Local (write)", "NoC", "Compute")
-#: Categories the ECC model adds.
-ECC_CATS = ("ECC decode", "Reconstruction")
+#: Categories the ECC model adds. `Recon overhead` is the buffer/control cost a
+#: reconstruction PLACEMENT carries beyond the encoder itself -- the
+#: reconstructed-weight reuse register of Task 3's R4b, today. It is a category
+#: of its own rather than being folded into `Reconstruction` because Task 3 asks
+#: for the overheads to be reported, and an overhead hidden inside the thing it
+#: is an overhead ON cannot be read off a figure. It is zero for every arm of
+#: `ecc.build_stacks()`, so `active_categories()` drops it from those figures.
+ECC_CATS = ("ECC decode", "Reconstruction", "Recon overhead")
 
 SPLITTABLE = ("Global buffer", "Local (spads/RF)")
 
@@ -90,10 +97,12 @@ class Raw:
     """
 
     __slots__ = ("base", "base_w", "base_i", "e_dram_w", "dram_w_reads",
-                 "layers_ok", "layers_skipped", "weights", "per_layer", "levels")
+                 "layers_ok", "layers_skipped", "weights", "per_layer", "levels",
+                 "noc_post", "mac")
 
     def __init__(self, base, base_w, base_i, e_dram_w, dram_w_reads,
-                 layers_ok, layers_skipped, weights, per_layer=None, levels=None):
+                 layers_ok, layers_skipped, weights, per_layer=None, levels=None,
+                 noc_post=None, mac=None):
         self.base = base
         self.base_w = base_w
         self.base_i = base_i
@@ -109,6 +118,16 @@ class Raw:
         #: spec asks results to preserve enough to audit the accounting, and a
         #: category total cannot be checked against Timeloop without this.
         self.levels = levels or []
+        #: the evaluator-only NoC coefficients (noc_post.stamp) this record was
+        #: aggregated with. They are not in the mapper fingerprint -- the mapper
+        #: never sees them -- so this is what tells a stale record from a
+        #: current one. None on records written before 2026-09-08.
+        self.noc_post = noc_post
+        #: What a MAC was charged in THIS record: `apply_mac_override()` fills
+        #: it (the ERT's per-MAC energy, the MAC count, and the override if
+        #: one is in force). Evaluator-side only -- never written to the raw
+        #: cache, which stays pure Timeloop output.
+        self.mac = mac
 
     @property
     def total(self):
@@ -126,6 +145,7 @@ class Raw:
             "weights": int(self.weights),
             "per_layer": self.per_layer,
             "levels": self.levels,
+            "noc_post": self.noc_post,
         }
 
     @classmethod
@@ -148,7 +168,101 @@ class Raw:
         return cls(series("base"), series("base_w"), series("base_i"),
                    d["e_dram_w"], d["dram_w_reads"],
                    d.get("layers_ok", 0), d.get("layers_skipped", 0),
-                   d.get("weights", 0), d.get("per_layer", []), d.get("levels", []))
+                   d.get("weights", 0), d.get("per_layer", []), d.get("levels", []),
+                   d.get("noc_post"))
+
+
+def mac_count(raw):
+    """Total MACs in the record: per-layer MACs x repeat count, mapped layers only.
+
+    Equals Timeloop's `Computes (total)` summed over the layers, so
+    `base["Compute"] / mac_count` is exactly the ERT's per-MAC energy (1.16877 pJ
+    on eyeriss_v2_like, to 1e-11 relative).
+    """
+    return float(sum(float(l.get("macs", 0) or 0) * float(l.get("repeat_count", 1) or 1)
+                     for l in raw.per_layer if l.get("status") == "ok"))
+
+
+def apply_mac_override(raw, cfg, verbose=True):
+    """Rescale the Compute category to MACs x ECC_MAC_PJ_OVERRIDE, evaluator-side.
+
+    THE DENOMINATOR KNOB. An ECC saving is saved_pJ / total_pJ; the saved pJ are
+    weight traffic and do not depend on what a MAC costs, the total does. This
+    touches ONLY the Compute category -- `base`, `base_w`, `base_i`, the
+    Compute rows of `levels` and each layer's total -- by the ratio
+    override / ERT, and leaves the DRAM, buffer, scratchpad and NoC energies bit-
+    identical, which is what makes the saved pJ identical across the rows of
+    FINDINGS 7.3 (`tests/test_mac_override.py` asserts it).
+
+    Applied AFTER the raw cache is read or written (`collect()`), so
+    `results/_raw/` stays pure Timeloop output and the override cannot leak into
+    a later run that did not ask for it. The record's `mac` field says what was
+    done, and every result file, manifest and figure title repeats it.
+
+    With the override unset the record is returned unchanged apart from `mac`
+    being filled with the ERT's per-MAC energy, so a title can state the number
+    the primary result rests on.
+    """
+    macs = mac_count(raw)
+    compute = float(raw.base.get("Compute", 0.0))
+    ert_pj = compute / macs if macs else None
+    short, long_ = cfg.mac_citation()
+    info = {"macs": macs, "compute_pJ_ert": compute, "ert_pj_per_mac": ert_pj,
+            "override_pj_per_mac": cfg.mac_pj_override,
+            "pj_per_mac_charged": cfg.mac_pj_override if cfg.mac_pj_override is not None else ert_pj,
+            "source": "ECC_MAC_PJ_OVERRIDE" if cfg.mac_pj_override is not None else "Accelergy ERT",
+            "citation_short": short, "citation": long_,
+            "compute_pJ_charged": compute}
+    if cfg.mac_pj_override is None or not macs:
+        raw.mac = info
+        return raw
+    ratio = (macs * cfg.mac_pj_override) / compute if compute else 1.0
+    info["compute_pJ_charged"] = compute * ratio
+    info["compute_scale"] = ratio
+    info["opt_metric"] = cfg.opt_metric
+    info["mapping_note"] = (
+        "the MAC count is mapping-invariant, so under the energy objective the "
+        "mapping optimum does not move and the cache stays warm" if cfg.opt_metric == "energy"
+        else f"ECC_OPT_METRIC={cfg.opt_metric}: a cheaper MAC can move the mapping "
+             f"optimum, and the mapper was NOT re-run (it prices MACs from the ERT) "
+             f"-- a fixed-mapping result")
+
+    def scaled(series):
+        out = series.copy()
+        if "Compute" in out.index:
+            out["Compute"] = float(out["Compute"]) * ratio
+        return out
+
+    levels = []
+    for lv in raw.levels:
+        lv = dict(lv)
+        if lv.get("category") == "Compute":
+            lv["energy_pJ"] = float(lv.get("energy_pJ", 0.0)) * ratio
+            lv["mac_pj_override"] = cfg.mac_pj_override
+        levels.append(lv)
+    per_layer = []
+    for l in raw.per_layer:
+        l = dict(l)
+        if l.get("status") == "ok" and ert_pj is not None:
+            c = float(l.get("macs", 0) or 0) * float(l.get("repeat_count", 1) or 1) * ert_pj
+            l["total_energy_pJ"] = float(l.get("total_energy_pJ", 0.0)) - c * (1.0 - ratio)
+            l["compute_energy_pJ_charged"] = c * ratio
+        per_layer.append(l)
+    out = Raw(scaled(raw.base), scaled(raw.base_w), scaled(raw.base_i),
+              raw.e_dram_w, raw.dram_w_reads, raw.layers_ok, raw.layers_skipped,
+              raw.weights, per_layer=per_layer, levels=levels,
+              noc_post=raw.noc_post, mac=info)
+    if verbose:
+        print(f"  [MAC OVERRIDE] Compute rescaled to {macs:,.0f} MACs x "
+              f"{cfg.mac_pj_override:g} pJ = {compute * ratio / 1e6:,.3f} uJ "
+              f"(ERT: {ert_pj:.5f} pJ/MAC, {compute / 1e6:,.3f} uJ); {short}. "
+              f"Every percentage's DENOMINATOR moves; no saved pJ does.")
+        if cfg.opt_metric != "energy":
+            print(f"  [warn] ECC_OPT_METRIC={cfg.opt_metric}: a cheaper MAC can move an "
+                  f"EDP-optimal mapping, and the mapper was not re-run (it prices "
+                  f"MACs from the ERT) -- a fixed-mapping result, not a re-optimised "
+                  f"design")
+    return out
 
 
 def gather(cfg, mapper, model, layers, verbose=True):
@@ -170,6 +284,10 @@ def gather(cfg, mapper, model, layers, verbose=True):
                               "status": "unmapped", "weights": layer.weights})
             continue
         layer_rows = parse_stats(stats, layer.name, scale=layer.count)
+        # Spatial reductions and the psum word width: counted by Timeloop,
+        # costed here (noc_post.py). Added per layer so the per-layer totals
+        # below and the category totals agree.
+        layer_rows = noc_post.augment(layer_rows, mapper.arch, cfg)
         rows += layer_rows
         n_ok += 1
 
@@ -234,6 +352,7 @@ def gather(cfg, mapper, model, layers, verbose=True):
         layers_ok=n_ok, layers_skipped=n_skip,
         weights=sum(l.weights for l in layers),
         per_layer=per_layer, levels=levels,
+        noc_post=noc_post.stamp(mapper.arch, cfg),
     )
 
 
@@ -258,6 +377,26 @@ def load_raw(results, cfg, arch, model, variant=None, fingerprint=None,
         raw = Raw.from_json(blob, cfg)
     except Exception as exc:
         print(f"  [warn] ignoring {path.name}: {exc}")
+        return None
+    # Same self-check for the evaluator-only NoC coefficients: they are applied
+    # when the record is aggregated, not by the mapper, so the mapper
+    # fingerprint in the path cannot protect against a change to them.
+    want_post = noc_post.stamp(arch, cfg)
+    if blob.get("noc_post") != want_post:
+        print(f"  [stale] {arch}/{model}: raw record was aggregated with different "
+              f"evaluator-only NoC terms ({blob.get('noc_post')} vs {want_post}) "
+              f"-> re-gathering from the mapper cache")
+        return None
+    # A record aggregated while shapes were still being mapped (a parallel
+    # per-shape run, or an evaluation started before the map finished) holds
+    # `unmapped` layers and must not be served as a hit once those shapes exist:
+    # it would draw a one-layer figure labelled as the whole model (2026-09-09,
+    # eval 41479689). Re-gathering from the mapper cache costs seconds.
+    unmapped = [lp.get("layer") for lp in blob.get("per_layer", [])
+                if lp.get("status") == "unmapped"]
+    if unmapped and not cfg.replot_only:
+        print(f"  [stale] {arch}/{model}: raw record has {len(unmapped)} unmapped layer(s) "
+              f"(e.g. {unmapped[0]}) -> re-gathering from the mapper cache")
         return None
     if layers is not None:
         want = [l.shape_name for l in layers]
@@ -306,10 +445,11 @@ def collect(cfg, results, arch, mapper_factory, models, variant=None,
     if raws:
         print(f"  raw cache hit: {', '.join(raws)}")
     if not need_mapping:
-        return raws, None
+        # The override is applied AFTER the cache, never to it (apply_mac_override).
+        return {m: apply_mac_override(r, cfg) for m, r in raws.items()}, None
     if cfg.replot_only:
         print(f"  [skip] ECC_REPLOT_ONLY=1 and no raw cache for: {', '.join(need_mapping)}")
-        return raws, None
+        return {m: apply_mac_override(r, cfg) for m, r in raws.items()}, None
 
     mapper = mapper_factory()
     for model in need_mapping:
@@ -320,4 +460,4 @@ def collect(cfg, results, arch, mapper_factory, models, variant=None,
         raws[model] = raw
         save_raw(results, arch, model, raw, variant, fingerprint)
     print(f"  {mapper.summary()}")
-    return raws, mapper
+    return {m: apply_mac_override(r, cfg) for m, r in raws.items()}, mapper

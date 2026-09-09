@@ -1,69 +1,75 @@
-The code is in /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling
+TASK: move the ECC decoder onto the DRAM die in the Eyeriss v2 placement study
+(Task 3, eccenergy/recon.py), so every reconstruction boundary saves DRAM
+INTERFACE energy. Read CLAUDE.md, then section 1 and section 4 of
+01_project_context_and_architectures.txt, then section 19 and risk 6 of
+02_reconstruction_dse_and_implementation.txt, then Task 3 of
+03_staged_implementation_plan.txt. Those files are the specification; this
+prompt says what to touch in the code.
 
-copy the folders in /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/Energy_modeling to /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling as there is a subfolder for the project that is not needed.
+THE MODEL. The BCH decoder is on the DRAM die and runs off the fetch path, so
+at fetch time the stored codeword is already corrected and only the k message
+bits of each n-bit codeword are driven across the DRAM interface. The array
+still stores and reads the complete codeword (a row activation and a burst
+move whole words). Accelergy's CactiDRAM is one flat per-bit constant that
+contains both the array read and the off-die transfer, so the evaluator
+splits it with f_if, the interface share of that constant:
 
-You are on UF HiPerGator, logged in on a login node over VS Code Remote-SSH.
-The project is at /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling and
-was copied from a Windows laptop today. Read CLAUDE.md first (especially the
-section "Running on HiPerGator"), then hpc/HIPERGATOR.md, then progress.txt
-and FINDINGS.md for the state of the work.
+    dram_array     = (1 - f_if) x DRAM weight energy    never reduced
+    dram_interface =      f_if  x DRAM weight energy    x K/N under EVERY boundary
 
-GOAL OF THIS SESSION: make the existing single-process flow (`bash run.sh ...`)
-work here through Apptainer, exactly as it works on the laptop through Docker,
-and prove it with the five checks in hpc/HIPERGATOR.md section 5. Nothing else.
+The two reference bars (Task 1 conventional, Task 2 embedded) keep controller-
+side correction and DO NOT CHANGE: their functions are frozen. This is a
+recon.py / experiments/recon.py change only.
 
-Do, in order:
-1. Confirm the copy is complete: run `bash tools-fix-eol.sh`, check that
-   ecc_energy_study/timeloop-accelergy-exercises, ecc_energy_study/outputs and
-   results/_raw exist and that `python3 -c "import eccenergy"` works with the
-   system python (it only needs the standard library for that import; pandas,
-   matplotlib and yaml come from the container).
-2. Build the container image once with `module load apptainer` and
-   `apptainer pull` as section 3 describes, into
-   /blue/rewetz/vkamineni/Projects/RECAP/timeloop.sif, with
-   APPTAINER_CACHEDIR and APPTAINER_TMPDIR under /blue (not /home). Do the pull
-   inside an interactive allocation
-   (`srun --account=rewetz --qos=rewetz --cpus-per-task=4 --mem=16gb --time=01:00:00 --pty bash -i`).
-   If the module is named differently (`singularity`), or the group/QOS names
-   differ, find the right ones (`module spider apptainer`, `slurmInfo -g rewetz`,
-   `sacctmgr show assoc user=vkamineni format=account,qos`) and correct
-   hpc/HIPERGATOR.md and hpc/tl.sh accordingly.
-3. Run the five verification checks of section 5 through `bash hpc/tl.sh ...`
-   inside an 18-core interactive allocation
-   (`srun --account=rewetz --qos=rewetz --cpus-per-task=18 --mem=8gb --time=02:00:00 --pty bash -i`).
-   Check 4 must reproduce the laptop numbers EXACTLY from the copied cache
-   without invoking Timeloop: Timeloop energy 401.977 uJ (eyeriss_v2_like),
-   390.110 (eyeriss_like), 469.457 (simple_weight_stationary), 711.872
-   (simple_output_stationary), 508.517 (simple_input_stationary), 446.067
-   (simba_like). Check 5 must map one uncached shape and write a mapping.json
-   sidecar. Use ECC_MAPPER_THREADS=18 always; the thread count is part of the
-   cache key.
-4. If an Apptainer detail breaks something, fix the ENVIRONMENT, not the model:
-   typical causes are /blue not bound (add --bind /blue), the working
-   directory (use --pwd), Accelergy wanting to write ~/.config/accelergy (let
-   it, or set HOME to a writable directory), or the image entrypoint (do not
-   use it; `apptainer exec` runs the command directly). Put every such fix into
-   hpc/tl.sh or hpc/HIPERGATOR.md so the next person does not rediscover it.
-5. Record the outcome: update progress.txt (the MIGRATION section, one of the
-   three emoji per line), add a short "HiPerGator bring-up" section to
-   FINDINGS.md with the exact commands that worked and the numbers check 4
-   produced, and update the header of PROJECT_STATUS.md.
+CHANGES
+1. env.sh section 4, two knobs, commented in the file's style:
+     ECC_RECON_DECODE_SITE   ondie (default) | controller. `controller` is the
+                             pre-2026-09-09 model (complete codeword across the
+                             interface, DRAM identical on every bar) kept as a
+                             runnable row for the diff; do not quote it.
+     ECC_DRAM_IF_FRAC        f_if, interface share of the DRAM per-bit energy.
+                             EMPTY refuses to evaluate and prints the ceiling at
+                             0.10 / 0.25 / 0.50 instead. A default needs a
+                             citation in archs/_shared/provenance.yaml (LPDDR4
+                             array vs I/O breakdown); do not invent one.
+   Read both only in config.py (recon_decode_site, dram_if_frac).
+2. recon.py WEIGHT_PATHS: replace the single `dram` Stage with two, both kind
+   "dram", both matching the Timeloop "DRAM" level and splitting its Weights
+   energy by f_if: `dram_array` (reducible=False, evidence: complete codeword
+   read for on-die correction) and `dram_interface` (reducible=True, evidence:
+   only message bits leave the die). `weight_path()` must still claim the DRAM
+   level exactly once in total, and `cross_check()` must still reconcile the
+   two stages' sum against the Raw record's DRAM category. Under
+   `controller`, `dram_interface` is reducible=False so the old numbers return.
+3. recon.py PLACEMENTS (eyeriss_v2_like and _wglb): prepend "dram_interface"
+   to every placement's `reduced` tuple, R1 included (R1 becomes
+   reduced=("dram_interface",), still one reconstruction per DRAM codeword,
+   site_stage "dram_array" reads). `validate_placement_space()`'s prefix rule
+   then enforces the order for free. Update R1's description: it is no longer
+   the zero-saving control; it isolates the interface saving from any on-chip
+   saving. Rewrite the docstring block "WHAT IS DELIBERATELY NOT CREDITED":
+   array not credited, interface credited, decoder still outside.
+4. experiments/recon.py: the ceiling print gets three DRAM lines (array share,
+   interface share, interface x (1-K/N)); replace the check
+   `dram_identical_to_embedded_reference` with two checks,
+   `dram_array_identical_to_embedded_reference` and
+   `dram_interface_scaled_by_K_over_N` (each must FAIL when a placement cheats
+   in the other direction); replace the `dram_unchanged` detail key; put f_if
+   and the decode site in the figure subtitle and the manifest.
+5. tests/test_recon.py: every assertion that DRAM is untouched becomes array
+   untouched + interface x K/N; add the two cheat tests; add one test that
+   `controller` reproduces the current numbers on the synthetic stats.
+6. Docs: CLAUDE.md's "no DRAM saving" sentence (recon.py section), env.sh's
+   recon1 comment, PROJECT_STATUS.md. Add a dated FINDINGS.md subsection with
+   the new table; do not rewrite the 2026-09-07/08 history.
 
-RULES:
-- Never run anything that invokes Timeloop (`bash run.sh map`, a cold
-  `bash run.sh`) on the login node; validate, --eval, --replot, diagnose and the
-  tests are fine there but simpler inside the same allocation.
-- Do NOT design or build parallel (SLURM job-array) execution in this session,
-  even though hpc/HIPERGATOR.md section 7 describes it; that is the next
-  session, after these checks pass.
-- Do NOT change run.sh defaults, any archs/*.yaml, the ECC arms, or the
-  mapper settings; do NOT delete anything under ecc_energy_study/outputs or
-  results/_raw.
-- Every file you write must have LF line endings.
-- Stop and report if check 4 does not reproduce the numbers exactly: that
-  means the cache or the fingerprints did not survive the transfer, and the
-  cause has to be understood before anything is mapped here.
-
-Finish with a short summary: which checks passed, the exact commands that
-work on HiPerGator, anything that differed from hpc/HIPERGATOR.md, and the
-group's concurrent-core limit from slurmInfo (needed for the next session).
+VERIFY, in this order, and paste the outputs in PROJECT_STATUS.md:
+    bash hpc/tl.sh python3 -m eccenergy.tests.test_recon
+    bash hpc/tl.sh bash run.sh baseline --eval        # Task 1/2 totals must not move
+    ECC_RECON_MODELING=1 ECC_RECON_DECODE_SITE=controller bash hpc/tl.sh bash run.sh recon --eval
+        # must equal the current results/figures/ReconSweep numbers to the digit
+    ECC_RECON_MODELING=1 bash hpc/run_all.sh --eval-only   # the new figure
+Predict before running: every R bar's DRAM band drops by the same
+f_if x (1-K/N) x 886 uJ, R1 moves from +7 uJ worse than embedded to better by
+that amount minus its reconstruction cost, and the R2..R4b ordering is
+unchanged. If the ordering changes, that is a bug, not a result.

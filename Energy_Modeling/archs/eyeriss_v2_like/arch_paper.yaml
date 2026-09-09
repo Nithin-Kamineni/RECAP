@@ -132,33 +132,37 @@ architecture:
         dataspace: {keep: [Weights]}
 
   # ------------------------------------------------------------
-  # 16 PE clusters (physically an 8x2 array, Table II).  Flattened
-  # to a single 16-wide mesh: the hierarchical mesh NoC lets any GLB
-  # cluster reach any PE cluster, so the 8x2 split would only
-  # restrict the mapper.
+  # 16 PE clusters, declared at their PHYSICAL 8x2 arrangement (Table
+  # II; Fig. 6 shows the 8x2 array of (GLB cluster, router cluster,
+  # PE cluster) triples).  2026-09-09: until this date the array was
+  # flattened to a single 16-wide row.  That was harmless while the
+  # interconnect was free and small while the energy objective left
+  # most clusters idle, but under the EDP objective the mapper fills
+  # all 16 clusters and Timeloop then charges every mesh transfer the
+  # length of a 16-long row from one end: mean hop counts of 7.5-13,
+  # mesh wire 3x the 1-D low-utilization run, and an interconnect at
+  # 13% of on-chip energy before the evaluator-only terms
+  # (FINDINGS.md 4.1.2).  On the 8x2 die a mesh hop is one cluster
+  # pitch in either direction and the longest path is 8, not 15.
   #
-  # With the interconnect costed this is no longer free of
-  # consequence: Timeloop charges wire per hop from the array edge,
-  # and a unicast averages 7.5 hops on a 16-wide row against ~4 on
-  # 8x2.  The 8x2 shape WAS tried (2026-09-07, dev layer pair,
-  # random_pruned/20000): NoC energy fell 22.1 -> 18.0 uJ but total
-  # energy ROSE 415.5 -> 446.1 uJ -- the 2-D mesh changes the
-  # mapspace, and under this search budget the mapper found worse
-  # GLB/DRAM tilings (DRAM +36 uJ at wire 0.12; GLB +50 uJ and 3.85%
-  # utilization at wire 0.4).  Kept 1-D so the mapper's problem stays
-  # what every other result was produced under; the unicast-hop
-  # over-count is recorded in FINDINGS.md and is small once wire is
-  # at 0.12 pJ/bit/mm.  Revisit with a converged search or with the
-  # 16 GLB clusters modelled as distributed.
+  # The 2026-09-07 trial of this shape under the ENERGY objective was
+  # rejected because the mapper found worse GLB/DRAM tilings on it;
+  # that objective is no longer the study's, and the spatial split is
+  # left to the search here (no `split:`) rather than fixed as that
+  # trial fixed it, so the 2-D shape restricts nothing but the hop
+  # geometry.  What remains unmodelled: each PE cluster's GLB cluster
+  # sits BESIDE it on the die, so a unicast is one local hop, not a
+  # path from the array's edge; the model still feeds all 16 clusters
+  # from one GLB at one end.  A distributed-GLB model is Task 4
+  # material and is recorded in FINDINGS.md.
   # ------------------------------------------------------------
   - !Container
     name: PE_cluster
-    spatial: {meshX: 16}
+    spatial: {meshX: 8, meshY: 2}       # Table II: 8x2 PE clusters
     constraints:
       spatial:
         permutation: [N, C, M, P, Q, R, S]
         factors: [N=1, R=1, S=1]   # filter rows/cols stay inside a PE (row-stationary)
-        split: 999
 
   # ------------------------------------------------------------
   # 12 PEs per cluster (physically a 3x4 array).  Table IV:

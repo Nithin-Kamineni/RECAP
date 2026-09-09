@@ -12,6 +12,16 @@ Read this plan first and consult relevant sections of those files. This plan
 controls implementation scope where it differs from the broader discussion.
 Architecture ratings in those files are hypotheses, not measured results.
 
+DRAM MODEL FOR THE RECONSTRUCTION TASKS (3, 4, 5)
+File 01, section 1. The ECC decoder sits on the DRAM die, off the fetch
+path; the array stores and reads the complete embedded codeword; the fetch
+drives only the k message bits across the DRAM interface. So every
+reconstruction boundary, including chip ingress, scales the DRAM interface
+share by K/N and leaves the array share untouched. The tool bills DRAM as
+one per-bit number; f_if is the cited fraction of it that is interface
+(file 01, section 4), and nothing credits the array. Tasks 1 and 2 are
+unchanged: their DRAM terms are the references.
+
 SESSION RULE
 Implement only the requested task. Inspect existing code before changing it.
 At completion, record changed files, exact run commands, results, assumptions,
@@ -50,8 +60,9 @@ by accidentally changing their physical storage capacities or topology.
 Implement only the conventional-ECC baseline: weights are the protected
 payload and BCH parity is external in DRAM. For BCH(n,k), each k payload bits
 requires n-k parity bits. Account for actual grouping, padding and physical
-DRAM transfer granularity. External parity is consumed by off-chip ECC
-correction, not automatically stored in on-chip weight SRAM/RF.
+DRAM transfer granularity. External parity is consumed by controller-side ECC
+correction, so it crosses the DRAM interface; it is not automatically stored
+in on-chip weight SRAM/RF.
 
 Done when: each architecture completes the selected-layer quick run; the
 configuration summary reports precisions and BCH parameters; a small
@@ -63,8 +74,9 @@ preserved apart from documented standardization and parity accounting.
 Add an embedded-ECC evaluation mode with parity contained within the stored
 weight representation and no external parity for this fully embedded case.
 Use the actual embedded-codeword layout rather than treating all full weight
-bits as independent payload. Read the complete embedded codeword for ECC
-correction; do not discard its embedded parity before that correction.
+bits as independent payload. The on-chip datapath of this arm consumes every
+weight bit, so the complete codeword is read from the array and crosses the
+interface; the decoder's location does not change this arm's DRAM term.
 
 Keep mappings, on-chip widths, access counts and MAC behavior fixed. Compare
 with Task 1 and change only modeled DRAM storage/traffic energy attributable
@@ -75,7 +87,9 @@ codec energy; keep it fixed or explicitly outside this isolated comparison.
 
 Done when: evaluation-only reruns use the cached mappings; DRAM payload,
 parity/padding, physical accesses and energy are reported; all non-DRAM energy
-components match Task 1. This task makes no inference-accuracy claim.
+components match Task 1. This task makes no inference-accuracy claim. Its
+DRAM term is the reference the reconstruction tasks split into array and
+interface shares.
 
 3. EYERISS V2 RECONSTRUCTION — EVALUATOR ONLY, FIXED MAPPING
 
@@ -85,25 +99,33 @@ and mapping. Vary only reconstruction placement and its necessary overhead.
 Do not modify or rerun the mapping optimizer for this comparison.
 
 Evaluate all feasible weight-path boundaries present in the actual model:
-source/NoC ingress; destination-cluster boundary; PE weight-SPad input;
-weight-SPad output with repeated reconstruction; and SPad output with a
-reconstructed-weight reuse register. Mark unsupported boundaries explicitly.
+chip ingress (weight input port / NoC source); destination-cluster boundary;
+PE weight-SPad input; weight-SPad output with repeated reconstruction; and
+SPad output with a reconstructed-weight reuse register. Mark unsupported
+boundaries explicitly.
 
-Apply reduced representation only after ECC correction and before the chosen
-boundary; use full weights downstream. Count encoder work from actual reuse,
-fanout and ECC-group dependencies. Include encoder and required buffer/control
-costs from supplied characterization, or expose clearly labeled parameters.
-Keep CSC metadata and physical packing explicit. A single weight may depend
-on retained bits from other weights; reject infeasible local placements.
+The reduced representation begins at the DRAM output pins. Model the DRAM
+weight energy as two stages of the weight path: the array (complete
+codeword, never reduced) and the interface (reduced by K/N under every
+boundary). Expose f_if as a labelled, cited parameter; if uncited, refuse a
+single number and print the ceiling at several values. Keep a switch that
+reproduces controller-side correction (complete codeword across the
+interface) so the change can be diffed. Use full weights downstream of the
+chosen boundary. Count encoder work from actual reuse, fanout and ECC-group
+dependencies. Include encoder and required buffer/control costs from
+supplied characterization, or expose clearly labeled parameters. Keep CSC
+metadata and physical packing explicit. A single weight may depend on
+retained bits from other weights; reject infeasible local placements.
 
 With the fixed mapping, model justified transfer/access savings, but do not
 credit additional capacity-driven reuse or new tiling. Reuse registers must
 also be compared against equivalent baseline operand-retention behavior.
 
 Done when: one/two-layer runs produce a table and energy-breakdown plot for
-all feasible placements, including reconstruction counts, overheads, total
-energy and savings versus both conventional ECC and embedded-only references.
-Use evaluation-only reruns for cost changes. Label results as fixed-mapping.
+all feasible placements, including reconstruction counts, overheads, DRAM
+array and interface shares, total energy and savings versus both conventional
+ECC and embedded-only references. Use evaluation-only reruns for cost changes.
+Label results as fixed-mapping and state f_if on the figure.
 
 4. EYERISS V2 RECONSTRUCTION — INCLUDE THE MAPPING OPTIMIZER
 
@@ -115,10 +137,12 @@ global datawidth that also changes activations, partial sums or MAC precision.
 
 Represent the actual weight width at each level for each reconstruction
 placement, including packing, CSC metadata and required ECC-group buffering.
-Use the existing Timeloop/Accelergy capabilities where sufficient; add a
-focused extension/wrapper only where needed. Account for reconstruction costs
-in mapping selection, directly or by rescoring candidate mappings. If only a
-limited candidate set is rescored, label the search approximate.
+Keep the DRAM array at the complete codeword and the interface at K/N in the
+mapping objective as in the evaluator. Use the existing Timeloop/Accelergy
+capabilities where sufficient; add a focused extension/wrapper only where
+needed. Account for reconstruction costs in mapping selection, directly or by
+rescoring candidate mappings. If only a limited candidate set is rescored,
+label the search approximate.
 
 Run bounded mapping searches for the selected layers, then evaluate with the
 same cost model as Task 3. Save mappings separately for each valid variant.
@@ -133,8 +157,11 @@ result, not an outcome to force.
 Apply evaluator-only reconstruction, then reconstruction-aware mapping, to
 Eyeriss v1, weight stationary, input stationary, output stationary and Simba.
 Reuse shared code and retain architecture-specific paths, reuse and fanout.
-Use separate sessions per architecture if needed. Keep common workload,
-precision, BCH and characterization assumptions for comparable experiments.
+The DRAM array and interface stages are the same two stages on every weight
+path, with the same f_if; only the on-chip stages and boundaries differ per
+architecture (file 01, sections 6-10). Use separate sessions per
+architecture if needed. Keep common workload, precision, BCH and
+characterization assumptions for comparable experiments.
 
 Save placement comparisons and the lowest-energy feasible location for each
 architecture, along with its configuration, mapping, energy, latency and area
@@ -146,3 +173,41 @@ Done when: all architectures support the same quick-run/evaluation workflow
 and produce comparable result tables/plots. Treat one/two-layer winners as
 provisional; use full-model evaluation before claiming final architecture-wide
 winners. Report the best evaluated candidate, not an unproven global optimum.
+
+
+
+
+3. The audit — one finding is much bigger than the rest
+3a. R4b's +2.97% is an accounting artifact (overestimate)
+This is the one that matters. recon.py does two things that cannot both be true:
+
+The reconstruction count for R4b is fills = 21.9 M, justified because the reuse register retains what was rebuilt and serves reads/fills = 82.85 uses per reconstruction.
+The scratchpad energy is scaled by K/N applied to Timeloop's read count of 1,814,073,344 — which is exactly the MAC count, i.e. one spad read per MAC, as if the register weren't there.
+If the register serves 82.85 uses, those 82.85 uses do not read the scratchpad. I recomputed both accountings from the design's own ERT (weights_spad read 0.596 pJ/24-bit word, write 1.197; register write 0.0328):
+
+accounting	vs embedded
+as charged today (K/N on 1.81 G reads)	+2.97%
+physically consistent: spad read once per fill, register serves the rest	+5.96%
+…of which the retention register alone (no reconstruction)	+5.81%
+…reconstruction's own marginal value on top of the register	+0.16%
+The weights_spad term reconciles to 369.275 µJ against the record's 369.276, so this is the same number the study uses, not a different parse.
+
+So: R4b's headline is a K/N discount on a read count its own hardware removes. The stated rule "no operand-retention saving for anybody" is symmetric and defensible — but it is what generates the entire result, because it withholds the register's benefit from the baseline while granting the register's amortisation to R4b. FINDINGS §7 states the ingredients ("register reads are deliberately not charged because they replace scratchpad reads that are still billed") but not that this is where the +1.36%/+2.97% comes from.
+
+The honest reading: at the PE, reconstruction is worth ~0.16%; the retention register is worth ~5.8%, and it is not an ECC idea. R1/R2/R3 land at 0.04–0.22%, which is consistent with that.
+
+
+
+
+
+
+
+3c. Two library constants dominate the denominator (understates the percentage)
+Compute is 44.2% of the run at 1.16877 pJ per 8-bit MAC at 45 nm. That comes from Accelergy's Aladdin table, which holds one entry — 32-bit, 40 nm, 12.68 pJ multiply — scaled down. Horowitz's 45 nm figure for an int8 multiply is ~0.2 pJ. Cross-check against Eyeriss's own normalised table (RF 1×, GLB 6×, DRAM 200×): this model has MAC/RF-read = 27.6× and DRAM/RF = 1510×.
+
+assumption	total µJ	ceiling	R4b
+as modelled	4,798	3.23%	2.97%
+MAC 0.25 pJ	3,132	4.95%	4.55%
+DRAM 4 pJ/bit	4,082	3.80%	3.49%
+Eyeriss-paper ratios	2,503	6.20%	5.70%
+Every ECC percentage in the study — Task 1, 2 and 3 — is diluted ~1.5–2× by these two. This is a ratio problem, not a reconstruction problem, but it's the largest single lever on the reported number.

@@ -1,0 +1,51 @@
+compound_components:
+  version: 0.4
+  classes:
+
+  # ===================================================================
+  #  register_rw -- a bare register whose WRITE costs what its READ costs
+  #
+  #  The three simple_* reference designs declare their innermost
+  #  operand registers as `aladdin_register` (depth 1). Accelergy's
+  #  Aladdin table (accelergy-library-plug-in,
+  #  library/aladdin/aladdin_register.csv) costs that primitive at
+  #
+  #      40nm, 1 bit: read 0.009 pJ | write 0 | leak|update 0
+  #
+  #  so an output-stationary design wrote its accumulator on EVERY MAC for
+  #  nothing. regfile_decoded.yaml applies the same correction to the
+  #  register-file scratchpads of the Eyeriss and Simba-like designs; this
+  #  class exists so the bare registers follow the same rule and the
+  #  comparison contract (standard.yaml) holds. A flip-flop write costs no
+  #  less than a read of its Q, so the read row is charged for write and
+  #  update. Geometry, area and leakage are the primitive's own.
+  # ===================================================================
+  - name: register_rw
+    attributes:
+      technology: "must_specify"
+      width: "must_specify"
+      depth: 1
+      global_cycle_seconds: "must_specify"
+    subcomponents:
+    - name: storage[1..width*depth]
+      class: aladdin_register
+      attributes:
+        global_cycle_seconds: global_cycle_seconds
+    actions:
+    - &reg_write
+      name: write
+      subcomponents:
+      - name: storage[1..width]
+        actions: [{name: read}]     # the table's write row is 0; see above
+    - name: read
+      subcomponents:
+      - name: storage[1..width]
+        actions: [{name: read}]
+    - name: leak
+      subcomponents:
+      - name: storage[1..width*depth]
+        actions: [{name: leak, arguments: {global_cycle_seconds: global_cycle_seconds}}]
+    - name: update                 # spelled out, not merged (see regfile_decoded.yaml)
+      subcomponents:
+      - name: storage[1..width]
+        actions: [{name: read}]

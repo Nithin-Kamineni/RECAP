@@ -117,6 +117,31 @@ shared:
   # switching for one operand. ECC_NOC_ROUTER_PJ overrides it.
   router_pj_per_flit: 0.25
 
+  # ---- PE latch, per operand (added 2026-09-08) --------------------------
+  # What a PE pays to take one operand off its router port: the input
+  # register / row-distribution stage inside the PE cluster. Before this
+  # existed Eyeriss v2 paid NOTHING at the intra-cluster level (ingress 0,
+  # router 0) while Eyeriss v1 paid its whole calibrated 0.9152 pJ to move
+  # an operand into a PE -- an 11x asymmetry for the same physical act, and
+  # the reason v2 had no guard against the serial-mapping corner described
+  # under `charge_ingress_when_hops_zero`.
+  #
+  # BRACKET, NOT A MEASUREMENT. No paper publishes it. The bounds are
+  #   0        the pre-2026-09-08 model (nothing is paid to enter a PE)
+  #   0.9152   Eyeriss v1's calibrated per-operand switching -- an UPPER
+  #            bound for v2, because v2's router term already carries part of
+  #            the switching that v1 pays in one lump.
+  # 0.5 (the midpoint) was the first value, chosen before looking at the
+  # band.  2026-09-09: SET TO 0.  The three bracket runs (0 / 0.5 / 0.9152,
+  # EDP objective, 11 resnet18 layers) found IDENTICAL mappings, so the
+  # term is purely additive -- 0 / 56 / 103 uJ, about 1.5 points of
+  # on-chip share per step -- and nothing measured supports any value
+  # inside the bracket over another.  With no evidence, the study charges
+  # what it can cite (router, wire) and not what it cannot; the knob and
+  # the bracket stay so the sensitivity can be quoted.
+  # ECC_NOC_PE_LATCH_PJ overrides it.
+  pe_latch_pj: 0.0
+
   # ---- the calibration anchor -----------------------------------------
   # Eyeriss v1's own paper publishes the cost of one inter-PE transfer,
   # normalized to a MAC, which is exactly the quantity being modelled:
@@ -174,6 +199,47 @@ shared:
   # GLB to one PE. `ingress_pj` is charged per ingress regardless of hop
   # count and removes that artifact.
   charge_ingress_when_hops_zero: true
+
+  # ---- hop length (`tile_width_um`, per level, optional) ------------------
+  # Timeloop derives the length of one hop from the Accelergy AREA of the
+  # level inside the network: tile_width = sqrt(sum of inner component
+  # areas) (topology.cpp:1716). Everything Accelergy does not size --
+  # routers, control, address spads, and above all a GLB cluster that sits
+  # BETWEEN two router clusters on the mesh -- is absent from that pitch.
+  # A level may therefore declare `tile_width_um`, which network-legacy.cpp
+  # honours over the derived value ("only set this if user didn't specify a
+  # pre-floorplanned tile width", SetTileWidth). Container attributes are
+  # inherited, so a design that declares it on one NoC level MUST declare it
+  # on every nested NoC level too, or the inner network inherits the outer
+  # pitch. The derivation of every declared value is written beside it.
+
+  # ---- evaluator-only terms (added 2026-09-08) -----------------------------
+  # Two costs Timeloop's legacy network cannot be given through YAML. Both
+  # are charged by eccenergy/noc_post.py from the counts Timeloop prints,
+  # AFTER the mapping is chosen, so they are NOT in the mapper's objective.
+  # Every result carries the stamp of these coefficients; a raw record whose
+  # stamp differs is re-gathered from the mapper cache.
+  evaluator_only:
+    # (1) Spatial reductions. Timeloop counts every partial sum that is
+    #     added into a neighbouring PE's accumulation ("Spatial reductions")
+    #     but costs it with pat::AdderEnergy(), a stub that returns 0
+    #     (pat-public/src/pat/pat.cpp:101), and ParseSpecs reads no adder
+    #     coefficient. Charged here as one adder of the psum width plus ONE
+    #     hop of psum-wide wire at the PE pitch of that network.
+    #     Adder: Accelergy's own Aladdin table (accelergy-library-plug-in,
+    #     library/aladdin/aladdin_adder.csv: 32-bit add 0.21 pJ at 40 nm),
+    #     scaled linearly with width as the plug-in does -- the same table
+    #     the address generators in every scratchpad are costed from.
+    spatial_reduction:
+      adder_pj_per_bit: 0.0065625     # 0.21 pJ / 32 bits
+      hops: 1
+    # (2) Partial-sum word width on the wire. `network_word_bits` is ONE
+    #     value per network and is set to the 8-bit operand, so a 20-bit
+    #     psum (v2), 16-bit (v1) or 24-bit (Simba) is billed 8 bits of wire.
+    #     The Outputs wire term is scaled to the design's own accumulator
+    #     width (standard.yaml `accumulator_bits`); router and latch terms
+    #     are per operand and are left alone.
+    outputs_word_bits: accumulator
 
 # ------------------------------------------------- per-architecture
 # Only the switching term varies. Every design gets the same wire model.
@@ -248,6 +314,15 @@ architectures:
       40b/port)" -- 10 real routers per cluster. This is the only design
       here whose interconnect contains routers as such, so it is the
       only one charged `router_pj`.
+    # The levels whose networks ARE what the paper calls the hierarchical
+    # mesh: the inter-cluster links and the router clusters.  The wiring
+    # from a router port along a PE row, and the PE-to-PE partial-sum
+    # passing inside a cluster, are inside the PE cluster and are read as
+    # booked under the PE array in Fig. 18.  audit.py compares the band
+    # against the energy of THESE levels' networks (2026-09-09) and reports
+    # the all-interconnect share beside it.  ASSUMPTION about Fig. 18's
+    # category boundaries -- verify against the figure's legend.
+    paper_band_levels: [PE_cluster]
     validation_target: >-
       Sec. V / Fig. 18 states the hierarchical mesh accounts for
       "2.6% of the area" and "6%-10% of the total energy consumption".
@@ -260,20 +335,41 @@ architectures:
       shows 240 -> 150 -> 115 fJ across generations -> our 45nm share
       should be lower). A dense 45nm share a few points either side of
       6-10% is consistent with the paper; 15% (the first, mis-scoped
-      model) and 30% were not.
+      model) and 30% were not. DENOMINATOR: Fig. 18 is a gate-level
+      simulation breakdown of the chip, so the paper's share is of ON-CHIP
+      energy; the audit reports the share against both the Timeloop total
+      (which includes DRAM) and on-chip energy, and the band is read against
+      the on-chip one.
     noc_levels:
-      PE_cluster: {router_pj: per_flit}   # the 8x2 mesh of router clusters
-      PE:         {router_pj: 0.0}        # router -> PE row: direct wiring
+      # the 8x2 mesh of router clusters: one router traversal per hop
+      PE_cluster: {router_pj: per_flit, ingress_pj: 0.0, tile_width_um: 430}
+      # router port -> PE row: no second router, but the PE latches the operand
+      PE:         {router_pj: 0.0, ingress_pj: pe_latch, tile_width_um: 108}
     noc_levels_evidence: >-
       Sec. III-C: the hierarchical mesh connects GLB clusters to PE
       clusters (PE_cluster, meshX 16) through the ROUTER CLUSTERS -- "3 iact
       routers ... 3 weight routers ... 4 psum routers" per cluster (Table
       II) -- and each router then "connects to one row of PEs within the
       cluster": the intra-cluster level (PE, meshY 12) is wiring from a
-      router port to a PE row, so it carries wire energy but no second
-      router traversal. The third spatial level, SIMD (meshX 2), is
-      Sec. III-B's PE datapath -- "two MACs per cycle" sharing one iact --
-      and is not part of the NoC.
+      router port to a PE row, so it carries wire energy and the per-PE
+      latch (shared.pe_latch_pj) but no second router traversal. The third
+      spatial level, SIMD (meshX 2), is Sec. III-B's PE datapath -- "two
+      MACs per cycle" sharing one iact -- and is not part of the NoC.
+    tile_width_evidence: >-
+      Both pitches are declared because the inner one would otherwise
+      inherit the outer. PE (108 um): what Timeloop derives itself from the
+      Accelergy areas of one PE at 45nm -- ifmap_spad 1996 + weights_spad
+      1070 + psum_spad 6653 + 2 x mac 992 = 11704 um^2, sqrt = 108.2 um
+      (timeloop-mapper.ART_summary.yaml, 2026-09-07 cache; the per-hop
+      energy Timeloop printed, 103.86 fJ = 8 b x 0.1082 mm x 0.12, agrees).
+      PE_cluster (430 um): Timeloop's derived value is sqrt(12 x 11704) =
+      374.8 um, the PE cluster alone. On the real die one mesh hop spans a
+      whole (GLB cluster, router cluster, PE cluster) triple -- Fig. 6/7 of
+      the paper -- so the GLB cluster (192 kB / 16 = 12 kB; ART area
+      (231266 + 408572) / 16 = 39990 um^2) and the routers (the mesh is
+      "2.6% of the area", Sec. V) are added: sqrt((140445 + 39990) /
+      (1 - 0.026)) = 430.4 um. eccenergy/tests/test_noc.py re-derives both
+      from the cached ART whenever one is present.
     operands_per_flit: 3
     operands_per_flit_evidence: >-
       Sec. III-C: "For iacts and weights, each port has a bitwidth of 24
@@ -292,8 +388,9 @@ architectures:
     evidence: >-
       Differs from eyeriss_v2_like in one storage block, not in its NoC.
     noc_levels:
-      PE_cluster: {router_pj: per_flit}
-      PE:         {router_pj: 0.0}
+      PE_cluster: {router_pj: per_flit, ingress_pj: 0.0, tile_width_um: 430}
+      PE:         {router_pj: 0.0, ingress_pj: pe_latch, tile_width_um: 108}
+    paper_band_levels: [PE_cluster]
     operands_per_flit: 3
     router_pj: per_flit
     ingress_pj: 0.0

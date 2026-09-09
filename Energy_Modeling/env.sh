@@ -27,7 +27,8 @@
 #     1  the few you change most often
 #     2  the mapping optimiser -- what the search does
 #     3  what the pipeline runs -- archs x models x codes x arms
-#     4  reconstruction placement study     <-- PLACEHOLDER, no code reads it
+#     4  reconstruction placement study     <-- TASK 3; takes precedence over
+#                                            section 3 when it is switched on
 #     5  hardware / architecture model
 #     6  ECC accounting -- how each arm is charged
 #     7  the cluster -- SLURM and the container
@@ -111,7 +112,7 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # THIS IS AN ENERGY STUDY, so energy. EDP is not neutral between architectures:
 # a design with more MACs can buy latency by spending energy, and EDP rewards
 # that. Set edp only to reproduce the pre-correction numbers.
-: "${ECC_OPT_METRIC:=energy}"
+: "${ECC_OPT_METRIC:=edp}"
 
 # Recorded in every mapping sidecar, but timeloop-mapper v4 exposes NO random
 # seed, so this documents intent only. Pinning ECC_MAPPER_THREADS is the real
@@ -194,55 +195,211 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 
 # =============================================================================
-#  4. RECONSTRUCTION PLACEMENT STUDY   --   PLACEHOLDER, NOT IMPLEMENTED
+#  4. RECONSTRUCTION PLACEMENT STUDY   --   TASK 3, ONE ARCHITECTURE AT A TIME
 # =============================================================================
-#  NOTHING IN THIS SECTION IS READ BY ANY CODE YET. It is written down now so
-#  the file does not have to be restructured when the next step lands.
+#  WITH ECC_RECON_MODELING=1 THIS SECTION TAKES PRECEDENCE OVER SECTION 3: the
+#  study collapses to ONE architecture, ONE model and ONE code, and the x axis
+#  becomes WHERE the reconstruction boundary sits rather than which accelerator
+#  runs. Section 10 does that collapsing; with it 0, section 3 governs and
+#  everything here is inert.
 #
-#  WHEN ECC_RECON_MODELING=1 this section will TAKE PRECEDENCE over section 3:
-#  the study collapses to one architecture, one model and one code, and the x
-#  axis becomes WHERE the reconstruction datapath sits rather than which
-#  accelerator runs. Until then section 3 governs and these are inert.
-: "${ECC_RECON_MODELING:=0}"
+#  WHY ONE ARCHITECTURE. The three sweeps put architectures on an axis because
+#  all three ECC ARMS exist on every design. A reconstruction BOUNDARY does not:
+#  Eyeriss v2's boundaries are its inter-cluster mesh, its cluster-local fanout
+#  and its PE weight scratchpad; a weight-stationary design's are a different
+#  list. So the architecture is HELD and Task 5 repeats the study per design.
+#
+#      ECC_RECON_MODELING=1 bash hpc/run_all.sh --eval-only    # the one command
+#      ECC_RECON_MODELING=1 bash run.sh recon --eval           # just this stage
+: "${ECC_RECON_MODELING:=1}"
 
-# The single point the placement study is run at.
+# Re-optimise the MAPPING for each reconstruction placement?
+#   False  the energy cost of every placement is evaluated on the BASELINE's
+#          mapping. No special mapping optimisation per placement, so every bar
+#          moves the same data and only the boundary differs. This is Task 3,
+#          and it is the only thing implemented.
+#   True   a mapping optimised per placement -- packed reduced weights raise the
+#          effective weight capacity and may enable better tiling. THIS IS TASK
+#          4 AND IS A PLACEHOLDER: setting it stops the run with an error rather
+#          than quietly producing fixed-mapping numbers under a heading that
+#          claims the mapping was optimised.
+: "${RECON_OPTIMIZER:=False}"
+
+# The single point the placement study is run at. These REPLACE section 3's
+# lists when ECC_RECON_MODELING=1, so change the point here, not there.
 : "${ECC_RECON_ARCH:=eyeriss_v2_like}"    # ONE architecture, from section 3's list
 : "${ECC_RECON_MODEL:=resnet18}"          # ONE model
 : "${ECC_RECON_CODE_N:=63}"               # ONE code geometry
-: "${ECC_RECON_K:=51}"
+: "${ECC_RECON_K:=39}"                      # 54 51 45 39 36 30   # ONE code rate, from section 3's list
 
 # The placements explored, per architecture: one bar per entry, left to right.
-# `baseline` and `embedded` ride along as reference bars so a placement is
-# always read against them.
-# A bash associative array CANNOT be exported, so anything that reads this must
-# SOURCE env.sh -- run.sh, hpc/run_all.sh and hpc/map.sbatch all do.
+# `baseline` and `embedded` are ALWAYS drawn as reference bars -- a placement is
+# meaningless read on its own -- so they need not be listed. An EMPTY entry, or
+# an architecture missing from this array, draws every placement the design
+# defines, which is the normal thing to want.
+#
+# WHAT recon1..recon5 MEAN is a property of the architecture's weight path, not
+# of this file, so the boundaries, their labels and which hierarchy levels each
+# one leaves reduced are defined together in `eccenergy/recon.py`
+# (WEIGHT_PATHS and PLACEMENTS). For eyeriss_v2_like, from Sec. 5.2/5.3 of
+# 01_project_context_and_architectures.txt:
+#   recon1  R1   reconstruct at the source / weight-NoC ingress        [2/5]
+#                (since 2026-09-09 it reduces the DRAM interface and nothing on
+#                chip: it isolates the interface saving every boundary shares
+#                from any on-chip saving, and is no longer a zero-saving control)
+#   recon2  R2   reconstruct at the destination-cluster boundary       [4/5]
+#   recon3  R3   reconstruct at the PE weight-SPad input               [4/5]
+#   recon4  R4a  reconstruct on every weight-SPad read                 [3/5]
+#   recon5  R4b  SPad output plus a reconstructed-weight reuse register[5/5]
+# The bracketed ratings are the source discussion's HYPOTHESES, not results.
+#
+# A bash associative array CANNOT be exported, so section 10 flattens the entry
+# for ECC_RECON_ARCH into ECC_RECON_PLACEMENT_LIST, which is what the code reads.
 declare -A ECC_RECON_PLACEMENTS=(
-    [eyeriss_like]="baseline embedded recon1 recon2 recon3 recon4"
-    [eyeriss_v2_like]="baseline embedded recon1 recon2 recon3 recon4"
-    [simple_weight_stationary]="baseline embedded recon1 recon2 recon3 recon4"
+    [eyeriss_v2_like]="recon1 recon2 recon3 recon4 recon5"
+    [eyeriss_v2_like_wglb]="recon1 recon2 recon3 recon4 recon5"
+    # Task 5 adds the rest, each with its own weight path in recon.py:
+    #   [eyeriss_like]="..."  [simple_weight_stationary]="..."  [simba_like]="..."
 )
 
-# What each placement means, and what its bar is called in the figure. Fill the
-# labels in as the placements are defined.
-declare -A ECC_RECON_PLACEMENT_LABELS=(
-    [baseline]="Baseline"
-    [embedded]="Embedded"
-    [recon1]="Recon @ DRAM"
-    [recon2]="Recon @ global buffer"
-    [recon3]="Recon @ PE array"
-    [recon4]="Recon @ MAC"
-)
+# Where the figure, table and manifest are called. Fixed name, like the three
+# sweeps: a re-run at a different point REWRITES it and the manifest beside it
+# records which point is on disk. A selected-layer run appends its layer scope.
+: "${ECC_RECON_STEM:=ReconSweep}"
 
-# Where the placement results are cached, so a re-plot never re-runs the mapper,
-# and what the figure/table/manifest are called.
-: "${ECC_RECON_RESULTS_JSON:=results/recon/placements.json}"
-: "${ECC_RECON_STEM:=ReconPlacement}"
-: "${ECC_RECON_RERUN:=0}"                    # 1 = re-explore even when cached
-# Fraction of the weights held on chip. EMPTY = derived from the code (K/N).
+# ---- how the reduced representation is physically exploited ----------------
+# Section 16 of 02_reconstruction_dse_and_implementation.txt: "Reducing weights
+# from 8 bits to 4 bits reduces SRAM energy by 50%" is not a claim the hardware
+# supports unless the representation is exploited PHYSICALLY.
+#   stream   the retained k bits of each n-bit codeword are stored and moved as
+#            a packed field with no per-weight alignment -- which is the layout
+#            the embedding pipeline already produces, since the codeword IS n
+#            consecutive bits of the weight bit stream. Values per physical word
+#            and operands per flit rise by n/k, so every reduced stage scales by
+#            K/N. This is the default because it is the actual layout.
+#   aligned  each reduced weight occupies ceil(weight_bits*K/N) WHOLE bits and
+#            nothing is repacked. Wire energy still falls, but a 24-bit
+#            scratchpad word holds floor(24/7)=3 seven-bit values -- the same 3
+#            it held at 8 bits -- so the access count, and the SRAM energy, do
+#            not move. The pessimistic bound the optimistic one hides.
+: "${ECC_RECON_PACKING:=stream}"
+
+# ---- how encoder work is charged -------------------------------------------
+# Section 15: the encoder may work at CODEWORD granularity, because rebuilding
+# one weight can need retained bits from several. G_rec (the weights that must
+# be co-resident) is computed from the layout and is 9 at BCH(63,K) over 8-bit
+# weights; a PE-local boundary whose resident tile is smaller is REJECTED, not
+# estimated.
+#   weight    encoder work is proportional to the weights actually rebuilt,
+#             charged at the synthesized per-codeword energy per n/weight_bits
+#             of them. The amortized reading: the group is rebuilt once and all
+#             of it is consumed.
+#   codeword  every access at the boundary rebuilds a whole codeword whether or
+#             not the rest of the group is used. The pessimistic reading, and
+#             the right one if nothing buffers the group.
+: "${ECC_RECON_ENCODER_GRANULARITY:=weight}"
+
+# How many entries R4b's reconstructed-weight register holds.
+#   tile  size it to the working set the mapping's loops below the weight buffer
+#         actually walk (16-256 weights on the eyeriss_v2_like resnet18
+#         mappings). Then one reconstruction serves every use until the buffer
+#         is refilled -- 49x to 6272x here -- which is what Sec. 5.4's EV2-C
+#         ("reload/reconstruct when the required weight CHANGES") describes.
+#   <n>   a fixed number of entries. A register SMALLER than the working set
+#         catches nothing, because the access pattern is a cyclic walk and that
+#         is the LRU worst case -- so `1` (a plain latch) makes R4b collapse
+#         onto R4a. Use it to ask what a small group buffer would do.
+# The capacity REQUIRED is reported either way: a tile-sized register is not
+# obviously small next to a 288-weight scratchpad, and that is a real overhead.
+: "${ECC_RECON_REUSE_REG_ENTRIES:=tile}"
+
+# WHAT R4b's reuse register HOLDS. This is not a detail: it decides the
+# register's width, whether a MAC's operand comes from the register or the
+# scratchpad, and therefore what R4b may be charged. Added 2026-09-08 after an
+# audit found the old accounting used the register's retention to cut the
+# reconstruction count 82.9x while still billing all 1.81 G scratchpad reads.
+#   complement  the register holds ONLY the n-k bits per weight that the encoder
+#               regenerates -- weight_bits*(1-K/N), so 1.52 b at BCH(63,51) and
+#               3.05 b at BCH(63,39). embedded.py's layout is what makes this
+#               enough: the parity OVERWROTE the n-k lowest-significance bits of
+#               each n-bit chunk, so those are the only bits missing on chip.
+#               The register therefore cannot serve a read on its own; the
+#               scratchpad is still read once per MAC in reduced form (so the
+#               K/N discount on it is real, not double-counted) and the register
+#               is read in lockstep and charged for it. Reduced scratchpad plus
+#               register is exactly weight_bits per resident weight -- 1.00x the
+#               baseline PE at every K, against 1.81x for a full-width register.
+#               THE DEFAULT: the only mode whose storage, access counts and
+#               energy agree with each other.
+#   full_width  the register holds whole reconstructed weights and SERVES the
+#               reads, so the scratchpad is touched once per FILL. This is the
+#               auditor's reading, kept as a runnable row rather than argued
+#               about in prose. It needs the design's ERT to split scratchpad
+#               read from write energy and REFUSES if that is missing. Note what
+#               it implies: 256 x 8b = 2048 bits per PE against weights_spad's
+#               own 96 x 24b = 2304 bits, i.e. a second scratchpad -- so also
+#               set ECC_RECON_REUSE_REG_PJ to weights_spad's read energy
+#               (0.596/3 = 0.1987 pJ per weight) to see the register stop being
+#               worth anything, which is the point.
+#   free        the pre-2026-09-08 accounting: writes charged, reads not charged,
+#               scratchpad read count unchanged. Internally inconsistent; kept
+#               ONLY so the historical +1.36% / +2.97% can be reproduced for a
+#               diff. Do not quote a number produced under it.
+: "${ECC_RECON_REUSE_REG_MODEL:=complement}"
+
+# Per-access energy of R4b's reconstructed-weight reuse register.
+# EMPTY = take the cheapest per-PE register write out of the design's OWN
+# Accelergy ERT in the mapper cache (0.0328 pJ for eyeriss_v2_like's 24x8b
+# ifmap_spad). Under `complement` that is roughly fair and the write term is
+# over-charged (billed unscaled, per weight, though a write installs only
+# (1-K/N) of a word). Under `full_width` it is NOT conservative -- see the mode
+# list above. Set a value to override it.
+: "${ECC_RECON_REUSE_REG_PJ:=}"
+
+# Fraction of the weight bits held on chip. EMPTY = derived from the code (K/N),
+# which is what the embedded layout dictates. Set it only for a sensitivity run.
 : "${ECC_RECON_ONCHIP_FRACTION:=}"
+
 # Does a placement pay the decoder as well as the rebuild? (section 6 has the
-# decoder energies themselves.)
+# decoder energies themselves, and ECC_DECODE=0 charges every bar zero.)
 : "${ECC_RECON_PLACEMENT_CHARGES_DECODE:=1}"
+
+# ---- where the BCH decoder sits, and what that does to the DRAM term --------
+# 01_project_context_and_architectures.txt Sec. 1 and 4. Accelergy's CactiDRAM
+# bills a DRAM read as ONE flat per-bit constant that contains both the array
+# read and the off-die transfer, so the evaluator splits it into two weight-path
+# stages (eccenergy/recon.py WEIGHT_PATHS):
+#     dram_array      = (1 - f_if) x DRAM weight energy    never reduced
+#     dram_interface  =      f_if  x DRAM weight energy    x K/N under EVERY boundary
+#   ondie       the decoder is on the DRAM die and OFF the fetch path (it
+#               corrects at write, on a scrub pass or on a prior access), so at
+#               fetch time only the k message bits of each n-bit codeword are
+#               driven across the DRAM interface. The array still stores and
+#               reads the complete codeword -- a row activation and a burst move
+#               whole words -- so only the interface share falls, and it falls
+#               on every R bar, R1 included. THE DEFAULT since 2026-09-09.
+#   controller  the pre-2026-09-09 model: correction at the memory controller,
+#               on the fetch path, so the complete codeword crosses the
+#               interface and the DRAM term is identical on every bar. Kept as a
+#               runnable row so the change can be diffed; do not quote it.
+# The two reference bars (Task 1 conventional, Task 2 embedded) keep
+# controller-side correction under BOTH settings and do not move.
+: "${ECC_RECON_DECODE_SITE:=ondie}"
+
+# f_if, the INTERFACE share of the per-bit DRAM energy (E_interface / (E_array +
+# E_interface)), in (0, 1]. It is the only new parameter of the on-die model.
+# 0.40 IS AN ASSUMPTION, NOT A CITATION (decided 2026-09-09): no LPDDR4
+# array-vs-I/O breakdown has been cited yet -- archs/_shared/provenance.yaml
+# `dram_interface_share` records what was found (an HBM2 number at ~0.08 for an
+# interposer link, and an LPDDR4 figure whose I/O bar is only plotted) -- so the
+# study assumes 40% of the per-bit DRAM energy is spent driving bits off the die
+# over a terminated LPDDR4 link. The figure subtitle, the table, the manifest and
+# every result file carry the value and call it assumed. The DRAM saving of every
+# reconstruction boundary is exactly f_if x (1 - K/N) x the DRAM weight energy,
+# linear in f_if, so a cited value rescales it without changing any ordering.
+# EMPTY refuses to evaluate under `ondie` and prints the ceiling at 0.10 / 0.25 /
+# 0.50 instead. Under `controller` nothing depends on it.
+: "${ECC_DRAM_IF_FRAC:=0.40}"
 
 
 # =============================================================================
@@ -282,6 +439,31 @@ declare -A ECC_RECON_PLACEMENT_LABELS=(
 : "${ECC_FORCE_DATAWIDTH:=}"
 : "${ECC_FORCE_TECHNOLOGY:=}"
 
+# ---- the MAC cost, i.e. the DENOMINATOR of every ECC percentage -------------
+# An ECC saving is saved_uJ / total_uJ. The saved uJ are weight traffic and do
+# not depend on what a MAC costs; the total does, and on eyeriss_v2_like the
+# MAC is 44% of the run at 1.16877 pJ per 8-bit MAC. That number is Accelergy's
+# `intmac` compound (an aladdin_multiplier 8x8 plus an aladdin_adder 20b) from
+# the Library plug-in's ONE table row each -- 32-bit, 40 nm -- scaled linearly
+# in each operand width and up from 40 to 45 nm (FINDINGS 7.3 quotes file, row
+# and formula). Horowitz (ISSCC 2014, Fig. 1.1.9, 45 nm) puts an int8 multiply
+# at ~0.2 pJ and an int8 add at ~0.03 pJ, 5x less; Eyeriss v1 measured its ALUs
+# at <10% of chip power. If the MAC is 4-6x too expensive, EVERY percentage in
+# Tasks 1-3 is diluted 1.5-2x, embedded as much as recon.
+#   EMPTY   the ERT's value (1.16877 pJ); now the sensitivity row.
+#   <pJ>    rescale the Compute category to MACs x this value, in the EVALUATOR
+#           only. The MAC count is mapping-invariant, so under ECC_OPT_METRIC=
+#           energy the mapping optimum does not move and the cache stays warm;
+#           under edp it can, and the run prints a warning. Every figure, table,
+#           manifest and result file carries the value and its citation
+#           (archs/_shared/provenance.yaml `mac_energy_pj` -- a value listed
+#           there is labelled with its source, any other value "uncited").
+# THE DEFAULT IS 0.23 = Horowitz ISSCC 2014 int8 multiply + int8 add at 45 nm,
+# adopted as THE PRIMARY DENOMINATOR on 2026-09-09 by decision (FINDINGS 7.3):
+# the ERT's number rests on one 40 nm HLS table row per primitive and is 5x the
+# cited figure. Set it EMPTY to reproduce the ERT-denominator numbers.
+: "${ECC_MAC_PJ_OVERRIDE:=0.23}"
+
 # DRAM geometry and the global clock, shared by every design (globals.yaml).
 # Both invalidate every architecture's mapper cache.
 : "${ECC_DRAM_DEPTH:=1048576}"
@@ -294,8 +476,9 @@ declare -A ECC_RECON_PLACEMENT_LABELS=(
 # in the cache slug (`noc`), so a pre-NoC mapping is never read back as a costed
 # one. NoC is its own plotted category.
 : "${ECC_NOC:=1}"
-: "${ECC_NOC_WIRE_PJ_PER_BIT_MM:=}"   # override the shared 45nm wire constant (0.4)
+: "${ECC_NOC_WIRE_PJ_PER_BIT_MM:=}"   # override the shared 45nm wire constant (0.12)
 : "${ECC_NOC_ROUTER_PJ:=}"            # override the shared per-flit router energy (0.25)
+: "${ECC_NOC_PE_LATCH_PJ:=}"          # override the per-PE latch on v2's PE row (0.5; bracket 0 / 0.9152)
 : "${ECC_NOC_SCALE:=1}"               # multiply every NoC term, for sensitivity runs
 
 
@@ -483,6 +666,38 @@ declare -A ECC_RECON_PLACEMENT_LABELS=(
 _ecc_first() { set -- ${1:-}; echo "${1:-}"; }
 _ecc_count() { set -- ${1:-}; echo "$#"; }
 
+# SECTION 4 TAKES PRECEDENCE OVER SECTION 3. The reconstruction placement study
+# holds the architecture, the model and the code fixed and puts the BOUNDARY on
+# the x axis, so section 3's lists are collapsed onto section 4's single point.
+# This is a plain assignment, not `:=`: with ECC_RECON_MODELING=1 the point is
+# what ECC_RECON_* says, and an ECC_ARCHS left over in the shell must not
+# silently widen a study that only makes sense on one design. Change the point
+# with ECC_RECON_ARCH / ECC_RECON_MODEL / ECC_RECON_K.
+: "${ECC_RECON_OPTIMIZER:=${RECON_OPTIMIZER}}"
+if [ "${ECC_RECON_MODELING}" = "1" ]; then
+    ECC_ARCHS="${ECC_RECON_ARCH}"
+    ECC_MODELS="${ECC_RECON_MODEL}"
+    ECC_CODE_N="${ECC_RECON_CODE_N}"
+    ECC_KS="${ECC_RECON_K}"
+    ECC_EXPERIMENT="recon"
+    ECC_PANEL_MODELS=""
+    # Which boundaries to draw. A bash associative array cannot be exported, so
+    # the entry for THIS architecture is flattened into a scalar the code reads;
+    # empty means "every placement eccenergy/recon.py defines for the design".
+    ECC_RECON_PLACEMENT_LIST="${ECC_RECON_PLACEMENTS[${ECC_RECON_ARCH}]:-}"
+    # The placement study owns its own output name (section 4), and a
+    # selected-layer run must keep its layer scope in it, as everywhere else.
+    if [ -z "${ECC_LAYERS}" ]; then
+        ECC_STEM="${ECC_RECON_STEM}"
+    else
+        ECC_STEM=""
+    fi
+    # `recon` is the only evaluation this study writes: it holds Task 1's and
+    # Task 2's bars itself, from Task 1's and Task 2's own functions.
+    ECC_EVAL_EXPERIMENTS="recon"
+fi
+: "${ECC_RECON_PLACEMENT_LIST:=}"
+
 : "${ECC_SWEEP_ARCHS:=${ECC_ARCHS}}"
 : "${ECC_SWEEP_MODELS:=${ECC_MODELS}}"
 : "${ECC_SWEEP_KS:=${ECC_KS}}"
@@ -494,7 +709,9 @@ _ecc_count() { set -- ${1:-}; echo "$#"; }
 # per model, top to bottom, the same x axis repeated inside each. It adds no
 # axis and no renderer -- it answers the one question a single sweep cannot,
 # whether the architecture ranking survives changing the network.
-if [ "$(_ecc_count "${ECC_MODELS}")" -gt 1 ] && [ "${ECC_SWEEP}" = "arch" ]; then
+if [ "${ECC_RECON_MODELING}" = "1" ]; then
+    :                                     # already decided above: recon
+elif [ "$(_ecc_count "${ECC_MODELS}")" -gt 1 ] && [ "${ECC_SWEEP}" = "arch" ]; then
     : "${ECC_EXPERIMENT:=panels}"
     : "${ECC_PANEL_MODELS:=${ECC_MODELS}}"
 else
@@ -506,7 +723,7 @@ fi
 # ECC_LAYERS set, the layer scope must stay in the name, which is what leaving
 # ECC_STEM empty does. The `=` without a colon means an ECC_STEM explicitly
 # exported as empty survives.
-if [ -z "${ECC_LAYERS}" ]; then
+if [ -z "${ECC_LAYERS}" ] && [ "${ECC_RECON_MODELING}" != "1" ]; then
     case "${ECC_SWEEP}" in
         arch|archs|architecture*) : "${ECC_STEM=ArchitectureSweep}" ;;
         model*)                   : "${ECC_STEM=ModelSweep}" ;;
@@ -536,12 +753,16 @@ export ECC_PROJECT_ROOT ECC_SIF ECC_TASKFILE ECC_USE_CONTAINER ECC_PYTHON \
        ECC_RERUN_OPTIMISER ECC_ARCHS ECC_MODELS ECC_KS ECC_CODE_N \
        ECC_APPROACHES ECC_SWEEP ECC_EVAL_EXPERIMENTS ECC_PHASE ECC_LAYERS \
        ECC_RECON_MODELING ECC_RECON_ARCH ECC_RECON_MODEL ECC_RECON_CODE_N \
-       ECC_RECON_K ECC_RECON_RESULTS_JSON ECC_RECON_STEM ECC_RECON_RERUN \
+       ECC_RECON_K ECC_RECON_STEM ECC_RECON_PLACEMENT_LIST \
+       ECC_RECON_OPTIMIZER RECON_OPTIMIZER ECC_RECON_PACKING \
+       ECC_RECON_ENCODER_GRANULARITY ECC_RECON_REUSE_REG_PJ \
+       ECC_RECON_REUSE_REG_ENTRIES ECC_RECON_REUSE_REG_MODEL \
        ECC_RECON_ONCHIP_FRACTION ECC_RECON_PLACEMENT_CHARGES_DECODE \
+       ECC_RECON_DECODE_SITE ECC_DRAM_IF_FRAC \
        ECC_WEIGHT_BITS ECC_ACTIVATION_BITS ECC_ACC_BITS ECC_ARCH_FIDELITY \
-       ECC_FORCE_DATAWIDTH ECC_FORCE_TECHNOLOGY ECC_DRAM_DEPTH \
+       ECC_FORCE_DATAWIDTH ECC_FORCE_TECHNOLOGY ECC_DRAM_DEPTH ECC_MAC_PJ_OVERRIDE \
        ECC_GLOBAL_CYCLE_SECONDS ECC_NOC ECC_NOC_WIRE_PJ_PER_BIT_MM \
-       ECC_NOC_ROUTER_PJ ECC_NOC_SCALE \
+       ECC_NOC_ROUTER_PJ ECC_NOC_PE_LATCH_PJ ECC_NOC_SCALE \
        ECC_PARITY_GROUPING ECC_PARITY_CHARGE_PADDING ECC_EMB_WEIGHTS_PER_CW \
        ECC_DECODE ECC_DECODE_PJ_BASE ECC_DECODE_PJ_EMB ECC_RECON_CHARGES_DECODE \
        ECC_RECON_JSON ECC_RECON_INCLUDE_IDLE ECC_RECON_PJ \

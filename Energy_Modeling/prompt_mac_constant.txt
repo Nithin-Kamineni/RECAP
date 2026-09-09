@@ -1,0 +1,49 @@
+TASK: audit the two library constants that set the DENOMINATOR of every ECC
+percentage in this study, and add a labelled, cited sensitivity for them. Do not
+touch the frozen code (parity.py, baseline.py, build_stacks) and do not re-run
+the mapper. Read CLAUDE.md first, then FINDINGS.md section 7, then the "3c" note
+at the end of 03_staged_implementation_plan.txt.
+
+WHY. An ECC saving is reported as saved_uJ / total_uJ. The saved uJ come from
+weight traffic (DRAM parity, on-chip weight reads) and do not depend on the MAC
+cost at all; the total does. On eyeriss_v2_like / resnet18 the MAC is 44% of
+the run at 1.16877 pJ per 8-bit MAC (timeloop-mapper.ERT_summary.yaml,
+system_top_level.mac, action `compute`). That number comes from Accelergy's
+Aladdin plug-in for `class: intmac`: its table has one integer multiplier entry
+(32-bit, 40 nm) which Accelergy scales to 8-bit / 45 nm. Horowitz, ISSCC 2014
+("Computing's energy problem"), gives an 8-bit integer multiply at 45 nm as
+roughly 0.2 pJ and an 8-bit add as 0.03 pJ; the Eyeriss v1 paper's own
+normalised table puts a MAC at about 1x an RF read, while this model has
+MAC / RF-read = 27.6x. If the MAC is 4-6x too expensive, every percentage in
+Tasks 1, 2 and 3 is diluted 1.5-2x, for embedded as much as for recon.
+
+The second constant is DRAM: `class: DRAM, type: LPDDR4` costs 512 pJ per
+64-bit word = 8 pJ/bit, flat, from CactiDRAM. It cuts the other way: a cheaper
+DRAM SHRINKS the embedded-vs-conventional saving (which is DRAM traffic) and
+raises the on-chip share that recon works on.
+
+DO THIS
+1. Trace both numbers to their source files inside the container (the Aladdin
+   csv for intmac and the width/technology scaling rule Accelergy applies; the
+   CactiDRAM constant). Quote file, row and formula in FINDINGS.md. Do not
+   assert the scaling rule from memory; read the plug-in code.
+2. Collect cited alternatives with year, node and precision: Horowitz 2014
+   (45 nm, int8 mult/add); Eyeriss JSSC 2017 Table/Fig. normalised costs; any
+   45 nm int8 MAC synthesis number already in data/dc/. Record them in
+   archs/_shared/provenance.yaml. Do not invent a number.
+3. Add ONE evaluator-side knob, `ECC_MAC_PJ_OVERRIDE` (empty = the ERT value),
+   read only in config.py, that rescales the Compute category as
+   MACs x value in the evaluator. Rationale for evaluator-side: the MAC count is
+   mapping-invariant, so under the energy objective the mapping optimum does not
+   change and the cache stays warm; under `edp` it can, so print a warning when
+   opt_metric != energy. Every result and figure produced under it must carry
+   the override and its citation in the subtitle and the manifest. Mirror it
+   with `ECC_DRAM_PJ_PER_BIT_OVERRIDE` for the DRAM constant, same rules.
+4. Produce one table, resnet18, eyeriss_v2_like, fixed mapping, for
+   {as modelled, Horowitz int8 MAC, DRAM 4 pJ/bit, both}: total uJ, embedded vs
+   conventional %, Task 3 ceiling %, each boundary's % vs embedded. The saved uJ
+   must be IDENTICAL across the rows; only the denominator moves. Assert that
+   in a test.
+5. Write the finding into FINDINGS.md as a dated subsection and state which row
+   the paper should quote and why. The default of the knob stays EMPTY: the
+   primary number stays the ERT's until the citation is agreed.

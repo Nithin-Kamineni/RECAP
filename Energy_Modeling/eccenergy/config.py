@@ -99,7 +99,8 @@ def _one(name, default=""):
 
 
 # ------------------------------------------------------------------ registries
-EXPERIMENTS = ("sweep", "diagnose", "baseline", "embedded", "validate", "map", "panels")
+EXPERIMENTS = ("sweep", "diagnose", "baseline", "embedded", "recon", "validate",
+               "map", "panels")
 APPROACHES = ("baseline", "embedded", "recon")
 
 #: The three axes a run can walk. The other two are held at their constant.
@@ -229,6 +230,22 @@ PHASES = ("Pre", "Post")
 #: Where codeword boundaries fall when parity is counted. See parity.py.
 PARITY_GROUPINGS = ("layer", "model")
 
+#: How the reduced representation is physically stored and transported, and how
+#: encoder work is charged. Both are `recon.py`'s, and both are answers to
+#: sections 15/16 of `02_reconstruction_dse_and_implementation.txt` rather than
+#: free parameters -- the docstrings there say what each one claims.
+RECON_PACKINGS = ("stream", "aligned")
+RECON_GRANULARITIES = ("weight", "codeword")
+#: What R4b's reuse register holds. `recon.ReuseRegister` is the authority;
+#: `recon.REUSE_REG_MODES` must stay in step with this tuple.
+RECON_REUSE_REG_MODES = ("complement", "full_width", "free")
+#: Where the BCH decoder sits (env.sh section 4). `ondie` is the model since
+#: 2026-09-09: the decoder is on the DRAM die and off the fetch path, so only
+#: the k message bits cross the DRAM interface and every placement's DRAM
+#: interface term scales by K/N. `controller` is the pre-2026-09-09 model kept
+#: as a runnable row for the diff. `recon.DECODE_SITES` must stay in step.
+RECON_DECODE_SITES = ("ondie", "controller")
+
 APPROACH_LABELS = {"baseline": "Baseline", "embedded": "Embedded", "recon": "Recon+"}
 APPROACH_TAGS = {"baseline": "Base.", "embedded": "Embe.", "recon": "Recon+"}
 
@@ -271,6 +288,44 @@ class Config:
     recon_incremental_fallback_pj: float
     recon_idle_fallback_pj: float
 
+    # ---- Task 3: the reconstruction PLACEMENT study (env.sh section 4) -----
+    #: The placement study runs on ONE architecture, ONE model and ONE code,
+    #: because each architecture has its own weight path and therefore its own
+    #: list of feasible boundaries. env.sh section 4 collapses section 3's lists
+    #: onto this point when `recon_modeling` is on, so `archs`/`models`/`code_k`
+    #: are already the single values by the time this object exists.
+    recon_modeling: bool
+    recon_optimizer: bool
+    recon_placement_keys: list
+    recon_stem: str
+    recon_packing: str
+    recon_granularity: str
+    recon_reuse_reg_pj: Optional[float]
+    #: `tile` sizes R4b's reconstructed-weight register to whatever working set
+    #: the mapping's loops below the weight buffer turn out to walk; an integer
+    #: fixes the entry count so a smaller buffer can be asked about. See
+    #: `recon.retention_model()` for why the answer is binary.
+    recon_reuse_reg_entries: object
+    #: WHAT R4b's reuse register holds, which decides its width, whether it
+    #: serves scratchpad reads, and what it may be charged. `complement` (the
+    #: default) retains only the n-k bits the encoder regenerates; `full_width`
+    #: makes it a whole-weight operand cache that serves the reads; `free` is
+    #: the pre-2026-09-08 accounting, kept only for reproducing old numbers.
+    #: See `recon.ReuseRegister` -- this is the knob the R4b audit turns on.
+    recon_reuse_reg_model: str
+    recon_onchip_fraction: Optional[float]
+    recon_placement_charges_decode: bool
+    #: `ondie` | `controller` -- see RECON_DECODE_SITES.
+    recon_decode_site: str
+    #: f_if, the interface share of Accelergy's flat per-bit DRAM energy:
+    #: dram_array = (1 - f_if) x DRAM weight energy (never reduced),
+    #: dram_interface = f_if x DRAM weight energy (x K/N under every boundary).
+    #: None = unset. There is NO default: it is a cited DRAM energy breakdown,
+    #: and with it unset the placement study refuses to evaluate and prints the
+    #: DRAM ceiling at recon.F_IF_SENSITIVITY instead. Read only here; used by
+    #: recon.py and experiments/recon.py.
+    dram_if_frac: Optional[float]
+
     # ---- weak (SRAM-side) ECC overlay --------------------------------------
     weak_enabled: bool
     weak_n: int
@@ -294,7 +349,14 @@ class Config:
     noc_enabled: bool
     noc_wire_pj_per_bit_mm: Optional[float]   # override of the shared constant
     noc_router_pj: Optional[float]            # override of shared.router_pj_per_flit
+    noc_pe_latch_pj: Optional[float]          # override of shared.pe_latch_pj (v2 PE row)
     noc_scale: float                          # sensitivity multiplier on all terms
+    #: ECC_MAC_PJ_OVERRIDE (env.sh section 5): rescale the Compute category to
+    #: MACs x this value in the EVALUATOR. None = the ERT's value. It is the
+    #: denominator of every ECC percentage and nothing else: the saved pJ do not
+    #: depend on it (energy.apply_mac_override, tests/test_mac_override.py).
+    #: Not in the mapper fingerprint -- the MAC count is mapping-invariant.
+    mac_pj_override: Optional[float]
 
     # ---- development mode: which layers, which half of the study -----------
     layers: list
@@ -427,6 +489,92 @@ class Config:
         if self.parity_grouping not in PARITY_GROUPINGS:
             raise ConfigError(f"ECC_PARITY_GROUPING must be one of "
                               f"{', '.join(PARITY_GROUPINGS)}")
+
+        # ---- Task 3: the placement study --------------------------------
+        if self.recon_packing not in RECON_PACKINGS:
+            raise ConfigError(f"ECC_RECON_PACKING must be one of "
+                              f"{', '.join(RECON_PACKINGS)}")
+        if self.recon_granularity not in RECON_GRANULARITIES:
+            raise ConfigError(f"ECC_RECON_ENCODER_GRANULARITY must be one of "
+                              f"{', '.join(RECON_GRANULARITIES)}")
+        if self.recon_reuse_reg_model not in RECON_REUSE_REG_MODES:
+            raise ConfigError(
+                f"ECC_RECON_REUSE_REG_MODEL must be one of "
+                f"{', '.join(RECON_REUSE_REG_MODES)} -- see "
+                f"recon.ReuseRegister for what each one charges")
+        if self.recon_reuse_reg_entries != "tile":
+            try:
+                n = int(self.recon_reuse_reg_entries)
+            except ValueError:
+                raise ConfigError(
+                    f"ECC_RECON_REUSE_REG_ENTRIES={self.recon_reuse_reg_entries!r}: "
+                    f"use `tile` (size the reconstructed-weight register to the "
+                    f"working set the mapping walks) or a positive number of "
+                    f"entries") from None
+            if n < 1:
+                raise ConfigError("ECC_RECON_REUSE_REG_ENTRIES must be >= 1")
+            self.recon_reuse_reg_entries = n
+        if self.mac_pj_override is not None and self.mac_pj_override <= 0:
+            raise ConfigError(
+                f"ECC_MAC_PJ_OVERRIDE={self.mac_pj_override}: the per-MAC energy "
+                f"must be positive (pJ per 8-bit MAC), or empty for the ERT's value")
+        if self.recon_decode_site not in RECON_DECODE_SITES:
+            raise ConfigError(
+                f"ECC_RECON_DECODE_SITE must be one of "
+                f"{', '.join(RECON_DECODE_SITES)} (got {self.recon_decode_site!r}): "
+                f"`ondie` puts the BCH decoder on the DRAM die, off the fetch "
+                f"path, so only the k message bits cross the DRAM interface; "
+                f"`controller` is the pre-2026-09-09 model kept for the diff")
+        if self.dram_if_frac is not None:
+            f = self.dram_if_frac
+            if not 0.0 <= f <= 1.0:
+                raise ConfigError(
+                    f"ECC_DRAM_IF_FRAC={f} is not a fraction: it is the INTERFACE "
+                    f"share of the per-bit DRAM energy, in [0, 1]")
+            if f == 0.0 and self.recon_decode_site == "ondie":
+                raise ConfigError(
+                    "ECC_DRAM_IF_FRAC=0 with the decoder on the DRAM die would "
+                    "book the whole DRAM energy to the array and leave every "
+                    "placement with an interface stage that carries no energy. "
+                    "For the no-DRAM-saving model use "
+                    "ECC_RECON_DECODE_SITE=controller instead")
+            if f == 1.0:
+                # Allowed, but it is a claim about the array (01_project_context
+                # Sec. 4: "f_if = 1 would claim the array also reads fewer bits,
+                # which needs physical justification"). The figure subtitle
+                # carries the value, so it cannot be quoted unlabelled.
+                pass
+        if self.recon_optimizer:
+            # A `True` here must not quietly produce fixed-mapping numbers under
+            # a heading that says the mapping was optimised for reconstruction.
+            raise ConfigError(
+                "RECON_OPTIMIZER=True asks for a mapping optimised per "
+                "reconstruction placement, which is TASK 4 and is not "
+                "implemented. It is a placeholder: the variable exists so the "
+                "next session has somewhere to switch it on.\n"
+                "  -> set RECON_OPTIMIZER=False (env.sh section 4) to run the "
+                "fixed-mapping placement study of Task 3")
+        if self.experiment == "recon":
+            if len(self.archs) != 1:
+                raise ConfigError(
+                    f"the reconstruction placement study runs on ONE "
+                    f"architecture, not {len(self.archs)} ({', '.join(self.archs)}). "
+                    f"Each architecture has its own weight path and therefore "
+                    f"its own list of feasible boundaries.\n"
+                    f"  -> set ECC_RECON_ARCH (env.sh section 4)")
+            if len(self.models) != 1:
+                raise ConfigError(
+                    f"the reconstruction placement study runs on ONE model, not "
+                    f"{len(self.models)} ({', '.join(self.models)}).\n"
+                    f"  -> set ECC_RECON_MODEL (env.sh section 4)")
+            if self.split_read_write:
+                raise ConfigError(
+                    "ECC_SPLIT_READ_WRITE=1 splits the on-chip categories in "
+                    "proportion to their ACCESS COUNTS, but a reconstruction "
+                    "placement changes the read and write bit-volumes by "
+                    "different factors, so the split would be attributed "
+                    "wrongly.\n  -> run the placement study with "
+                    "ECC_SPLIT_READ_WRITE=0")
         if self.phase not in PHASES:
             raise ConfigError(f"ECC_PHASE must be one of {', '.join(PHASES)}")
 
@@ -567,6 +715,13 @@ class Config:
     def stem(self):
         """The ONE output name for this run. Fixed per sweep, by design.
 
+        ECC_MAC_PJ_OVERRIDE does NOT change the name (decided 2026-09-09): the
+        cited MAC cost is the primary denominator and `ReconSweep.png` is drawn
+        under it, with the value and its citation in the subtitle and the
+        manifest. Briefly (the same day) an override run carried a `__mac<pJ>`
+        suffix so the ERT-denominator figure could not be overwritten; that
+        figure is now the sensitivity row of FINDINGS 7.3, not a file.
+
         ONE EXCEPTION, and it is the development mode. A selected-layer run
         appends its layer scope, so `ArchitectureSweep.png` ALWAYS means the
         full model and a three-layer sweep lands beside it as
@@ -592,6 +747,11 @@ class Config:
             return self.stem_override
         if self.experiment == "diagnose":
             return "diagnose"
+        if self.experiment == "recon":
+            # The placement study has its own axis -- WHERE the encoder sits --
+            # so it has its own name and cannot land on a sweep's figure.
+            base = self.recon_stem or "ReconSweep"
+            return base if not self.layers else f"{base}__{self.layer_slug}"
         base = SWEEP_STEMS[self.sweep]
         if self.experiment == "panels":
             # The panel models are IN the name, so a two-model figure can never
@@ -705,6 +865,8 @@ class Config:
                 noc += f"w{self.noc_wire_pj_per_bit_mm:g}"
             if self.noc_router_pj is not None:
                 noc += f"r{self.noc_router_pj:g}"
+            if self.noc_pe_latch_pj is not None:
+                noc += f"l{self.noc_pe_latch_pj:g}"
             if self.noc_scale != 1.0:
                 noc += f"x{self.noc_scale:g}"
             parts.append(noc)
@@ -773,7 +935,7 @@ class Config:
     def arch_label(self, arch):
         return ARCH_LABELS.get(arch, arch) if self.nice_labels else arch
 
-    def title_suffix(self):
+    def title_suffix(self, include_mac=True):
         bits = [f"{self.weight_bits}-bit weights"]
         if self.sweep != "bch":
             bits.append(f"BCH({self.code_n},{self.code_k}) t={self.code_t}")
@@ -781,9 +943,48 @@ class Config:
             bits.insert(0, self.force_technology)
         if self.weak_enabled:
             bits.append(f"weak BCH({self.weak_n},{self.weak_k})")
+        if include_mac and self.mac_pj_override is not None:
+            # A figure drawn under the override must say so on itself: the
+            # denominator of every percentage on it is not the ERT's.
+            bits.append(self.mac_line())
         if self.title_note:
             bits.append(self.title_note)
         return "  ·  ".join(bits)
+
+    def mac_citation(self):
+        """`(short, long)` citation for ECC_MAC_PJ_OVERRIDE, from provenance.yaml.
+
+        A value listed under `mac_energy_pj.candidates` there carries its
+        source; any other value is labelled an uncited override, because a
+        number that changes every percentage in the study may not travel
+        without saying where it came from.
+        """
+        from .archs import mac_candidates            # lazy: archs imports config
+        v = self.mac_pj_override
+        if v is None:
+            return ("Accelergy ERT", "Accelergy ERT (intmac = aladdin_multiplier "
+                                     "8x8 + aladdin_adder 20b, Library plug-in table "
+                                     "32b/40nm scaled)")
+        for c in mac_candidates():
+            if c.get("pj") is not None and abs(float(c["pj"]) - v) < 1e-9:
+                return (str(c.get("short", c.get("source", "cited"))),
+                        str(c.get("source", "")))
+        return ("UNCITED override", "ECC_MAC_PJ_OVERRIDE set to a value not listed in "
+                                    "archs/_shared/provenance.yaml mac_energy_pj")
+
+    def mac_line(self, ert_pj=None):
+        """The one line every figure carries about the MAC cost.
+
+        `ert_pj` is the per-MAC energy actually read off the ERT (the raw record
+        knows it; the config does not), shown when given.
+        """
+        if self.mac_pj_override is None:
+            shown = f"{ert_pj:.4f} pJ" if ert_pj else "ERT value"
+            return f"MAC {shown}/op (Accelergy ERT, Aladdin table scaled)"
+        short, _long = self.mac_citation()
+        was = f", ERT was {ert_pj:.4f}" if ert_pj else ""
+        return (f"MAC {self.mac_pj_override:g} pJ/op = ECC_MAC_PJ_OVERRIDE "
+                f"({short}{was})")
 
     def figure_title(self):
         """<held axes>  .  <settings>  .  <swept axis> sweep.
@@ -804,6 +1005,56 @@ class Config:
             title += (f"\nDEVELOPMENT RUN — {self.layer_scope} only: "
                       f"{', '.join(self.layers)}  (not a full-model result)")
         return title
+
+    def recon_title(self, mac_ert_pj=None):
+        """Title for the placement figure: the point, then what varies.
+
+        `mac_ert_pj` is the per-MAC energy the raw record read off the ERT, so
+        the MAC line can state the number the denominator rests on.
+
+        Every axis of the study is HELD here except the one that is not an axis
+        of the three sweeps at all -- where the reconstruction boundary sits --
+        so the heading names the fixed point in full and says the mapping is
+        fixed, which is the claim a reader has to be able to check.
+        """
+        # `title_suffix()` already carries BCH(N,K) whenever the sweep is not
+        # the BCH one, and a heading that says it twice reads like two settings.
+        head = (f"{self.arch_label(self.archs[0]).replace(chr(10), ' ')}"
+                f"  ·  {self.models[0]}  ·  {self.title_suffix(include_mac=False)}")
+        title = (f"{head}\nReconstruction-boundary placement  ·  FIXED MAPPING "
+                 f"(evaluator only, the mapper was not re-run)"
+                 f"\n{self.dram_model_line()}\n{self.mac_line(mac_ert_pj)}"
+                 f"  ·  the MAC cost is the denominator of every percentage on this figure")
+        if self.layers:
+            title += (f"\nDEVELOPMENT RUN — {self.layer_scope} only: "
+                      f"{', '.join(self.layers)}  (not a full-model result)")
+        return title
+
+    @property
+    def dram_if_frac_note(self):
+        """Where f_if came from, for the figure, the manifest and the result file.
+
+        There is no cited default yet (archs/_shared/provenance.yaml,
+        `dram_interface_share`), so a set value is by construction a value
+        chosen for this run and is labelled as such wherever it appears.
+        """
+        if self.dram_if_frac is None:
+            return "unset -- no cited LPDDR4 array/interface breakdown"
+        return ("ECC_DRAM_IF_FRAC, an ASSUMED value; no cited LPDDR4 "
+                "array/interface breakdown (provenance.yaml dram_interface_share)")
+
+    def dram_model_line(self):
+        """The one line every Task 3 figure has to carry: where the decoder is,
+        and therefore what happened to the DRAM term and at what f_if."""
+        if self.recon_decode_site == "controller":
+            return ("Controller-side correction (ECC_RECON_DECODE_SITE=controller, "
+                    "pre-2026-09-09 model): complete codeword across the DRAM "
+                    "interface, DRAM identical on every bar")
+        f = self.dram_if_frac
+        f_txt = "UNSET" if f is None else f"{f:.2f}"
+        return (f"Decoder on the DRAM die: array (1\u2212f_if) untouched, interface "
+                f"f_if = {f_txt} \u00d7 K/N on every R bar  ·  f_if is "
+                f"ECC_DRAM_IF_FRAC, ASSUMED (no cited LPDDR4 breakdown)")
 
     def panel_title(self):
         """Title for a panelled figure: the model is per-panel, so it is not here.
@@ -841,7 +1092,8 @@ class Config:
         keep = ("archs", "models", "layers", "weight_bits", "activation_bits",
                 "acc_bits_override", "arch_fidelity", "force_technology",
                 "force_datawidth", "dram_depth", "global_cycle_seconds",
-                "noc_enabled", "noc_wire_pj_per_bit_mm", "noc_router_pj", "noc_scale",
+                "noc_enabled", "noc_wire_pj_per_bit_mm", "noc_router_pj",
+                "noc_pe_latch_pj", "noc_scale",
                 "opt_metric", "victory", "victory_scaling", "mapper_algorithm",
                 "mapper_seed", "mapper_timeout", "mapper_search_size",
                 "mapper_max_permutations")
@@ -882,6 +1134,22 @@ def load_config():
         recon_incremental_fallback_pj=_f("ECC_RECON_INCREMENTAL_FALLBACK_PJ", 1.8995),
         recon_idle_fallback_pj=_f("ECC_RECON_IDLE_FALLBACK_PJ", 2.2301273),
 
+        recon_modeling=_b("ECC_RECON_MODELING", False),
+        # env.sh spells this `RECON_OPTIMIZER` as well, and mirrors it into the
+        # ECC_-prefixed name every other knob uses.
+        recon_optimizer=_b("ECC_RECON_OPTIMIZER", False),
+        recon_placement_keys=[k.lower() for k in _list("ECC_RECON_PLACEMENT_LIST")],
+        recon_stem=_s("ECC_RECON_STEM", "ReconSweep"),
+        recon_packing=_s("ECC_RECON_PACKING", "stream").lower(),
+        recon_granularity=_s("ECC_RECON_ENCODER_GRANULARITY", "weight").lower(),
+        recon_reuse_reg_pj=_of("ECC_RECON_REUSE_REG_PJ"),
+        recon_reuse_reg_entries=_s("ECC_RECON_REUSE_REG_ENTRIES", "tile").lower(),
+        recon_reuse_reg_model=_s("ECC_RECON_REUSE_REG_MODEL", "complement").lower(),
+        recon_onchip_fraction=_of("ECC_RECON_ONCHIP_FRACTION"),
+        recon_placement_charges_decode=_b("ECC_RECON_PLACEMENT_CHARGES_DECODE", True),
+        recon_decode_site=_s("ECC_RECON_DECODE_SITE", "ondie").lower(),
+        dram_if_frac=_of("ECC_DRAM_IF_FRAC"),
+
         weak_enabled=_b("ECC_WEAK", False),
         weak_n=_i("ECC_WEAK_N", 63),
         weak_k=_i("ECC_WEAK_K", 57),
@@ -899,7 +1167,9 @@ def load_config():
         noc_enabled=_b("ECC_NOC", True),
         noc_wire_pj_per_bit_mm=_of("ECC_NOC_WIRE_PJ_PER_BIT_MM"),
         noc_router_pj=_of("ECC_NOC_ROUTER_PJ"),
+        noc_pe_latch_pj=_of("ECC_NOC_PE_LATCH_PJ"),
         noc_scale=_f("ECC_NOC_SCALE", 1.0),
+        mac_pj_override=_of("ECC_MAC_PJ_OVERRIDE"),
 
         layers=_list("ECC_LAYERS"),
         phase=(_one("ECC_PHASE", "Pre") or "Pre").capitalize(),
@@ -932,9 +1202,13 @@ def load_config():
 
 def banner(cfg, recon_pj, recon_provenance):
     w = 78
+    # The placement study's axis is not one of the three sweeps -- saying
+    # "sweep=arch" there would name the axis it HOLDS.
+    axis = ("placement (where the reconstruction boundary sits)"
+            if cfg.experiment == "recon"
+            else f"sweep={cfg.sweep} ({cfg.swept_axis})")
     lines = ["=" * w,
-             f"ecc-energy  |  sweep={cfg.sweep} ({cfg.swept_axis})  "
-             f"|  output={cfg.stem}",
+             f"ecc-energy  |  {axis}  |  output={cfg.stem}",
              "=" * w]
 
     if cfg.sweep == "bch":
@@ -989,6 +1263,49 @@ def banner(cfg, recon_pj, recon_provenance):
             ("recon on-chip scale", f"{cfg.sram_scale:.4f} (weights only)"),
             ("reconstruction", f"{recon_pj:.7f} pJ per codeword"),
             ("recon provenance", recon_provenance),
+        ]
+    if cfg.experiment == "recon":
+        rows += [
+            ("PLACEMENT STUDY", f"Task 3: one architecture, fixed mapping, the "
+                                f"boundary is the axis -> {cfg.stem}"),
+            ("placements", ", ".join(cfg.recon_placement_keys) or "every "
+                           "placement defined for this architecture"),
+            ("reduced form packing", cfg.recon_packing
+                + ("   (retained k bits packed with no per-weight alignment; "
+                   "every reduced stage scales by K/N)"
+                   if cfg.recon_packing == "stream" else
+                   "   (whole bits per weight, no repacking: wire falls, "
+                   "SRAM access count may not)")),
+            ("encoder charging", cfg.recon_granularity
+                + ("   (amortized: per weight, at the per-codeword energy per "
+                   "n/weight_bits weights)" if cfg.recon_granularity == "weight"
+                   else "   (pessimistic: one whole codeword per access)")),
+            ("reuse register model", cfg.recon_reuse_reg_model + {
+                "complement": ("   (holds only the n-k regenerated bits, "
+                               "weight_bits*(1-K/N) per weight; cannot serve a "
+                               "SPad read alone, so SPad read counts stay "
+                               "Timeloop's and the register is charged its "
+                               "lockstep reads as well as its writes)"),
+                "full_width": ("   (holds whole weights and SERVES the reads, so "
+                               "the SPad is read once per FILL -- the auditor's "
+                               "reading, priced so it can be checked)"),
+                "free": ("   (PRE-2026-09-08 accounting: writes charged, reads "
+                         "not, SPad read count unchanged -- internally "
+                         "inconsistent, for reproducing old numbers only)"),
+             }[cfg.recon_reuse_reg_model]),
+            ("reuse register", (f"{cfg.recon_reuse_reg_entries} entries, "
+                                + (f"{cfg.recon_reuse_reg_pj} pJ per write "
+                                   f"(ECC_RECON_REUSE_REG_PJ)"
+                                   if cfg.recon_reuse_reg_pj is not None else
+                                   "energy from this design's own Accelergy ERT")
+                                + ("   (sized to the working set the mapping's "
+                                   "loops walk)"
+                                   if cfg.recon_reuse_reg_entries == "tile" else
+                                   "   (fixed; a buffer smaller than the working "
+                                   "set catches nothing)"))),
+            ("mapping optimiser", "NOT re-run (RECON_OPTIMIZER=False) -- Task 4 "
+                                  "is where the mapping becomes aware of the "
+                                  "reduced width"),
         ]
     rows += [
         ("parity accounting", f"grouping={cfg.parity_grouping}, "

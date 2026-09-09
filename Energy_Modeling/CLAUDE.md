@@ -1,676 +1,323 @@
 # CLAUDE.md
 
-Energy modelling for relaxed error correction in DNN accelerators, using
-Timeloop + Accelergy. The question the project answers: **if ECC parity does not
-have to be stored in DRAM, how much inference energy does that save, and does
-the answer depend on the accelerator?**
+Energy modelling for relaxed error correction in DNN accelerators, on Timeloop +
+Accelergy. The question: **if ECC parity does not have to be stored in DRAM, how
+much inference energy does that save, and does the answer depend on the
+accelerator?**
 
-> **The energy model is being rewritten (as of 2026-09-06).** This file has been
-> deliberately stripped to *structure only* — how the code is organised, how a
-> run is configured, where output goes, and the rules for changing it. Every
-> empirical claim that was here (per-access energies, scratchpad depths, on-chip
-> capacities, which architecture beats which, and why) has been REMOVED because
-> it described the model as it stood before the rewrite.
->
-> **Do not re-add empirical claims to this file until the new model produces
-> them.** For the live, computed version of the caveat list, run
-> `bash run.sh diagnose`. The pre-rewrite analysis is archived, clearly marked
-> historical, in `legacy/FINDINGS.md`; the architecture `README.md` files under
-> `archs/` still contain pre-rewrite justifications and should be read with the
-> same suspicion.
+**No empirical claims in this file.** Numbers live in `FINDINGS.md`; the live
+caveat list is `bash run.sh diagnose`, computed from the architectures as they
+stand. A prose copy here went stale once and then contradicted the code.
+`legacy/` is pre-rewrite and describes nothing current.
+
+## Running it
+
+`env.sh` is the only file you edit: every `ECC_*` knob, ten commented sections,
+sourced by `run.sh`, `hpc/run_all.sh`, `hpc/map.sbatch` and `hpc/tl.sh`, so a
+value cannot mean one thing to the mapper and another to the evaluator. Sections
+1-9 are knobs; section 10 is derived (it turns the `ECC_ARCHS`/`ECC_MODELS`/
+`ECC_KS` lists into the swept-list-plus-two-constants form `config.py` reads,
+picks the stem, and generates the SLURM task list). Read env.sh for what a knob
+does — it is commented; do not restate it here.
+
+Every value is written `${VAR:=default}`, so **the environment wins over the
+file** and a one-off never needs an edit.
+
+    bash hpc/run_all.sh          # THE command: map array -> dependent eval+plot
+    bash hpc/run_all.sh --map-only | --eval-only | --replot | --local
+    ECC_RECON_MODELING=1 bash hpc/run_all.sh --eval-only     # Task 3
+
+`run.sh` runs ONE stage of that and has no knobs of its own: `map`, `baseline`,
+`embedded --eval`, `recon --eval`, `validate`, `diagnose`, `panels`, `--replot`,
+`--dry-run`.
+
+**Only `timeloop.py` needs the container.** `--eval` (`ECC_FROM_CACHE=1`) never
+invokes Timeloop; validate, diagnose, replot and the whole `eccenergy/tests/`
+suite run on any python with pandas, matplotlib and pyyaml. `test_recon.py`
+additionally re-runs its property tests against the real mapper cache when
+pandas and that cache are present, and says so when it skips them.
+
+**HiPerGator** (the machine this now lives on): `module load apptainer`, then
+`bash hpc/tl.sh <any run.sh command>`. Never run the mapper on a login node —
+`srun --account=rewetz --qos=rewetz --cpus-per-task=18 --mem=8gb --time=02:00:00 --pty bash -i`,
+or `sbatch`. Keep `ECC_MAPPER_THREADS=18` and `--cpus-per-task=18`: the thread
+count is in the mapping fingerprint, so any other value is a cold cache.
+`hpc/HIPERGATOR.md` has transfer, image build, verification and the cost model.
+On a laptop the same image runs under Docker; in Git Bash use
+`MSYS_NO_PATHCONV=1` and `pwd -W`, or the bind mount and `-w` are rewritten into
+nonsense and it looks like Docker is missing when it is not.
+
+**A cold map is hours.** Narrow before widening
+(`ECC_ARCHS=<one> ECC_MODELS=<one> bash hpc/run_all.sh --map-only`) and watch
+the filesystem rather than a pipe — a backgrounded `docker ... | grep` buffers
+until the pipeline ends and looks hung when it is fine.
 
 ## One sweep, two constants
 
-All three ECC approaches (`baseline`, `embedded`, `recon`) are ALWAYS drawn, so
-the arms are never an axis. Of the three remaining axes a run sweeps exactly
-ONE and holds the other two at a constant:
+All three ECC arms (`baseline`, `embedded`, `recon`) are always drawn, so the
+arms are never an axis. A run sweeps exactly ONE of the remaining three axes and
+holds the other two at a constant:
 
-| `ECC_SWEEP` | x axis | sweep list | held constants | output |
+| `ECC_SWEEP` | x axis | sweep list | held | stem |
 |---|---|---|---|---|
-| `bch` | BCH(63,K) | `ECC_SWEEP_KS` | `ECC_CONST_ARCH`, `ECC_CONST_MODEL` | `BCHsweep` |
-| `model` | the networks | `ECC_SWEEP_MODELS` | `ECC_CONST_ARCH`, `ECC_CONST_K` | `ModelSweep` |
-| `arch` | the accelerators | `ECC_SWEEP_ARCHS` | `ECC_CONST_MODEL`, `ECC_CONST_K` | `ArchitectureSweep` |
-
-The values each axis can take:
-
-| axis | values |
-|---|---|
-| architecture | `eyeriss_like`, `eyeriss_like_wglb`, `eyeriss_v2_like`, `eyeriss_v2_like_wglb`, `simple_weight_stationary`, `simple_output_stationary`, `simple_input_stationary`, `simba_like` |
-| model (CNN) | `resnet18`, `resnet50`, `densenet121`, `squeezenet1_1`, `mobilenet_v2`, `efficientnet_b0`, `convnext_tiny`, `xception` |
-| model (transformer) | `distilgpt2`, `gpt2`, `bert_base`, `gpt2_medium`, `tinyllama` |
-| code geometry | BCH(N,K), `ECC_CODE_N`=63 with K in {57,51,45,39,36,30} |
-| ECC approach | `baseline`, `embedded`, `recon` (Recon+, formerly "patched") |
-
-`cfg.archs`, `cfg.models` and `cfg.code_k` are DERIVED in `config.py` from that
-choice — the swept axis takes its list, the held axes take their constant.
-Nothing below `config.py` knows which axis is being swept except `sweep.py`.
-
-A model sweep is all-CNN or all-transformer; mixing the families is a config
-error, because they come from different workload files.
-
-### The panel layout, which is NOT a fourth axis
-
-`ECC_EXPERIMENT=panels` with `ECC_PANEL_MODELS="resnet18 mobilenet_v2"` draws
-ONE image with one PANEL per model, top to bottom, repeating the chosen sweep
-inside each. It exists for the question no single sweep can answer — whether
-the architecture ranking survives changing the network — because that claim is
-about the SHAPE of two panels, not about either one alone.
-
-It adds no axis and no renderer: the x axis is still `ECC_SWEEP`'s, and every
-bar is drawn by `plots/stacked.py::draw_panel`, the same routine the three
-sweeps use. `cfg.models` is simply widened to the panel models so one
-collection pass fills every panel. `ECC_SWEEP=bch` is refused here — a BCH
-panel per model varies the model AND the code between panels, which is two axes
-at once.
-
-Panels share a legend, a category set and an energy unit. They do NOT share a y
-limit, and the figure says so on itself: two networks of different size forced
-onto one scale makes the smaller one unreadable.
-
-The output stem carries the panel models —
-`ArchitectureSweep__panels__resnet18__mobilenet_v2` — so it can never land on
-top of `ArchitectureSweep.png`, and two different model pairs are two different
-files.
-
-`simba_like` is *inspired by* NVIDIA's Simba but **does not reproduce it**, and
-must not be quoted as "Simba" — its figure label is "Simba-like (reference
-design)" for that reason. Its 8b/8b/24b precisions are the paper's; its
-geometry is timeloop-accelergy-exercises' example design and fails two checks
-against the paper (256 MACs where the published 4 TOPS needs ~1024; 3 MB of
-PE-private buffer behind a 64 kB shared buffer). Its 2.1M on-chip weights —
-28× Eyeriss v1's — set its DRAM refetch and therefore its ECC saving, so this
-is not a cosmetic caveat. `archs/_shared/provenance.yaml` has the full record
-and what would be needed to fix it. It is sometimes miscalled "Numba" — there
-is no Numba architecture in this project.
-
-### Eyeriss v1 comes as a bracketing PAIR, not a number
-
-JSSC 2017 allocates 8 kB of Eyeriss v1's 108 kB GLB to filter weights.
-`eyeriss_like` does not model it (arguing prefetch is not reuse);
-`eyeriss_like_wglb` models it at the published capacity and bank geometry. The
-two files differ in exactly one block.
-
-That choice is the single biggest lever on this study's headline result:
-`eyeriss_like` refetches resnet18's weights ~7× from DRAM against 1.0–2.3× for
-every other design, and the ECC saving is very nearly
-`0.3125·E_dram_w / (total + 0.3125·E_dram_w)`.
-
-    eyeriss_like        -> UPPER bound on DRAM weight traffic and ECC saving
-    eyeriss_like_wglb   -> LOWER bound
-
-**Quote the pair.** A single Eyeriss v1 saving number from this study is a
-choice of bound, not a measurement. Same rule, opposite direction, for
-`eyeriss_v2_like_wglb` — but note the asymmetry: v2's extra weight level is
-*not* in its paper, while v1's *is*.
-
-## How to run it
-
-**`env.sh` is the only file you edit.** It holds every `ECC_*` variable in ten
-commented sections, and `run.sh`, `hpc/run_all.sh`, `hpc/map.sbatch` and
-`hpc/tl.sh` all source it — so a value cannot mean one thing to the mapper and
-another to the evaluator, which is what four hand-synchronised copies of the
-mapper settings used to risk.
-
-**One command runs the whole pipeline**, mapping then evaluation then figures:
-
-    bash hpc/run_all.sh              # submits the map array + a dependent
-                                     # evaluate-and-plot job, both from env.sh
-    bash hpc/run_all.sh --map-only   # the mapping array alone
-    bash hpc/run_all.sh --eval-only  # evaluate + plot from the cache, here
-    bash hpc/run_all.sh --replot     # redraw from results/_raw/ alone
-    bash hpc/run_all.sh --local      # map in this process (needs an allocation)
-
-**Start a cold mapping with `--map-only` on ONE pair, and watch the log.** The
-2026-09-07 verification exercised every part of the pipeline except a cold
-whole-model map through the array: `energy.py::collect()` returns on a
-`results/_raw/` hit *before* the mapper is constructed, so every task in that
-run finished in ~5 s and Timeloop was reached only once, on a single shape.
-A cold run is therefore both the expensive path (uncapped search, hours per
-pair) and the least-exercised one — narrow it before widening it:
-
-    ECC_ARCHS=eyeriss_v2_like ECC_MODELS=resnet18 bash hpc/run_all.sh --map-only
-
-**For the recon work specifically:** anything that changes what the mapper sees
-— a new architecture variant, a reconstruction datapath in the YAML, or any
-knob in `env.sh` sections 2/5 — moves the mapping fingerprint, so the ENTIRE
-matrix goes cold at once and no existing mapping is reused; and because the raw
-cache sits in front of the mapper, re-mapping a pair that already has a raw
-record requires `ECC_RERUN_OPTIMISER=1` (which invalidates that record too),
-not just deleting the mapping.
-
-`run.sh` runs ONE stage of that and has no knobs of its own. Inside the
-container:
-
-    cd /home/workspace
-    bash run.sh                    # the figure for ECC_SWEEP's axis
-    bash run.sh validate           # check the architectures against the shared
-                                   # comparison contract. No container needed.
-    bash run.sh map                # solve and cache mappings, evaluate nothing
-    bash run.sh baseline           # Task 1: conventional ECC, external parity
-    bash run.sh embedded --eval    # Task 2: embedded ECC beside that baseline,
-                                   # from the cached mappings; only DRAM differs
-    bash run.sh diagnose           # audit the architectures, no figure
-    bash run.sh panels             # one image, one panel per ECC_PANEL_MODELS
-    bash run.sh --replot           # figure only, from results/_raw/
-    bash run.sh --dry-run          # validate the config and stop
-
-Mapping generation and energy evaluation are separate, which is what makes
-iteration cheap and what stops an energy edit from silently changing a mapping:
-
-    ECC_LAYERS="layer3.0.downsample.0 layer4.1.conv2" bash run.sh map
-    ECC_LAYERS="layer3.0.downsample.0 layer4.1.conv2" bash run.sh baseline --eval
-
-`--eval` (`ECC_FROM_CACHE=1`) never invokes Timeloop and needs no container.
-
-`env.sh` defaults with `${VAR:=default}`, so the environment wins over the file.
-That makes one-off runs free and means **you never have to edit a file to change
-a knob**:
-
-    ECC_SWEEP=arch bash run.sh                  # a different axis
-    ECC_MODELS=resnet50 bash hpc/run_all.sh     # a different network
-    ECC_KS="51 39 30" ECC_SWEEP=bch bash run.sh # a shorter BCH sweep
-
-`env.sh` sections 1-9 are the editable surface; section 10 is DERIVED and is not
-a knob. The lists in section 3 -- `ECC_ARCHS`, `ECC_MODELS`, `ECC_KS`,
-`ECC_APPROACHES` -- are what the pipeline runs; section 10 translates them into
-the swept-list-plus-two-held-constants form `config.py` reads
-(`ECC_SWEEP_ARCHS` / `ECC_CONST_ARCH` and so on), picks `panels` when a
-multi-model architecture sweep is asked for, sets `ECC_STEM` from the axis, and
-generates the SLURM task list. Those derived names still honour an explicit
-override from the environment, so every command in this file keeps working.
-
-`ECC_RERUN_OPTIMISER=1` re-solves a shape even when a valid cache entry exists
-and overwrites it. It is refused together with `--eval`, which forbids invoking
-Timeloop at all.
-
-The same overrides exist as flags, for interactive use:
-
-    bash run.sh --sweep model --arch simba_like --k 45
-    bash run.sh --sweep bch --values "57 45 30" --replot
-
-## Getting into the container (agents: READ THIS BEFORE GIVING UP ON DOCKER)
-
-**Docker works on this machine and the image is already pulled.** If a run
-fails, it is one of the gotchas below — not a missing capability. Do not tell
-the user to run the container by hand without trying these first.
-
-Confirmed present: Docker Engine 29.6.1, and
-`timeloopaccelergy/timeloop-accelergy-pytorch:latest-amd64` (7.7 GB) local, so
-no pull is needed.
-
-### The invocation that works
-
-    MSYS_NO_PATHCONV=1 docker run --rm \
-      -v "$(pwd -W)":/home/workspace -w /home/workspace \
-      -e ECC_SWEEP=arch -e ECC_CONST_MODEL=resnet18 \
-      -e ECC_LAYERS="layer1.0.conv1 layer1.0.conv2" \
-      -e ECC_VICTORY=100 -e ECC_MAPPER_THREADS=8 \
-      timeloopaccelergy/timeloop-accelergy-pytorch:latest-amd64 \
-      bash -lc "cd /home/workspace && bash run.sh map"
-
-### Why each piece is there
-
-1. **`MSYS_NO_PATHCONV=1` and `pwd -W`, not `pwd`.** This is almost certainly
-   what makes an agent conclude "Docker is unavailable". Git Bash rewrites any
-   argument that looks like a POSIX path, so `-w /home/workspace` becomes
-   `C:/Program Files/Git/home/workspace` and Docker rejects it:
-
-       docker: Error response from daemon: the working directory
-       'C:/Program Files/Git/home/workspace' is invalid, it needs to be an
-       absolute path
-
-   That error is about **argument mangling in the shell**, not about Docker,
-   the daemon, or the image. `MSYS_NO_PATHCONV=1` stops the rewriting;
-   `pwd -W` gives the Windows-style path the daemon needs for the bind mount.
-   Plain `docker images` / `docker info` work without either, which is why
-   Docker can look fine right up until the first `run`.
-
-2. **`bash -lc "..."`.** The image's entrypoint starts a Jupyter server, so a
-   bare command can be lost in its startup output. `bash -lc` runs the command
-   and exits cleanly. Expect ~15 lines of s6/Jupyter noise around the real
-   output; filter with
-   `grep -vE "^\[|jupyter|Jupyter|token=|file:///"`.
-
-3. **`-e VAR=...` for every knob.** `run.sh` uses `${VAR:=default}`, so the
-   environment wins over the file. Passing knobs with `-e` is the intended way
-   and means never editing `run.sh` for a one-off.
-
-### What actually needs the container, and what does not
-
-| needs the container | runs anywhere |
-|---|---|
-| `bash run.sh map` | `bash run.sh validate` |
-| `bash run.sh` (cold sweep) | `bash run.sh baseline --eval` |
-| any run that must invoke the mapper | `bash run.sh embedded --eval` |
-| | `bash run.sh --replot` |
-| | `python3 -m eccenergy.tests.test_results_store` |
-| | `python3 -m eccenergy.tests.test_embedded` |
-| | `python3 -m eccenergy.tests.test_noc` |
-| | `python3 -m eccenergy.tests.test_mapper_lock` |
-
-Only `timeloop.py` needs Timeloop. Anything reading `results/_raw/` or the
-mapper cache runs on the host — a local Python with `pandas`, `matplotlib` and
-`pyyaml` is enough, which is the point of splitting mapping from evaluation.
-
-### Two practical traps on long runs
-
-* **The 600 s tool timeout.** A cold sweep is minutes to hours. Use
-  `run_in_background`, then watch the filesystem for progress —
-  `find ecc_energy_study/outputs -name mapper_console.log -newermt '-3 minutes'`
-  shows which shape is being solved right now.
-* **Piping through `grep` buffers everything.** A backgrounded
-  `docker ... | grep ...` writes nothing to its output file until the pipeline
-  ends, so it looks hung when it is fine. Watch the cache directories or the
-  expected output file instead of tailing the pipe.
-
-### Cost of a cold run, measured
-
-At `ECC_VICTORY=100`, `ECC_MAPPER_THREADS=8`, six architectures:
-
-* `layer3.0.downsample.0` + `layer4.1.conv2` (2 shapes): **~3.5 min total**
-* `conv1` + `layer1.0.conv*` (2 shapes, but `conv1` is C3 M64 R7 S7 **P112
-  Q112**): **~13 min total** — a large output feature map dominates mapper
-  time, so pick development layers for their shape, not their position in the
-  network.
-
-## Running on HiPerGator (SLURM + Apptainer, no Docker)
-
-The project also lives at `/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling`
-on UF HiPerGator (login `hpg.rc.ufl.edu`, group `rewetz`). Everything said
-above about the container holds there with one substitution: the same image
-runs under Apptainer, through the wrapper `hpc/tl.sh`:
-
-    cd /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling
-    module load apptainer
-    bash hpc/tl.sh bash run.sh validate          # any run.sh command goes here
-
-`ECC_*` variables in the shell pass straight through, as `-e VAR=` did with
-Docker. Rules that differ from the laptop:
-
-- **Never run the mapper on a login node.** Get cores first:
-  `srun --account=rewetz --qos=rewetz --cpus-per-task=18 --mem=8gb --time=02:00:00 --pty bash -i`,
-  or submit with `sbatch`. `validate`, `--replot`, `--eval`, `diagnose` and
-  the tests do not call Timeloop.
-- Keep `ECC_MAPPER_THREADS=18` and `--cpus-per-task=18`: the thread count is in
-  the mapping fingerprint, and 18 is what every laptop cache entry used, so the
-  two machines' `ecc_energy_study/outputs/` trees merge as cache hits.
-- The image is `timeloop.sif` in the project root; `ECC_SIF` in `env.sh`
-  section 7 is its path. Build it once with `apptainer pull` as
-  `hpc/HIPERGATOR.md` §3 says.
-- **One command runs everything**: `bash hpc/run_all.sh` submits the
-  (architecture, model) job array `hpc/map.sbatch` and, with
-  `--dependency=afterok` on it, submits ITSELF as `--eval-only` to evaluate and
-  draw when the array succeeds. The array's size, cores, memory, wall time and
-  concurrency come from section 7 of `env.sh` and are passed to `sbatch` on the
-  command line, which overrides `map.sbatch`'s `#SBATCH` header; the task list
-  is GENERATED into `hpc/.runtime/tasks.txt` from `ECC_ARCHS x ECC_MODELS`, so
-  a stale hand-written list can no longer disagree with `--array`. The matrix
-  is chosen by widening those two lists, not by a second task file. By hand:
-  `bash hpc/run_all.sh --map-only`, then `bash hpc/run_all.sh --eval-only` and
-  `python3 hpc/summary.py`. `ECC_CONCURRENCY` is the only concurrency cap; the
-  `rewetz` investment is 181 cores, so 18-core tasks fit 10 at a time.
-  `hpc/HIPERGATOR.md` §7 has the race analysis and the cost model.
-
-Transfer commands, image build, the verification checklist and the daily
-VS Code workflow: `hpc/HIPERGATOR.md`.
-
-## Development mode: one or two layers
-
-`ECC_LAYERS` selects layers by their **stable workload name** (`layer4.1.conv2`,
-never an index). Empty means the full model. Everything a selected-layer run
-writes is namespaced by the selection, so a two-layer number can never be read
-back as a full-model number.
-
-The recorded resnet18 development pair:
-
-| layer | shape | weights | why |
-|---|---|---|---|
-| `layer3.0.downsample.0` | C128 M256 R1 S1 P14 Q14 s2 | 32,768 | the quick check; maps in seconds everywhere |
-| `layer4.1.conv2` | C512 M512 R3 S3 P7 Q7 | 2,359,296 | the contrast: 72x the weights, tiny fmap, so weight-dominated |
-
-Quick-run numbers validate the implementation. They are not an architecture
-ranking, and every result JSON says so in `warnings`.
-
-## The architecture contract
-
-`archs/_shared/standard.yaml` states what must be IDENTICAL across designs --
-weight precision, activation precision, DRAM geometry, process node, the
-dense-packing rule -- and what each design keeps as its own with a citation.
-`archs/_shared/provenance.yaml` records, level by level, where each declared
-number came from. `bash run.sh validate` checks every arch YAML against both
-and exits non-zero on a violation.
-
-Each design declares a `source:` in `standard.yaml`, and **only the first of
-the four licenses using the design's name as if it were the chip**:
-
-| `source:` | means |
-|---|---|
-| `published` | every geometry claim is in the cited paper |
-| `derived` | a variant of a published design differing in one stated block; the variant's own level is not the paper unless its citation says so |
-| `reference_design` | shipped by timeloop-accelergy-exercises, *named* after a paper but not reproducing its geometry — `simba_like` is the one |
-| `locally_authored` | a reference dataflow written here; no paper, nothing to cite |
-
-`validate` prints this as `origin:` per design. If you are about to write "our
-Simba results", check the origin first.
-
-Accumulator width is deliberately **not** standardized: Eyeriss v1 accumulates
-at 16b, v2 at 20b, Simba at 24b, each cited. Forcing a common width would be
-equalising the architectures. `ECC_ACC_BITS` does force one, for a **sensitivity
-study only** -- it gets its own mapper cache and its own results namespace and
-is labelled as such everywhere it appears.
-
-## Layout
-
-    env.sh                  THE KNOB FILE -- every ECC_* variable, in ten
-                            commented sections. Editing anything else is
-                            unusual. Sections 1-9 are knobs; section 10 is
-                            derived (it feeds config.py's swept-list-plus-two-
-                            constants form and generates the SLURM task list).
-    run.sh                  ONE stage of the pipeline. Sources env.sh, execs
-                            `python3 -m eccenergy`. No knobs of its own.
-    hpc/                    HiPerGator: run_all.sh (THE ONE COMMAND: map ->
-                            evaluate -> plot), map.sbatch (the job array, no
-                            knobs), tl.sh (apptainer wrapper), summary.py (the
-                            model x arch matrix), HIPERGATOR.md (transfer,
-                            image, verification, workflow, parallel design) and
-                            .runtime/ (generated: the task list, CACTI scratch).
-    FINDINGS.md             what the most recent audit / evaluation found, with
-                            the numbers and how they were obtained. The ONLY
-                            place empirical claims about the current model live.
-    progress.txt            the status board: every task and subtask marked
-                            with one of ✅ ❌ ⚠️. Update both at session end.
-    eccenergy/              the package
-      config.py             every ECC_* variable -> validated Config. The ONLY
-                            module that reads os.environ.
-      paths.py              every filesystem location, incl. the results layout
-      archs.py              install / patch / audit architecture YAMLs
-      workloads.py          CNN layers and transformer matmuls -> [Layer].
-                            Grouped/depthwise convolutions carry Layer.G (the
-                            group count); C and M are PER GROUP, and the shape
-                            name gets a `_G<g>` suffix so ungrouped shapes keep
-                            their cached names.
-      timeloop.py           the mapper interface + stats parsing. The only slow
-                            module, and the only one that needs the container.
-                            Two problem templates: the plain cnn_layer shape and
-                            a grouped one with a G dimension, chosen per layer.
-      energy.py             stats -> plotted categories; the raw-energy cache
-      ecc.py                the three arms; DC reconstruction energy, by (N,K)
-      parity.py             external BCH parity: grouping, padding, DRAM
-                            granularity, and the payload/parity hand check
-      embedded.py           the embedded-ECC codeword layout as the embedding
-                            pipeline produces it (n-bit chunks of the weight
-                            bit stream, parity in the LSBs), its stored /
-                            physical / energy accounting and hand check. Task 2.
-      results_store.py      THE result writer. Nothing else writes an
-                            evaluation JSON. See docs/RESULTS_SCHEMA.md.
-      plots/style.py        palette, units, save paths
-      plots/stacked.py      draw_panel(), the ONLY thing that draws a bar in
-                            this project, plus grouped_stacks(), the
-                            single-panel figure the three sweeps produce
-      plots/panels.py       the same draw_panel(), once per model, on one page
-      experiments/sweep.py  the one driver: pick the groups, draw one figure
-      experiments/panels.py one image, one panel per ECC_PANEL_MODELS entry
-      experiments/common.py Session: setup, collection, reporting
-      experiments/diagnose.py  the architecture audit
-      experiments/baseline.py  Task 1: the conventional-ECC result (frozen:
-                            not refactored; audit.py mirrors its checks)
-      experiments/embedded.py  Task 2: embedded ECC beside the baseline, one
-                            file, same mappings; checks that only DRAM moved
-      experiments/audit.py  the Task 1 checks/caveats/detail as functions, for
-                            Task 2 onward. Keep in step with baseline.py.
-      experiments/validate.py  the standardized-comparison contract check
-      tests/                the offline test suite (no pytest, no container)
-      generate.py           workload generators (needs torch for CNNs)
-    archs/_shared/          standard.yaml (the comparison contract),
-                            provenance.yaml (where every number came from) and
-                            noc.yaml (the interconnect energy coefficients,
-                            each cited; injected into every design's spatial
-                            containers by archs._inject_noc).
-                            NOT an architecture; skipped by the installer.
-    archs/<name>/           architectures authored here, with their README.
-                            arch.yaml       the design as authored (or absent,
-                                            meaning "use example_designs")
-                            arch_paper.yaml the same design with storage
-                                            precisions and scratchpad sizes set
-                                            to published values, each cited in
-                                            a comment. Used by default; see
-                                            ECC_ARCH_FIDELITY below.
-    data/dc/                Design Compiler reconstruction energies
-    ecc_energy_study/       AUTO-MANAGED: cloned repo + mapper cache. Do not
-                            delete outputs/ — it is hours of compute.
-    results/                all output, see below
-    legacy/                 pre-restructure scripts and figures, plus the
-                            archived FINDINGS.md. Nothing imports from here,
-                            and nothing in it describes the current model.
+| `bch` | BCH(63,K) | `ECC_SWEEP_KS` | arch, model | `BCHsweep` |
+| `model` | networks | `ECC_SWEEP_MODELS` | arch, K | `ModelSweep` |
+| `arch` | accelerators | `ECC_SWEEP_ARCHS` | model, K | `ArchitectureSweep` |
+
+`cfg.archs`/`cfg.models`/`cfg.code_k` are derived in `config.py` from that
+choice; nothing below `config.py` except `sweep.py` knows which axis is swept. A
+model sweep is all-CNN or all-transformer — mixing families is a config error,
+they come from different workload files.
+
+**`ECC_EXPERIMENT=panels`** draws one image with one panel per
+`ECC_PANEL_MODELS`, repeating the same sweep inside each. It adds no axis and no
+renderer, exists only for the "does the ranking survive changing the network"
+question, and refuses `ECC_SWEEP=bch` (that would vary two axes between panels).
+Panels share a legend, categories and unit but deliberately **not** a y limit,
+and the figure says so on itself.
+
+**`ECC_RECON_MODELING=1`** (env.sh §4) is not a fourth sweep: its axis is WHERE
+on the weight path the reconstruction boundary sits. §4 overrides §3, collapsing
+the run to one architecture, one model and one code, stem `ReconSweep`. It is
+one architecture at a time on purpose — the three sweeps can put architectures
+on an axis because every design has all three ECC *arms*, but a reconstruction
+*boundary* is design-specific, and drawing them together would put "reconstruct
+after the mesh" beside a design with no mesh.
 
 ## Results layout
 
-    results/
-      _raw/<arch>/<treat>/fp-<hash>/<workload>/<scope>/cls-<mode>/rw-<split>/<model>.json
-      evaluation/{Pre|Post}/<arch>/<model>/<bch>/<prec>/<scope>/<mapper>/<runid>.json
-      figures/{BCHsweep,ModelSweep,ArchitectureSweep}.{png,pdf}
-      figures/<sweep>__panels__<model>__<model>.{png,pdf}   ECC_EXPERIMENT=panels
-      tables/     the same stems, .csv   (plus diagnose.csv)
-      manifests/  the same stems, .json  -- the config behind each file
-                  (plus validate.json)
+    results/_raw/<arch>/<treat>/fp-<hash>/<workload>/<scope>/cls-<mode>/rw-<split>/<model>.json
+    results/evaluation/{Pre|Post}/<arch>/<model>/<bch>/<prec>/<scope>/<mapper>/<runid>.json
+    results/{figures,tables,manifests}/<stem>.{png,pdf|csv|json}
 
-`results/evaluation/` is the structured result store: one JSON per
-(phase, architecture, model, code, precision, layer scope, mapper config, run),
-holding every ECC variant together -- the ones that were evaluated and the ones
-that were not, the latter with `total_energy_pJ: null` and a reason. It is
-never silently overwritten. `docs/RESULTS_SCHEMA.md` is the full description.
+**Three sweeps, three names, and that is the whole of `figures/`, `tables/` and
+`manifests/`.** The stem comes from the configuration alone, so re-running at
+different constants REWRITES the file instead of adding one; the manifest beside
+it records the constants, code geometry and mapper fingerprint behind what is on
+disk. Copy a figure out, or point `ECC_RESULTS_DIR` elsewhere, to keep it.
+`panels` obeys the same rule (its stem carries the panel models).
 
-The three-figures-three-names rule below still governs `figures/`, `tables/`
-and `manifests/`; it does not govern `evaluation/`, which accumulates runs on
-purpose.
+`results/evaluation/` is the exception and accumulates on purpose: one JSON per
+(phase, arch, model, code, precision, scope, mapper config, run), holding every
+ECC variant including the ones not evaluated (`total_energy_pJ: null` plus a
+reason). Nothing but `results_store.py` writes one. Schema:
+`docs/RESULTS_SCHEMA.md`.
 
-**Three sweeps, three names, and that is the whole directory.** The stem comes
-from `cfg.stem`, which is decided by the sweep alone, so re-running at different
-constants REWRITES the file rather than adding another. To keep an old figure,
-copy it out — or point `ECC_RESULTS_DIR` somewhere else.
+## The two caches
 
-The manifest is what makes that safe: it records the constants, the code
-geometry and the mapper fingerprint behind the file currently on disk.
+1. **Mapper cache** — `ecc_energy_study/outputs/<arch>/<treat>/fp-<hash>/<shape>/`,
+   one entry per (architecture, layer shape). **Never delete it**; it is hours of
+   compute and every solved shape is saved immediately, so runs resume.
+   `fp-<hash>` is a hash of the patched YAML the mapper actually sees plus the
+   globals and every mapper setting, and each entry carries a `mapping.json`
+   sidecar that results reference. A different fingerprint is a MISS — before
+   this existed, editing an arch.yaml left the path unchanged and the next run
+   reported old mappings as the new design. Entries with no sidecar (pre-Task-1)
+   are refused unless `ECC_CACHE_STRICT=0`, which labels the result `legacy`.
+2. **Raw energy cache** — `results/_raw/`, parsed from the mapper cache. Pure
+   Timeloop output, independent of the ECC configuration, so changing the code
+   geometry and redrawing is milliseconds (`ECC_CONST_K=36 bash run.sh --replot`).
+   The one thing under `results/` worth keeping.
 
-`ECC_EXPERIMENT=panels` obeys the same rule rather than escaping it: it still
-writes exactly one figure, one table and one manifest, and its stem is still
-decided by the configuration alone. Because the panel models are in that stem,
-a two-model figure overwrites only the previous run of the SAME pair.
-
-`results/_raw/` is the key to fast iteration. Raw energies are pure Timeloop
-output and **do not depend on the ECC configuration**, so changing the code
-geometry and re-running is milliseconds:
-
-    ECC_CONST_K=36 bash run.sh --replot
-
-## The two caches, and why they matter
-
-1. **Mapper cache** --
-   `ecc_energy_study/outputs/<arch>/<subdir>/fp-<hash>/<shape>/`.
-   One entry per layer shape per architecture. Cold, a full 8-model sweep is
-   hours; warm, it is seconds. Runs are resumable: every solved shape is saved
-   immediately. **Never delete this.** `ECC_RERUN_OPTIMISER=1` re-solves a shape
-   even on a valid hit and overwrites that entry -- one re-map per shape per
-   process, and refused together with `--eval`.
-
-   `fp-<hash>` is the mapping fingerprint: a hash of the patched architecture
-   YAML the mapper actually sees, the globals (node, clock) and every mapper
-   setting. Each entry also carries a `mapping.json` sidecar naming the
-   fingerprint, the tool versions and a `mapping_id` that results reference.
-   An entry whose fingerprint differs is a MISS. Before this existed, editing
-   an arch.yaml left the cache path unchanged, so the next run reused mappings
-   computed for the previous geometry and reported them as the new design.
-
-   Pre-Task-1 entries have no sidecar and are therefore unusable by default.
-   They are left on disk. `ECC_CACHE_STRICT=0` accepts them, labels the result
-   `legacy` and warns; do not publish from it.
-
-2. **Raw energy cache** — `results/_raw/`. Derived from the mapper cache by
-   parsing stats. Cheap to rebuild with `ECC_FROM_CACHE=1` (no container
-   needed), which is what to do after changing `ECC_CLASSIFY`. It is the one
-   thing under `results/` worth keeping.
-
-Any treatment that changes what the mapper sees, or what it optimises, gets its
-own mapper-cache subdirectory, so existing results are never mixed in. Three
-classes:
-
-- `ECC_OPT_METRIC`, `ECC_VICTORY`, `ECC_VICTORY_SCALING` change what the search
-  returns for every design at once. So does `ECC_NOC` (and its two sub-knobs):
-  a costed interconnect is a different architecture to the mapper.
-- `ECC_FORCE_TECHNOLOGY`, `ECC_DRAM_DEPTH`, `ECC_GLOBAL_CYCLE_SECONDS` go through
-  `globals.yaml`, which costs DRAM for every design at once — they invalidate
-  every architecture's cache.
-- `ECC_ARCH_FIDELITY` and `ECC_FORCE_DATAWIDTH` are evaluated **per
-  architecture** by `archs.effective_variant()`: fidelity by whether the design
-  has an `arch_paper.yaml`, datawidth by diffing the patched YAML. A design
-  already declared at the weight width is unchanged and keeps its cache.
-
-One historical setting — `stock` fidelity, `edp`, victory 500, unscaled — is
-spelled as the *empty* treatment, so `outputs/<arch>/multimodel` stays reachable
-and mappings computed under it are still addressable:
-
-    ECC_ARCH_FIDELITY=stock ECC_OPT_METRIC=edp ECC_VICTORY=500 \
-      ECC_VICTORY_SCALING=none bash run.sh --replot
-
-Any change to the defaults means **a default run needs a fresh mapper cache**.
-Budget a cold run accordingly; it is resumable, and nothing already computed is
-lost.
-
-`_force_datawidth` deliberately skips any level whose `keep:` list is `Outputs`
-alone. Accumulator precision is a separate design choice from operand
-quantization, and Timeloop asserts `width % datawidth == 0`, so forcing an
-operand width onto a psum level whose width is not a multiple of it aborts the
-mapper on every layer.
+`ECC_RERUN_OPTIMISER=1` re-solves a shape on a valid hit and overwrites both
+records; it is refused together with `--eval`. Anything that changes what the
+mapper sees or optimises gets its own cache subdirectory: mapper settings and
+`ECC_NOC` (a costed interconnect is a different architecture to the mapper);
+`globals.yaml` knobs, which invalidate every design at once; and
+`ECC_ARCH_FIDELITY` / `ECC_FORCE_DATAWIDTH`, evaluated per architecture by
+`archs.effective_variant()`. So **anything touching env.sh §2/§5, or an arch
+YAML, takes the whole matrix cold at once** — budget for it.
 
 ## The three ECC arms
 
-All three share ONE BCH(N,K) codeword over `ECC_WEIGHT_BITS`-bit weights, so they
-differ only in where the parity lives. Codewords are counted from DRAM weight
-reads: `n_codewords = dram_weight_reads / (K / weight_bits)`.
+One BCH(N,K) codeword over `ECC_WEIGHT_BITS`-bit weights under all three, so
+they differ only in where the parity lives. Codewords are counted from DRAM
+weight reads. The first entry in `ECC_APPROACHES` is the reference savings are
+measured against.
 
 - **baseline** — parity beside the data in DRAM; weight traffic inflates by N/K.
-- **embedded** — parity inside the stored weights themselves, laid out the way
-  the embedding pipeline (ECC-CODE-Engine / Input_Embedding) does it: the
-  MSB-first weight bit stream is cut into n-bit codewords, so weights straddle
-  codewords (7.875 per BCH(63,K) codeword) and the n-k lowest-significance
-  positions carry the parity. Storage is `weight_bits` per weight with no
-  external parity; the complete codeword is read for correction, so DRAM
-  traffic is exactly Timeloop's. `eccenergy/embedded.py` has the layout and
-  its source; `bash run.sh embedded` (Task 2) writes it beside the baseline
-  and checks that every non-DRAM component is identical.
-- **recon** — DRAM as embedded, but only K/N of the weights are held on chip;
-  the parity portion is regenerated by a synthesized datapath, charged per
-  codeword from `data/dc/BCH_N63_results.json`.
+- **embedded** — parity inside the stored weights, laid out as the embedding
+  pipeline (ECC-CODE-Engine / Input_Embedding) does it: the MSB-first weight bit
+  stream cut into n-bit codewords, so weights straddle codewords and the n-k
+  lowest-significance positions carry parity. DRAM traffic is exactly
+  Timeloop's — the complete codeword is read for correction.
+- **recon** — DRAM as embedded, K/N of the weights held on chip, the rest
+  regenerated by a synthesized datapath charged per codeword from
+  `data/dc/BCH_N63_results.json`.
 
-The first entry in `ECC_APPROACHES` is the reference the savings are measured
-against.
+`build_stacks()`'s `recon` arm is ONE point applied to every design at once, and
+no physical boundary does what it does (it both scales on-chip weight energy by
+K/N *and* charges one reconstruction per DRAM codeword). It stays as the third
+bar of the three sweeps; it is **not** one of Task 3's boundaries and must not be
+quoted as one.
 
-## The knobs that decide what gets modelled
+## `recon.py` — the placement space
 
-Mechanism only. What the right *setting* of each is, and why, is exactly what
-the rewrite is re-deciding — do not restate old justifications here.
+Two tables define it and **must be edited together**:
+`WEIGHT_PATHS[<arch>]` (the stages of that design's weight path, each naming the
+Timeloop levels that are it) and `PLACEMENTS[<arch>]` (the boundaries: which
+stages stay reduced, what drives the reconstruction count, whether a reuse
+register is present).
 
-- **`ECC_ARCH_FIDELITY`** (`paper` | `stock`) chooses which YAML each design is
-  mapped from. `paper` prefers `archs/<name>/arch_paper.yaml`, where storage
-  precisions and scratchpad sizes are the numbers the design's paper publishes,
-  each cited in a comment beside it. `stock` uses the design exactly as
-  timeloop-accelergy-exercises ships it. A design without an `arch_paper.yaml`
-  keeps its `arch.yaml` at both fidelities.
-- **`ECC_OPT_METRIC`** selects the mapper's objective. Timeloop is told the
-  metric from `timeloop.py`, so the cloned exercises repo stays pristine.
-- **`ECC_MAPPER_ALGORITHM`, `ECC_MAPPER_SEARCH_SIZE`, `ECC_MAPPER_THREADS`**
-  select Timeloop's search algorithm, cap the valid mappings examined per
-  thread, and pin the thread count. All three are in the mapping fingerprint,
-  so each combination has its own mapper cache. Which setting is converged
-  enough to rank architectures is an empirical question -- see FINDINGS.md
-  before quoting an ordering produced under any setting.
-- **`ECC_NOC`** (default 1) costs the interconnect. Timeloop's own wire model
-  is a stub that returns 0, so with it off every network is free -- in the
-  evaluator and in the mapper's objective. Coefficients and citations:
-  `archs/_shared/noc.yaml`. `ECC_NOC_WIRE_PJ_PER_BIT_MM` overrides the shared
-  wire constant, `ECC_NOC_ROUTER_PJ` the shared per-flit router energy, and
-  `ECC_NOC_SCALE` multiplies every term for sensitivity runs.
-  All four are in the fingerprint and the slug (`noc`), so no pre-NoC mapping
-  is ever read back as a costed one. NoC is its own plotted category; the
-  on-chip storage category's internal key is `Local (spads/RF)`.
-- **`ECC_VICTORY` and `ECC_VICTORY_SCALING`** set mapper effort. The search
-  abandons a thread after `victory_condition` consecutive non-improving
-  mappings, and the candidate count grows combinatorially with loop-nest depth,
-  so a flat setting searches a deep hierarchy less thoroughly than a shallow
-  one. `levels` scaling raises the budget with nest depth. It is a heuristic,
-  not a proof: to *confirm* convergence, raise `ECC_VICTORY` and check the
-  totals do not move.
+That is enforced, not advised. `validate_placement_space()` requires a
+placement's `reduced` set to be a **prefix** of the path's reducible stages in
+path order, and every reducible stage to be reached by some boundary; it runs
+before anything is evaluated. Without it, adding a stage to one table and
+forgetting the other keeps every boundary below it reporting its own saving while
+showing the new stage at full width — the whole list understated, nothing saying
+so. `feasibility()` structurally cannot catch that: it inspects the stages a
+placement claims, never the ones it should have claimed.
+`weight_path()` also refuses to proceed if a level carrying Weights energy is not
+claimed by exactly one stage, and `cross_check()` re-derives per-category weight
+energy against the `Raw` record first.
 
-`bash run.sh diagnose` flags a psum level narrower than its own accumulator as
-a defect. A level that is legitimately narrower says so in the YAML with a
-`# psum-width-ok: <reason>` comment, and the audit lists it as a declared claim
-instead.
+Three things the model refuses to fudge, each with a knob and a recorded check:
+**physical packing** (`stream` scales every reduced stage by K/N; `aligned`
+gives each weight whole bits and moves no SRAM access count),
+**reconstruction granularity** (`G_rec`, the co-resident group, is computed from
+the layout, not assumed), and **feasibility** (a PE-local boundary whose resident
+tile is smaller than `G_rec` is reported `unsupported` with the layers named,
+never estimated). Retention (`ECC_RECON_REUSE_REG_ENTRIES`) is a CAPACITY
+question, not a consecutive-use one — `retention_model()` carries the reasoning,
+and getting that wrong is what made R4b look useless in the first version.
 
-## Known modelling caveats
+The DRAM term is two stages since 2026-09-09, because the BCH decoder is on the
+DRAM die and off the fetch path (01_project_context §1/§4): `dram_array`,
+`(1 − f_if)` of the DRAM weight energy, is never reduced (the array reads the
+complete codeword); `dram_interface`, `f_if` of it, scales by K/N under **every**
+boundary, R1 included, because only the k message bits leave the die. `f_if`
+(`ECC_DRAM_IF_FRAC`) should be a cited DRAM energy breakdown; the current 0.40 is
+an **assumption** (2026-09-09, `provenance.yaml` `dram_interface_share` says so and
+why) and every figure carries the value it was drawn at, labelled assumed. Unset,
+the study refuses and prints the ceiling at 0.10/0.25/0.50. `ECC_RECON_DECODE_SITE=controller` is
+the pre-2026-09-09 model (complete codeword across the interface, DRAM identical
+on every bar), kept for the diff only. The reference bars keep controller-side
+correction and do not move. Two things it deliberately does not credit: the
+DRAM array, and any operand-retention saving for anybody — scratchpad read counts
+stay Timeloop's under every bar. That used to rest on "the same
+register would help a baseline PE too", which was a handicap papering over a
+hole: R4b cut its reconstruction count 82.9x BECAUSE its register served those
+reads, while still billing them. `ReuseRegister` closes it —
+`ECC_RECON_REUSE_REG_MODEL` says WHAT the register holds, and the default
+(`complement`, only the n-k regenerated bits, `weight_bits x (1-K/N)` per
+weight) cannot serve a read alone, so the read count legitimately does not move
+and PE weight storage is 1.00x the baseline. `full_width` reproduces the
+opposite reading as a runnable row, `free` reproduces the pre-2026-09-08
+numbers. FINDINGS section 7.1 has the audit; do not re-open it from the
+docstrings alone.
 
-**Intentionally not written down here.** Run `bash run.sh diagnose`, which
-computes the list from the architectures as they currently stand and prints it
-with current numbers. A prose copy in this file went stale once already and
-then contradicted the code.
+**The MAC cost is the denominator of every percentage** and is audited in
+FINDINGS §7.3: the ERT's 1.16877 pJ/MAC is a single 40 nm table row per
+primitive, scaled. `ECC_MAC_PJ_OVERRIDE` (env.sh §5) rescales the Compute
+category evaluator-side, after the raw cache, so no saved pJ and no mapping
+moves; a value listed in `provenance.yaml` `mac_energy_pj` carries its citation
+on every figure, manifest and result file. The default is **0.23 pJ**
+(Horowitz ISSCC 2014 int8 mult + add, 45 nm; adopted 2026-09-09) and
+`ReconSweep.png` is drawn under it; set it EMPTY to reproduce the ERT
+denominator, which is the sensitivity row. The mapper is unaffected either way:
+it prices MACs from the ERT, so only an edit to the `intmac` component (a cold
+cache) would change a mapping.
+
+**Every result and console run prints the ceiling first** — the weight energy a
+boundary could reduce, times `1 - K/N`. Without it a sub-percent saving reads as
+a missing term rather than as arithmetic.
+
+## Architecture rules
+
+`archs/_shared/standard.yaml` states what must be IDENTICAL across designs
+(operand precisions, DRAM geometry, process node, the dense-packing rule) and
+what each keeps as its own with a citation; `provenance.yaml` records where every
+declared number came from; `noc.yaml` holds the interconnect coefficients and,
+per design and with the paper section, **which spatial containers actually are
+the NoC**. Two NoC terms Timeloop cannot be given (spatial-reduction adders, the
+psum word width on the wire) are charged after mapping by `noc_post.py` from
+`noc.yaml`'s `evaluator_only` block; every `Raw` carries their stamp and is
+re-gathered if it differs. `archs/_shared/components/` is part of the mapper
+fingerprint: editing a component colds every cache, on purpose. `bash run.sh
+validate` checks all of it and exits non-zero on a violation.
+
+Only one of the four `source:` values licenses using a design's name as the chip:
+`published`. `derived` is a variant differing in one stated block,
+`reference_design` is shipped by timeloop-accelergy-exercises and merely *named*
+after a paper, `locally_authored` reproduces nothing. `validate` prints it as
+`origin:`. **`simba_like` is `reference_design`** — inspired by Simba, not
+reproducing it (its geometry fails two checks against the paper, and its on-chip
+weight capacity sets its DRAM refetch and therefore its ECC saving). Label it
+"Simba-like (reference design)"; there is no "Numba" architecture here.
+
+**Eyeriss v1 is a bracketing PAIR, not a number.** JSSC 2017 allocates 8 kB of
+the 108 kB GLB to filter weights: `eyeriss_like` does not model it,
+`eyeriss_like_wglb` does, and the files differ in exactly one block. Quote both
+as an upper/lower bound on DRAM weight traffic and hence on the ECC saving; a
+single number is a choice of bound. Same rule for `eyeriss_v2_like_wglb`, with
+the asymmetry that v2's extra weight level is *not* in its paper while v1's is.
+
+Accumulator width is deliberately not standardized (v1 16b, v2 20b, Simba 24b,
+each cited) — forcing one would equalise the architectures. `ECC_ACC_BITS` does
+force one for a sensitivity study only, with its own cache and namespace.
+`diagnose` flags a psum level narrower than its own accumulator; a level that is
+legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
 
 ## Working on this code
 
-- **Adding an architecture**: drop `archs/<name>/arch.yaml` in, add the name to
-  `KNOWN_ARCHS` and `ARCH_LABELS` in `eccenergy/config.py`, add it to
-  `archs/_shared/standard.yaml` (with its accumulator width and a citation for
-  it) and to `archs/_shared/provenance.yaml`, then run `bash run.sh validate`
-  -- it will fail until the design obeys the shared contract. Then
-  `ECC_SWEEP_ARCHS="<name> eyeriss_like" bash run.sh diagnose` to check it
-  against the others before committing to a long sweep. Declare partial sums at
-  the accumulator width at *every* level that holds them — the diagnose audit
-  will tell you if you did not — or, where a level legitimately holds
-  requantized values instead, say so with a `# psum-width-ok: <reason>` comment
-  on the datawidth line. Add an `arch_paper.yaml` if the design comes from a
-  paper, and cite each number in a comment.
-- **Adding a model**: add it to `CNN_MODELS` or `TRANSFORMER_MODELS` in
-  `config.py` — that list is what decides which workload file a sweep reads.
-  Regenerate the workload file in the container (`python3 -m eccenergy.generate
-  models <name>`); grouped convolutions and per-pixel Linear layers are handled
-  by the generator, nothing else to declare.
-- **Adding an ECC approach**: add it to `APPROACHES` in `config.py` and a branch
-  in `build_stacks()` in `ecc.py`. Everything else follows.
-- **Adding a sweep axis**: a name in `SWEEPS`, a stem in `SWEEP_STEMS`, the
-  axis resolution in `Config.__post_init__`, and a `_<name>_groups()` builder in
-  `experiments/sweep.py`. Return `(groups, stacks, labels, fontsize)` and the
-  existing renderer draws it — do not write a new renderer, and do not add a
-  second figure to a sweep.
-- **Changing how a bar looks**: edit `draw_panel()` in `plots/stacked.py` and
-  nothing else. It is the only place a bar is drawn, so every figure — the
-  three sweeps and the panelled one — moves together. If you find yourself
-  wanting a second bar-drawing routine, add a parameter to that one instead.
+- **Task 1's code is frozen**: `parity.py`, `baseline.py` and `build_stacks()`
+  are not refactored. Add modules instead, then re-run `bash run.sh baseline
+  --eval` and diff — the Task 1/2 totals must not move. `audit.py` mirrors
+  `baseline.py`'s checks for later tasks; keep them in step.
 - **Never** read `os.environ` outside `config.py`, and never resolve a path
   outside `paths.py`.
-- The old scripts resolved `ecc_energy_study/` from `cwd`, so launching from the
-  wrong directory silently re-cloned the repo and re-ran the whole mapper. The
-  package resolves it from the project root instead; launch directory no longer
-  matters.
+- **Adding an architecture**: `archs/<name>/arch.yaml` (plus `arch_paper.yaml`
+  with each number cited if it comes from a paper), the name in `KNOWN_ARCHS` and
+  `ARCH_LABELS` in `config.py`, entries in `standard.yaml` and `provenance.yaml`,
+  then `bash run.sh validate` and `diagnose` against an existing design before
+  committing to a long sweep. Declare partial sums at the accumulator width at
+  every level that holds them.
+- **Adding a model**: add to `CNN_MODELS` or `TRANSFORMER_MODELS` in `config.py`
+  (that list decides which workload file is read), then
+  `python3 -m eccenergy.generate models <name>` in the container. Grouped
+  convolutions and per-pixel Linear layers are handled by the generator.
+- **Adding an ECC approach**: `APPROACHES` in `config.py` plus a branch in
+  `build_stacks()`.
+- **Adding an architecture to the placement study**: `WEIGHT_PATHS[<name>]` and
+  `PLACEMENTS[<name>]` together (see above). Get the stage-to-level match right
+  by reading a real `timeloop-mapper.stats.txt` from that design's cache.
+  `eyeriss_v2_like_wglb` is currently refused for exactly this reason — its
+  `weight_glb` stage has no boundary.
+- **Adding a sweep axis**: a name in `SWEEPS`, a stem in `SWEEP_STEMS`, the
+  resolution in `Config.__post_init__`, and a `_<name>_groups()` in
+  `experiments/sweep.py` returning `(groups, stacks, labels, fontsize)`. Do not
+  write a second renderer and do not add a second figure to a sweep.
+- **Changing how a bar looks**: `draw_panel()` in `plots/stacked.py` is the only
+  place a bar is drawn in this project, so every figure moves together. Want a
+  second bar routine? Add a parameter to that one instead (`bar_notes` exists
+  because a sub-percent result cannot be read off a full-height bar).
+- **Line endings**: the shell scripts run inside a Linux container and a CRLF
+  makes bash die on `set -o pipefail` with a mangled message. `.gitattributes`
+  forces LF; `bash tools-fix-eol.sh` repairs anything that slips through.
+  **Always emit LF.**
 
-## Line endings
+## Layout
 
-The shell scripts run inside a Linux container. A CRLF in one makes bash read
-`pipefail` as an option name and die with a mangled, self-overwriting message:
+Everything not listed here is what its name says; `eccenergy/` module docstrings
+carry the rest.
 
-    : invalid option namene 24: set: pipefail
-
-`.gitattributes` forces LF on `*.sh *.py *.yaml *.yml *.md *.json`, and
-`bash tools-fix-eol.sh` repairs any file that slips through (it removes only
-carriage returns, so it is safe on cached results). **When writing or editing
-any file in this project, always emit LF.**
-
-## Verification
-
-There is a legacy regression baseline —
-`legacy/figures/multiarch_bch63_k51_*_summary_uJ.csv` — that the pipeline once
-reproduced field-for-field at `ECC_SWEEP=arch ECC_CLASSIFY=name`, historical
-treatment, BCH(63,51)/resnet18. Its legacy column prefixes are
-`base_`/`embe_`/`recon_` where the new tables write the full approach names.
-
-**Whether that comparison should still hold is a question for the rewrite, not
-an assumption.** If the new model deliberately changes what is being computed,
-a mismatch is the intended outcome, not a regression — decide which it is
-before treating a difference as a bug.
+    env.sh              THE knob file        run.sh    one stage, no knobs
+    hpc/                run_all.sh (the one command), map.sbatch, tl.sh
+                        (apptainer wrapper), summary.py, HIPERGATOR.md
+    FINDINGS.md         the only place empirical claims about the current model
+                        live      progress.txt / PROJECT_STATUS.md  status boards
+    eccenergy/          config.py (the ONLY reader of os.environ), paths.py (the
+                        ONLY resolver of paths), workloads.py, timeloop.py (the
+                        only slow module and the only one needing the container),
+                        energy.py, ecc.py, recon.py, parity.py, embedded.py,
+                        noc_post.py (evaluator-only NoC terms Timeloop cannot cost),
+                        results_store.py (the ONLY writer of an evaluation JSON),
+                        plots/, experiments/, tests/, generate.py
+    archs/_shared/      standard.yaml, provenance.yaml, noc.yaml -- not an
+                        architecture; skipped by the installer
+    ecc_energy_study/   AUTO-MANAGED: cloned repo + mapper cache. Do not delete.
+    legacy/             pre-restructure scripts, figures and FINDINGS -- nothing
+                        imports it, nothing in it describes the current model.
+                        The exception is FINDINGS_detail_<date>.md: the full
+                        working detail behind the current FINDINGS.md, archived
+                        there to keep the live file readable.
