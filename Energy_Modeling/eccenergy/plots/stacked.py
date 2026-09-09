@@ -232,7 +232,20 @@ def write_table(cfg, results, panels, stem, bars=None, ref_totals=None,
     placement study puts its reconstruction counts, overheads and feasibility
     there, so its figure and its table carry the same facts and there is still
     exactly one table per stem.
+
+    BOTH may be keyed `"<panel>/<group>"` as well as `"<group>"`, and the
+    panel-qualified key wins. Two panels of a multi-architecture placement
+    figure both have a group called `recon1`, and a bare-key lookup would give
+    the second panel the first panel's reference total and reconstruction
+    counts -- silently, and only in the table.
     """
+    def _pick(d, panel_key, g):
+        if not d:
+            return None
+        if panel_key is not None and f"{panel_key}/{g}" in d:
+            return d[f"{panel_key}/{g}"]
+        return d.get(g)
+
     cats = plot_cats(cfg)
     cols = list(bars or cfg.approaches)
     rows = {}
@@ -246,14 +259,30 @@ def write_table(cfg, results, panels, stem, bars=None, ref_totals=None,
             for c in cats:
                 for a in cols:
                     row[f"{a}_{c}"] = float(st.loc[c, a]) / 1e6
-            ref = ((ref_totals or {}).get(g) if ref_totals is not None
+            ref = (_pick(ref_totals, panel_key, g) if ref_totals is not None
                    else float(st[cols[0]].sum()))
             ref = 0.0 if ref is None else float(ref)
             for a in cols:
                 total = float(st[a].sum())
+                if total <= 0.0:
+                    # A GROUP WITH NO BAR IS NOT A BAR THAT SAVES EVERYTHING.
+                    # The placement study gives an INFEASIBLE boundary a table
+                    # row on purpose -- a table that omits it reads as "not
+                    # considered" -- and its stack is all zeros because there is
+                    # nothing to draw. Filling the derived columns from those
+                    # zeros printed `total 0.0, saving 100.0%` next to
+                    # `status unsupported` on the same line, which is a claim
+                    # the row exists to deny. The per-category zeros stay: they
+                    # are what "no bar" means to the figure. The study's own
+                    # columns (`saving_vs_embedded_only_pct`, ...) were already
+                    # left blank for these rows, so this makes the generic pair
+                    # agree with them.
+                    row[f"{a}_total_uJ"] = ""
+                    row[f"{a}_saving_pct"] = ""
+                    continue
                 row[f"{a}_total_uJ"] = total / 1e6
                 row[f"{a}_saving_pct"] = ((ref - total) / ref * 100) if ref > 0 else 0.0
-            row.update((extra_columns or {}).get(g, {}))
+            row.update(_pick(extra_columns, panel_key, g) or {})
             rows[g if panel_key is None else f"{panel_key}/{g}"] = row
     path = results.table_path(stem)
     # An explicit newline="" handle, exactly as Results.write_manifest uses.

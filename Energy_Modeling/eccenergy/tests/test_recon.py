@@ -998,15 +998,178 @@ def test_recon_optimizer_true_is_refused_rather_than_ignored():
     assert _cfg(ECC_RECON_OPTIMIZER="False").recon_optimizer is False
 
 
-def test_the_placement_study_refuses_more_than_one_architecture():
+def test_a_multicast_network_boundary_pays_per_destination_not_per_injection():
+    """R2's encoders run once per ARRIVAL, so the multicast factor multiplies.
+
+    Sec. 7.1 states the tradeoff and asks for it as an experiment variable:
+    one encoder before a multicast fanout and full-width network traffic, or an
+    encoder at each destination and reduced-width shared transport. Until
+    2026-09-09 R2 took the second boundary's SAVING (the mesh carries the
+    reduced form) while paying the first boundary's COUNT (the mesh's
+    ingresses), which is not a placement -- an encoder before the fanout makes
+    that network full width, and that boundary is R1.
+
+    Driven on a copy of the synthetic fixture whose outer network multicasts
+    3-fold, so the two readings are 3x apart by construction and the answer is
+    checkable by hand: 100 ingresses x 3 = 300 arrivals.
+    """
+    from eccenergy import recon as reconmod
+    mc = _STATS.replace(
+        """        Fanout                                  : 4
+        Multicast factor                        : 1
+        Ingresses                               : 100.00""",
+        """        Fanout                                  : 12
+        Multicast factor                        : 3
+        Ingresses                               : 100.00
+            @multicast 3 @scatter 4: 100.00""", 1)
+    assert mc != _STATS, "the fixture's outer network block did not match"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        d = pathlib.Path(tmp) / "C8_M8"
+        d.mkdir(parents=True)
+        _write_lf(d / "timeloop-mapper.stats.txt", mc)
+        _write_lf(d / "timeloop-mapper.map.txt", _MAP)
+        stats = d / "timeloop-mapper.stats.txt"
+
+        cfg = _cfg()
+        lp = reconmod.read_weight_path(cfg, "eyeriss_v2_like", _Layer(), stats)
+        mesh = lp.stages["inter_cluster_mesh"]
+        assert mesh.ingresses == 100.0, mesh.ingresses
+        assert mesh.multicast == 3.0, mesh.multicast
+        assert mesh.deliveries == 300.0, (
+            "destination-side arrivals must be ingresses x the multicast "
+            f"factor, got {mesh.deliveries}")
+        assert mesh.counter("deliveries") == 300.0
+        assert mesh.counter("ingresses") == 100.0
+
+        # the boundary itself: `destination` is the model, `source` reproduces
+        # the pre-2026-09-09 count, and NOTHING ELSE about the bar moves
+        got = {}
+        for site in reconmod.ENCODER_SITES:
+            c = _cfg(ECC_RECON_ENCODER_SITE=site)
+            wp = reconmod.weight_path(c, "eyeriss_v2_like", "m", [_Layer()],
+                                      {"C8_M8": stats})
+            p2 = reconmod.placement_by_key("eyeriss_v2_like", "recon2", c)
+            res = reconmod.evaluate_placement(
+                c, "eyeriss_v2_like", p2, wp,
+                {k: v.energy_pJ for k, v in wp.stages.items()}, {},
+                recon_pj=1.0, reuse_reg_pj=0.0,
+                gran=reconmod.Granularity(c.code_n, c.code_k, c.weight_bits,
+                                          "codeword"),
+                packing=reconmod.Packing("stream", c.weight_bits, c.code_k,
+                                         c.code_n))
+            counts = res.detail["reconstruction_counts"]
+            got[site] = counts
+            # both readings are recorded on EVERY network bar, whichever is used
+            assert counts["if_one_encoder_before_the_fanout"] == 100.0
+            assert counts["if_one_encoder_per_destination"] == 300.0
+            assert counts["multicast_multiplicity_of_this_boundary"] == 3.0
+            assert counts["network_multicast_factor"] == 3.0
+
+        assert got["destination"]["weights_reconstructed"] == 300.0
+        assert got["source"]["weights_reconstructed"] == 100.0
+        assert got["destination"]["reconstruction_energy_pJ"] == \
+            3.0 * got["source"]["reconstruction_energy_pJ"], (
+                "the two readings must differ by exactly the multicast factor")
+
+        # and the SAVING is the same under both: only the encoder count moved
+        for site in reconmod.ENCODER_SITES:
+            c = _cfg(ECC_RECON_ENCODER_SITE=site)
+            p2 = reconmod.placement_by_key("eyeriss_v2_like", "recon2", c)
+            assert p2.reduced == ("dram_interface", "inter_cluster_mesh"), (
+                "the encoder site must not change WHICH stages carry the "
+                f"reduced form: {p2.reduced}")
+
+
+def test_several_architectures_are_one_panel_each_and_never_one_axis():
+    """Two designs are accepted -- as PANELS -- and a repeat is refused.
+
+    Until 2026-09-09 this refused a second architecture outright, because the
+    boundaries of two designs cannot share an x axis: "reconstruct after the
+    mesh" beside a design with no mesh is meaningless. Separate stacked axes are
+    not that, so the rule is now enforced where it actually lives -- in
+    `experiments/reconmod.py figure()`, which gives every design its own axes, its
+    own boundary list and its own two reference bars -- and the config accepts
+    the list. What it still refuses is a REPEATED name, which would draw one
+    design twice and write its result file twice.
+    """
+    from eccenergy import recon as reconmod
     from eccenergy.config import ConfigError
+    cfg = _cfg(ECC_SWEEP_ARCHS="simple_weight_stationary eyeriss_like")
+    assert cfg.archs == ["simple_weight_stationary", "eyeriss_like"], cfg.archs
+
+    # ...and the boundary lists stay per design, which is what makes panels the
+    # only honest layout: these two are NOT the same axis.
+    ws = [p.key for p in reconmod.placements_for("simple_weight_stationary", cfg)]
+    v1 = [p.key for p in reconmod.placements_for("eyeriss_like", cfg)]
+    assert ws != v1 and len(ws) == 6 and len(v1) == 5, (ws, v1)
+    ws_stages = [s.key for s in reconmod.stages_for("simple_weight_stationary", cfg)]
+    v1_stages = [s.key for s in reconmod.stages_for("eyeriss_like", cfg)]
+    assert set(ws_stages) & set(v1_stages) == {"dram_array", "dram_interface"}, (
+        "the only weight-path stages two different designs share are the two "
+        "DRAM shares; anything else means a stage name is being reused across "
+        f"designs that do not have the same level: {ws_stages} vs {v1_stages}")
+
+    # A repeated name collapses to one panel rather than drawing the design
+    # twice, and an empty list is refused: a placement study with no design has
+    # no boundaries to place.
+    assert _cfg(ECC_SWEEP_ARCHS="eyeriss_like eyeriss_like").archs \
+        == ["eyeriss_like"]
     try:
-        _cfg(ECC_SWEEP_ARCHS="eyeriss_v2_like eyeriss_like")
+        _cfg(ECC_SWEEP_ARCHS=" ")
     except ConfigError as exc:
-        assert "ONE architecture" in str(exc), str(exc)
+        assert "ECC_SWEEP_ARCHS" in str(exc), str(exc)
     else:
-        raise AssertionError("two architectures were accepted for the placement "
-                             "study, whose boundaries are per architecture")
+        raise AssertionError("an empty architecture list was accepted")
+
+
+def test_every_placement_space_is_valid_for_every_supported_design():
+    """`validate_placement_space()` passes on every design in the tables.
+
+    The two tables have to be edited together (CLAUDE.md), and the failure mode
+    is silent understatement rather than an error, so this runs the check on
+    every registered design rather than only on the one a run happens to draw.
+    `eyeriss_v2_like_wglb` is the known exception: its weight path gained a
+    `weight_glb` stage its placement list does not reach, and it is reported
+    here instead of being evaluated with four understated boundaries.
+    """
+    from eccenergy import recon as reconmod
+    cfg = _cfg()
+    expected_invalid = {"eyeriss_v2_like_wglb"}
+    for arch in reconmod.supported_archs():
+        ok, detail = reconmod.validate_placement_space(arch, cfg)
+        if arch in expected_invalid:
+            assert not ok, f"{arch} was expected to be the known-gap design"
+            continue
+        assert ok, f"{arch}: {detail['violations']}"
+        # every reducible stage reached, and every reduced set a prefix
+        assert not detail["reducible_stages_no_placement_reaches"], arch
+        assert all(r["is_a_prefix"] for r in detail["per_placement"]), arch
+
+
+def test_the_retention_buffer_is_one_named_stage_not_every_storage_level():
+    """R4b's register is priced against ONE buffer, chosen from the tables.
+
+    `simple_weight_stationary` has THREE storage stages on its weight path -- a
+    global operand buffer, a PE scratchpad and a stationary weight register --
+    and before the scoping `retention_model()` summed all of their reads and
+    fills, pricing a register against a working set no level ever holds. The
+    buffer is R4b's own reconstruction site, read off `PLACEMENTS`.
+    """
+    from eccenergy import recon as reconmod
+    cfg = _cfg()
+    assert reconmod.retention_stage("simple_weight_stationary", cfg) == "pe_spad"
+    assert reconmod.retention_stage("eyeriss_like", cfg) == "weights_spad"
+    assert reconmod.retention_stage("eyeriss_v2_like", cfg) == "weight_spad"
+    for arch in reconmod.supported_archs():
+        key = reconmod.retention_stage(arch, cfg)
+        stages = {s.key: s for s in reconmod.stages_for(arch, cfg)}
+        assert key in stages, (arch, key)
+        assert stages[key].kind == "storage", (arch, key, stages[key].kind)
+        # and it really is the site of every retention boundary
+        for p in reconmod.placements_for(arch, cfg):
+            if p.site_counter == "retained":
+                assert p.site_stage == key, (arch, p.key, p.site_stage, key)
 
 
 def test_the_stem_is_the_recon_stem_and_keeps_a_layer_scope():

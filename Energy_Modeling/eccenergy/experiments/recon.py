@@ -89,6 +89,7 @@ from .. import timeloop as tlmod
 from ..archs import accumulator_bits, load_provenance
 from ..ecc import embedded_dram, external_parity, load_recon_energy
 from ..energy import plot_cats
+from ..plots import panels as panels_mod
 from ..plots.stacked import grouped_stacks, write_table
 from ..results_store import ResultBuilder, Variant
 from . import audit
@@ -219,8 +220,13 @@ def _report(cfg, arch, model, wpath, gran, packing, rows, base_total, emb_total,
           f"and R4b needs the register above")
 
     print(f"\n    the weight path as modelled (weight energy only):")
+    # `arrivals` and `mcast` are printed because a network boundary's encoder
+    # count is the ARRIVAL count, not the injection count, and the two differ by
+    # the multicast factor -- up to 7x on these designs. Showing both is what
+    # makes an R2 bar's reconstruction energy checkable off this table.
     print(f"      {'stage':22s} {'kind':8s} {'energy uJ':>12s} {'reads':>15s} "
-          f"{'fills':>13s} {'ingress':>15s} {'resident':>9s} {'reducible':>10s}")
+          f"{'fills':>13s} {'ingress':>15s} {'arrivals':>15s} {'mcast':>6s} "
+          f"{'resident':>9s} {'reducible':>10s}")
     total = base_total  # only for the share column below
     for stage in reconmod.stages_for(arch, cfg):
         st = wpath.stages.get(stage.key)
@@ -235,6 +241,7 @@ def _report(cfg, arch, model, wpath, gran, packing, rows, base_total, emb_total,
                "NO (ctrl)" if stage.key == "dram_interface" else "NO (ECC)")
         print(f"      {stage.key:22s} {st.kind:8s} {st.energy_pJ / 1e6:12,.3f} "
               f"{st.reads:15,.0f} {st.fills:13,.0f} {st.ingresses:15,.0f} "
+              f"{st.deliveries:15,.0f} {st.multicast:6,.0f} "
               f"{st.utilized_capacity:9,.0f} {red:>10s}")
 
     # THE CEILING. Without this, a 0.06% result reads as a missing term rather
@@ -342,7 +349,7 @@ def evaluate(cfg, ses, prov, arch, model, raw):
     decode_placement = (decode_emb if cfg.recon_placement_charges_decode else 0.0)
 
     # ---- the five placements ------------------------------------------------
-    wanted = cfg.recon_placement_keys
+    wanted = cfg.recon_placements_for(arch)
     placements = [p for p in reconmod.placements_for(arch, cfg)
                   if not wanted or p.key in wanted or p.variant in wanted]
     results = [reconmod.evaluate_placement(
@@ -682,8 +689,12 @@ def task3_checks(builder, cfg, arch, raw, base_components, emb_components,
 
 
 # --------------------------------------------------------------------- figure
-def figure(cfg, ses, arch, model, out):
-    """ONE image: the boundary on the x axis, the energy breakdown in the bars.
+def panel_for(cfg, arch, model, out):
+    """ONE panel: the boundary on the x axis, the energy breakdown in the bars.
+
+    Returns everything `draw_panel` and `write_table` need and draws nothing, so
+    the same construction serves a one-architecture figure and a panel of a
+    multi-architecture one. `figure()` decides which.
 
     `plots/stacked.draw_panel` draws it -- the same routine the three sweeps and
     the panel figure use, widened rather than forked. One bar per group here,
@@ -859,19 +870,108 @@ def figure(cfg, ses, arch, model, out):
         extra[p.key] = row
 
     drawn = [g for g in groups if float(stacks[g]["energy"].sum()) > 0]
-    ref = {g: base_t for g in groups}
-    figs, csv = grouped_stacks(
+    return {
+        "arch": arch, "model": model,
+        # `groups` is every bar including the unsupported ones, which have a
+        # table row and no bar; `drawn` is what has height. The figure gets
+        # `drawn`, the table gets `groups`.
+        "groups": groups, "drawn": drawn, "stacks": stacks, "labels": labels,
+        "notes": notes, "extra": extra,
+        "ref_totals": {g: base_t for g in groups},
+        "base_total": base_t, "emb_total": emb_t,
+        "mac_ert_pj": (out.get("mac") or {}).get("ert_pj_per_mac"),
+    }
+
+
+def figure(cfg, ses, panels):
+    """Draw the placement figure: one panel per architecture, top to bottom.
+
+    ONE ARCHITECTURE -> the single-panel figure this study has always drawn,
+    through `grouped_stacks`, unchanged.
+
+    SEVERAL -> `plots/panels.stacked_panels`, one panel per design, each with
+    its OWN x axis of its own boundaries and its own two reference bars. The
+    rule this does not break is the one env.sh section 4 and CLAUDE.md state:
+    the boundaries of two designs must never share an x axis, because
+    "reconstruct after the mesh" beside a design with no mesh is meaningless.
+    Separate stacked axes are not that -- what they share is the page, the
+    legend, the category set and the energy unit, and each panel's heading names
+    its design. The panels deliberately do NOT share a y limit: two accelerators
+    of different size forced onto one scale makes the smaller unreadable.
+
+    ONE PANEL PER DESIGN IS ALSO THE ONLY HONEST LAYOUT for the counts. Each
+    design's bars are measured against ITS OWN conventional-ECC bar, so the
+    percentages on one panel say nothing about the other; the table carries both
+    with the panel in the row key.
+    """
+    one = len(panels) == 1
+    title = (cfg.recon_title(mac_ert_pj=panels[0]["mac_ert_pj"]) if one
+             else cfg.recon_panel_title(mac_ert_pj=panels[0]["mac_ert_pj"]))
+    if one:
+        pan = panels[0]
+        drawn, stacks = pan["drawn"], pan["stacks"]
+        figs, _csv = grouped_stacks(
+            cfg, ses.results,
+            groups=drawn, stacks={g: stacks[g] for g in drawn},
+            group_labels=pan["labels"], title=title, stem=cfg.stem,
+            group_fontsize=15, bars=["energy"], bar_tags={}, bar_width=0.92,
+            ref_totals=pan["ref_totals"],
+            bar_notes={g: pan["notes"][g] for g in drawn if g in pan["notes"]})
+        # ...and the table gets every row, drawn or not.
+        csv = write_table(cfg, ses.results,
+                          [(None, pan["groups"], stacks, pan["labels"])],
+                          cfg.stem, bars=["energy"],
+                          ref_totals=pan["ref_totals"],
+                          extra_columns=pan["extra"])
+        return figs, csv, drawn
+
+    # ---- several designs: one panel each -----------------------------------
+    # Every per-group dict is keyed "<panel>/<group>" for the table, because
+    # both panels have a group called `recon1` and `write_table` would
+    # otherwise give the second panel the first panel's reference total.
+    spec, refs, note_by_panel, extra = [], {}, {}, {}
+    for pan in panels:
+        key = pan["arch"]
+        # The heading names the design and says how much of ITS OWN boundary
+        # list is on the axis, because the two panels do not have the same
+        # number of boundaries and a reader comparing bar counts across panels
+        # would otherwise be counting two different things. The reference bars
+        # are not boundaries, so they are not in the count.
+        n_ref = len(reconmod.REFERENCE_BARS)
+        n_all = len(pan["groups"]) - n_ref
+        n_ok = len(pan["drawn"]) - n_ref
+        heading = f"{cfg.arch_label(key).replace(chr(10), ' ')}"
+        heading += f"   ·   {n_ok} of {n_all} boundaries evaluated"
+        if n_all - n_ok:
+            heading += f", {n_all - n_ok} infeasible (see the table)"
+        spec.append((key, heading, pan["drawn"],
+                     {g: pan["stacks"][g] for g in pan["drawn"]}, pan["labels"]))
+        refs[key] = pan["ref_totals"]
+        note_by_panel[key] = {g: pan["notes"][g] for g in pan["drawn"]
+                              if g in pan["notes"]}
+        for g in pan["groups"]:
+            extra[f"{key}/{g}"] = dict(pan["extra"].get(g, {}),
+                                       architecture=cfg.arch_label(key)
+                                       .replace(chr(10), " "))
+    # The table needs the undrawn rows too, so it is written here rather than by
+    # `stacked_panels`, whose figure only ever sees the drawn ones.
+    figs, _csv = panels_mod.stacked_panels(
+        cfg, ses.results, spec, title=title, stem=cfg.stem, group_fontsize=15,
+        bars=["energy"], bar_tags={}, bar_width=0.92, ref_totals=refs,
+        bar_notes=note_by_panel,
+        panel_note=("each panel is one design's OWN weight path, measured "
+                    "against its OWN two reference bars; the panels share a "
+                    "legend and a unit, not a y limit or an x axis"))
+    csv = write_table(
         cfg, ses.results,
-        groups=drawn, stacks={g: stacks[g] for g in drawn}, group_labels=labels,
-        title=cfg.recon_title(mac_ert_pj=(out.get("mac") or {}).get("ert_pj_per_mac")),
-        stem=cfg.stem,
-        group_fontsize=15, bars=["energy"], bar_tags={}, bar_width=0.92,
-        ref_totals=ref, bar_notes={g: notes[g] for g in drawn if g in notes})
-    # ...and the table gets every row, drawn or not.
-    csv = write_table(cfg, ses.results, [(None, groups, stacks, labels)],
-                      cfg.stem, bars=["energy"], ref_totals=ref,
-                      extra_columns=extra)
-    return figs, csv, drawn
+        [(pan["arch"], pan["groups"], pan["stacks"], pan["labels"])
+         for pan in panels],
+        cfg.stem, bars=["energy"],
+        ref_totals={f"{pan['arch']}/{g}": t for pan in panels
+                    for g, t in pan["ref_totals"].items()},
+        extra_columns=extra)
+    return figs, csv, [f"{pan['arch']}/{g}" for pan in panels
+                       for g in pan["drawn"]]
 
 
 # ------------------------------------------------------------ the refusal
@@ -917,70 +1017,88 @@ def run(cfg):
             f"placement effect is applied when evaluating. `Post` is Task 4, "
             f"where the mapping itself is optimised for the reduced width.")
 
-    arch, model = cfg.archs[0], cfg.models[0]
-    if arch not in reconmod.WEIGHT_PATHS:
-        raise SystemExit(
-            f"no weight path is defined for {arch!r}, so its reconstruction "
-            f"boundaries are unknown.\n"
-            f"  defined: {', '.join(reconmod.supported_archs())}\n"
-            f"  -> Task 5 adds the rest; each design's weight path and its list "
-            f"of feasible boundaries go in eccenergy/recon.py WEIGHT_PATHS and "
-            f"PLACEMENTS, together.")
+    model = cfg.models[0]
+    # ONE PANEL PER ARCHITECTURE, and every one of them checked BEFORE anything
+    # is collected: a design whose two tables have drifted apart, or that has no
+    # weight path at all, must stop the run rather than quietly draw one panel.
+    for arch in cfg.archs:
+        if arch not in reconmod.WEIGHT_PATHS:
+            raise SystemExit(
+                f"no weight path is defined for {arch!r}, so its reconstruction "
+                f"boundaries are unknown.\n"
+                f"  defined: {', '.join(reconmod.supported_archs())}\n"
+                f"  -> each design's weight path and its list of feasible "
+                f"boundaries go in eccenergy/recon.py WEIGHT_PATHS and "
+                f"PLACEMENTS, together.")
 
-    space_ok, space = reconmod.validate_placement_space(arch, cfg)
-    if not space_ok:
-        raise SystemExit(
-            f"{arch}'s weight path and its placement list have drifted apart, so "
-            f"every boundary below the missing stage would be reported "
-            f"UNDERSTATED rather than wrong-looking:\n  "
-            + "\n  ".join(space["violations"])
-            + f"\n  -> {space['fix']}")
+        space_ok, space = reconmod.validate_placement_space(arch, cfg)
+        if not space_ok:
+            raise SystemExit(
+                f"{arch}'s weight path and its placement list have drifted "
+                f"apart, so every boundary below the missing stage would be "
+                f"reported UNDERSTATED rather than wrong-looking:\n  "
+                + "\n  ".join(space["violations"])
+                + f"\n  -> {space['fix']}")
 
-    defined = reconmod.placements_for(arch, cfg)
-    unknown = [k for k in cfg.recon_placement_keys
-               if k not in {p.key for p in defined}
-               and k not in {p.variant for p in defined}
-               and k not in ("baseline", "embedded")]
-    if unknown:
-        raise SystemExit(
-            f"ECC_RECON_PLACEMENTS[{arch}] names placements this architecture "
-            f"does not define: {', '.join(unknown)}\n"
-            f"  defined: "
-            f"{', '.join(p.key for p in defined)}\n"
-            f"  -> the boundaries are per architecture; see "
-            f"eccenergy/recon.py PLACEMENTS")
+        defined = reconmod.placements_for(arch, cfg)
+        unknown = [k for k in cfg.recon_placements_for(arch)
+                   if k not in {p.key for p in defined}
+                   and k not in {p.variant for p in defined}
+                   and k not in ("baseline", "embedded")]
+        if unknown:
+            raise SystemExit(
+                f"ECC_RECON_PLACEMENTS[{arch}] names placements this "
+                f"architecture does not define: {', '.join(unknown)}\n"
+                f"  defined: {', '.join(p.key for p in defined)}\n"
+                f"  -> the boundaries are per architecture; see "
+                f"eccenergy/recon.py PLACEMENTS")
 
     ses = Session(cfg).setup()
     ses.collect_all()
-    raw = (ses.raws.get(arch) or {}).get(model)
-    if raw is None:
-        raise SystemExit(f"nothing collected for {arch}/{model}; see the [skip] "
-                         f"lines above")
-
-    if cfg.recon_decode_site == "ondie" and cfg.dram_if_frac is None:
-        refuse_without_f_if(cfg, arch, model, raw)
 
     prov = load_provenance()
-    out = evaluate(cfg, ses, prov, arch, model, raw)
-    figs, csv, groups = figure(cfg, ses, arch, model, out)
+    panels, outs = [], {}
+    for arch in cfg.archs:
+        raw = (ses.raws.get(arch) or {}).get(model)
+        if raw is None:
+            raise SystemExit(
+                f"nothing collected for {arch}/{model}; see the [skip] lines "
+                f"above.\n  -> every architecture of a panelled placement study "
+                f"needs its own mapper cache: map it first "
+                f"(ECC_RECON_ARCHS={arch} bash hpc/map_by_shape.sh), or drop it "
+                f"from ECC_RECON_ARCHS")
+        if cfg.recon_decode_site == "ondie" and cfg.dram_if_frac is None:
+            refuse_without_f_if(cfg, arch, model, raw)
+        out = evaluate(cfg, ses, prov, arch, model, raw)
+        outs[arch] = out
+        panels.append(panel_for(cfg, arch, model, out))
+
+    figs, csv, groups = figure(cfg, ses, panels)
     ses.finish(figs, csv, groups, extra={
         "recon_decode_site": cfg.recon_decode_site,
         "dram_if_frac": cfg.dram_if_frac,
         "dram_if_frac_provenance": cfg.dram_if_frac_note,
-        "dram_split": out["wpath"].dram_split(),
+        "panel_per_architecture": list(cfg.archs),
+        "dram_split": {a: o["wpath"].dram_split() for a, o in outs.items()},
     })
 
-    best = out["builder"].best_reconstruction()
     print("=" * 78)
-    print(f"Task 3 reconstruction placement: {arch} / {model}, fixed mapping.")
-    if best.get("variant"):
-        print(f"Lowest-energy feasible placement: {best['variant']}")
-        print(f"  vs conventional ECC : "
-              f"{best.get('savings_vs_conventional_ecc_percent'):+.3f}%")
-        print(f"  vs embedded only    : "
-              f"{best.get('savings_vs_embedded_only_percent'):+.3f}%")
-    else:
-        print(f"No placement was evaluated: {best.get('reason')}")
+    print(f"Task 3 reconstruction placement: {model}, fixed mapping, "
+          f"one panel per architecture.")
+    for arch in cfg.archs:
+        best = outs[arch]["builder"].best_reconstruction()
+        print(f"  {cfg.arch_label(arch).replace(chr(10), ' ')}:")
+        if best.get("variant"):
+            print(f"    lowest-energy feasible placement: {best['variant']}")
+            print(f"      vs conventional ECC : "
+                  f"{best.get('savings_vs_conventional_ecc_percent'):+.3f}%")
+            print(f"      vs embedded only    : "
+                  f"{best.get('savings_vs_embedded_only_percent'):+.3f}%")
+        else:
+            print(f"    no placement was evaluated: {best.get('reason')}")
+    if len(cfg.archs) > 1:
+        print("Each design is measured against ITS OWN reference bars, so a")
+        print("percentage on one panel says nothing about the other.")
     print("This is an evaluator-only, FIXED-MAPPING result. The mapping optimiser")
     print("was not re-run for any placement -- that is Task 4 (RECON_OPTIMIZER).")
     print("=" * 78)

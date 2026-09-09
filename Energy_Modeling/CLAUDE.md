@@ -52,6 +52,19 @@ nonsense and it looks like Docker is missing when it is not.
 the filesystem rather than a pipe — a backgrounded `docker ... | grep` buffers
 until the pipeline ends and looks hung when it is fine.
 
+**`hpc/map_by_shape.sh` is how a cold design is mapped without waiting a day.**
+It submits one job per layer SHAPE instead of one per model, so the hours become
+one wave, and it takes several architectures at once
+(`ECC_RECON_ARCHS="a b" bash hpc/map_by_shape.sh`): shapes × designs jobs and
+ONE dependent eval after all of them, which is what a two-panel `ReconSweep.png`
+needs — one launcher per design would give each its own eval and the second
+would overwrite the first's figure. `--no-eval` submits the maps only;
+`ECC_LAYERS` maps exactly those layers, which is how a design is spot-checked on
+one or two shapes before its other ten are queued (the cache is keyed by shape,
+so a spot-check's mapping IS the entry the whole-model run reads). Each
+submission snapshots the SLURM task file, because `map.sbatch` resolves its
+(arch, model) pair from it when the job RUNS.
+
 ## One sweep, two constants
 
 All three ECC arms (`baseline`, `embedded`, `recon`) are always drawn, so the
@@ -78,11 +91,22 @@ and the figure says so on itself.
 
 **`ECC_RECON_MODELING=1`** (env.sh §4) is not a fourth sweep: its axis is WHERE
 on the weight path the reconstruction boundary sits. §4 overrides §3, collapsing
-the run to one architecture, one model and one code, stem `ReconSweep`. It is
-one architecture at a time on purpose — the three sweeps can put architectures
-on an axis because every design has all three ECC *arms*, but a reconstruction
-*boundary* is design-specific, and drawing them together would put "reconstruct
-after the mesh" beside a design with no mesh.
+the run to one model and one code, stem `ReconSweep`. The boundaries of two
+designs never share an x axis — the three sweeps can put architectures on an
+axis because every design has all three ECC *arms*, but a reconstruction
+*boundary* is design-specific, and "reconstruct after the mesh" beside a design
+with no mesh is meaningless.
+
+**`ECC_RECON_ARCHS` is therefore ONE PANEL PER NAME**, top panel first, in one
+`ReconSweep.png`. Each panel keeps its own x axis of its own boundaries and its
+own two reference bars, so a percentage on one panel says nothing about the
+other; what the panels share is the page, the legend, the category set and the
+energy unit, and each heading names its design. One name draws exactly the
+single-panel figure this study has always drawn (verified byte-identical when
+the panelling went in). `plots/panels.stacked_panels` renders it — the same
+routine the two-model sweep figure uses, widened with `draw_panel`'s bar
+parameters rather than forked. Every design named needs its own mapper cache at
+the current fingerprint; a missing one stops the run and says which.
 
 ## Results layout
 
@@ -158,6 +182,49 @@ Two tables define it and **must be edited together**:
 Timeloop levels that are it) and `PLACEMENTS[<arch>]` (the boundaries: which
 stages stay reduced, what drives the reconstruction count, whether a reuse
 register is present).
+
+**Four designs are registered, and they do not have the same boundaries.**
+`eyeriss_v2_like` and `eyeriss_like` have five each — two network stages then
+one PE scratchpad, and no weight GLB on either (v2's GLB banks are iact and
+psum; v1's 8 kB filter allocation is a prefetch buffer the RS dataflow does not
+need, and `eyeriss_like_wglb` is the bracketing variant that models it).
+`simple_weight_stationary` has SIX, because it is the only design in the study
+with both a weight global buffer above the network and a stationary weight
+register below the scratchpad: §6.2's buffer-output row and its MAC-input row
+both exist there. The MAC-input boundary is listed **so it can be reported
+infeasible rather than omitted** — the register holds one weight and a rebuild
+needs `G_rec` co-resident, so `feasibility()` rejects it and names the layers.
+Its existing depth-1 `weight_reg` is *not* R4b's reuse register either: the
+mapping fills it once per read, so it is a pipeline latch, and the register R4b
+prices has to cover the whole inner tile (CLAUDE.md's rule for Simba —
+"determine whether the proposal can reuse an existing register" — answered, and
+the answer is no).
+
+**A NETWORK boundary's encoders run once per ARRIVAL, not once per injection**
+(since 2026-09-09). R2 credits its network with carrying the reduced form, so
+its encoders are at the network's *destinations*, and the count is Timeloop's
+own destination-side arrivals — `Ingresses × Multicast factor`, summed exactly
+off its `@multicast M @scatter S` breakdown. Charging the ingress count instead
+paired a destination-side saving with a source-side cost, which is not a
+placement: an encoder before the fanout makes that network full width, and that
+boundary is R1. `ECC_RECON_ENCODER_SITE=source` reproduces the earlier numbers
+for the diff, exactly as `ECC_RECON_DECODE_SITE=controller` does for the DRAM
+change. It moved Eyeriss v2's R2 from +3.87% to +3.78% vs embedded and made
+**R3 the best boundary instead of R2** — the mesh's arrivals equal the
+cluster-local network's ingresses, so R2 and R3 pay the same encoder count and
+R3 saves strictly more. Only network boundaries depend on the knob; R1 counts
+DRAM codewords and every PE-local boundary already counts destination-side
+scratchpad accesses. `multicast_chain()` records the identity that validates the
+parse (a network's arrivals equal what the next stage takes in) on every result.
+
+**`retention_stage()` picks the ONE buffer R4b's register is priced against**,
+from `PLACEMENTS` (the site of the `site_counter="retained"` boundary), and
+`weight_loop_nest()` reads the tile below that named level. Both matter only on
+a design with more than one storage stage: unscoped, `simple_weight_stationary`
+summed a global buffer, a scratchpad and a register into one set of reads and
+fills, and read `inner_tile = 1` off a depth-1 register for a mapping whose
+scratchpad tile is 192. Both eyeriss designs have exactly one storage stage, so
+the scoping is a no-op there and their numbers did not move.
 
 That is enforced, not advised. `validate_placement_space()` requires a
 placement's `reduced` set to be a **prefix** of the path's reducible stages in
@@ -279,10 +346,16 @@ legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
 - **Adding an ECC approach**: `APPROACHES` in `config.py` plus a branch in
   `build_stacks()`.
 - **Adding an architecture to the placement study**: `WEIGHT_PATHS[<name>]` and
-  `PLACEMENTS[<name>]` together (see above). Get the stage-to-level match right
-  by reading a real `timeloop-mapper.stats.txt` from that design's cache.
-  `eyeriss_v2_like_wglb` is currently refused for exactly this reason — its
-  `weight_glb` stage has no boundary.
+  `PLACEMENTS[<name>]` together (see above), then the name in
+  `ECC_RECON_PLACEMENTS` in env.sh §4 and in `ECC_RECON_ARCHS` when you want it
+  drawn. Get the stage-to-level match right by reading a real
+  `timeloop-mapper.stats.txt` AND `timeloop-mapper.map.txt` from that design's
+  cache — the stats file gives the level names and the map file tells you which
+  level the reuse register sits behind. `eyeriss_v2_like_wglb` is currently
+  refused for exactly this reason — its `weight_glb` stage has no boundary.
+  `test_every_placement_space_is_valid_for_every_supported_design` runs the
+  check on every registered design, so a half-finished pair fails the tests
+  rather than understating a figure.
 - **Adding a sweep axis**: a name in `SWEEPS`, a stem in `SWEEP_STEMS`, the
   resolution in `Config.__post_init__`, and a `_<name>_groups()` in
   `experiments/sweep.py` returning `(groups, stacks, labels, fontsize)`. Do not

@@ -83,9 +83,15 @@ def _of(name):
     return None if raw == "" else _f(name, 0.0)
 
 
-def _list(name, default=""):
-    """Space- or comma-separated list; anything after '#' is a comment."""
+def _list(name, default="", sep=None):
+    """Space- or comma-separated list; anything after '#' is a comment.
+
+    `sep=";"` splits on semicolons and keeps each entry whole, spaces and all --
+    for `ECC_RECON_PLACEMENT_LIST`, whose entries are `arch=key key key`.
+    """
     raw = _s(name, default).split("#", 1)[0]
+    if sep:
+        return [e.strip() for e in raw.split(sep) if e.strip()]
     return [tok for tok in raw.replace(",", " ").split() if tok]
 
 
@@ -245,6 +251,11 @@ RECON_REUSE_REG_MODES = ("complement", "full_width", "free")
 #: interface term scales by K/N. `controller` is the pre-2026-09-09 model kept
 #: as a runnable row for the diff. `recon.DECODE_SITES` must stay in step.
 RECON_DECODE_SITES = ("ondie", "controller")
+#: Where a NETWORK boundary's encoders sit, and therefore how many times they
+#: run: `destination` (one per destination, count = the network's
+#: destination-side arrivals) or `source` (one before the fanout, count = its
+#: ingresses). `recon.ENCODER_SITES` must stay in step.
+RECON_ENCODER_SITES = ("destination", "source")
 
 APPROACH_LABELS = {"baseline": "Baseline", "embedded": "Embedded", "recon": "Recon+"}
 APPROACH_TAGS = {"baseline": "Base.", "embedded": "Embe.", "recon": "Recon+"}
@@ -296,6 +307,11 @@ class Config:
     #: are already the single values by the time this object exists.
     recon_modeling: bool
     recon_optimizer: bool
+    #: The raw `ECC_RECON_PLACEMENT_LIST`, as env.sh section 10 flattens the
+    #: `ECC_RECON_PLACEMENTS` associative array (which bash cannot export):
+    #: `;`-separated `arch=key key key` entries, or a bare space-separated key
+    #: list that applies to every architecture. Read it through
+    #: `recon_placements_for()`, never directly.
     recon_placement_keys: list
     recon_stem: str
     recon_packing: str
@@ -317,6 +333,9 @@ class Config:
     recon_placement_charges_decode: bool
     #: `ondie` | `controller` -- see RECON_DECODE_SITES.
     recon_decode_site: str
+    #: `destination` | `source` -- see RECON_ENCODER_SITES and
+    #: `recon.ENCODER_SITES`. Only network boundaries depend on it.
+    recon_encoder_site: str
     #: f_if, the interface share of Accelergy's flat per-bit DRAM energy:
     #: dram_array = (1 - f_if) x DRAM weight energy (never reduced),
     #: dram_interface = f_if x DRAM weight energy (x K/N under every boundary).
@@ -518,6 +537,14 @@ class Config:
             raise ConfigError(
                 f"ECC_MAC_PJ_OVERRIDE={self.mac_pj_override}: the per-MAC energy "
                 f"must be positive (pJ per 8-bit MAC), or empty for the ERT's value")
+        if self.recon_encoder_site not in RECON_ENCODER_SITES:
+            raise ConfigError(
+                f"ECC_RECON_ENCODER_SITE must be one of "
+                f"{', '.join(RECON_ENCODER_SITES)} -- `destination` is one "
+                f"encoder per destination of a multicast network (the count is "
+                f"Timeloop's destination-side arrivals, ingresses x multicast "
+                f"factor); `source` is one encoder before the fanout and is the "
+                f"pre-2026-09-09 row, kept for the diff. See recon.ENCODER_SITES")
         if self.recon_decode_site not in RECON_DECODE_SITES:
             raise ConfigError(
                 f"ECC_RECON_DECODE_SITE must be one of "
@@ -555,13 +582,22 @@ class Config:
                 "  -> set RECON_OPTIMIZER=False (env.sh section 4) to run the "
                 "fixed-mapping placement study of Task 3")
         if self.experiment == "recon":
-            if len(self.archs) != 1:
+            if not self.archs:
                 raise ConfigError(
-                    f"the reconstruction placement study runs on ONE "
-                    f"architecture, not {len(self.archs)} ({', '.join(self.archs)}). "
-                    f"Each architecture has its own weight path and therefore "
-                    f"its own list of feasible boundaries.\n"
-                    f"  -> set ECC_RECON_ARCH (env.sh section 4)")
+                    "the reconstruction placement study needs at least one "
+                    "architecture.\n  -> set ECC_RECON_ARCHS (env.sh section 4)")
+            # SEVERAL ARCHITECTURES ARE ONE PANEL EACH, NOT ONE AXIS. Each
+            # design has its own weight path and therefore its own list of
+            # feasible boundaries, so they cannot share an x axis -- env.sh
+            # section 4 and CLAUDE.md both say so, and `experiments/recon.py`
+            # `figure()` honours it by giving every design its own axes, its own
+            # boundary list and its own two reference bars. What is shared is
+            # the page, the legend, the category set and the energy unit.
+            # A repeated name is not an error: `archs` is de-duplicated above
+            # (`dict.fromkeys`), so "a a" draws ONE panel for `a` rather than
+            # the same design twice. The panel list is printed in the config
+            # table and every panel heading names its design, so a typo that
+            # collapses two panels into one is visible in the run.
             if len(self.models) != 1:
                 raise ConfigError(
                     f"the reconstruction placement study runs on ONE model, not "
@@ -1006,6 +1042,52 @@ class Config:
                       f"{', '.join(self.layers)}  (not a full-model result)")
         return title
 
+    def recon_placements_for(self, arch):
+        """Which boundaries to draw for `arch`: `[]` means every one it defines.
+
+        `ECC_RECON_PLACEMENT_LIST` is how env.sh section 10 flattens the
+        `ECC_RECON_PLACEMENTS` associative array, which bash cannot export.
+        Two accepted forms, and the per-architecture one wins:
+
+            arch=recon1 recon2;other=recon1     per architecture
+            recon1 recon2                       every architecture
+
+        An architecture named with an empty list, or not named at all, draws
+        every placement `recon.PLACEMENTS` defines for it -- which is the normal
+        thing to want and what an empty knob gives.
+        """
+        entries = self.recon_placement_keys
+        if any("=" in e for e in entries):
+            for e in entries:
+                if "=" not in e:
+                    continue
+                name, _, keys = e.partition("=")
+                if name.strip() == arch:
+                    return [k.lower() for k in keys.replace(",", " ").split()]
+            return []
+        return [k.lower() for e in entries
+                for k in e.replace(",", " ").split()]
+
+    def recon_panel_title(self, mac_ert_pj=None):
+        """Title for a placement figure with one panel PER ARCHITECTURE.
+
+        The architecture is per-panel here, so unlike `recon_title()` it is not
+        in the shared heading -- each panel's own heading names its design. What
+        stays shared is everything the study holds fixed across the panels: the
+        model, the code geometry, the DRAM model and the MAC denominator.
+        """
+        head = (f"{self.models[0]}  ·  {self.title_suffix(include_mac=False)}"
+                f"  ·  {len(self.archs)} accelerators, one panel each")
+        title = (f"{head}\nReconstruction-boundary placement  ·  FIXED MAPPING "
+                 f"(evaluator only, the mapper was not re-run)"
+                 f"\n{self.dram_model_line()}\n{self.mac_line(mac_ert_pj)}"
+                 f"  ·  the MAC cost is the denominator of every percentage on "
+                 f"this figure")
+        if self.layers:
+            title += (f"\nDEVELOPMENT RUN — {self.layer_scope} only: "
+                      f"{', '.join(self.layers)}  (not a full-model result)")
+        return title
+
     def recon_title(self, mac_ert_pj=None):
         """Title for the placement figure: the point, then what varies.
 
@@ -1052,9 +1134,15 @@ class Config:
                     "interface, DRAM identical on every bar")
         f = self.dram_if_frac
         f_txt = "UNSET" if f is None else f"{f:.2f}"
+        enc = ("one encoder per DESTINATION of a multicast network "
+               "(count = ingresses \u00d7 multicast factor)"
+               if self.recon_encoder_site == "destination" else
+               "ECC_RECON_ENCODER_SITE=source: ONE encoder before the fanout "
+               "(count = ingresses; the pre-2026-09-09 row)")
         return (f"Decoder on the DRAM die: array (1\u2212f_if) untouched, interface "
                 f"f_if = {f_txt} \u00d7 K/N on every R bar  ·  f_if is "
-                f"ECC_DRAM_IF_FRAC, ASSUMED (no cited LPDDR4 breakdown)")
+                f"ECC_DRAM_IF_FRAC, ASSUMED (no cited LPDDR4 breakdown)"
+                f"\nNetwork boundaries: {enc}")
 
     def panel_title(self):
         """Title for a panelled figure: the model is per-panel, so it is not here.
@@ -1138,7 +1226,7 @@ def load_config():
         # env.sh spells this `RECON_OPTIMIZER` as well, and mirrors it into the
         # ECC_-prefixed name every other knob uses.
         recon_optimizer=_b("ECC_RECON_OPTIMIZER", False),
-        recon_placement_keys=[k.lower() for k in _list("ECC_RECON_PLACEMENT_LIST")],
+        recon_placement_keys=_list("ECC_RECON_PLACEMENT_LIST", sep=";"),
         recon_stem=_s("ECC_RECON_STEM", "ReconSweep"),
         recon_packing=_s("ECC_RECON_PACKING", "stream").lower(),
         recon_granularity=_s("ECC_RECON_ENCODER_GRANULARITY", "weight").lower(),
@@ -1148,6 +1236,7 @@ def load_config():
         recon_onchip_fraction=_of("ECC_RECON_ONCHIP_FRACTION"),
         recon_placement_charges_decode=_b("ECC_RECON_PLACEMENT_CHARGES_DECODE", True),
         recon_decode_site=_s("ECC_RECON_DECODE_SITE", "ondie").lower(),
+        recon_encoder_site=_s("ECC_RECON_ENCODER_SITE", "destination").lower(),
         dram_if_frac=_of("ECC_DRAM_IF_FRAC"),
 
         weak_enabled=_b("ECC_WEAK", False),
@@ -1266,10 +1355,13 @@ def banner(cfg, recon_pj, recon_provenance):
         ]
     if cfg.experiment == "recon":
         rows += [
-            ("PLACEMENT STUDY", f"Task 3: one architecture, fixed mapping, the "
-                                f"boundary is the axis -> {cfg.stem}"),
-            ("placements", ", ".join(cfg.recon_placement_keys) or "every "
-                           "placement defined for this architecture"),
+            ("PLACEMENT STUDY", f"Task 3: fixed mapping, the boundary is the "
+                                f"axis, one panel per architecture -> {cfg.stem}"),
+            ("panels", "  |  ".join(
+                f"{cfg.arch_label(a).replace(chr(10), ' ')}: "
+                + (", ".join(cfg.recon_placements_for(a))
+                   or "every placement it defines")
+                for a in cfg.archs)),
             ("reduced form packing", cfg.recon_packing
                 + ("   (retained k bits packed with no per-weight alignment; "
                    "every reduced stage scales by K/N)"

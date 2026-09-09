@@ -241,12 +241,155 @@ _EYERISS_V2_WGLB_PATH = _EYERISS_V2_PATH[:2] + (
                    "archs/eyeriss_v2_like_wglb/README.md"),
 ) + _EYERISS_V2_PATH[2:]
 
+#: `eyeriss_like` -- Eyeriss v1 as modelled by `archs/eyeriss_like/`, outer to
+#: inner. JSSC 2017 allocates 8 kB of the 108 kB GLB to filter weights, but the
+#: paper is explicit that the RS dataflow does not need it ("even though it is
+#: not required by the dataflow ... the GLB preloads the filters used by the
+#: next processing pass"), so `eyeriss_like/arch_paper.yaml` models the weight
+#: path as DRAM -> filter spad with a `!Nothing` node where a weight GLB would
+#: sit, and `eyeriss_like_wglb` is the bracketing variant that does model it
+#: (CLAUDE.md: "Eyeriss v1 is a bracketing PAIR, not a number"). There is
+#: therefore NO global-buffer boundary here, exactly as there is none on v2.
+#:
+#: Sec. 7's abstraction also names a PE pFIFO between the network and the
+#: scratchpad (Sec. 7.2 rates a FIFO-output boundary 3/5). The Timeloop model
+#: has no such level -- the fanout delivers straight into `weights_spad` -- so
+#: that boundary does not exist to evaluate and is absent by construction
+#: rather than omitted; `weight_path()` would refuse if a weight-carrying level
+#: went unclaimed.
+_EYERISS_V1_PATH = (
+    Stage("dram_array", "DRAM array (complete codeword read)", "dram", ("DRAM",),
+          reducible=False, dram_share="array",
+          evidence="the array stores and reads the complete embedded codeword "
+                   "for on-die correction: a row activation and a burst move "
+                   "whole words and cannot pick the k message bits out of a "
+                   "chunk (01_project_context Sec. 1 and Sec. 4, E_array; "
+                   "02_..., risk 6: do not credit the array)"),
+    Stage("dram_interface", "DRAM interface (message bits leave the die)", "dram",
+          ("DRAM",), reducible=True, dram_share="interface",
+          evidence="the decoder is on the DRAM die and off the fetch path, so "
+                   "only the k message bits of each n-bit codeword are driven "
+                   "off the die: I/O drivers, link and controller port carry k "
+                   "of every n bits under every boundary (01_project_context "
+                   "Sec. 1 and Sec. 4, E_interface x k/n; Sec. 7 calls this "
+                   "level the DRAM interface / iFIFO)"),
+    Stage("array_multicast", "Flat array NoC (multicast across PE columns)",
+          "network", ("NoC: inter_PE_column_spatial",), reducible=True,
+          evidence="JSSC 2017 Sec. V: 168 PEs in a 12 x 14 array fed by a "
+                   "multicast network. `archs/eyeriss_like/arch_paper.yaml` "
+                   "declares PE_column with meshX 14, so this is Timeloop's "
+                   "outer fanout level -- the long-distance half of Sec. 7.1's "
+                   "'flat multicast NoC'."),
+    Stage("pe_local_multicast", "Column-local distribution to the 12 PEs",
+          "network", ("NoC: inter_PE_spatial",), reducible=True,
+          evidence="the inner fanout level of the same array network: PE with "
+                   "meshY 12, one column of the 12 x 14 array. Sec. 7.1's "
+                   "multicast tradeoff -- one encoder before the fanout, or one "
+                   "per destination after it -- is the R2/R3 pair below."),
+    Stage("weights_spad", "PE filter scratchpad", "storage", ("weights_spad",),
+          reducible=True,
+          evidence="JSSC 2017 Sec. V-B: 'the filter spad is implemented in a "
+                   "224-b x 16-b SRAM due to its large size'. This is the "
+                   "innermost level holding weights: the MAC reads it directly, "
+                   "with no decoded-weight register in the design, which is why "
+                   "R4b's register is an ADDITION here and Sec. 7.2 rates it "
+                   "5/5."),
+)
+
+#: `simple_weight_stationary` as modelled by `archs/simple_weight_stationary/`,
+#: outer to inner. Sec. 6's canonical WS hierarchy is
+#:
+#:     DRAM -> global/weight buffer -> weight NoC -> PE weight RF
+#:          -> stationary weight -> MAC
+#:
+#: and this design has every one of those levels, which makes it the only
+#: design in the study with BOTH a weight global buffer and a stationary weight
+#: register. So it has two boundaries neither eyeriss design has: one at the
+#: global buffer's output (Sec. 6.2, 3/5) and one below the stationary register
+#: at the MAC input (Sec. 6.2, 2/5).
+_WS_PATH = (
+    Stage("dram_array", "DRAM array (complete codeword read)", "dram", ("DRAM",),
+          reducible=False, dram_share="array",
+          evidence="the array stores and reads the complete embedded codeword "
+                   "for on-die correction: a row activation and a burst move "
+                   "whole words and cannot pick the k message bits out of a "
+                   "chunk (01_project_context Sec. 1 and Sec. 4, E_array; "
+                   "02_..., risk 6: do not credit the array)"),
+    Stage("dram_interface", "DRAM interface (message bits leave the die)", "dram",
+          ("DRAM",), reducible=True, dram_share="interface",
+          evidence="the decoder is on the DRAM die and off the fetch path, so "
+                   "only the k message bits of each n-bit codeword are driven "
+                   "off the die: I/O drivers, link and controller port carry k "
+                   "of every n bits under every boundary (01_project_context "
+                   "Sec. 1 and Sec. 4, E_interface x k/n; Sec. 6 calls this "
+                   "level the DRAM interface / memory controller)"),
+    Stage("operand_glb", "Global operand buffer (weight share)", "storage",
+          ("operand_glb",), reducible=True,
+          evidence="Sec. 6's 'global/weight buffer'. "
+                   "`archs/simple_weight_stationary/arch_paper.yaml` splits the "
+                   "stock 128 kB shared_glb by dataspace, and the 64 kB operand "
+                   "half keeps Inputs AND Weights; only its WEIGHT energy is "
+                   "read here, from the level's own Weights block, so reducing "
+                   "this stage cannot touch the activation share (checked by "
+                   "`non_weight_energy_identical`)."),
+    Stage("weight_noc", "Weight-distribution NoC to the PE array", "network",
+          ("NoC: inter_PE_spatial",), reducible=True,
+          evidence="Sec. 6's 'weight-distribution NoC'. The design declares ONE "
+                   "spatial container (PE, meshX 16 x meshY 16), so Timeloop "
+                   "prints one fanout level and one network for the whole "
+                   "256-PE broadcast -- unlike the two-level eyeriss meshes, "
+                   "this design has a single network stage."),
+    Stage("pe_spad", "PE weight scratchpad (stationary weights)", "storage",
+          ("pe_spad",), reducible=True,
+          evidence="Sec. 6's 'PE weight RF': the 192 x 16b scratchpad that "
+                   "holds the stationary weights while activations stream. It "
+                   "keeps Weights only (`dataspace: {keep: [Weights]}`), so "
+                   "every bit of its energy is weight energy."),
+    Stage("weight_reg", "Stationary weight register (one weight)", "storage",
+          ("weight_reg",), reducible=True,
+          evidence="Sec. 6.1's 'full stationary-weight latch', and it is ALREADY "
+                   "IN THE DESIGN -- a depth-1, 8-bit register between the "
+                   "scratchpad and the MAC. CLAUDE.md's rule for Simba applies "
+                   "here too: determine whether the proposal can reuse an "
+                   "existing register rather than assuming a new one. R4b's "
+                   "register cannot be this one (it must cover the whole "
+                   "inner tile, not one weight -- see `retention_model()`), and "
+                   "a boundary BELOW this register (Sec. 6.2's MAC-input row, "
+                   "2/5) needs G_rec weights co-resident in a level that holds "
+                   "one, so it is reducible in the table and reported "
+                   "infeasible by `feasibility()` rather than asserted "
+                   "impossible in a comment."),
+)
+
+
 #: Where the BCH decoder sits. `ondie` is the model since 2026-09-09 (decoder
 #: on the DRAM die, off the fetch path, `dram_interface` reducible under every
 #: boundary); `controller` is the pre-2026-09-09 model kept as a runnable row
 #: for the diff (`dram_interface` not reducible, DRAM identical on every bar).
 #: `config.RECON_DECODE_SITES` must stay in step with this tuple.
 DECODE_SITES = ("ondie", "controller")
+
+#: WHERE A NETWORK BOUNDARY'S ENCODERS SIT, and therefore how many times they
+#: run. 02_.../01_project_context Sec. 7.1 states the tradeoff and asks for it
+#: to be an experiment variable:
+#:
+#:     BEFORE MULTICAST   4b -> Encoder -> 8b -+-> PE  (x fanout)
+#:         one reconstruction at the source, but FULL-WIDTH network traffic
+#:     AFTER MULTICAST    4b -+-> Encoder -> PE  (x fanout)
+#:         replicated encoders, but REDUCED-WIDTH shared transport
+#:
+#: `destination` (the model since 2026-09-09) charges the second: an encoder at
+#: each destination, so the count is Timeloop's destination-side ARRIVALS,
+#: `ingresses x multicast factor`. That is the only count consistent with a
+#: boundary that also credits the network with carrying the reduced form -- an
+#: encoder placed BEFORE the fanout would make that network full width, which
+#: is the boundary above it.
+#: `source` charges the first: one encoder before the fanout, count =
+#: `ingresses`. It is kept as a runnable row because it is what the study
+#: charged before 2026-09-09, so the change can be diffed; on its own it pairs
+#: a source-side encoder count with a destination-side network saving.
+#: `config.RECON_ENCODER_SITES` must stay in step with this tuple.
+ENCODER_SITES = ("destination", "source")
 
 #: What the study prints instead of a number when `ECC_DRAM_IF_FRAC` is unset
 #: and the decoder is on the die (experiments/recon.py prints the ceiling at
@@ -256,6 +399,8 @@ F_IF_SENSITIVITY = (0.10, 0.25, 0.50)
 WEIGHT_PATHS = {
     "eyeriss_v2_like": _EYERISS_V2_PATH,
     "eyeriss_v2_like_wglb": _EYERISS_V2_WGLB_PATH,
+    "eyeriss_like": _EYERISS_V1_PATH,
+    "simple_weight_stationary": _WS_PATH,
 }
 
 
@@ -275,7 +420,15 @@ class Placement:
 
         reads       scalar reads out of that stage (per weight delivered)
         fills       scalar fills into that stage (per weight stored)
-        ingresses   network ingresses (per weight word transported)
+        ingresses   network ingresses -- words INJECTED into that network, so
+                    one encoder before the fanout
+        deliveries  network destination-side ARRIVALS, `ingresses x multicast
+                    factor`, so one encoder at each destination. This is what a
+                    boundary that credits the network with carrying the reduced
+                    form has to pay (Sec. 7.1's "after multicast" case); the
+                    two differ by the multicast factor, which is 7 on some
+                    eyeriss shapes. `ECC_RECON_ENCODER_SITE=source` swaps it
+                    back to `ingresses` for the diff -- see `ENCODER_SITES`.
     """
     key: str                  # the env.sh spelling: recon1 .. recon5
     variant: str              # the results-store variant name (baseline.py)
@@ -313,12 +466,19 @@ _V2_PLACEMENTS = (
         "R2\n@ cluster edge", "4/5",
         reduced=("dram_interface", "inter_cluster_mesh"),
         site_stage="inter_cluster_mesh",
-        site_counter="ingresses", reuse_register=False,
+        site_counter="deliveries", reuse_register=False,
         description=(
             "The long-distance hierarchical mesh carries the reduced form and "
             "an encoder at each destination cluster restores it before the "
             "cluster-local fanout. One encoder per cluster rather than one per "
-            "PE, and the mesh -- the expensive hop -- moves fewer bits."),
+            "PE, and the mesh -- the expensive hop -- moves fewer bits. The "
+            "encoders run once per word ARRIVING at a cluster, not once per "
+            "word injected into the mesh: the mesh multicasts, so those two "
+            "counts differ by its multicast factor, and only the arrival count "
+            "is consistent with the mesh carrying reduced-width data at all "
+            "(an encoder before the fanout is R1). Sec. 7.1's multicast "
+            "tradeoff; `ECC_RECON_ENCODER_SITE` is the experiment variable it "
+            "asks for."),
     ),
     Placement(
         "recon3", "recon_pe_spad_input",
@@ -374,9 +534,213 @@ _V2_PLACEMENTS = (
     ),
 )
 
+#: Eyeriss v1, Sec. 7.1/7.2. The same five-boundary shape as v2 -- two network
+#: stages then the PE scratchpad -- so the two eyeriss panels of one figure read
+#: left to right as the same story about a different design. Ratings are Sec.
+#: 7.2's and Sec. 11's HYPOTHESES, carried so the result can be read against
+#: them; they are not results.
+_EYERISS_V1_PLACEMENTS = (
+    Placement(
+        "recon1", "recon_source_noc_ingress",
+        "R1 - reconstruct at the source, before the array network",
+        "R1\n@ source", "3/5",
+        reduced=("dram_interface",), site_stage="dram_array",
+        site_counter="reads", reuse_register=False,
+        description=(
+            "Sec. 7.1's source-side reconstruction. The die drives only the k "
+            "message bits across the DRAM interface and an encoder at the chip "
+            "source restores them before the array network, so nothing on chip "
+            "carries the reduced form. It is the control that isolates the "
+            "DRAM-interface saving -- which every boundary shares -- from every "
+            "on-chip saving, and it pays one reconstruction per codeword "
+            "fetched from DRAM with nothing but that interface saving against "
+            "it."),
+    ),
+    Placement(
+        "recon2", "recon_after_array_multicast",
+        "R2 - reconstruct after the array multicast, at the column edge",
+        "R2\n@ column edge", "4/5",
+        reduced=("dram_interface", "array_multicast"),
+        site_stage="array_multicast", site_counter="deliveries",
+        reuse_register=False,
+        description=(
+            "Sec. 7.1's multicast tradeoff, resolved in favour of reduced-width "
+            "shared transport: the 14-way column multicast carries the reduced "
+            "form and one encoder per column restores it before the column's "
+            "own fanout. Fewer encoders than one per PE, and the long half of "
+            "the array network moves fewer bits. The encoders run once per word "
+            "ARRIVING at a column, which on this design's own mappings is up to "
+            "7x the number injected -- that multiplicity is the cost side of "
+            "the tradeoff and `ECC_RECON_ENCODER_SITE=source` prices the other "
+            "side (one encoder, full-width network) for comparison."),
+    ),
+    Placement(
+        "recon3", "recon_pe_spad_input",
+        "R3 - reconstruct at the PE filter-spad input",
+        "R3\n@ spad input", "4/5",
+        reduced=("dram_interface", "array_multicast", "pe_local_multicast"),
+        site_stage="weights_spad", site_counter="fills", reuse_register=False,
+        description=(
+            "Both halves of the array network carry the reduced form and the "
+            "encoder sits at the scratchpad write port, so the spad keeps its "
+            "published 224 x 16b capacity and its full-width read cost. The "
+            "encoder runs once per weight FILLED into a PE, the smallest count "
+            "of any boundary below the network. Sec. 7.2's PE-FIFO boundary "
+            "would sit between R2 and R3; the model has no FIFO level, so this "
+            "is the first boundary after the whole network."),
+    ),
+    Placement(
+        "recon4", "recon_pe_spad_output",
+        "R4a - reconstruct on every filter-spad read",
+        "R4a\n@ spad output", "3/5",
+        reduced=("dram_interface", "array_multicast", "pe_local_multicast",
+                 "weights_spad"),
+        site_stage="weights_spad", site_counter="reads", reuse_register=False,
+        description=(
+            "The scratchpad stores the reduced form, so its write and read "
+            "bit-volume fall with its capacity, and the encoder sits at its "
+            "read port. Row-stationary reuse is what makes this expensive: the "
+            "MAC reads the spad directly, once per MAC, so the encoder runs "
+            "once per weight DELIVERED rather than once per weight stored."),
+    ),
+    Placement(
+        "recon5", "recon_pe_spad_output_reuse_reg",
+        "R4b - filter-spad output with a reconstructed-weight reuse register",
+        "R4b\n@ spad + reg", "5/5",
+        reduced=("dram_interface", "array_multicast", "pe_local_multicast",
+                 "weights_spad"),
+        site_stage="weights_spad", site_counter="retained", reuse_register=True,
+        description=(
+            "Sec. 7.2's 'reconstructed-weight latch', rated 5/5: R4a's savings "
+            "with the reconstruction amortized. The loops below the filter spad "
+            "walk a tile of `inner_tile` weights and repeat reads/fills times, "
+            "so a register covering that tile reconstructs once per FILL -- the "
+            "same count as R3 -- while the scratchpad stays reduced. This "
+            "design has NO register between the spad and the MAC, so unlike the "
+            "weight-stationary design the register is a genuine addition and is "
+            "charged as one. See `retention_model()` and `ReuseRegister`."),
+    ),
+)
+
+#: Weight-stationary, Sec. 6.1/6.2. SIX boundaries: this design is the only one
+#: in the study with both a weight global buffer above the network and a
+#: stationary weight register below the scratchpad, so it has a boundary at
+#: each. Sec. 6.2's own list starts at the buffer OUTPUT (3/5); the chip-ingress
+#: control below is this study's addition, and it exists for the reason the
+#: 2026-09-09 revision gives R1 on every design -- with the decoder on the DRAM
+#: die, a boundary that reduces nothing on chip still saves the interface, so it
+#: is what isolates that saving from the on-chip ones. It is labelled `control`
+#: rather than given a rating the source discussion does not state for WS.
+_WS_PLACEMENTS = (
+    Placement(
+        "recon1", "recon_source_noc_ingress",
+        "R1 - reconstruct at chip ingress, before the weight buffer",
+        "R1\n@ chip ingress", "control",
+        reduced=("dram_interface",), site_stage="dram_array",
+        site_counter="reads", reuse_register=False,
+        description=(
+            "The die drives only the k message bits across the DRAM interface "
+            "and an encoder at chip ingress restores them before the global "
+            "operand buffer, so nothing on chip carries the reduced form. Sec. "
+            "6.2 does not list this row -- its own R1 is at the buffer OUTPUT "
+            "-- and it is drawn here as the control that separates the "
+            "DRAM-interface saving every boundary shares from any on-chip "
+            "saving. It pays one reconstruction per codeword fetched from DRAM "
+            "and has nothing but that interface saving against it."),
+    ),
+    Placement(
+        "recon2", "recon_global_buffer_output",
+        "R2 - reconstruct at the global weight-buffer output",
+        "R2\n@ buffer output", "3/5",
+        reduced=("dram_interface", "operand_glb"),
+        site_stage="operand_glb", site_counter="reads", reuse_register=False,
+        description=(
+            "Sec. 6.2's R1, rated 3/5: the 64 kB operand buffer holds weight "
+            "tiles in the reduced form, so its weight capacity and its weight "
+            "access bit-volume both fall, and one encoder at its read port "
+            "restores full width before the distribution network. The buffer "
+            "also holds input activations; only its weight share moves. "
+            "Downstream -- network, scratchpad, register -- is full width."),
+    ),
+    Placement(
+        "recon3", "recon_noc_output_pe_input",
+        "R3 - reconstruct at the weight-NoC output / PE input",
+        "R3\n@ PE input", "4/5",
+        reduced=("dram_interface", "operand_glb", "weight_noc"),
+        site_stage="pe_spad", site_counter="fills", reuse_register=False,
+        description=(
+            "Sec. 6.2's R2, rated 4/5: the buffer AND the 256-PE distribution "
+            "network carry the reduced form, and an encoder at each PE input "
+            "restores it before the scratchpad. The encoder runs once per "
+            "weight FILLED into a PE, so a broadcast that reaches many PEs "
+            "replicates the encoder rather than the reconstruction count of any "
+            "one of them. The scratchpad keeps its full width and its read "
+            "cost."),
+    ),
+    Placement(
+        "recon4", "recon_pe_rf_output",
+        "R4a - reconstruct on every weight-RF read",
+        "R4a\n@ RF output", "2/5",
+        reduced=("dram_interface", "operand_glb", "weight_noc", "pe_spad"),
+        site_stage="pe_spad", site_counter="reads", reuse_register=False,
+        description=(
+            "Sec. 6.2's R3a, rated 2/5 and the one row of the WS table rated "
+            "BELOW the early boundaries. The scratchpad stores the reduced "
+            "form, so its capacity and its bit-volume fall, but the encoder "
+            "sits at its read port and a weight-stationary inner loop reads "
+            "each resident weight hundreds of times: Sec. 6.1's illustrative "
+            "'100 reduced-width RF reads and 100 reconstructions'. The design's "
+            "own depth-1 stationary register does not amortize this -- the "
+            "mapping fills it once per read (Timeloop's own counts), so it is a "
+            "pipeline latch here, not a reuse register."),
+    ),
+    Placement(
+        "recon5", "recon_pe_rf_output_reuse_reg",
+        "R4b - weight-RF output with a decoded stationary register",
+        "R4b\n@ RF + reg", "5/5",
+        reduced=("dram_interface", "operand_glb", "weight_noc", "pe_spad"),
+        site_stage="pe_spad", site_counter="retained", reuse_register=True,
+        description=(
+            "Sec. 6.2's R3b, rated 5/5 and the preferred hypothesis of the "
+            "whole WS section: reduced DRAM interface, reduced buffer, reduced "
+            "network, reduced PE weight memory, one XOR reconstruction, then a "
+            "small full-width stationary register reused across many MACs. The "
+            "amortization is read off the mapping, not assumed -- the loops "
+            "below the scratchpad walk `inner_tile` weights and repeat "
+            "reads/fills times, so a register covering that tile reconstructs "
+            "once per FILL, the same count as R3. NOTE this is NOT the design's "
+            "existing depth-1 `weight_reg`: that holds one weight and the tile "
+            "is hundreds, and a register smaller than the tile catches nothing "
+            "because a cyclic walk is the LRU worst case. See "
+            "`retention_model()` and `ReuseRegister`."),
+    ),
+    Placement(
+        "recon6", "recon_mac_input",
+        "R5 - reconstruct at the MAC input (stationary register reduced too)",
+        "R5\n@ MAC input", "2/5",
+        reduced=("dram_interface", "operand_glb", "weight_noc", "pe_spad",
+                 "weight_reg"),
+        site_stage="weight_reg", site_counter="reads", reuse_register=False,
+        description=(
+            "Sec. 6.2's MAC row, rated 2/5: the latest boundary the design "
+            "admits, with even the stationary register holding the reduced form "
+            "and the encoder on the MAC's operand path. It is evaluated rather "
+            "than argued away, and `feasibility()` is expected to reject it: "
+            "rebuilding one weight needs the retained bits of G_rec = 9 "
+            "co-resident weights and this register holds ONE, so the bits the "
+            "rebuild depends on are not there. The rejection names the layers "
+            "and the resident count, which is the answer to Sec. 6.2's row -- "
+            "not a number produced by pretending the register is wider than the "
+            "design declares."),
+    ),
+)
+
+
 PLACEMENTS = {
     "eyeriss_v2_like": _V2_PLACEMENTS,
     "eyeriss_v2_like_wglb": _V2_PLACEMENTS,
+    "eyeriss_like": _EYERISS_V1_PLACEMENTS,
+    "simple_weight_stationary": _WS_PLACEMENTS,
 }
 
 #: Reference bars every placement is read against. They are not placements;
@@ -398,6 +762,15 @@ def decode_site(cfg):
     return site
 
 
+def encoder_site(cfg):
+    """`destination` (the model) or `source` (the pre-2026-09-09 diff row)."""
+    site = (getattr(cfg, "recon_encoder_site", "destination")
+            if cfg is not None else "destination")
+    if site not in ENCODER_SITES:
+        raise ValueError(f"unknown encoder site {site!r}; one of {ENCODER_SITES}")
+    return site
+
+
 def stages_for(arch, cfg=None):
     """The weight path of `arch`, as the decode site makes it.
 
@@ -416,11 +789,20 @@ def stages_for(arch, cfg=None):
 
 
 def effective_placement(placement, cfg):
-    """`placement` as the decode site makes it: under `controller` the interface
-    is not reducible, so it leaves every placement's `reduced` set."""
+    """`placement` as the two site knobs make it.
+
+    Under `ECC_RECON_DECODE_SITE=controller` the DRAM interface is not
+    reducible, so it leaves every placement's `reduced` set. Under
+    `ECC_RECON_ENCODER_SITE=source` a network boundary counts its
+    reconstructions at the network's INGRESSES rather than its destination-side
+    arrivals -- one encoder before the fanout instead of one per destination.
+    Both are the pre-2026-09-09 model, kept runnable so the change is a diff.
+    """
     if decode_site(cfg) == "controller" and "dram_interface" in placement.reduced:
-        return replace(placement, reduced=tuple(
+        placement = replace(placement, reduced=tuple(
             k for k in placement.reduced if k != "dram_interface"))
+    if encoder_site(cfg) == "source" and placement.site_counter == "deliveries":
+        placement = replace(placement, site_counter="ingresses")
     return placement
 
 
@@ -435,6 +817,38 @@ def placement_by_key(arch, key, cfg=None):
         if p.key == key:
             return p
     return None
+
+
+def retention_stage(arch, cfg=None):
+    """The weight buffer R4b's reuse register sits behind, for `arch`.
+
+    WHY THIS IS DERIVED FROM THE TABLES AND NOT ASSUMED. `retention_model()`
+    needs ONE buffer's read and fill counts and ONE buffer's resident tile: the
+    register it prices holds what that buffer hands the encoder. On
+    `eyeriss_v2_like` and `eyeriss_like` the question does not arise, because
+    exactly one weight-path stage is storage. On `simple_weight_stationary`
+    THREE are -- a global operand buffer, a PE scratchpad and a stationary
+    weight register -- and summing their reads and fills would price a register
+    against a working set no level ever holds.
+
+    The buffer is the reconstruction site of the placement whose count comes
+    from retention (`site_counter == "retained"`), i.e. R4b's own site, so it
+    is read off `PLACEMENTS` rather than stated a second time. A design with no
+    such placement falls back to the innermost storage stage in path order,
+    which is what a register would sit behind if one were added.
+    """
+    sites = {p.site_stage for p in placements_for(arch, cfg)
+             if p.site_counter == "retained"}
+    if len(sites) > 1:
+        raise ValueError(
+            f"{arch} has retention placements at more than one stage {sorted(sites)}; "
+            f"a reuse register is priced against ONE buffer's reads, fills and "
+            f"resident tile, so PLACEMENTS[{arch!r}] must put every "
+            f"`site_counter='retained'` boundary at the same stage")
+    if sites:
+        return sites.pop()
+    storage = [s.key for s in stages_for(arch, cfg) if s.kind == "storage"]
+    return storage[-1] if storage else ""
 
 
 def validate_placement_space(arch, cfg=None):
@@ -468,10 +882,39 @@ def validate_placement_space(arch, cfg=None):
     evaluated with four understated boundaries.
     """
     stages = stages_for(arch, cfg)
+    by_key = {s.key: s for s in stages}
     reducible = [s.key for s in stages if s.reducible]
     order = {key: i for i, key in enumerate(reducible)}
     rows, violations = [], []
     reached = set()
+
+    # WHICH COUNTERS A STAGE CAN EVEN HAVE. `ingresses` and `deliveries` are
+    # network quantities and `StageStats` leaves them 0.0 on a storage or DRAM
+    # stage, so a counter on the wrong kind of stage does not raise -- it prices
+    # the boundary's reconstruction at ZERO and makes it look like the cheapest
+    # placement in the study. Checked here, before anything is evaluated,
+    # because that is a table error and there is no number it could produce.
+    _COUNTERS = {"reads": ("dram", "storage"), "fills": ("storage",),
+                 "ingresses": ("network",), "deliveries": ("network",),
+                 "retained": ("storage",)}
+    for pl in placements_for(arch, cfg):
+        want = _COUNTERS.get(pl.site_counter)
+        st = by_key.get(pl.site_stage)
+        if want is None:
+            violations.append(
+                f"{pl.key} counts reconstructions with {pl.site_counter!r}, "
+                f"which is not one of {sorted(_COUNTERS)}")
+        elif st is None:
+            violations.append(
+                f"{pl.key} reconstructs at stage {pl.site_stage!r}, which is not "
+                f"a stage of {arch}'s weight path")
+        elif st.kind not in want:
+            violations.append(
+                f"{pl.key} counts reconstructions with {pl.site_counter!r} at "
+                f"{pl.site_stage!r}, a {st.kind} stage; that counter only exists "
+                f"on a {' or '.join(want)} stage and would be zero here, "
+                f"pricing the boundary's reconstruction at nothing")
+
     for p in placements_for(arch, cfg):
         got = list(p.reduced)
         reached |= set(got)
@@ -499,6 +942,13 @@ def validate_placement_space(arch, cfg=None):
             f"reports them at full width")
     return not violations, {
         "decode_site": decode_site(cfg),
+        "encoder_site": encoder_site(cfg),
+        "reconstruction_counter_per_placement": {
+            pl.key: {"stage": pl.site_stage,
+                     "stage_kind": (by_key[pl.site_stage].kind
+                                    if pl.site_stage in by_key else None),
+                     "counter": pl.site_counter}
+            for pl in placements_for(arch, cfg)},
         "reducible_stages_in_path_order": reducible,
         "per_placement": rows,
         "reducible_stages_no_placement_reaches": never,
@@ -550,6 +1000,10 @@ class StageStats:
     reads: float = 0.0            # TOTAL scalar reads (all instances)
     fills: float = 0.0            # TOTAL scalar fills (all instances)
     ingresses: float = 0.0        # TOTAL network ingresses (all instances)
+    deliveries: float = 0.0       # TOTAL destination-side arrivals = ingresses
+                                  # x multicast factor (all instances)
+    multicast: float = 1.0        # weight-only multicast factor of the network
+    fanout: float = 1.0           # weight-only fanout of the network
     utilized_capacity: float = 0.0   # storage: weights resident per instance
     block_bits: int = 0              # storage: block size x word bits
     instances: float = 0.0
@@ -562,6 +1016,8 @@ class StageStats:
             return self.fills
         if name == "ingresses":
             return self.ingresses
+        if name == "deliveries":
+            return self.deliveries
         raise ValueError(f"unknown access counter {name!r}")
 
     def to_dict(self):
@@ -573,6 +1029,9 @@ class StageStats:
             "weight_scalar_reads_total": self.reads,
             "weight_scalar_fills_total": self.fills,
             "weight_network_ingresses_total": self.ingresses,
+            "weight_network_deliveries_total": self.deliveries,
+            "network_multicast_factor": self.multicast,
+            "network_fanout": self.fanout,
             "weights_resident_per_instance": self.utilized_capacity,
             "physical_word_bits": self.block_bits,
             "instances": self.instances,
@@ -611,8 +1070,19 @@ WEIGHT_DIMS = frozenset("CMRSG")
 STREAM_ORDER = ("M", "C", "R", "S")
 
 
-def weight_loop_nest(map_txt):
-    """What the loop nest below the innermost weight buffer implies for reuse.
+def weight_loop_nest(map_txt, prefixes=()):
+    """What the loop nest below one weight buffer implies for reuse.
+
+    `prefixes` names the level to look below -- the weight-path stage the reuse
+    register sits behind (`retention_stage()`). Empty means the innermost level
+    of the mapping that holds Weights, which is what this took before
+    2026-09-09 and what it still resolves to on both eyeriss designs, whose
+    innermost weight level IS their scratchpad. It is NOT what
+    `simple_weight_stationary` resolves to: its innermost weight level is a
+    depth-1 stationary register with no loops below it at all, so an unscoped
+    read reports `inner_tile = 1` for a mapping whose scratchpad tile is 192,
+    and the register R4b needs would be sized against the wrong number.
+    `level_selected_by` in the returned dict records which of the two happened.
 
     Returns a dict. Three quantities, and they answer three different questions
     that the first version of this module ran together:
@@ -646,7 +1116,9 @@ def weight_loop_nest(map_txt):
     here, not 1x.
     """
     out = {"inner_tile": 0, "consecutive_run": 1.0, "innermost_weight_dim": None,
-           "loops_below": [], "weight_level": "", "evidence": ""}
+           "loops_below": [], "weight_level": "", "evidence": "",
+           "level_requested": list(prefixes),
+           "level_selected_by": "innermost weight level"}
     path = pathlib.Path(map_txt)
     if not path.exists():
         out["evidence"] = "no map.txt in the mapper cache -- nothing read"
@@ -657,6 +1129,22 @@ def weight_loop_nest(map_txt):
         out["evidence"] = "no level in the mapping holds Weights"
         return out
     inner = max(idx)
+    if prefixes:
+        def _named(i):
+            head = lines[i].split("[")[0].strip()
+            return any(head == p or head.startswith(p) for p in prefixes)
+        named = [i for i in idx if _named(i)]
+        if named:
+            inner = max(named)
+            out["level_selected_by"] = "retention stage"
+        else:
+            # Recorded, not silently swallowed: the stage the register is priced
+            # against should be a level of the mapping, and if it is not, the
+            # tile below the innermost weight level is the fallback and the
+            # record says so.
+            out["level_selected_by"] = (
+                f"innermost weight level (FALLBACK: no level matching "
+                f"{list(prefixes)} holds Weights in this mapping)")
     out["weight_level"] = lines[inner].split("[")[0].strip()
     loops = []
     for ln in lines[inner + 1:]:
@@ -874,18 +1362,44 @@ def read_weight_path(cfg, arch, layer, stats_path):
         instances = max(1, instances)
         specs = nblock.split("STATS")[0]
         wire, switch, _model = _network_split(specs, wblock, energy, instances)
-        ingress = (_grab(rf"Ingresses\s*:\s*{_NUM}", wblock) or 0.0) * instances * scale
+        ingress_pi = _grab(rf"Ingresses\s*:\s*{_NUM}", wblock) or 0.0
+        ingress = ingress_pi * instances * scale
+        # DESTINATION-SIDE ARRIVALS, from Timeloop's own multicast breakdown.
+        # A multicast network injects one word and DELIVERS it to `multicast`
+        # destinations, and Timeloop prints the split as
+        #     Ingresses : 2359296.00
+        #         @multicast 7 @scatter 2: 2359296.00
+        # so the arrivals are sum(m x count) over those lines -- exact, and it
+        # reconciles: on eyeriss_like's C512 shape the column network's
+        # 2,359,296 ingresses x 7 equal the inner network's 16,515,072, which
+        # equal the scratchpad fills. `Multicast factor` is the fallback when
+        # the breakdown lines are absent.
+        parts = re.findall(rf"@multicast\s*(\d+)\s*@scatter\s*(\d+)\s*:\s*{_NUM}",
+                           wblock)
+        mc = _grab(r"Multicast factor\s*:\s*(\d+)", wblock, int) or 1
+        fan = _grab(r"Fanout\s*:\s*(\d+)", wblock, int) or 1
+        if parts:
+            deliv_pi = sum(int(m) * float(c) for m, _s, c in parts)
+        else:
+            deliv_pi = ingress_pi * mc
+        deliveries = deliv_pi * instances * scale
         st = stages[stage.key]
         st.levels.append(level)
         st.energy_pJ += energy
         st.wire_pJ += wire
         st.switch_pJ += switch
         st.ingresses += ingress
+        st.deliveries += deliveries
+        st.multicast = max(st.multicast, float(mc))
+        st.fanout = max(st.fanout, float(fan))
         st.instances = max(st.instances, instances)
         st.block_bits = max(st.block_bits,
                             _grab(r"Word bits\s*:\s*(\d+)", specs, int) or cfg.weight_bits)
 
-    nest = weight_loop_nest(stats_path.parent / "timeloop-mapper.map.txt")
+    ret_key = retention_stage(arch, cfg)
+    ret_prefixes = next((s.prefixes for s in stage_defs if s.key == ret_key), ())
+    nest = weight_loop_nest(stats_path.parent / "timeloop-mapper.map.txt",
+                            ret_prefixes)
     return LayerWeightPath(
         layer=getattr(layer, "name", "?"), shape=getattr(layer, "shape_name", "?"),
         weights=int(getattr(layer, "weights", 0)), scale=scale, stages=stages,
@@ -943,6 +1457,58 @@ class ModelWeightPath:
     def total_weight_energy(self):
         return sum(s.energy_pJ for s in self.stages.values())
 
+    def multicast_chain(self):
+        """Evidence that the destination-side ARRIVAL count is parsed right.
+
+        A network's arrivals are the words its destinations receive, so they
+        should equal what the NEXT stage down the path takes in -- the next
+        network's ingresses, or the scratchpad's fills. That identity is the
+        cross-check on `deliveries`, which is what a network boundary's encoders
+        are charged per (see `ENCODER_SITES`): on `eyeriss_v2_like` the mesh
+        injects 16,356,544 weight words and its destinations receive 23,812,480,
+        which is exactly the cluster-local network's ingresses AND the
+        scratchpad's fills.
+
+        Reported, not enforced. It is an identity of these designs' weight
+        paths, not of Timeloop in general -- a level that drops or re-fetches
+        words between two stages would break it legitimately -- so it is
+        recorded on every result and read, rather than failing a run.
+        """
+        rows, order = [], [s.key for s in self.stage_defs]
+        for i, key in enumerate(order):
+            st = self.stages.get(key)
+            if st is None or st.kind != "network" or st.energy_pJ <= 0:
+                continue
+            nxt = None
+            for k2 in order[i + 1:]:
+                s2 = self.stages.get(k2)
+                if s2 is not None and s2.energy_pJ > 0:
+                    nxt = s2
+                    break
+            takes_in = (0.0 if nxt is None else
+                        nxt.ingresses if nxt.kind == "network" else nxt.fills)
+            rows.append({
+                "network": key,
+                "words_injected_ingresses": st.ingresses,
+                "words_received_by_destinations": st.deliveries,
+                "multicast_factor_reported_by_timeloop": st.multicast,
+                "effective_multiplicity": (st.deliveries / st.ingresses
+                                           if st.ingresses > 0 else 1.0),
+                "next_stage": None if nxt is None else nxt.key,
+                "next_stage_takes_in": takes_in,
+                "arrivals_match_the_next_stage": bool(
+                    takes_in and abs(st.deliveries - takes_in)
+                    <= 1e-6 * max(st.deliveries, takes_in)),
+            })
+        return {
+            "rule": ("a network's destination-side arrivals should equal what "
+                     "the next stage takes in (the next network's ingresses, or "
+                     "the scratchpad's fills); this is the cross-check on the "
+                     "arrival count a network boundary's encoders are charged "
+                     "per, and it is recorded rather than enforced"),
+            "per_network": rows,
+        }
+
     def reducible_energy(self, keys):
         """Weight energy of the stages a placement would leave reduced.
 
@@ -969,6 +1535,7 @@ class ModelWeightPath:
                  "evidence": s.evidence}
                 for s in self.stage_defs],
             "dram_split": self.dram_split(),
+            "multicast_arrival_chain": self.multicast_chain(),
             "reconstructed_weight_retention": self.retention,
             "unclaimed_weight_levels": self.unclaimed,
             "per_layer": self.per_layer,
@@ -1000,6 +1567,9 @@ def weight_path(cfg, arch, model, layers, stats_paths):
             agg.reads += st.reads
             agg.fills += st.fills
             agg.ingresses += st.ingresses
+            agg.deliveries += st.deliveries
+            agg.multicast = max(agg.multicast, st.multicast)
+            agg.fanout = max(agg.fanout, st.fanout)
             agg.instances = max(agg.instances, st.instances)
             agg.block_bits = max(agg.block_bits, st.block_bits)
             agg.level_share = st.level_share
@@ -1019,7 +1589,8 @@ def weight_path(cfg, arch, model, layers, stats_paths):
         })
         layer_paths.append(lp)
 
-    retention = retention_model(cfg, arch, layer_paths)
+    retention = retention_model(cfg, arch, layer_paths,
+                                retention_stage(arch, cfg))
     stats_dir = str(pathlib.Path(layer_paths[-1].stats_path).parent) \
         if layer_paths else ""
     return ModelWeightPath(arch=arch, model=model, stages=stages,
@@ -1032,8 +1603,15 @@ def weight_path(cfg, arch, model, layers, stats_paths):
 # ===========================================================================
 #  R4b: how many uses does ONE reconstruction serve?
 # ===========================================================================
-def retention_model(cfg, arch, layer_paths):
+def retention_model(cfg, arch, layer_paths, stage_key=None):
     """The reconstruction count for a boundary that RETAINS what it rebuilt.
+
+    `stage_key` is the buffer the register sits behind -- `retention_stage()`,
+    i.e. R4b's own reconstruction site. It matters on any design with more than
+    one storage stage on its weight path: `simple_weight_stationary` has three,
+    and summing their reads and fills would price a register against a working
+    set no single level holds. Both eyeriss designs have exactly one, so
+    scoping is a no-op there and their numbers are unchanged.
 
     THIS IS THE QUANTITY THE FIRST VERSION OF THIS MODULE GOT WRONG, so it is
     worth being explicit about what changed and why.
@@ -1079,10 +1657,18 @@ def retention_model(cfg, arch, layer_paths):
     overhead the plan asks to be shown rather than assumed away.
     """
     want = cfg.recon_reuse_reg_entries          # "tile" or an int
+    stage_key = stage_key or retention_stage(arch, cfg)
     rows, rec_weights, reads_total, fills_total = [], 0.0, 0.0, 0.0
     need = 0
     for lp in layer_paths:
-        spads = [st for st in lp.stages.values() if st.kind == "storage"]
+        one = lp.stages.get(stage_key)
+        if one is not None and one.kind == "storage":
+            spads = [one]
+        else:
+            # No such stage in this layer's path: fall back to every storage
+            # stage, which is what this did before the scoping and is exact on
+            # a design that has only one.
+            spads = [st for st in lp.stages.values() if st.kind == "storage"]
         reads = sum(st.reads for st in spads)
         fills = sum(st.fills for st in spads)
         resident = max([st.utilized_capacity for st in spads] or [0])
@@ -1100,6 +1686,8 @@ def retention_model(cfg, arch, layer_paths):
         fills_total += fills
         rows.append({
             "layer": lp.layer, "shape": lp.shape,
+            "buffer": [st.key for st in spads],
+            "loop_nest_level_selected_by": lp.nest.get("level_selected_by"),
             "weights_resident_in_buffer": resident,
             "inner_tile_walked_by_the_loops": tile,
             "working_set_weights": working_set,
@@ -1116,6 +1704,7 @@ def retention_model(cfg, arch, layer_paths):
                 lp.nest.get("stream_consecutive"),
         })
     return {
+        "buffer_the_register_sits_behind": stage_key,
         "register_entries_requested": want,
         "register_entries_required_max": need,
         # The width depends on WHAT the register holds -- see `ReuseRegister`.
@@ -1836,12 +2425,28 @@ def evaluate_placement(cfg, arch, placement, wpath, base_w_by_cat, base_by_cat,
             "counter_meaning": {
                 "reads": "one reconstruction per weight read out of the stage",
                 "fills": "one reconstruction per weight written into the stage",
-                "ingresses": "one reconstruction per weight word transported",
+                "ingresses": ("one reconstruction per weight word INJECTED "
+                              "into the network: ONE encoder before the fanout "
+                              "(ECC_RECON_ENCODER_SITE=source)"),
+                "deliveries": ("one reconstruction per weight word ARRIVING at "
+                               "a destination of the network, i.e. ingresses x "
+                               "multicast factor: one encoder PER DESTINATION "
+                               "(ECC_RECON_ENCODER_SITE=destination)"),
                 "retained": ("one reconstruction per weight per buffer FILL "
                              "where the reuse register covers the tile the "
                              "loops walk, per read where it does not -- see "
                              "reconstructed_weight_retention"),
             }[placement.site_counter],
+            # Both readings of a network boundary, always, so the multiplicity
+            # is visible rather than implied by which counter was chosen.
+            "encoder_site": encoder_site(cfg),
+            "network_multicast_factor": st_site.multicast,
+            "network_fanout": st_site.fanout,
+            "if_one_encoder_before_the_fanout": st_site.ingresses,
+            "if_one_encoder_per_destination": st_site.deliveries,
+            "multicast_multiplicity_of_this_boundary": (
+                (st_site.deliveries / st_site.ingresses)
+                if st_site.ingresses > 0 else 1.0),
             "amortization_vs_no_retention": (
                 ret["amortization_vs_no_retention"]
                 if placement.site_counter == "retained" else 1.0),

@@ -1,75 +1,49 @@
-TASK: move the ECC decoder onto the DRAM die in the Eyeriss v2 placement study
-(Task 3, eccenergy/recon.py), so every reconstruction boundary saves DRAM
-INTERFACE energy. Read CLAUDE.md, then section 1 and section 4 of
-01_project_context_and_architectures.txt, then section 19 and risk 6 of
-02_reconstruction_dse_and_implementation.txt, then Task 3 of
-03_staged_implementation_plan.txt. Those files are the specification; this
-prompt says what to touch in the code.
+Task 4: capacity dilation and differential DRAM weight refetch.
 
-THE MODEL. The BCH decoder is on the DRAM die and runs off the fetch path, so
-at fetch time the stored codeword is already corrected and only the k message
-bits of each n-bit codeword are driven across the DRAM interface. The array
-still stores and reads the complete codeword (a row activation and a burst
-move whole words). Accelergy's CactiDRAM is one flat per-bit constant that
-contains both the array read and the off-die transfer, so the evaluator
-splits it with f_if, the interface share of that constant:
+Read Energy_Modeling/CLAUDE.md, FINDINGS.md sections 7.4-7.6 and section 9
+item 0, and eccenergy/recon.py first. Task 3 (reconstruction-boundary
+placement) is done and is a FIXED-MAPPING study: RECON_OPTIMIZER=False pins
+one mapping on every ECC arm, so both arms refetch identically by
+construction. I want Task 4, and this is the mechanism.
 
-    dram_array     = (1 - f_if) x DRAM weight energy    never reduced
-    dram_interface =      f_if  x DRAM weight energy    x K/N under EVERY boundary
+CAPACITY DILATION. Under the reconstruction arm the on-chip weight
+representation is K/N = 39/63 = 0.619 of full width, so the same physical
+buffer holds N/K = 1.615x more weights. Effective on-chip weight capacity:
+eyeriss_like 75,264 -> 121,580 weights; simple_weight_stationary
+164,096 -> 265,078.
 
-The two reference bars (Task 1 conventional, Task 2 embedded) keep controller-
-side correction and DO NOT CHANGE: their functions are frozen. This is a
-recon.py / experiments/recon.py change only.
+DIFFERENTIAL REFETCH. A larger effective tile means the reconstruction arm
+reloads weight tiles from DRAM fewer times than the embedded-ECC reference.
+A read it never issues removes the DRAM ARRAY energy as well as the
+interface energy, so its saving efficiency is 1.0 per uJ, against the
+f_if x (1 - K/N) = 0.152 that a fixed mapping buys. This is why Task 3
+structurally cannot show it.
 
-CHANGES
-1. env.sh section 4, two knobs, commented in the file's style:
-     ECC_RECON_DECODE_SITE   ondie (default) | controller. `controller` is the
-                             pre-2026-09-09 model (complete codeword across the
-                             interface, DRAM identical on every bar) kept as a
-                             runnable row for the diff; do not quote it.
-     ECC_DRAM_IF_FRAC        f_if, interface share of the DRAM per-bit energy.
-                             EMPTY refuses to evaluate and prints the ceiling at
-                             0.10 / 0.25 / 0.50 instead. A default needs a
-                             citation in archs/_shared/provenance.yaml (LPDDR4
-                             array vs I/O breakdown); do not invent one.
-   Read both only in config.py (recon_decode_site, dram_if_frac).
-2. recon.py WEIGHT_PATHS: replace the single `dram` Stage with two, both kind
-   "dram", both matching the Timeloop "DRAM" level and splitting its Weights
-   energy by f_if: `dram_array` (reducible=False, evidence: complete codeword
-   read for on-die correction) and `dram_interface` (reducible=True, evidence:
-   only message bits leave the die). `weight_path()` must still claim the DRAM
-   level exactly once in total, and `cross_check()` must still reconcile the
-   two stages' sum against the Raw record's DRAM category. Under
-   `controller`, `dram_interface` is reducible=False so the old numbers return.
-3. recon.py PLACEMENTS (eyeriss_v2_like and _wglb): prepend "dram_interface"
-   to every placement's `reduced` tuple, R1 included (R1 becomes
-   reduced=("dram_interface",), still one reconstruction per DRAM codeword,
-   site_stage "dram_array" reads). `validate_placement_space()`'s prefix rule
-   then enforces the order for free. Update R1's description: it is no longer
-   the zero-saving control; it isolates the interface saving from any on-chip
-   saving. Rewrite the docstring block "WHAT IS DELIBERATELY NOT CREDITED":
-   array not credited, interface credited, decoder still outside.
-4. experiments/recon.py: the ceiling print gets three DRAM lines (array share,
-   interface share, interface x (1-K/N)); replace the check
-   `dram_identical_to_embedded_reference` with two checks,
-   `dram_array_identical_to_embedded_reference` and
-   `dram_interface_scaled_by_K_over_N` (each must FAIL when a placement cheats
-   in the other direction); replace the `dram_unchanged` detail key; put f_if
-   and the decode site in the figure subtitle and the manifest.
-5. tests/test_recon.py: every assertion that DRAM is untouched becomes array
-   untouched + interface x K/N; add the two cheat tests; add one test that
-   `controller` reproduces the current numbers on the synthetic stats.
-6. Docs: CLAUDE.md's "no DRAM saving" sentence (recon.py section), env.sh's
-   recon1 comment, PROJECT_STATUS.md. Add a dated FINDINGS.md subsection with
-   the new table; do not rewrite the 2026-09-07/08 history.
+Therefore smaller SRAM and reconstruction-aware mapping are MULTIPLICATIVE,
+not independent: refetch is what creates the differential. Under a fixed
+mapping, shrinking buffers is flat to slightly negative. First-order model,
+assuming excess refetch scales inversely with capacity so
+R_recon - 1 = (R_emb - 1) x K/N, for R4b vs embedded:
 
-VERIFY, in this order, and paste the outputs in PROJECT_STATUS.md:
-    bash hpc/tl.sh python3 -m eccenergy.tests.test_recon
-    bash hpc/tl.sh bash run.sh baseline --eval        # Task 1/2 totals must not move
-    ECC_RECON_MODELING=1 ECC_RECON_DECODE_SITE=controller bash hpc/tl.sh bash run.sh recon --eval
-        # must equal the current results/figures/ReconSweep numbers to the digit
-    ECC_RECON_MODELING=1 bash hpc/run_all.sh --eval-only   # the new figure
-Predict before running: every R bar's DRAM band drops by the same
-f_if x (1-K/N) x 886 uJ, R1 moves from +7 uJ worse than embedded to better by
-that amount minus its reconstruction cost, and the R2..R4b ordering is
-unchanged. If the ordering changes, that is a bug, not a result.
+  embedded refetch    eyeriss_like        simple_weight_stationary
+  today (1.28/1.07)   11.38% -> 13.32%    5.42% -> 5.68%
+  2.0                        -> 17.85%           -> 9.75%
+  4.0                        -> 25.77%           -> 16.20%
+
+Section 7.6's 15.2% asymptote does not bind here; this tends toward 47.5%
+because the array share is avoided rather than merely narrowed.
+
+Do this in order:
+1. Validate the assumption first, no new modelling code. Map each design
+   twice, once at declared weight capacity and once at capacity x N/K, and
+   diff the per-layer DRAM weight reads. Real tiles are integers, so 1.615x
+   capacity may buy a whole extra tile on some layers and nothing on others,
+   and the whole table scales with that one number.
+2. Then implement Task 4, keeping RECON_OPTIMIZER=True's refusal so
+   fixed-mapping numbers can never appear under a heading claiming the
+   mapping was optimised.
+3. Respect G_rec: a PE-local boundary needs ceil(N/weight_bits)+1 = 9
+   co-resident weights, and eyeriss_like's binding layer holds 20 today, so
+   a shrink can re-break R4a and R4b. Report infeasible with layers named.
+4. Quote the mapper-objective pair: ECC_OPT_METRIC=energy vs edp changes
+   eyeriss_like's total energy by 42.6% and decides whether R4b exists.

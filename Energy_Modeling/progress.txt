@@ -530,3 +530,104 @@ CONFIGURATION  --  ONE env.sh, ONE COMMAND                ✅ DONE 2026-09-07
 ❌    ReconSweep_1Drow_latch0.5.* was that 1-layer figure; deleted. 1-D raw (fp-3eb860ea2b2a) is intact
 ❌    R4a/R4b unsupported on resnet18 under EDP (layer4 keeps < 9 weights resident per PE)
 
+
+2026-09-09  TASK 5 — WEIGHT-STATIONARY AND EYERISS V1 JOIN THE PLACEMENT STUDY
+✅    recon.py: WEIGHT_PATHS + PLACEMENTS for simple_weight_stationary (6 boundaries) and
+      eyeriss_like (5), stage-to-level match read off real stats.txt/map.txt. v1 mirrors v2
+      (2 network stages + PE spad, no weight GLB); WS is the only design with BOTH a weight
+      global buffer above the network and a stationary weight register below the spad, so it
+      gets §6.2's buffer-output row AND its MAC-input row
+✅    recon6 (R5 @ MAC input) is listed so it is REPORTED infeasible, not omitted: weight_reg
+      holds 1 weight, G_rec = 9. feasibility() rejects it and names the layers
+✅    WS's existing depth-1 weight_reg is NOT R4b's reuse register: the mapping fills it once
+      per read (reads == fills == 115.6M), so it is a pipeline latch. R4b's register must cover
+      the inner tile (48 on layer4.0.conv2). CLAUDE.md's Simba rule answered, answer is no
+✅    retention_stage() + weight_loop_nest(prefixes): the reuse register is priced against ONE
+      named buffer. Unscoped, WS summed glb+spad+reg reads/fills and read inner_tile=1 off the
+      depth-1 register for a mapping whose spad tile is 48. Both eyeriss designs have one
+      storage stage -> no-op there, v2 ReconSweep.png byte-identical after the change
+✅    ECC_RECON_ARCHS = one PANEL per design in one ReconSweep.png (plots/panels.stacked_panels
+      widened with draw_panel's bar params, no second renderer). Boundaries still never share an
+      x axis; each panel has its own axis, boundary list and reference bars
+✅    write_table: a zero-height row no longer prints "total 0.0, saving 100.0%" beside
+      "status unsupported" -- the derived pair is blank, matching the study's own columns
+✅    map_by_shape.sh: several architectures in one wave + ONE dependent eval (a launcher per
+      design would give each its own eval and overwrite the other's figure); --no-eval;
+      ECC_LAYERS spot-check; the SLURM task file is snapshotted per submission
+✅    tests: 39 recon ok / 1 skip; noc, embedded, mac_override, results_store, mapper_lock pass.
+      New: every registered design's placement space is valid; the retention buffer is one
+      named storage stage; several architectures are panels and an empty list is refused
+✅    SPOT CHECK, 2 layers (layer1.0.conv1 + layer4.0.conv2), AFTER the multicast fix
+      below -- NOT full-model numbers, and the pre-fix single-layer figures first
+      recorded here were superseded within the hour:
+      WS  R4b +7.24% / R3 +3.96% / R2 +3.61% / R1 +2.78% / R4a -7.78% vs embedded,
+          R5 infeasible.  Ordering matches the source hypotheses:
+          5/5 > 4/5 > 3/5 > control > 2/5, and R4a really does LOSE energy
+      v1  R3 +4.13% / R1 +3.61% / R2 +3.07%; R4a/R4b infeasible (spad keeps 8 < G_rec 9)
+          -> R2 falls BELOW R1 on v1: its column network multicasts 7-fold, so a
+             destination-side encoder is replicated 7x and costs more than keeping
+             that network reduced saves. Sec. 7.1's tradeoff, resolved against
+             replicated encoders on this design
+      Both designs: the boundary just after the LAST network (R3) dominates R2 --
+      identical encoder count (a network's arrivals ARE the next stage's intake),
+      strictly more saving
+❌    v1's PE-local boundaries are ONE WEIGHT short under EDP -- the same mechanism that made
+      them unsupported on v2. G_rec = 9 is fixed by n=63 over 8-bit weights, so the only lever
+      is the mapping: hence two waves, EDP (jobs 41490547-70, eval 41490571 -> ReconSweep) and
+      ECC_OPT_METRIC=energy (41490572-96, eval 41490597 -> ReconSweep_optEnergy), where the
+      resident tiles are 128-192 and every boundary evaluates
+
+2026-09-09  R2 DEFECT FOUND WHILE ADDING THE TWO DESIGNS: multicast multiplicity
+❌→✅ A NETWORK boundary charged the network's INGRESSES while crediting that same
+      network with carrying the reduced form. Those are two different placements:
+      an encoder before the fanout makes the network full width, and that is R1.
+      The count for R2 is the destination-side ARRIVALS, ingresses x multicast
+      factor, summed exactly off Timeloop's own `@multicast M @scatter S` lines
+✅    ECC_RECON_ENCODER_SITE=destination (the model) | source (the pre-fix row,
+      kept runnable for the diff), the experiment variable Sec. 7.1 asks for
+✅    Cross-check recorded on every result (ModelWeightPath.multicast_chain): a
+      network's arrivals equal what the next stage takes in. On eyeriss_v2_like
+      mesh 16,356,544 injected -> 23,812,480 arrivals = cluster_local ingresses
+      = weight_spad fills, both networks match exactly
+❌    IT CHANGES A PUBLISHED NUMBER. eyeriss_v2_like R2 vs embedded 3.87% -> 3.78%
+      (recon 8.817 -> 12.837 uJ, N_rec 2,077,021 -> 3,023,807) and R3 (+3.84%) is
+      now the best boundary instead of R2 -- because the mesh's arrivals equal the
+      cluster-local ingresses, so R2 and R3 pay the SAME encoder count and R3
+      saves strictly more. FINDINGS 7.x and PROJECT_STATUS quote the old ordering
+✅    The old eyeriss_v2 figure/table/manifest are preserved as
+      results/figures/ReconSweep__eyeriss_v2_2026-09-09.* before ReconSweep.png
+      became the two-panel WS + v1 figure
+✅    New test: a 3-fold multicast fixture -> arrivals = 3 x ingresses, both
+      readings recorded on every network bar, the two differ by exactly 3x, and
+      the encoder site does NOT change which stages carry the reduced form
+❌→✅ INCIDENT: map_by_shape.sh took `--progress` before the flag existed, fell
+      through its option loop and SUBMITTED A WHOLE DUPLICATE WAVE (24 map jobs
+      + a second eval, 41491127-51) that would have overwritten the real eval's
+      figure. scancel'd within a minute; the real waves 41490547-97 untouched,
+      no stale locks (the duplicates never claimed a shape). Unknown flags are
+      now FATAL in that script instead of falling through to a submission
+✅    hpc/map_by_shape.sh --progress: per architecture, shapes SOLVED (a real
+      timeloop-mapper.stats.txt) vs in-progress (a .lock) vs claimed (a
+      directory). Counting directories is what made me report a wave finished
+      seconds after it started -- a directory is created when a job CLAIMS a
+      shape, not when it solves it
+
+2026-09-09  BOTH WAVES DONE -> two figures, and the OBJECTIVE is the lever (FINDINGS 7.6)
+✅    results/figures/ReconSweep.png (EDP, eval 41490571) and ReconSweep_optEnergy.png
+      (energy, eval 41490597), both 21/21 layers, both two-panel
+✅    WS is objective-insensitive: every bar within 0.05 pp, refetch 1.07x either way
+✅    v1 under `energy`: spad residency 8 -> 20 clears G_rec 9, R4a/R4b FEASIBLE,
+      R4b +11.38% vs embedded / +29.45% vs conventional = 92% of its 12.33% ceiling,
+      the best result in the study; R4a -14.74% (230.4M reconstructions vs 3.7M)
+✅    v1 total energy 6.290 -> 3.613 mJ under `energy`. Quote the PAIR, not one
+❌→✅ CORRECTED an over-strong inference I had given the user: cutting refetch does cut
+      the interface saving in uJ (212.81 -> 145.61, and the proportionality to DRAM
+      weight reads is exact to 4 digits), but the PERCENTAGE ROSE 3.38% -> 4.03%
+      because the objective cut non-weight energy 51.4% against the weight path's
+      much smaller cut. The lever is the weight SHARE of inference energy, not the
+      refetch factor -- measure the ratio, do not predict it from refetch alone
+❌    NOT FIXED, WS design defects found in the utilisation audit (user asked for
+      recommendations only, no code changes): PE array at 6.25% (16 of 256, meshX
+      never used, 11 of 12 shapes); zero temporal loops below the register level on
+      all 12 shapes so weight_reg serves 1.07 uses per load. Fixing the latter will
+      shrink R4b's headline

@@ -203,11 +203,19 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #  runs. Section 10 does that collapsing; with it 0, section 3 governs and
 #  everything here is inert.
 #
-#  WHY ONE ARCHITECTURE. The three sweeps put architectures on an axis because
-#  all three ECC ARMS exist on every design. A reconstruction BOUNDARY does not:
-#  Eyeriss v2's boundaries are its inter-cluster mesh, its cluster-local fanout
-#  and its PE weight scratchpad; a weight-stationary design's are a different
-#  list. So the architecture is HELD and Task 5 repeats the study per design.
+#  WHY THE BOUNDARIES NEVER SHARE AN X AXIS. The three sweeps put architectures
+#  on an axis because all three ECC ARMS exist on every design. A reconstruction
+#  BOUNDARY does not: Eyeriss v2's boundaries are its inter-cluster mesh, its
+#  cluster-local fanout and its PE weight scratchpad; a weight-stationary
+#  design's are a global operand buffer, one broadcast network, a PE scratchpad
+#  and a stationary register. Drawing them on one axis would put "reconstruct
+#  after the mesh" beside a design that has no mesh.
+#
+#  SEVERAL DESIGNS ARE THEREFORE ONE PANEL EACH, not one axis. ECC_RECON_ARCHS
+#  below lists them, top panel first; each panel keeps its own x axis of its own
+#  boundaries and its own two reference bars, and the panels share only the
+#  page, the legend, the category set and the energy unit. One name in the list
+#  draws exactly the single-panel figure this study has always drawn.
 #
 #      ECC_RECON_MODELING=1 bash hpc/run_all.sh --eval-only    # the one command
 #      ECC_RECON_MODELING=1 bash run.sh recon --eval           # just this stage
@@ -227,7 +235,21 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # The single point the placement study is run at. These REPLACE section 3's
 # lists when ECC_RECON_MODELING=1, so change the point here, not there.
-: "${ECC_RECON_ARCH:=eyeriss_v2_like}"    # ONE architecture, from section 3's list
+# ONE PANEL PER NAME, top panel first, each from section 3's list. Every design
+# named here needs its own mapper cache at the CURRENT fingerprint -- map it
+# with `ECC_RECON_ARCHS=<one> bash hpc/map_by_shape.sh` before adding it, or the
+# run stops and says which one is missing rather than drawing a short figure.
+# Only designs with a weight path in eccenergy/recon.py WEIGHT_PATHS are
+# accepted; ECC_RECON_ARCH is the older one-architecture spelling and seeds the
+# list when ECC_RECON_ARCHS is not set.
+: "${ECC_RECON_ARCH:=eyeriss_v2_like}"    # the FIRST architecture / the old knob
+: "${ECC_RECON_ARCHS:=simple_weight_stationary eyeriss_like}"
+#  ^ WHAT IS ON DISK. results/figures/ReconSweep.png is these two designs, top
+#    panel first, and a plain re-run reproduces it. The Eyeriss v2 study that
+#    ReconSweep.png used to hold is kept beside it as
+#    ReconSweep__eyeriss_v2_2026-09-09.* and is redrawn with
+#        ECC_RECON_ARCHS=eyeriss_v2_like bash hpc/run_all.sh --eval-only
+#    Unset, this falls back to ECC_RECON_ARCH, the old one-architecture knob.
 : "${ECC_RECON_MODEL:=resnet18}"          # ONE model
 : "${ECC_RECON_CODE_N:=63}"               # ONE code geometry
 : "${ECC_RECON_K:=39}"                      # 54 51 45 39 36 30   # ONE code rate, from section 3's list
@@ -255,11 +277,36 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #
 # A bash associative array CANNOT be exported, so section 10 flattens the entry
 # for ECC_RECON_ARCH into ECC_RECON_PLACEMENT_LIST, which is what the code reads.
+# For eyeriss_like, from Sec. 7.1/7.2 -- the same five-boundary shape as v2,
+# because the design has the same two network stages and one PE scratchpad, and
+# no weight GLB (JSSC 2017's 8 kB filter allocation is a prefetch buffer the RS
+# dataflow does not need; eyeriss_like_wglb is the bracketing variant):
+#   recon1  R1   reconstruct at the source, before the array network      [3/5]
+#   recon2  R2   reconstruct after the array multicast, at the column edge[4/5]
+#   recon3  R3   reconstruct at the PE filter-spad input                  [4/5]
+#   recon4  R4a  reconstruct on every filter-spad read                    [3/5]
+#   recon5  R4b  filter-spad output plus a reconstructed-weight register  [5/5]
+#
+# For simple_weight_stationary, from Sec. 6.1/6.2 -- SIX, because it is the only
+# design in the study with both a weight global buffer above the network and a
+# stationary weight register below the scratchpad:
+#   recon1  R1   reconstruct at chip ingress, before the weight buffer [control]
+#   recon2  R2   reconstruct at the global weight-buffer output           [3/5]
+#   recon3  R3   reconstruct at the weight-NoC output / PE input          [4/5]
+#   recon4  R4a  reconstruct on every weight-RF read                      [2/5]
+#   recon5  R4b  weight-RF output plus a decoded stationary register      [5/5]
+#   recon6  R5   reconstruct at the MAC input (register reduced too)      [2/5]
+# recon6 is expected to be reported INFEASIBLE, not to produce a number: the
+# register holds one weight and a rebuild needs G_rec = 9 co-resident. It is
+# listed so the study answers Sec. 6.2's MAC row instead of omitting it.
 declare -A ECC_RECON_PLACEMENTS=(
     [eyeriss_v2_like]="recon1 recon2 recon3 recon4 recon5"
     [eyeriss_v2_like_wglb]="recon1 recon2 recon3 recon4 recon5"
-    # Task 5 adds the rest, each with its own weight path in recon.py:
-    #   [eyeriss_like]="..."  [simple_weight_stationary]="..."  [simba_like]="..."
+    [eyeriss_like]="recon1 recon2 recon3 recon4 recon5"
+    [simple_weight_stationary]="recon1 recon2 recon3 recon4 recon5 recon6"
+    # Still to come, each with its own weight path in recon.py:
+    #   [simba_like]="..."  [simple_output_stationary]="..."
+    #   [simple_input_stationary]="..."
 )
 
 # Where the figure, table and manifest are called. Fixed name, like the three
@@ -385,6 +432,31 @@ declare -A ECC_RECON_PLACEMENTS=(
 # The two reference bars (Task 1 conventional, Task 2 embedded) keep
 # controller-side correction under BOTH settings and do not move.
 : "${ECC_RECON_DECODE_SITE:=ondie}"
+
+# WHERE A NETWORK BOUNDARY'S ENCODERS SIT, and therefore how many times they
+# run. Sec. 7.1 of 01_project_context_and_architectures.txt states the tradeoff
+# and asks for it to be an experiment variable:
+#
+#     BEFORE MULTICAST   4b -> Encoder -> 8b -+-> PE   (x fanout)
+#         one reconstruction at the source, but FULL-WIDTH network traffic
+#     AFTER MULTICAST    4b -+-> Encoder -> PE          (x fanout)
+#         replicated encoder hardware, but REDUCED-WIDTH shared transport
+#
+#   destination  (the model since 2026-09-09) an encoder at each destination,
+#                so the count is Timeloop's destination-side ARRIVALS,
+#                `Ingresses x Multicast factor`, read off its own printed
+#                breakdown. This is the only count consistent with a boundary
+#                that ALSO credits that network with carrying the reduced form:
+#                an encoder placed before the fanout would make the network
+#                full width, which is the boundary above it.
+#   source       ONE encoder before the fanout, count = `Ingresses`. This is
+#                what the study charged BEFORE 2026-09-09 and is kept as a
+#                runnable row so the change can be diffed. On eyeriss_like's
+#                C512 shape the column network multicasts 7-fold, so the two
+#                readings differ by 7x in reconstruction energy on R2.
+# Only NETWORK boundaries depend on this. R1 counts DRAM codewords, and every
+# PE-local boundary already counts destination-side scratchpad accesses.
+: "${ECC_RECON_ENCODER_SITE:=destination}"
 
 # f_if, the INTERFACE share of the per-bit DRAM energy (E_interface / (E_array +
 # E_interface)), in (0, 1]. It is the only new parameter of the on-die model.
@@ -675,16 +747,25 @@ _ecc_count() { set -- ${1:-}; echo "$#"; }
 # with ECC_RECON_ARCH / ECC_RECON_MODEL / ECC_RECON_K.
 : "${ECC_RECON_OPTIMIZER:=${RECON_OPTIMIZER}}"
 if [ "${ECC_RECON_MODELING}" = "1" ]; then
-    ECC_ARCHS="${ECC_RECON_ARCH}"
+    ECC_ARCHS="${ECC_RECON_ARCHS}"
     ECC_MODELS="${ECC_RECON_MODEL}"
     ECC_CODE_N="${ECC_RECON_CODE_N}"
     ECC_KS="${ECC_RECON_K}"
     ECC_EXPERIMENT="recon"
     ECC_PANEL_MODELS=""
-    # Which boundaries to draw. A bash associative array cannot be exported, so
-    # the entry for THIS architecture is flattened into a scalar the code reads;
-    # empty means "every placement eccenergy/recon.py defines for the design".
-    ECC_RECON_PLACEMENT_LIST="${ECC_RECON_PLACEMENTS[${ECC_RECON_ARCH}]:-}"
+    # Which boundaries to draw, per architecture. A bash associative array
+    # cannot be exported, so the entry for EVERY architecture on the figure is
+    # flattened into one scalar of `;`-separated `arch=key key key` entries,
+    # which `config.recon_placements_for()` reads. An architecture with no entry
+    # contributes none, and no entry means "every placement eccenergy/recon.py
+    # defines for that design" -- which is the normal thing to want.
+    ECC_RECON_PLACEMENT_LIST=""
+    for _a in ${ECC_RECON_ARCHS}; do
+        _keys="${ECC_RECON_PLACEMENTS[${_a}]:-}"
+        [ -n "${_keys}" ] || continue
+        ECC_RECON_PLACEMENT_LIST="${ECC_RECON_PLACEMENT_LIST}${_a}=${_keys};"
+    done
+    unset _a _keys
     # The placement study owns its own output name (section 4), and a
     # selected-layer run must keep its layer scope in it, as everywhere else.
     if [ -z "${ECC_LAYERS}" ]; then
@@ -752,13 +833,13 @@ export ECC_PROJECT_ROOT ECC_SIF ECC_TASKFILE ECC_USE_CONTAINER ECC_PYTHON \
        ECC_MAPPER_MAX_PERMUTATIONS ECC_MAPPER_SEED ECC_OPT_METRIC \
        ECC_RERUN_OPTIMISER ECC_ARCHS ECC_MODELS ECC_KS ECC_CODE_N \
        ECC_APPROACHES ECC_SWEEP ECC_EVAL_EXPERIMENTS ECC_PHASE ECC_LAYERS \
-       ECC_RECON_MODELING ECC_RECON_ARCH ECC_RECON_MODEL ECC_RECON_CODE_N \
+       ECC_RECON_MODELING ECC_RECON_ARCH ECC_RECON_ARCHS ECC_RECON_MODEL ECC_RECON_CODE_N \
        ECC_RECON_K ECC_RECON_STEM ECC_RECON_PLACEMENT_LIST \
        ECC_RECON_OPTIMIZER RECON_OPTIMIZER ECC_RECON_PACKING \
        ECC_RECON_ENCODER_GRANULARITY ECC_RECON_REUSE_REG_PJ \
        ECC_RECON_REUSE_REG_ENTRIES ECC_RECON_REUSE_REG_MODEL \
        ECC_RECON_ONCHIP_FRACTION ECC_RECON_PLACEMENT_CHARGES_DECODE \
-       ECC_RECON_DECODE_SITE ECC_DRAM_IF_FRAC \
+       ECC_RECON_DECODE_SITE ECC_RECON_ENCODER_SITE ECC_DRAM_IF_FRAC \
        ECC_WEIGHT_BITS ECC_ACTIVATION_BITS ECC_ACC_BITS ECC_ARCH_FIDELITY \
        ECC_FORCE_DATAWIDTH ECC_FORCE_TECHNOLOGY ECC_DRAM_DEPTH ECC_MAC_PJ_OVERRIDE \
        ECC_GLOBAL_CYCLE_SECONDS ECC_NOC ECC_NOC_WIRE_PJ_PER_BIT_MM \

@@ -657,8 +657,12 @@ The bars at the assumed f_if = 0.40 (`results/figures/ReconSweep.png`):
 | Baseline (external parity) | 6,954.500 | — | −17.071 % | — | — | — |
 | Embedded (no external parity) | 5,940.394 | +14.582 % | — | — | — | — |
 | R1 @ NoC source | 5,789.696 | +16.75 % | **+2.54 %** | 159.515 | 8.817 | 2,077,021 |
-| **R2 @ cluster edge** | **5,776.223** | **+16.94 %** | **+2.76 %** | 159.515 | 8.817 | 2,077,021 |
+| ~~R2 @ cluster edge~~ | ~~5,776.223~~ | ~~+16.94 %~~ | ~~+2.76 %~~ | 159.515 | ~~8.817~~ | ~~2,077,021~~ |
 | R3 @ SPad input | 5,777.551 | +16.92 % | +2.74 % | 159.515 | 12.837 | 3,023,807 |
+
+**The R2 row above is SUPERSEDED by §7.4** — its encoder count is the mesh's
+injections, not its destination-side arrivals. R1, R3, R4a and R4b are
+unaffected. §7.4 has the corrected numbers and the reason.
 | R4a / R4b | unsupported | | | | | G_rec = 9 > resident tile in layer4.* |
 
 Of the DRAM weight **interface** energy itself the saving is 1 − K/N = 38.1 %
@@ -769,8 +773,14 @@ f_if = 0.40 (assumed, §7.2), µJ:
 
 | | MAC pJ | Compute | embedded total | conventional total | embedded vs conventional | Task 3 ceiling, on-chip | ceiling incl. DRAM interface | R1 vs emb | R2 vs emb | R3 vs emb |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| as modelled (ERT) | 1.16877 | 2,120.235 | 5,940.394 | 6,954.500 | 14.58 % | 2.65 % | 5.33 % | +2.54 % | **+2.76 %** | +2.74 % |
-| Horowitz int8 MAC | 0.23 | 417.237 | 4,237.397 | 5,251.503 | **19.31 %** | 3.71 % | 7.47 % | +3.56 % | **+3.87 %** | +3.84 % |
+| as modelled (ERT) | 1.16877 | 2,120.235 | 5,940.394 | 6,954.500 | 14.58 % | 2.65 % | 5.33 % | +2.54 % | ~~+2.76 %~~ | +2.74 % |
+| Horowitz int8 MAC | 0.23 | 417.237 | 4,237.397 | 5,251.503 | **19.31 %** | 3.71 % | 7.47 % | +3.56 % | ~~+3.87 %~~ | **+3.84 %** |
+
+The **R2 column is superseded by §7.4** (its encoder count was the mesh's
+injections, not its arrivals); at the corrected count R2 is +3.78 % on the
+Horowitz row and **R3 is the best boundary on both rows**. Nothing else in this
+table moves — the MAC denominator and the encoder count are independent, and
+the 1.402× / 1.324× rescaling still holds column by column.
 
 Saved µJ, identical on both rows to the digit (checked column by column on the
 two CSVs; only `energy_Compute`, the totals and the percentages differ):
@@ -778,7 +788,9 @@ external parity 1,014.106; DRAM interface 159.515 on every R bar; R2 mesh
 13.47; R3 mesh + cluster 16.16; reconstruction 8.817 / 8.817 / 12.837. Every
 percentage on the second row is the first × 5,940.394 / 4,237.396 = **1.402×**
 (the conventional-reference ones × 6,954.500 / 5,251.503 = 1.324×). No ordering
-moves: R2 > R3 > R1 on both rows, embedded beats conventional on both.
+moves *with the denominator*: the same ordering appears on both rows, and
+embedded beats conventional on both. (Which ordering that is changed for a
+different reason — see §7.4.)
 
 **Which row the paper quotes, and why.** The decision (2026-09-09, the user's)
 is the **Horowitz row as the primary number: embedded ECC saves 19.3 % of
@@ -801,6 +813,235 @@ ALU share — is strong enough that the ERT row cannot be quoted *alone* either.
 The right fix is a cited 45 nm int8 MAC in the `intmac` component (a component
 edit, which colds every mapper cache); until that is agreed the knob's default
 stays EMPTY and the table carries both rows.
+
+### 7.4 A network boundary's encoders run once per ARRIVAL — corrected 2026-09-09
+
+**The defect.** R2 credits its network with carrying the reduced form, which
+means its encoders sit at that network's *destinations*. Its reconstruction
+count was the network's **ingresses** — the words *injected*. Those are two
+different placements, and only one of them is R2: an encoder placed before the
+fanout expands the traffic before it enters the network, which is R1. So R2 was
+taking a destination-side saving at a source-side price.
+
+The context document names exactly this tradeoff (§7.1) and asks for it as an
+experiment variable:
+
+    BEFORE MULTICAST   4b -> Encoder -> 8b -+-> PE  (x fanout)
+        one reconstruction at the source, but FULL-WIDTH network traffic
+    AFTER MULTICAST    4b -+-> Encoder -> PE        (x fanout)
+        replicated encoders, but REDUCED-WIDTH shared transport
+
+**The count, from Timeloop's own numbers.** A multicast network prints its split
+as `Ingresses : N` followed by `@multicast M @scatter S: N`, so the
+destination-side arrivals are `sum(M × N)` over those lines. Summing the
+breakdown matters rather than using the single `Multicast factor` field: on
+`eyeriss_v2_like`'s resnet18 mapping the mesh reports factor 2 but the exact sum
+is 1.456× its injections, because the words are not all multicast alike.
+
+**It reconciles, and that is the check.** A network's arrivals should equal what
+the next stage takes in. Recorded on every result file
+(`multicast_arrival_chain`), and on `eyeriss_v2_like`:
+
+| network | injected | arrivals | × | next stage takes in | match |
+|---|---:|---:|---:|---:|:--|
+| inter_cluster_mesh | 16,356,544 | 23,812,480 | 1.456 | cluster_local ingresses 23,812,480 | yes |
+| cluster_local | 23,812,480 | 23,812,480 | 1.000 | weight_spad fills 23,812,480 | yes |
+
+**What it changes.** `eyeriss_v2_like`, resnet18, 8×2 EDP mapping, BCH(63,39),
+f_if = 0.40, MAC 0.23 pJ — i.e. the primary row of §7.3:
+
+| bar | vs embedded, before | vs embedded, corrected | N_rec before | N_rec corrected |
+|---|---:|---:|---:|---:|
+| R1 @ NoC source | +3.56 % | +3.56 % | 2,077,021 | 2,077,021 |
+| R2 @ cluster edge | **+3.87 %** | +3.78 % | 2,077,021 | 3,023,807 |
+| R3 @ SPad input | +3.84 % | **+3.84 %** | 3,023,807 | 3,023,807 |
+
+**So R3, not R2, is the best boundary on Eyeriss v2** — and the reason is
+legible rather than numerical: the mesh's arrivals *equal* the cluster-local
+network's ingresses, so R2 and R3 pay the **same** encoder count, and R3 keeps
+one more stage reduced. R2 could only have won by paying less than R3, which is
+what the ingress count was doing for it. R1 and both PE-local boundaries are
+untouched: R1 counts DRAM codewords and a scratchpad boundary already counts
+destination-side accesses.
+
+`ECC_RECON_ENCODER_SITE=source` reproduces the earlier numbers exactly, the same
+way `ECC_RECON_DECODE_SITE=controller` reproduces the pre-DRAM-split ones, so
+the change is a diff and not a rewrite. The figure subtitle states which reading
+it was drawn under, and every network bar's result records **both** counts, the
+multicast factor and the multiplicity, so neither reading is hidden by the
+choice of the other.
+
+**How it was found:** adding the weight-stationary and Eyeriss v1 weight paths.
+Eyeriss v1's column network multicasts up to 7-fold on resnet18 shapes, which
+made the discrepancy a factor of 7 rather than 1.456 and impossible to read as
+rounding.
+
+### 7.5 Weight-stationary and Eyeriss v1 — whole resnet18, 2026-09-09
+
+`results/figures/ReconSweep.png`, one panel per design. Fixed EDP mappings,
+21/21 layers, BCH(63,39), f_if = 0.40 (assumed), MAC 0.23 pJ, encoder site
+`destination` (§7.4). Each design is measured against **its own** two reference
+bars, so a percentage on one panel says nothing about the other.
+
+**Weight stationary** — conventional 7.471 mJ, embedded 6.695 mJ (embedded saves
+**10.39 %**). Ceiling: on-chip 402.98 µJ (6.02 %) + DRAM interface 122.08 µJ
+(1.82 %) = **525.07 µJ, 7.84 %**.
+
+| boundary | rating | total mJ | vs conventional | vs embedded | recon µJ | N_rec |
+|---|:--|---:|---:|---:|---:|---:|
+| R1 @ chip ingress | control | 6.580 | +11.93 % | +1.72 % | 6.75 | 1,589,605 |
+| R2 @ buffer output | 3/5 | 6.540 | +12.47 % | +2.32 % | 16.59 | 3,908,494 |
+| R3 @ PE input | 4/5 | 6.521 | +12.72 % | +2.61 % | 16.59 | 3,908,494 |
+| R4a @ RF output | 2/5 | 7.207 | +3.54 % | **−7.64 %** | 914.63 | 215,449,079 |
+| **R4b @ RF + reg** | **5/5** | **6.329** | **+15.28 %** | **+5.46 %** | 16.59 | 3,908,494 |
+| R5 @ MAC input | 2/5 | unsupported | | | | resident 1 < G_rec 9, all 21 layers |
+
+**This is the source discussion's ordering, reproduced exactly**:
+5/5 > 4/5 > 3/5 > control > 2/5. It is the only design in the study where every
+predicted rank holds, and the two extremes are both large: R4b captures
+**70 % of the whole ceiling** (5.46 of 7.84 %), and R4a — reconstruct on every
+RF read — is the one boundary anywhere in this study that **costs more energy
+than it saves**, by 7.6 %. The mechanism is the reconstruction count: 215.4 M
+codewords against R4b's 3.9 M, a 55.1× amortization from a register covering the
+384-weight inner tile. §6.1's illustrative "100 reduced reads and 100
+reconstructions" is real, and it is expensive.
+
+Weight path (weight energy only, µJ): dram_array 480.70, dram_interface 320.46,
+operand_glb 130.41, weight_noc 50.72, pe_spad 556.89, weight_reg 319.82.
+
+Two findings specific to this design, both from having levels no other
+registered design has:
+
+* **Its existing stationary register is not R4b's reuse register.** `weight_reg`
+  is depth 1 and the mapping fills it once per read (1,696,661,504 fills against
+  1,814,073,344 reads), so it is a pipeline latch, not a reuse mechanism. R4b's
+  register has to cover the inner tile — 384 weights — and is charged as an
+  addition. CLAUDE.md's rule for Simba ("determine whether the proposal can
+  reuse an existing register") asked the question; the answer here is no.
+* **The MAC-input boundary is rejected, not estimated.** A rebuild needs `G_rec`
+  = 9 co-resident weights and that register holds one, on all 21 layers. §6.2
+  rates the row 2/5; the model's answer is that it does not exist on this design
+  as mapped, with the layers named.
+
+**Eyeriss v1** — conventional 7.643 mJ, embedded 6.290 mJ (embedded saves
+**17.70 %**). Ceiling: on-chip 397.99 µJ (6.33 %) + DRAM interface 212.81 µJ
+(3.38 %) = **610.80 µJ, 9.71 %**.
+
+| boundary | rating | total mJ | vs conventional | vs embedded | recon µJ | N_rec |
+|---|:--|---:|---:|---:|---:|---:|
+| R1 @ source | 3/5 | 6.089 | +20.33 % | +3.20 % | 11.76 | 2,770,976 |
+| R2 @ column edge | 4/5 | 6.123 | +19.88 % | +2.65 % | 76.55 | 18,033,062 |
+| **R3 @ spad input** | 4/5 | **6.060** | **+20.71 %** | **+3.65 %** | 76.55 | 18,033,062 |
+| R4a / R4b | 3/5, 5/5 | unsupported | | | | resident 8 < G_rec 9, 4 layers |
+
+**R2 falls BELOW R1 here, and the multicast factor is why.** The column network
+injects 21,821,440 weight words and its 14 destinations receive 142,010,368 —
+6.5× as many — so a destination-side encoder is replicated enough to cost
+76.55 µJ where R1 pays 11.76 µJ, against a network saving of only 30.15 µJ.
+This is §7.1's multicast tradeoff resolved *against* replicated encoders on this
+design, and it is the first place in the study where a later boundary is worse
+than an earlier one for a reason that is not reconstruction-per-read.
+
+**R3 dominates R2 structurally, on this design and on Eyeriss v2.** A network's
+destination-side arrivals *are* what the next stage takes in (§7.4), so a
+boundary at the last network's output and a boundary at the scratchpad input pay
+the **same** encoder count — R3 simply keeps one more stage reduced. R2 can only
+win by paying less, which is what the pre-§7.4 ingress count was doing for it.
+
+Weight path (µJ): dram_array 837.94, dram_interface 558.63, array_multicast
+79.15, pe_local_multicast 166.02, weights_spad 799.54.
+
+**Why v1's PE-local boundaries are unsupported and v2's are too.** The EDP
+mappings keep 8 weights resident per PE on four layer4 shapes, one short of
+`G_rec` = 9. `G_rec` is fixed by the code and the weight width
+(`ceil(63/8) + 1`), so the only lever is the mapping, not a knob: an
+energy-optimal mapping keeps 128–192 weights resident and every boundary
+evaluates. That run is `ReconSweep_optEnergy.png`, and the pipeline's own
+`diagnose` already warns that EDP "trades energy for latency" in an energy
+study. **Reported as infeasible with the layers named, never estimated.**
+
+**Cross-design reading, with the caveat that the three designs are measured
+against three different reference bars.** Embedded ECC alone saves 10.4 %
+(weight-stationary), 17.7 % (Eyeriss v1) and 19.3 % (Eyeriss v2) — the spread
+is DRAM refetch, which is set by on-chip weight capacity. Reconstruction adds
++5.46 %, +3.65 % and +3.84 % on top. The best boundary is the reuse register
+where the mapping leaves a PE-local boundary feasible, and the scratchpad input
+where it does not.
+
+### 7.6 The mapper objective, not the buffer sizes — `ReconSweep_optEnergy.png`
+
+Same two designs, same architectures, **only `ECC_OPT_METRIC` changed from `edp`
+to `energy`**. No YAML was edited. 21/21 layers, BCH(63,39), f_if = 0.40, MAC
+0.23 pJ, encoder site `destination`.
+
+| | Weight stationary | | Eyeriss v1 | |
+|---|---:|---:|---:|---:|
+| objective | EDP | energy | EDP | energy |
+| conventional, mJ | 7.471 | 7.385 | 7.643 | **4.539** |
+| embedded, mJ | 6.695 | 6.611 | 6.290 | **3.613** |
+| embedded vs conventional | 10.39 % | 10.48 % | 17.70 % | **20.40 %** |
+| ceiling (on-chip + interface) | 7.84 % | 7.79 % | 9.71 % | **12.33 %** |
+| R1 | +1.72 % | +1.74 % | +3.20 % | +3.81 % |
+| R2 | +2.32 % | +2.30 % | +2.65 % | +3.85 % |
+| R3 | +2.61 % | +2.54 % | +3.65 % | +4.20 % |
+| R4a | −7.64 % | −7.89 % | unsupported | **−14.74 %** |
+| **R4b** | **+5.46 %** | **+5.42 %** | unsupported | **+11.38 %** |
+| R5 | unsupported | unsupported | n/a | n/a |
+| PE weight residency | 16 | 16 | **8** | **20** |
+| DRAM refetch | 1.072× | 1.068× | 1.868× | 1.278× |
+
+**Weight stationary does not move** — every bar within 0.05 pp. Its mapping was
+never DRAM- or capacity-limited (refetch 1.07×), so there was nothing for a
+different objective to recover.
+
+**Eyeriss v1 changes completely.** Its scratchpad residency goes from 8 weights
+to 20, clearing `G_rec` = 9, so **R4a and R4b become feasible and R4b is the
+best result anywhere in this study: +11.38 % over embedded, +29.45 % over
+conventional ECC, capturing 92 % of its own 12.33 % ceiling** (61.5×
+reconstruction amortization from a 384-entry register). R4a is the mirror image
+at −14.74 %: 230.4 M reconstructions against R4b's 3.7 M. The two extremes of
+the source discussion's 5/5 and 3/5 rows are 26 percentage points apart on one
+design.
+
+**Why the SAVING PERCENTAGE rose even though refetch FELL.** This corrects an
+over-strong inference. The interface saving is exactly proportional to DRAM
+weight traffic — verified to four digits, EDP v1/WS = 1.7432 for reads, for DRAM
+weight energy and for the interface saving alike — so cutting refetch really
+does cut that term in µJ, and it did: 212.81 → 145.61 µJ. But the saving is a
+*ratio*, and the objective switch cut the denominator harder:
+
+| Eyeriss v1, µJ | EDP | energy | change |
+|---|---:|---:|---:|
+| DRAM weight | 1,396.6 | 955.6 | −31.6 % |
+| NoC weight | 245.2 | 58.1 | **−76.3 %** |
+| scratchpad weight | 799.5 | 729.0 | −8.8 % |
+| everything NOT weight | 3,848.7 | 1,870.3 | **−51.4 %** |
+| total | 6,290.0 | 3,613.0 | −42.6 % |
+
+The energy objective cut activations, partial sums and interconnect far harder
+than it cut the weight path, so weight movement became a **larger share** of
+inference energy — 16.6 % → 21.8 % on chip — and the interface saving rose from
+3.38 % to 4.03 % of the total despite falling 32 % in µJ.
+
+**The rule this establishes.** What raises the ECC saving is not more weight
+traffic and not bigger buffers; it is **weight movement being a larger fraction
+of inference energy**. Cutting non-weight energy raises the saving. Cutting
+weight energy lowers it. A change that cuts both — a larger buffer, a different
+objective — can go either way, and the ratio has to be measured rather than
+predicted from the refetch factor alone.
+
+**Which run to quote.** `ReconSweep.png` (EDP) is the configuration the rest of
+the study and every other cached mapping was produced under. `ReconSweep_optEnergy.png`
+is the energy-objective run, and `bash run.sh diagnose` already warns that
+`edp` "trades energy for latency" in an energy study. On Eyeriss v1 the two
+differ by 42.6 % of total energy and by whether its 5/5 boundary exists at all,
+so **the pair is the result and neither should be quoted alone**. The same rule
+CLAUDE.md sets for `eyeriss_like` / `eyeriss_like_wglb` applies here.
+
+**Still unsupported, and structurally so:** weight-stationary's R5 (MAC input),
+on all 21 layers under both objectives. Its stationary register holds one
+weight and a rebuild needs nine. No mapping fixes that; only a wider register
+would, and the design declares `depth: 1`.
 
 ## 8. Open defects and limitations
 
@@ -885,6 +1126,46 @@ stays EMPTY and the table carries both rows.
     v2 fixed.
 
 ## 9. Next, in order
+
+0. **Task 4's real mechanism: CAPACITY DILATION and DIFFERENTIAL REFETCH.** The
+   user's framing, 2026-09-09, and it is not what §7.5/§7.6 measure. Under the
+   reconstruction arm the on-chip weight representation is K/N = 0.619 of full
+   width, so the same physical buffer holds **N/K = 1.615× more weights**
+   (`eyeriss_like` 75,264 → 121,580; `simple_weight_stationary` 164,096 →
+   265,078). A larger effective tile means the reconstruction arm **reloads
+   weight tiles from DRAM fewer times than the embedded reference**, and a read
+   it never issues removes the DRAM **array** energy as well as the interface
+   energy — saving efficiency **1.0 per µJ**, against the 0.152 that
+   `f_if × (1 − K/N)` buys under a fixed mapping. Task 3 cannot show this at
+   all: `RECON_OPTIMIZER=False` pins one mapping on every arm, so both arms
+   refetch identically by construction.
+
+   Consequence: **shrinking SRAM and reconstruction-aware mapping are
+   multiplicative, not independent.** Under the fixed mapping, smaller buffers
+   are flat to slightly negative (§7.6's efficiency argument). With a
+   reconstruction-aware mapping, refetch is what *creates* the differential.
+   First-order model, assuming excess refetch scales inversely with capacity so
+   `R_recon − 1 = (R_emb − 1) × K/N`, for R4b vs embedded:
+
+   | embedded refetch | `eyeriss_like` | `simple_weight_stationary` |
+   |---|---:|---:|
+   | today (1.278 / 1.068) | 11.38 % → 13.32 % | 5.42 % → 5.68 % |
+   | 2.0 | → 17.85 % | → 9.75 % |
+   | 4.0 | → 25.77 % | → 16.20 % |
+
+   §7.6's 15.2 % asymptote does **not** bind here — this one tends toward
+   47.5 %, because the array share is avoided rather than merely narrowed.
+
+   **Validate the assumption before building anything.** Real tiles are
+   integers, so 1.615× capacity may buy a whole extra tile on some layers and
+   nothing on others, and the whole table scales with that one number. It needs
+   no new modelling code: map each design twice, once at declared weight
+   capacity and once at capacity × N/K, and diff the per-layer DRAM weight
+   reads. Two mapping waves. Then implement Task 4 properly — and keep
+   `RECON_OPTIMIZER=True`'s refusal, so fixed-mapping numbers can never appear
+   under a heading claiming the mapping was optimised. Mind `G_rec`: a
+   PE-local boundary needs 9 co-resident weights and `eyeriss_like`'s binding
+   layer holds 20 today, so a shrink can re-break R4a/R4b.
 
 1. **Prove the search converges** (§2). Nothing else is worth doing at scale
    first, because every ranking depends on it.
