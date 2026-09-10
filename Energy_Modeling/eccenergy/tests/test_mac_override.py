@@ -47,7 +47,7 @@ def _cfg(**env):
         ECC_CONST_MODEL="resnet18", ECC_CONST_K="51",
         ECC_MAPPER_THREADS="8", ECC_VICTORY="100", ECC_FROM_CACHE="1",
         ECC_OPT_METRIC="energy",
-        ECC_RECON_DECODE_SITE="ondie", ECC_DRAM_IF_FRAC="0.25",
+        ECC_RECON_DECODE_SITE="ondie",
     )
     base.update(env)
     for k in list(os.environ):
@@ -169,7 +169,7 @@ def test_the_saved_pj_are_identical_across_the_rows_and_only_the_denominator_mov
         placements = {}
         for p in reconmod.placements_for("eyeriss_v2_like", cfg):
             res = reconmod.evaluate_placement(cfg, "eyeriss_v2_like", p, wp,
-                                              raw.base_w, raw.base, 4.0, 0.03,
+                                              raw.base_w, raw.base, 4.0,
                                               gran, packing)
             assert res.status == "evaluated", (label, p.key, res.reason)
             placements[p.key] = res

@@ -19,7 +19,7 @@ mappings and ONE raw energy record:
                              external-parity term is zero. `eccenergy/embedded.py`
                              has the layout and why it is not a modelling choice.
 
-The five reconstruction placements stay `not_implemented` (Tasks 3-5).
+The reconstruction placements stay `not_implemented` (Tasks 3-5).
 
 WHAT IS HELD FIXED, AND CHECKED RATHER THAN ASSERTED
 -----------------------------------------------------
@@ -319,7 +319,7 @@ def run(cfg):
     print(f"Task 2 embedded ECC: {len(written)} result file(s) written under "
           f"{ses.results.evaluation}")
     print("Each holds the conventional baseline AND the embedded-ECC variant from the")
-    print("same cached mappings; the five reconstruction placements stay unavailable.")
+    print("same cached mappings; the reconstruction placements stay unavailable.")
     print("Only the DRAM component differs between the two arms -- checked, not asserted.")
     print("=" * 78)
     return written

@@ -21,12 +21,11 @@ version: 1
 #  die, so only the k message bits of each codeword cross the DRAM
 #  interface and that share of the DRAM weight energy scales by K/N under
 #  every reconstruction boundary.  Accelergy's CactiDRAM is one flat
-#  per-bit LPDDR4 constant with no array/interface decomposition, so the
-#  evaluator needs f_if = E_interface / (E_array + E_interface) from a
-#  cited breakdown.  This block is where that citation has to go before
-#  env.sh may carry a default (ECC_DRAM_IF_FRAC).  As of 2026-09-09 none
-#  is adopted; the two candidates found are recorded so the search is
-#  not repeated, and every figure states the f_if it was drawn at.
+#  per-bit LPDDR4 DYNAMIC ACCESS constant.  As of 2026-09-09 the
+#  array/interface decomposition (f_if) is GONE -- the whole DRAM weight
+#  term is credited -- and what this block records is the value
+#  of that per-bit constant itself (`dram_access_energy`, below).  The
+#  retired f_if candidates are kept as a comment beside it.
 # =====================================================================
 # =====================================================================
 #  THE MAC COST -- THE DENOMINATOR OF EVERY ECC PERCENTAGE  (audited 2026-09-09)
@@ -126,54 +125,59 @@ mac_energy_pj:
       source: "none: data/dc/ holds BCH_N63_results.json and EMBEDDED_ECC_N7_results.json (the encoder/decoder datapaths); no int8 MAC was synthesized"
       pj: null
 
-dram_interface_share:
+dram_access_energy:
   status: >-
-    ASSUMED 0.40 since 2026-09-09 (env.sh ECC_DRAM_IF_FRAC), by decision, not by
-    citation: 40% of the per-bit LPDDR4 read energy is taken to be spent driving
-    the bits off the die over the terminated link. Neither candidate below
-    supports that number directly; the HBM2 one is an interposer lower bound and
-    the LPDDR4 one is only plotted. Replace it with a read-off or datasheet-
-    derived value and record it here; every result carries the f_if it used.
-  assumed_value: 0.40
-  assumed_on: 2026-09-09
-  wanted: >-
-    An LPDDR4 read-energy breakdown that separates the off-die interface
-    (I/O drivers, link, controller port) from everything on the die (row
-    activation, column access, on-die data movement to the pads). The
-    on-die data movement belongs to the ARRAY share: a burst moves whole
-    words to the pads whether or not all of them are driven off the die.
+    ECC_DRAM_PJ_PER_BIT = 40 pJ/bit since 2026-09-09 (env.sh section 4), applied
+    evaluator-side by energy.apply_dram_override to the WHOLE DRAM category.
+    Accelergy's CactiDRAM LPDDR4 model charges 8.0 pJ/bit (512 pJ per 64-bit
+    access; verified from the cached records at 64.0 pJ per 8-bit word), which is
+    below every measured figure below. 40 pJ/bit is within the range reported by
+    FReaC Cache (MICRO 2020) and Gebhart et al. (MICRO 2012). Every DRAM
+    percentage in the study scales linearly with it.
+  value: 40
+  units: pJ per bit of dynamic access energy
+  set_on: 2026-09-09
   candidates:
-    - source: "O'Connor et al., Fine-Grained DRAM, MICRO-50, 2017, Sec. 2.1 and Fig. 2"
-      url: "https://www.cs.utexas.edu/~skeckler/pubs/MICRO_2017_Fine_Grained_DRAM.pdf"
-      verified: 2026-09-09
-      device: "HBM2 (stacked, unterminated I/O over a silicon interposer)"
+    - source: "Horowitz, \"Computing's Energy Problem (and what we can do about it)\", ISSCC 2014, Fig. 1.1.5 / the 45nm energy table"
+      device: "DRAM (unspecified commodity part), 45nm-era"
       quote: >-
-        "switching the capacitance on this datapath requires 2.24 pJ/bit of
-        energy on average. In contrast, transferring the data over the I/O
-        wires on the silicon interposer requires an additional 0.3 pJ/bit ...
-        with the average of 1.21 pJ/bit of activation energy, each HBM2
-        access incurs 3.92 pJ/bit"
-      implied_f_if: 0.077        # 0.3 / 3.92, I/O only
-      why_not_adopted: >-
-        HBM2's I/O is a short unterminated interposer link; LPDDR4 drives a
-        package/PCB link at higher per-bit I/O energy, so this is a lower
-        bound for the study's DRAM type, not its value.
-    - source: "H. Ha, Understanding and Improving the Energy Efficiency of DRAM, PhD thesis, Stanford, 2018, Fig. 4.8 (DramDSE, 2y-nm 8 Gb LPDDR4)"
-      url: "https://www-vlsi.stanford.edu/people/alum/pdf/1810_Ha_DRAMEnergy.pdf"
-      verified: 2026-09-09
-      device: "LPDDR4-3200, 2y nm, 8 Gb (QDP) and 32 Gb (SDP)"
+        32-bit DRAM read = 640 pJ, against 32-bit SRAM (8 kB) read = 5 pJ and
+        32-bit float add = 0.9 pJ.
+      implied_pj_per_bit: 20.0        # 640 / 32
+      implied_nJ_per_64b: 1.28
+      note: >-
+        Widely cited in the accelerator literature. The study's
+        ECC_MAC_PJ_OVERRIDE=0.23 comes from the same table.
+    - source: "FReaC Cache, MICRO 2020; Gebhart et al., MICRO 2012"
+      device: "DRAM / off-chip main memory, accelerator context"
       quote: >-
-        "Energy/bit of 32Gb LPDDR4 built with QDP of 8Gb LPDDR4 and SDP of
-        32Gb LPDDR4. The I/O component includes energy consumed by the read
-        driver and termination."  Categories: Background, Row, Column, I/O,
-        Refresh, in pJ/bit.
-      implied_f_if: null
-      why_not_adopted: >-
-        The right device and the right split (the off-die I/O is its own
-        category, separate from the on-die SIO/LIO/GIO wires that Sec. 4.6
-        books under column power), but the value is only plotted; it has to
-        be read off the figure and checked before it can be a default.
-  sensitivity_printed_when_unset: [0.10, 0.25, 0.50]
+        Off-chip DRAM access energies quoted in the 28-45 pJ/bit band
+        (1.79-2.88 nJ per 64-bit access).
+      implied_pj_per_bit: [28.0, 45.0]
+      note: >-
+        THE ADOPTED SOURCE for ECC_DRAM_PJ_PER_BIT=40. Higher than Horowitz
+        because these count controller and link overheads that the ISSCC table
+        does not separate out.
+  note: >-
+    The figure subtitle, the manifest and every result file carry the value
+    used.
+
+# RETIRED 2026-09-09: dram_interface_share (f_if).
+#   The array/interface split of the DRAM term is GONE. f_if = 0.40 was an
+#   uncited assumption that credited a reconstruction boundary only 15.2% of the
+#   DRAM weight energy for a 38.1% cut in the bits fetched. The whole DRAM
+#   weight term is now x K/N: the DRAM access is custom-designed to collect
+#   only the interleaved message bits of each codeword, so the array reads
+#   fewer bits too.
+#   The two f_if candidates that were recorded here, kept for the record:
+#     - O'Connor et al., Fine-Grained DRAM, MICRO-50, 2017, Sec. 2.1 / Fig. 2.
+#       HBM2, unterminated interposer I/O: 0.3 pJ/bit of 3.92 pJ/bit total
+#       -> f_if = 0.077. A lower bound for LPDDR4, not its value.
+#     - H. Ha, Understanding and Improving the Energy Efficiency of DRAM, PhD
+#       thesis, Stanford, 2018, Fig. 4.8 (DramDSE, 2y-nm 8 Gb LPDDR4-3200).
+#       Right device and right split (off-die I/O is its own category, separate
+#       from the on-die SIO/LIO/GIO wires booked under column power), but the
+#       value is only PLOTTED and was never read off.
 
 # =====================================================================
 #  STORAGE CLASS: WHY SOME LEVELS ARE smartbuffer_SRAM AND SOME ARE

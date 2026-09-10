@@ -26,12 +26,12 @@ PHYS_CATS = ("DRAM", "Global buffer", "Local (spads/RF)", "NoC", "Compute")
 PHYS_CATS_SPLIT = ("DRAM", "Global buffer (read)", "Global buffer (write)",
                    "Local (read)", "Local (write)", "NoC", "Compute")
 #: Categories the ECC model adds. `Recon overhead` is the buffer/control cost a
-#: reconstruction PLACEMENT carries beyond the encoder itself -- the
-#: reconstructed-weight reuse register of Task 3's R4b, today. It is a category
-#: of its own rather than being folded into `Reconstruction` because Task 3 asks
-#: for the overheads to be reported, and an overhead hidden inside the thing it
-#: is an overhead ON cannot be read off a figure. It is zero for every arm of
-#: `ecc.build_stacks()`, so `active_categories()` drops it from those figures.
+#: reconstruction PLACEMENT would carry beyond the encoder itself. It is a
+#: category of its own rather than being folded into `Reconstruction` because
+#: Task 3 asks for the overheads to be reported, and an overhead hidden inside
+#: the thing it is an overhead ON cannot be read off a figure. Since R4b and
+#: its reuse register were removed (2026-09-10) no placement carries one, so it
+#: is structurally zero and `active_categories()` drops it from the figures.
 ECC_CATS = ("ECC decode", "Reconstruction", "Recon overhead")
 
 SPLITTABLE = ("Global buffer", "Local (spads/RF)")
@@ -98,7 +98,7 @@ class Raw:
 
     __slots__ = ("base", "base_w", "base_i", "e_dram_w", "dram_w_reads",
                  "layers_ok", "layers_skipped", "weights", "per_layer", "levels",
-                 "noc_post", "mac")
+                 "noc_post", "mac", "dram")
 
     def __init__(self, base, base_w, base_i, e_dram_w, dram_w_reads,
                  layers_ok, layers_skipped, weights, per_layer=None, levels=None,
@@ -128,6 +128,11 @@ class Raw:
         #: one is in force). Evaluator-side only -- never written to the raw
         #: cache, which stays pure Timeloop output.
         self.mac = mac
+        #: What a DRAM bit was charged in THIS record: `apply_dram_override()`
+        #: fills it (Accelergy's own pJ/bit, the override if one is in force,
+        #: and the E_background / E_refresh terms, which are 0 and unmodelled).
+        #: Evaluator-side only, like `mac`.
+        self.dram = None
 
     @property
     def total(self):
@@ -181,6 +186,105 @@ def mac_count(raw):
     """
     return float(sum(float(l.get("macs", 0) or 0) * float(l.get("repeat_count", 1) or 1)
                      for l in raw.per_layer if l.get("status") == "ok"))
+
+
+def dram_ert_pj_per_bit(raw, cfg):
+    """Accelergy's own per-BIT dynamic DRAM energy, read back off the record.
+
+    Timeloop counts a DRAM access in units of the dataspace datawidth, so the
+    weight rows give it directly: `e_dram_w / (dram_w_reads x weight_bits)`.
+    For the LPDDR4 model these designs use that is 64.0 pJ per 8-bit word =
+    8.0 pJ/bit = the documented 512 pJ per 64-bit access.
+    """
+    bits = float(raw.dram_w_reads) * float(cfg.weight_bits)
+    return (float(raw.e_dram_w) / bits) if bits else None
+
+
+def apply_dram_override(raw, cfg, verbose=True):
+    """Rescale the DRAM category to ECC_DRAM_PJ_PER_BIT, evaluator-side.
+
+    THE NUMERATOR KNOB, and the counterpart of `apply_mac_override`. Accelergy's
+    CactiDRAM charges 8 pJ/bit for LPDDR4 as modelled, which is below every
+    measured figure in the literature (Horowitz ISSCC 2014: 20 pJ/bit; FReaC
+    Cache MICRO 2020 and Gebhart MICRO 2012: 28-45 pJ/bit). The whole DRAM
+    category is scaled by `override / ERT` -- weights, inputs and outputs alike,
+    because the per-bit cost is a property of the device and not of a dataspace.
+    Scaling weights alone would inflate the weight share and flatter every ECC
+    percentage; `tests/test_dram_override.py` asserts it does not happen.
+
+    Applied AFTER the raw cache is read or written, exactly like the MAC
+    override, so `results/_raw/` stays pure Timeloop output.
+
+    E_background and E_refresh (`ECC_DRAM_BACKGROUND_PJ`, `ECC_DRAM_REFRESH_PJ`)
+    are 0 by default and this function does not add them; the `dram` record says
+    so. They are a TODO, and they are not neutral -- an arm that stores fewer
+    weight bits would save both.
+    """
+    ert = dram_ert_pj_per_bit(raw, cfg)
+    tgt = cfg.dram_pj_per_bit
+    info = {"ert_pj_per_bit": ert,
+            "override_pj_per_bit": tgt,
+            "pj_per_bit_charged": tgt if tgt is not None else ert,
+            "source": "ECC_DRAM_PJ_PER_BIT" if tgt is not None else "Accelergy ERT",
+            "citation": cfg.dram_cost_note,
+            "background_pJ": cfg.dram_background_pj,
+            "refresh_pJ": cfg.dram_refresh_pj,
+            "static_note": cfg.dram_static_note,
+            "e_dram_w_pJ_ert": float(raw.e_dram_w),
+            "e_dram_w_pJ_charged": float(raw.e_dram_w)}
+    if tgt is None or not ert:
+        raw.dram = info
+        return raw
+    ratio = tgt / ert
+    info["dram_scale"] = ratio
+    info["e_dram_w_pJ_charged"] = float(raw.e_dram_w) * ratio
+
+    def scaled(series):
+        out = series.copy()
+        if "DRAM" in out.index:
+            out["DRAM"] = float(out["DRAM"]) * ratio
+        return out
+
+    levels = []
+    for lv in raw.levels:
+        lv = dict(lv)
+        if lv.get("category") == "DRAM":
+            lv["energy_pJ"] = float(lv.get("energy_pJ", 0.0)) * ratio
+            lv["dram_pj_per_bit"] = tgt
+        levels.append(lv)
+
+    # Per-layer totals. The weight share is exact (the record carries it); the
+    # rest of the DRAM delta is apportioned across layers by their share of
+    # total energy, which is the only per-layer weighting the record supports
+    # and keeps sum(per_layer) equal to the base totals.
+    d_w = float(raw.e_dram_w) * (ratio - 1.0)
+    d_all = float(raw.base.get("DRAM", 0.0)) * (ratio - 1.0)
+    d_rest = d_all - d_w
+    tot = sum(float(l.get("total_energy_pJ", 0.0)) for l in raw.per_layer
+              if l.get("status") == "ok") or 1.0
+    per_layer = []
+    for l in raw.per_layer:
+        l = dict(l)
+        if l.get("status") == "ok":
+            dw = float(l.get("dram_weight_energy_pJ", 0.0) or 0.0)
+            share = float(l.get("total_energy_pJ", 0.0)) / tot
+            l["total_energy_pJ"] = (float(l.get("total_energy_pJ", 0.0))
+                                    + dw * (ratio - 1.0) + d_rest * share)
+            l["dram_weight_energy_pJ_charged"] = dw * ratio
+        per_layer.append(l)
+
+    out = Raw(scaled(raw.base), scaled(raw.base_w), scaled(raw.base_i),
+              float(raw.e_dram_w) * ratio, raw.dram_w_reads,
+              raw.layers_ok, raw.layers_skipped, raw.weights,
+              per_layer=per_layer, levels=levels,
+              noc_post=raw.noc_post, mac=raw.mac)
+    out.dram = info
+    if verbose:
+        print(f"  [DRAM OVERRIDE] DRAM rescaled {ert:.4g} -> {tgt:g} pJ/bit "
+              f"(x{ratio:.4g}): weight DRAM {raw.e_dram_w / 1e6:,.3f} -> "
+              f"{raw.e_dram_w * ratio / 1e6:,.3f} uJ. {cfg.dram_cost_note}")
+        print(f"  [DRAM OVERRIDE] {cfg.dram_static_note}")
+    return out
 
 
 def apply_mac_override(raw, cfg, verbose=True):
@@ -445,11 +549,14 @@ def collect(cfg, results, arch, mapper_factory, models, variant=None,
     if raws:
         print(f"  raw cache hit: {', '.join(raws)}")
     if not need_mapping:
-        # The override is applied AFTER the cache, never to it (apply_mac_override).
-        return {m: apply_mac_override(r, cfg) for m, r in raws.items()}, None
+        # The overrides are applied AFTER the cache, never to it
+        # (apply_mac_override, apply_dram_override).
+        return {m: apply_dram_override(apply_mac_override(r, cfg), cfg)
+                for m, r in raws.items()}, None
     if cfg.replot_only:
         print(f"  [skip] ECC_REPLOT_ONLY=1 and no raw cache for: {', '.join(need_mapping)}")
-        return {m: apply_mac_override(r, cfg) for m, r in raws.items()}, None
+        return {m: apply_dram_override(apply_mac_override(r, cfg), cfg)
+                for m, r in raws.items()}, None
 
     mapper = mapper_factory()
     for model in need_mapping:
@@ -460,4 +567,5 @@ def collect(cfg, results, arch, mapper_factory, models, variant=None,
         raws[model] = raw
         save_raw(results, arch, model, raw, variant, fingerprint)
     print(f"  {mapper.summary()}")
-    return {m: apply_mac_override(r, cfg) for m, r in raws.items()}, mapper
+    return {m: apply_dram_override(apply_mac_override(r, cfg), cfg)
+            for m, r in raws.items()}, mapper

@@ -48,9 +48,9 @@ def _cfg(**env):
         ECC_CONST_MODEL="resnet18", ECC_CONST_K="51",
         ECC_MAPPER_THREADS="8", ECC_VICTORY="100", ECC_FROM_CACHE="1",
         ECC_RECON_PACKING="stream", ECC_RECON_ENCODER_GRANULARITY="weight",
-        # The decoder is on the DRAM die and f_if has no cited default, so the
+        # The decoder is on the DRAM die, so the
         # synthetic case fixes one: 5000 pJ of DRAM = 3750 array + 1250 interface.
-        ECC_RECON_DECODE_SITE="ondie", ECC_DRAM_IF_FRAC="0.25",
+        ECC_RECON_DECODE_SITE="ondie",
     )
     base.update(env)
     for k in list(os.environ):
@@ -250,18 +250,15 @@ def _write_cache(root):
     return d / "timeloop-mapper.stats.txt"
 
 
-#: The synthetic DRAM level is 5000 pJ; at the fixture's f_if = 0.25 that is
-#: 3750 pJ of array (never reduced) and 1250 pJ of interface (x K/N on every
-#: boundary). Every hand check below is written against these two numbers.
-_F_IF = 0.25
+#: The synthetic DRAM level is 5000 pJ and it is ONE stage: the whole of it is
+#: x K/N on every boundary (the f_if array/interface split was removed
+#: 2026-09-09). Every hand check below is written against this number.
 _DRAM_W = 5000.0
-_DRAM_ARRAY = _DRAM_W * (1 - _F_IF)
-_DRAM_IFACE = _DRAM_W * _F_IF
 
 
-def _dram_expected(frac, f_if=_F_IF, dram_w=_DRAM_W):
+def _dram_expected(frac, dram_w=_DRAM_W):
     """What every placement's DRAM component must be with the decoder on the die."""
-    return dram_w - f_if * dram_w * (1.0 - frac)
+    return dram_w * frac
 
 
 # --------------------------------------------------------- layout arithmetic
@@ -312,40 +309,6 @@ def test_stream_packing_scales_by_k_over_n_and_aligned_packing_does_not():
     assert aligned.storage_scale(64) < 1.0
 
 
-# ------------------------------------------------------------- the loop nest
-def test_loop_nest_separates_the_tile_from_the_consecutive_run():
-    """The distinction R4b turns on -- see recon.retention_model."""
-    from eccenergy.recon import weight_loop_nest
-    with tempfile.TemporaryDirectory() as tmp:
-        _write_cache(tmp)
-        nest = weight_loop_nest(
-            pathlib.Path(tmp) / "C8_M8" / "timeloop-mapper.map.txt")
-        # the loops below the buffer walk 8 DISTINCT weights (M is the only
-        # weight dimension among them)...
-        assert nest["inner_tile"] == 8, nest
-        # ...while a ONE-ENTRY latch would serve Q(2) x P(3) = 6 uses in a row
-        assert nest["consecutive_run"] == 6, nest
-        assert nest["innermost_weight_dim"] == "M"
-        # M is the slowest index of the [M][C][R][S] stream order, so
-        # consecutively accessed weights are NOT consecutive in the bit stream
-        assert nest["stream_consecutive"] is False
-        assert nest["weight_level"] == "weights_spad"
-
-        # the innermost loop walking a weight dimension kills the latch, which
-        # is what every real eyeriss_v2_like mapping does
-        q = pathlib.Path(tmp) / "C8_M8" / "timeloop-mapper.map.txt"
-        _write_lf(q, _MAP.replace("|     for M in [0:8)\n"
-                                  "|       for P in [0:3)\n"
-                                  "|         for Q in [0:2)\n",
-                                  "|     for P in [0:3)\n"
-                                  "|       for C in [0:2)\n"))
-        nest = weight_loop_nest(q)
-        assert nest["consecutive_run"] == 1, nest
-        assert nest["inner_tile"] == 2 and nest["innermost_weight_dim"] == "C"
-
-        # a missing map.txt must be reported, not guessed at
-        nest = weight_loop_nest(pathlib.Path(tmp) / "nope" / "map.txt")
-        assert nest["inner_tile"] == 0 and "no map.txt" in nest["evidence"]
 
 
 # ------------------------------------------------------- the stats re-parse
@@ -368,17 +331,13 @@ def test_weight_path_reads_totals_capacity_and_the_wire_split():
         assert spad.block_bits == 24
         assert math.isclose(spad.energy_pJ, 800.0)
 
-        # The one DRAM level is TWO stages whose shares sum to one. Both see
-        # every access (R1 counts its reconstructions off the array's reads);
-        # only the energy is split.
-        array, iface = wp.stage("dram_array"), wp.stage("dram_interface")
-        assert array.reads == 2048.0 and iface.reads == 2048.0
-        assert math.isclose(array.energy_pJ, _DRAM_ARRAY) and \
-            math.isclose(iface.energy_pJ, _DRAM_IFACE)
-        assert math.isclose(array.energy_pJ + iface.energy_pJ, _DRAM_W)
-        assert array.level_share == 0.75 and iface.level_share == 0.25
-        assert array.levels == ["DRAM"] and iface.levels == ["DRAM"]
-        assert wp.decode_site == "ondie" and wp.dram_if_frac == 0.25
+        # The one DRAM level is ONE stage owning all of it.
+        d = wp.stage("dram")
+        assert d.reads == 2048.0
+        assert math.isclose(d.energy_pJ, _DRAM_W)
+        assert d.level_share == 1.0
+        assert d.levels == ["DRAM"]
+        assert wp.decode_site == "ondie"
         assert math.isclose(wp.dram_weight_energy(), _DRAM_W)
 
         mesh = wp.stage("inter_cluster_mesh")
@@ -400,15 +359,9 @@ def test_weight_path_reads_totals_capacity_and_the_wire_split():
             assert math.isclose(st.wire_pJ + st.switch_pJ, st.energy_pJ,
                                 rel_tol=1e-9)
 
-        # 400 reads for 40 fills -> a register holding the working set
-        # reconstructs 40 times: a 10x amortization
-        ret = wp.retention
-        assert ret["weights_reconstructed_with_retention"] == 40.0, ret
-        assert ret["weights_reconstructed_without_retention"] == 400.0, ret
-        assert math.isclose(ret["amortization_vs_no_retention"], 10.0)
-        # the working set is the LARGER of the walked tile (8) and the resident
-        # capacity (24): a register covering less than it catches nothing
-        assert ret["register_entries_required_max"] == 24, ret
+        # R4b and the retention model were removed on 2026-09-10, so the
+        # weight path no longer carries one.
+        assert not hasattr(wp, "retention")
 
 
 def test_a_weight_level_no_stage_claims_fails_the_cross_check():
@@ -476,21 +429,18 @@ def test_placements_reconcile_by_hand_array_untouched_interface_x_k_over_n():
     for p in reconmod.placements_for("eyeriss_v2_like"):
         res = reconmod.evaluate_placement(
             cfg, "eyeriss_v2_like", p, wp, base_w, base,
-            recon_pj=4.0, reuse_reg_pj=0.03, gran=gran, packing=packing)
+            recon_pj=4.0, gran=gran, packing=packing)
         assert res.status == "evaluated", (p.key, res.reason)
         out[p.key] = res
-        # THE DRAM TERM, under every boundary: array untouched, interface x K/N
-        #   5000 - 1250 x (1 - 51/63) = 4761.905
+        # THE DRAM TERM, under every boundary: the WHOLE term x K/N
+        #   5000 x 51/63 = 4047.619
         assert math.isclose(res.components["DRAM"], _dram_expected(frac),
                             rel_tol=1e-12), (p.key, res.components["DRAM"])
         dm = res.detail["dram_model"]
-        assert dm["dram_array_after_pJ"] == dm["dram_array_pJ"] == _DRAM_ARRAY
-        assert dm["dram_array_reduced"] is False
-        assert dm["dram_interface_reduced"] is True
-        assert math.isclose(dm["dram_interface_after_pJ"], _DRAM_IFACE * frac,
+        assert dm["dram_reduced"] is True
+        assert math.isclose(dm["dram_after_pJ"], _DRAM_W * frac, rel_tol=1e-12)
+        assert math.isclose(dm["dram_saving_pJ"], _DRAM_W * (1 - frac),
                             rel_tol=1e-12)
-        assert math.isclose(dm["dram_interface_saving_pJ"],
-                            _DRAM_IFACE * (1 - frac), rel_tol=1e-12)
         # Compute is untouched by every boundary
         assert math.isclose(res.components["Compute"], 9000.0, rel_tol=1e-12)
         # the stack always sums to the total
@@ -503,7 +453,7 @@ def test_placements_reconcile_by_hand_array_untouched_interface_x_k_over_n():
     r1 = out["recon1"]
     saved = r1.detail["energy_saved_by_category_pJ"]
     assert set(saved) == {"DRAM"}, saved
-    assert math.isclose(saved["DRAM"], _DRAM_IFACE * (1 - frac), rel_tol=1e-12)
+    assert math.isclose(saved["DRAM"], _DRAM_W * (1 - frac), rel_tol=1e-12)
     assert math.isclose(r1.components["NoC"], 150.0, rel_tol=1e-12)
     assert math.isclose(r1.components["Local (spads/RF)"], 911.0, rel_tol=1e-12)
     assert math.isclose(r1.components["Reconstruction"],
@@ -511,7 +461,7 @@ def test_placements_reconcile_by_hand_array_untouched_interface_x_k_over_n():
     # ...so R1 beats the embedded reference by the interface saving minus its
     # reconstruction cost, and by nothing else
     assert math.isclose(float(base.sum()) - r1.total_pJ,
-                        _DRAM_IFACE * (1 - frac) - 2048 / (63 / 8) * 4.0,
+                        _DRAM_W * (1 - frac) - 2048 / (63 / 8) * 4.0,
                         rel_tol=1e-12)
 
     # R2 reduces the mesh only: 130 pJ -> 100*frac wire + 30*frac switching
@@ -535,73 +485,15 @@ def test_placements_reconcile_by_hand_array_untouched_interface_x_k_over_n():
                         400 / (63 / 8) * 4.0, rel_tol=1e-12)
     assert math.isclose(r4a.components["Recon overhead"], 0.0, abs_tol=1e-12)
 
-    # R4b saves the SAME energy as R4a but rebuilds once per FILL (40) instead
-    # of once per read (400), and pays one register write per weight retained.
-    # Its reconstruction count therefore EQUALS R3's, which is the whole point:
-    # R4b is R3's encoder count with R4a's storage saving.
-    r4b = out["recon5"]
-    assert math.isclose(r4b.components["Local (spads/RF)"],
-                        r4a.components["Local (spads/RF)"], rel_tol=1e-12)
-    assert math.isclose(r4b.components["Reconstruction"],
-                        40 / (63 / 8) * 4.0, rel_tol=1e-12)
-    assert math.isclose(r4b.components["Reconstruction"],
-                        r3.components["Reconstruction"], rel_tol=1e-12)
-    # Overhead = one register WRITE per weight retained, PLUS the register's
-    # lockstep READS. The read term is the 2026-09-08 audit fix: before it, the
-    # register was charged a write and nothing else while R4b still took the
-    # K/N discount on all 400 SPad reads, which is not a consistent machine.
-    # See recon.ReuseRegister.
-    spad = wp.stages["weight_spad"]
-    wpw = packing.weights_per_word(spad.block_bits, reduced=True)
-    want = 40 * 0.03 + (400 / wpw) * 0.03 * (1 - frac)
-    assert math.isclose(r4b.components["Recon overhead"], want, rel_tol=1e-12), (
-        r4b.components["Recon overhead"], want)
-    # ...so R4b must be the cheapest boundary, and cheaper than the embedded
-    # reference it is measured against
-    assert r4b.total_pJ < r4a.total_pJ
-    assert r4b.total_pJ == min(r.total_pJ for r in out.values())
-    assert r4b.total_pJ < float(base.sum())
+    # R4b (recon5) was removed on 2026-09-10, so R4a is the innermost
+    # boundary here and nothing carries a reuse register: `Recon overhead` is
+    # structurally zero on every bar.
+    for r in out.values():
+        assert math.isclose(r.components["Recon overhead"], 0.0, abs_tol=1e-12)
 
 
-def test_a_register_smaller_than_the_working_set_collapses_r4b_onto_r4a():
-    """A cyclic walk is the LRU worst case, so a one-entry latch catches nothing.
-
-    This is the case the first version of the model applied UNCONDITIONALLY,
-    which is why R4b came out useless. It is a real case -- it is what a latch
-    does -- but it is what `ECC_RECON_REUSE_REG_ENTRIES=1` asks for, not the
-    default.
-    """
-    from eccenergy import recon as reconmod
-    cfg, wp, base, base_w, gran, packing = _placement_setup(
-        ECC_RECON_REUSE_REG_ENTRIES="1")
-    assert wp.retention["weights_reconstructed_with_retention"] == 400.0
-    assert math.isclose(wp.retention["amortization_vs_no_retention"], 1.0)
-    r4a = reconmod.evaluate_placement(
-        cfg, "eyeriss_v2_like", reconmod.placement_by_key("eyeriss_v2_like", "recon4"),
-        wp, base_w, base, 4.0, 0.03, gran, packing)
-    r4b = reconmod.evaluate_placement(
-        cfg, "eyeriss_v2_like", reconmod.placement_by_key("eyeriss_v2_like", "recon5"),
-        wp, base_w, base, 4.0, 0.03, gran, packing)
-    assert math.isclose(r4b.components["Reconstruction"],
-                        r4a.components["Reconstruction"], rel_tol=1e-12)
-    # ...and the register is then pure overhead, so R4b must cost MORE
-    assert r4b.total_pJ > r4a.total_pJ
 
 
-def test_a_tile_sized_register_beats_every_other_boundary():
-    """The ordering the source discussion's ratings predict: R4b > R3 > R4a."""
-    from eccenergy import recon as reconmod
-    cfg, wp, base, base_w, gran, packing = _placement_setup()
-    got = {}
-    for key in ("recon1", "recon2", "recon3", "recon4", "recon5"):
-        p = reconmod.placement_by_key("eyeriss_v2_like", key)
-        got[key] = reconmod.evaluate_placement(
-            cfg, "eyeriss_v2_like", p, wp, base_w, base, 4.0, 0.03, gran,
-            packing).total_pJ
-    assert got["recon5"] < got["recon3"] < got["recon4"], got
-    assert got["recon5"] == min(got.values()), got
-    # ...and the register capacity it needs is reported, not hidden
-    assert wp.retention["register_entries_required_max"] == 24
 
 
 def test_a_pe_local_boundary_is_rejected_when_the_tile_is_smaller_than_g_rec():
@@ -611,20 +503,20 @@ def test_a_pe_local_boundary_is_rejected_when_the_tile_is_smaller_than_g_rec():
     assert gran.g_rec == 9
 
     # 24 resident weights >= 9: both PE-local boundaries are feasible
-    for key in ("recon4", "recon5"):
+    for key in ("recon4",):
         p = reconmod.placement_by_key("eyeriss_v2_like", key)
         ok, detail = reconmod.feasibility(p, "eyeriss_v2_like", wp, gran)
         assert ok is True, detail
 
     # a depthwise-style tile of 3 weights cannot assemble the group
     wp.per_layer[0]["stages"]["weight_spad"]["weights_resident_per_instance"] = 3
-    for key in ("recon4", "recon5"):
+    for key in ("recon4",):
         p = reconmod.placement_by_key("eyeriss_v2_like", key)
         ok, detail = reconmod.feasibility(p, "eyeriss_v2_like", wp, gran)
         assert ok is False, detail
         assert detail["infeasible_layers"][0]["weights_resident"] == 3
         res = reconmod.evaluate_placement(cfg, "eyeriss_v2_like", p, wp, base_w,
-                                          base, 4.0, 0.03, gran, packing)
+                                          base, 4.0, gran, packing)
         assert res.status == "unsupported" and res.total_pJ == 0.0
 
     # ...while a boundary ABOVE the scratchpad is unaffected: the reduced form
@@ -639,10 +531,10 @@ def test_a_missing_stage_is_unsupported_rather_than_skipped():
     from eccenergy import recon as reconmod
     cfg, wp, base, base_w, gran, packing = _placement_setup()
     wp.stages["weight_spad"].energy_pJ = 0.0      # as if the design had no SPad
-    for key in ("recon3", "recon4", "recon5"):
+    for key in ("recon3", "recon4"):
         p = reconmod.placement_by_key("eyeriss_v2_like", key)
         res = reconmod.evaluate_placement(cfg, "eyeriss_v2_like", p, wp, base_w,
-                                          base, 4.0, 0.03, gran, packing)
+                                          base, 4.0, gran, packing)
         assert res.status == "unsupported", key
         assert "no weight energy" in res.reason, res.reason
 
@@ -690,7 +582,7 @@ def _task3_validation(mutate=None, newly=0, from_cache="1", **env):
         out = []
         for p in reconmod.placements_for("eyeriss_v2_like", c):
             r = reconmod.evaluate_placement(
-                c, "eyeriss_v2_like", p, wp, base_w, base, 4.0, 0.03,
+                c, "eyeriss_v2_like", p, wp, base_w, base, 4.0,
                 gran, packing)
             if mutate:
                 mutate(r)
@@ -708,8 +600,7 @@ def _task3_validation(mutate=None, newly=0, from_cache="1", **env):
 
 _TASK3_CHECKS = ("weight_path_reconciles_with_raw_record",
                  "placement_space_covers_the_whole_weight_path",
-                 "dram_array_identical_to_embedded_reference",
-                 "dram_interface_scaled_by_K_over_N",
+                 "dram_scaled_by_K_over_N",
                  "non_weight_energy_identical",
                  "placement_savings_are_bounded_by_the_weight_path",
                  "only_weight_path_categories_differ_from_the_embedded_reference",
@@ -722,9 +613,11 @@ def test_task3_checks_pass_on_a_consistent_record_and_catch_a_leak():
     good = _task3_validation()
     for name in _TASK3_CHECKS:
         assert good[name] is True, (name, good)
-    # ...and the pre-2026-09-09 single DRAM check is gone, not merely renamed
-    # alongside: a result file carries the two directional checks instead.
-    assert "dram_identical_to_embedded_reference" not in good, sorted(good)
+    # ...and the older check names are gone, not merely renamed alongside.
+    for dead in ("dram_identical_to_embedded_reference",
+                 "dram_array_identical_to_embedded_reference",
+                 "dram_interface_scaled_by_K_over_N"):  # the pre-2026-09-09 pair
+        assert dead not in good, (dead, sorted(good))
 
     # a leak into MAC energy must be caught
     def cheat_compute(r):
@@ -739,76 +632,61 @@ def test_task3_checks_pass_on_a_consistent_record_and_catch_a_leak():
     assert _task3_validation(newly=3, from_cache="0")["evaluation_only_rerun"] is False
 
 
-def test_a_silent_dram_array_credit_fails_the_array_check_and_only_that_one():
-    """CHEAT DOWNWARD: a placement that takes more DRAM than the interface saving.
+def test_a_dram_component_off_the_K_over_N_value_fails_in_either_direction():
+    """The DRAM check is an EQUALITY now, so it catches both cheats.
 
-    The array is never reduced, so a DRAM component BELOW emb_DRAM - f_if x
-    DRAM_w x (1 - K/N) is an array credit. `dram_array_identical_to_embedded_
-    reference` must fail; `dram_interface_scaled_by_K_over_N` bounds the other
-    direction and must still pass, or the two checks are one check twice.
+    Before 2026-09-09 the array was never reduced and the interface always was,
+    so the two directions needed two checks: one flagged a bar BELOW the
+    expected value (an illegitimate array credit), the other a bar ABOVE it (an
+    interface left at full width). With the f_if split gone the whole DRAM term
+    is x K/N, the expected value is a single number, and `dram_scaled_by_K_over_N`
+    must reject any departure from it either way.
     """
-    def cheat_array(r):
+    # CHEAT DOWNWARD: takes more DRAM saving than K/N allows
+    def cheat_low(r):
         r.components["DRAM"] *= 0.9
         r.total_pJ = sum(r.components.values())
-    got = _task3_validation(cheat_array)
-    assert got["dram_array_identical_to_embedded_reference"] is False, got
-    assert got["dram_interface_scaled_by_K_over_N"] is True, got
+    got = _task3_validation(cheat_low)
+    assert got["dram_scaled_by_K_over_N"] is False, got
+    assert got["non_weight_energy_identical"] is True, got
 
-    # ...and a cheat visible only in the detail rows (the stack is right, the
-    # record claims the array was reduced) is caught by the same check
-    def cheat_rows(r):
-        r.detail["dram_model"]["dram_array_reduced"] = True
-        r.detail["dram_model"]["dram_array_after_pJ"] *= 0.9
-    got = _task3_validation(cheat_rows)
-    assert got["dram_array_identical_to_embedded_reference"] is False, got
-    assert got["dram_interface_scaled_by_K_over_N"] is True, got
-
-
-def test_an_unscaled_dram_interface_fails_the_interface_check_and_only_that_one():
-    """CHEAT UPWARD: a placement that leaves the interface at full width.
-
-    Putting the interface saving back -- DRAM identical to the embedded
-    reference, the pre-2026-09-09 behaviour -- is now the failure: with the
-    decoder on the DRAM die only the k message bits leave it, and a bar whose
-    DRAM component sits ABOVE emb_DRAM - f_if x DRAM_w x (1 - K/N) has not
-    taken that saving. The array check bounds the other direction and passes.
-    """
-    def cheat_interface(r):
-        r.components["DRAM"] = 5000.0
+    # CHEAT UPWARD: leaves the DRAM at full width (the pre-2026-09-09 behaviour)
+    def cheat_high(r):
+        r.components["DRAM"] = _DRAM_W
         r.total_pJ = sum(r.components.values())
-    got = _task3_validation(cheat_interface)
-    assert got["dram_interface_scaled_by_K_over_N"] is False, got
-    assert got["dram_array_identical_to_embedded_reference"] is True, got
+    got = _task3_validation(cheat_high)
+    assert got["dram_scaled_by_K_over_N"] is False, got
 
-    # ...and the detail-row version of the same cheat
+    # ...and a cheat visible only in the detail rows: the stack is right, but
+    # the record claims the term was not reduced.
     def cheat_rows(r):
-        r.detail["dram_model"]["dram_interface_after_pJ"] = \
-            r.detail["dram_model"]["dram_interface_pJ"]
+        r.detail["dram_model"]["dram_reduced"] = False
+        r.detail["dram_model"]["dram_after_pJ"] = \
+            r.detail["dram_model"]["dram_weight_energy_pJ"]
     got = _task3_validation(cheat_rows)
-    assert got["dram_interface_scaled_by_K_over_N"] is False, got
-    assert got["dram_array_identical_to_embedded_reference"] is True, got
+    assert got["dram_scaled_by_K_over_N"] is False, got
 
 
-# ------------------------------------------- the decode site and f_if
+# ------------------------------------------- the decode site
 def test_controller_site_reproduces_the_pre_2026_09_09_numbers():
     """`ECC_RECON_DECODE_SITE=controller` must be the OLD model to the digit.
 
     These are the hand checks the suite carried before the decoder moved onto
     the DRAM die: DRAM identical on every bar, R1 saving nothing, R2 the mesh
-    only, R3 both networks, R4a/R4b the scratchpad too. If they stop holding
+    only, R3 both networks, R4a the scratchpad too. If they stop holding
     under `controller`, the diff row proves nothing.
     """
     from eccenergy import recon as reconmod
     cfg, wp, base, base_w, gran, packing = _placement_setup(
         ECC_RECON_DECODE_SITE="controller")
     assert wp.decode_site == "controller"
-    # the interface stage exists, is split by the same f_if, and is NOT reducible
-    assert math.isclose(wp.stages["dram_interface"].energy_pJ, _DRAM_IFACE)
+    # the single dram stage owns the whole level and is NOT reducible
+    assert math.isclose(wp.stages["dram"].energy_pJ, _DRAM_W)
     assert not any(s.reducible for s in reconmod.stages_for("eyeriss_v2_like", cfg)
-                   if s.key == "dram_interface")
+                   if s.key == "dram")
     # ...and it has left every placement's reduced set, R1's included
     for p in reconmod.placements_for("eyeriss_v2_like", cfg):
-        assert "dram_interface" not in p.reduced, p
+        assert "dram" not in p.reduced, p
     assert reconmod.placement_by_key("eyeriss_v2_like", "recon1", cfg).reduced == ()
     ok, detail = reconmod.validate_placement_space("eyeriss_v2_like", cfg)
     assert ok is True, detail
@@ -822,20 +700,20 @@ def test_controller_site_reproduces_the_pre_2026_09_09_numbers():
     # the ON-DIE table's placements are handed in deliberately: evaluate_placement
     # has to apply the decode site itself, whatever form the caller holds
     for p in reconmod.placements_for("eyeriss_v2_like"):
-        assert "dram_interface" in p.reduced
+        assert "dram" in p.reduced
         res = reconmod.evaluate_placement(cfg, "eyeriss_v2_like", p, wp, base_w,
-                                          base, 4.0, 0.03, gran, packing)
+                                          base, 4.0, gran, packing)
         assert res.status == "evaluated", (p.key, res.reason)
         out[p.key] = res
         assert res.components["DRAM"] == 5000.0, (p.key, res.components["DRAM"])
         assert math.isclose(res.components["Compute"], 9000.0, rel_tol=1e-12)
         dm = res.detail["dram_model"]
         assert dm["decode_site"] == "controller"
-        assert dm["dram_interface_reduced"] is False
-        assert dm["dram_interface_saving_pJ"] == 0.0
-        assert "dram_interface" not in res.placement.reduced
-    r1, r2, r3, r4a, r4b = (out[k] for k in ("recon1", "recon2", "recon3",
-                                             "recon4", "recon5"))
+        assert dm["dram_reduced"] is False
+        assert dm["dram_saving_pJ"] == 0.0
+        assert "dram" not in res.placement.reduced
+    r1, r2, r3, r4a = (out[k] for k in ("recon1", "recon2", "recon3",
+                                        "recon4"))
     assert math.isclose(sum(r1.detail["energy_saved_by_category_pJ"].values()),
                         0.0, abs_tol=1e-9)
     assert math.isclose(r1.components["Reconstruction"], 2048 / (63 / 8) * 4.0,
@@ -845,8 +723,6 @@ def test_controller_site_reproduces_the_pre_2026_09_09_numbers():
     assert math.isclose(r3.components["Local (spads/RF)"], 911.0, rel_tol=1e-12)
     assert math.isclose(r4a.components["Local (spads/RF)"],
                         911.0 - 800.0 * (1 - frac), rel_tol=1e-12)
-    assert math.isclose(r4b.components["Reconstruction"],
-                        r3.components["Reconstruction"], rel_tol=1e-12)
     # R1 is worse than the embedded reference under controller-side correction
     assert r1.total_pJ > float(base.sum())
 
@@ -856,102 +732,87 @@ def test_controller_site_reproduces_the_pre_2026_09_09_numbers():
     for key, old in out.items():
         new = reconmod.evaluate_placement(
             cfg2, "eyeriss_v2_like", reconmod.placement_by_key("eyeriss_v2_like", key),
-            wp2, base_w, base, 4.0, 0.03, gran2, packing2)
+            wp2, base_w, base, 4.0, gran2, packing2)
         for cat in old.components:
             diff = old.components[cat] - new.components[cat]
-            want = _DRAM_IFACE * (1 - frac) if cat == "DRAM" else 0.0
+            want = _DRAM_W * (1 - frac) if cat == "DRAM" else 0.0
             assert math.isclose(diff, want, rel_tol=1e-12, abs_tol=1e-9), (key, cat)
 
-    # ...and the recorded checks pass under `controller` too, where both DRAM
-    # checks collapse onto "identical to the embedded reference"
+    # ...and the recorded checks pass under `controller` too, where the DRAM
+    # check collapses onto "identical to the embedded reference"
     good = _task3_validation(ECC_RECON_DECODE_SITE="controller")
     for name in _TASK3_CHECKS:
         assert good[name] is True, (name, good)
 
-    # an unset f_if is fine under controller: nothing depends on the split
-    cfg3, wp3, *_ = _placement_setup(ECC_RECON_DECODE_SITE="controller",
-                                     ECC_DRAM_IF_FRAC="")
-    assert cfg3.dram_if_frac is None
-    assert wp3.dram_if_frac == 0.0
-    assert math.isclose(wp3.stages["dram_array"].energy_pJ, _DRAM_W)
-    assert wp3.stages["dram_interface"].energy_pJ == 0.0
+    # the whole level is still the one dram stage under controller; it simply
+    # is not reduced
+    cfg3, wp3, *_ = _placement_setup(ECC_RECON_DECODE_SITE="controller")
+    assert math.isclose(wp3.stages["dram"].energy_pJ, _DRAM_W)
     ok, _ = reconmod.cross_check(cfg3, "eyeriss_v2_like", wp3, base_w)
     assert ok is True
 
 
-def test_ondie_without_f_if_refuses_and_the_knobs_are_validated():
-    """No cited f_if, no number. `ECC_DRAM_IF_FRAC` unset under `ondie` is a
-    refusal in `weight_path()` (and `run()` prints the ceiling at several
-    values first); the two knobs reject what they cannot mean."""
+def test_the_dram_cost_knobs_are_validated_and_titled():
+    """`ECC_DRAM_IF_FRAC` is GONE (2026-09-09) and nothing refuses on it any
+    more; `ECC_DRAM_PJ_PER_BIT` and the two static terms take its place and
+    reject what they cannot mean."""
     from eccenergy import recon as reconmod
     from eccenergy.config import ConfigError
-    cfg = _cfg(ECC_DRAM_IF_FRAC="")
-    assert cfg.dram_if_frac is None and cfg.recon_decode_site == "ondie"
-    with tempfile.TemporaryDirectory() as tmp:
-        stats = _write_cache(tmp)
-        layer = _Layer()
-        try:
-            reconmod.weight_path(cfg, "eyeriss_v2_like", "resnet18", [layer],
-                                 {layer.shape_name: stats})
-        except ValueError as exc:
-            assert "ECC_DRAM_IF_FRAC" in str(exc)
-        else:
-            raise AssertionError("weight_path evaluated with no f_if under ondie")
-    # the sensitivity list the refusal prints is the one the spec names
-    assert reconmod.F_IF_SENSITIVITY == (0.10, 0.25, 0.50)
 
-    for bad in dict(ECC_RECON_DECODE_SITE="dimm"), dict(ECC_DRAM_IF_FRAC="1.5"), \
-            dict(ECC_DRAM_IF_FRAC="-0.1"), dict(ECC_DRAM_IF_FRAC="0"):
+    # the removed knob leaves no trace in the config or the module
+    assert not hasattr(_cfg(), "dram_if_frac")
+    assert not hasattr(reconmod, "F_IF_SENSITIVITY")
+    assert not hasattr(reconmod, "NO_F_IF")
+    # ...and setting it does nothing at all: it is not read
+    assert _cfg(ECC_DRAM_IF_FRAC="0.25").dram_pj_per_bit == _cfg().dram_pj_per_bit
+
+    for bad in (dict(ECC_RECON_DECODE_SITE="dimm"),
+                dict(ECC_DRAM_PJ_PER_BIT="0"),
+                dict(ECC_DRAM_PJ_PER_BIT="-1"),
+                dict(ECC_DRAM_BACKGROUND_PJ="-1"),
+                dict(ECC_DRAM_REFRESH_PJ="-1")):
         try:
             _cfg(**bad)
         except ConfigError:
             pass
         else:
             raise AssertionError(f"{bad} was accepted")
-    # f_if = 0 is only refused where it would leave every placement an empty
-    # interface stage; under controller it is the same as unset
-    assert _cfg(ECC_DRAM_IF_FRAC="0", ECC_RECON_DECODE_SITE="controller").dram_if_frac == 0.0
-    # the title carries the decode site and f_if, so a figure cannot be quoted
-    # without them
+
+    # the static terms default to 0 and say so
+    c = _cfg()
+    assert c.dram_background_pj == 0.0 and c.dram_refresh_pj == 0.0
+    assert "not modelled" in c.dram_static_note.lower()
+
+    # the title carries the decode site and the per-bit cost, so a figure
+    # cannot be quoted without them
     t = _cfg().recon_title()
-    assert "f_if = 0.25" in t and "DRAM die" in t, t
+    assert "DRAM die" in t, t
     t = _cfg(ECC_RECON_DECODE_SITE="controller").recon_title()
     assert "controller" in t.lower() and "pre-2026-09-09" in t, t
 
 
 def test_the_dram_level_is_claimed_exactly_once_in_total():
-    """Two stages, one level: the shares must sum to one and nothing else may
-    claim the DRAM level. A third claimant, or a pair that is not the
-    array/interface pair, is a table error and is refused, not double-counted."""
+    """ONE stage, one level. The array/interface pair and its f_if shares were
+    removed on 2026-09-09, so a level claimed twice is now always a table
+    error and is refused, not double-counted."""
     from eccenergy import recon as reconmod
     cfg = _cfg()
     stages = reconmod.stages_for("eyeriss_v2_like", cfg)
     dram = [s for s in stages if s.matches("DRAM")]
-    assert [s.key for s in dram] == ["dram_array", "dram_interface"]
-    assert {s.dram_share for s in dram} == {"array", "interface"}
-    assert not dram[0].reducible and dram[1].reducible
-    shares = reconmod._level_shares(dram, 0.25, "DRAM")
-    assert shares == {"dram_array": 0.75, "dram_interface": 0.25}
-    assert math.isclose(sum(shares.values()), 1.0)
-    for f in (0.1, 0.5, 1.0):
-        assert math.isclose(sum(reconmod._level_shares(dram, f, "DRAM").values()), 1.0)
-    # the wglb path keeps the pair FIRST, before its extra weight GLB
+    assert [s.key for s in dram] == ["dram"]
+    assert dram[0].reducible
+    assert reconmod._level_shares(dram, "DRAM") == {"dram": 1.0}
+    # the wglb path keeps it FIRST, before its extra weight GLB
     keys = [s.key for s in reconmod.stages_for("eyeriss_v2_like_wglb", cfg)]
-    assert keys[:3] == ["dram_array", "dram_interface", "weight_glb"], keys
-    # a stage that is not part of the pair may not share the level
+    assert keys[:2] == ["dram", "weight_glb"], keys
+    # any second claimant of the level is refused
     rogue = dram + [reconmod.Stage("x", "x", "storage", ("DRAM",), True)]
     try:
-        reconmod._level_shares(rogue, 0.25, "DRAM")
+        reconmod._level_shares(rogue, "DRAM")
     except ValueError:
         pass
     else:
-        raise AssertionError("three claimants of one level were accepted")
-    try:
-        reconmod._level_shares([dram[1], dram[1]], 0.25, "DRAM")
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("two interface stages were accepted")
+        raise AssertionError("two claimants of one level were accepted")
 
 
 def test_r1_isolates_the_interface_saving_from_every_on_chip_saving():
@@ -964,13 +825,13 @@ def test_r1_isolates_the_interface_saving_from_every_on_chip_saving():
         out, packing = _evaluate(case)
         base, wp = case["base"], case["wpath"]
         emb = float(base.sum())
-        iface_saving = wp.stages["dram_interface"].energy_pJ * (1 - packing.frac)
+        iface_saving = wp.stages["dram"].energy_pJ * (1 - packing.frac)
         r1 = out["recon1"]
         recon1 = r1.components["Reconstruction"] + r1.components["Recon overhead"]
         assert math.isclose(emb - r1.total_pJ, iface_saving - recon1, rel_tol=1e-12), \
             case["name"]
         assert set(r1.detail["energy_saved_by_category_pJ"]) == {"DRAM"}, case["name"]
-        for key in ("recon2", "recon3", "recon4", "recon5"):
+        for key in ("recon2", "recon3", "recon4"):
             res = out[key]
             if res.status != "evaluated":
                 continue
@@ -984,16 +845,50 @@ def test_r1_isolates_the_interface_saving_from_every_on_chip_saving():
 
 
 # ------------------------------------------------------------- configuration
-def test_recon_optimizer_true_is_refused_rather_than_ignored():
+def test_recon_optimizer_true_is_task4_and_cannot_be_filed_as_a_pre_result():
+    """RECON_OPTIMIZER=True is Task 4 (since 2026-09-09) and is `Post` only.
+
+    The knob used to refuse outright, because Task 4 did not exist and the one
+    thing that must never happen is fixed-mapping numbers under a heading that
+    says the mapping was optimised. Task 4 is implemented now, so the refusal
+    moved to where it can still be checked:
+
+      * here -- a re-optimised mapping filed as a `Pre` result, which is a
+        result whose own phase field contradicts it;
+      * `experiments/recon.dilated_view()` -- the reconstruction arm's mapper
+        cache missing, the design having no weight level to dilate, or the
+        dilated capacity not coming back N/K times the reference's. Each of
+        those would otherwise fall back to the reference mapping, which IS
+        Task 3.
+    """
     from eccenergy.config import ConfigError
     try:
-        _cfg(ECC_RECON_OPTIMIZER="True")
+        _cfg(ECC_RECON_OPTIMIZER="True")            # ECC_PHASE defaults to Pre
     except ConfigError as exc:
         assert "TASK 4" in str(exc), str(exc)
+        assert "Post" in str(exc), str(exc)
     else:
-        raise AssertionError("RECON_OPTIMIZER=True was accepted; it must stop "
-                             "the run rather than silently produce "
-                             "fixed-mapping numbers")
+        raise AssertionError("RECON_OPTIMIZER=True was accepted as a `Pre` "
+                             "result; a re-optimised mapping is `Post` by "
+                             "construction and the phase field would lie")
+    # Post + True is Task 4 and is accepted, with the dilated capacity derived
+    # from the reference one rather than configured separately.
+    cfg = _cfg(ECC_RECON_OPTIMIZER="True", ECC_PHASE="Post")
+    assert cfg.recon_optimizer is True
+    from eccenergy import recon as reconmod
+    assert math.isclose(reconmod.capacity_dilation_scale(cfg),
+                        cfg.weight_capacity_scale * cfg.code_n / cfg.code_k,
+                        rel_tol=1e-4)
+    # ...and the OTHER crossed combination, caught at config time so --dry-run
+    # reports it: Task 3 filed as a `Post` result claims a mapping that was
+    # never re-optimised.
+    try:
+        _cfg(ECC_RECON_MODELING="1", ECC_PHASE="Post")
+    except ConfigError as exc:
+        assert "Task 3" in str(exc) and "Pre" in str(exc), str(exc)
+    else:
+        raise AssertionError("ECC_PHASE=Post with RECON_OPTIMIZER=False was "
+                             "accepted; a fixed mapping is a `Pre` result")
     # False, and the spelling env.sh uses, are both fine
     assert _cfg(ECC_RECON_OPTIMIZER="False").recon_optimizer is False
 
@@ -1053,7 +948,7 @@ def test_a_multicast_network_boundary_pays_per_destination_not_per_injection():
             res = reconmod.evaluate_placement(
                 c, "eyeriss_v2_like", p2, wp,
                 {k: v.energy_pJ for k, v in wp.stages.items()}, {},
-                recon_pj=1.0, reuse_reg_pj=0.0,
+                recon_pj=1.0,
                 gran=reconmod.Granularity(c.code_n, c.code_k, c.weight_bits,
                                           "codeword"),
                 packing=reconmod.Packing("stream", c.weight_bits, c.code_k,
@@ -1076,7 +971,7 @@ def test_a_multicast_network_boundary_pays_per_destination_not_per_injection():
         for site in reconmod.ENCODER_SITES:
             c = _cfg(ECC_RECON_ENCODER_SITE=site)
             p2 = reconmod.placement_by_key("eyeriss_v2_like", "recon2", c)
-            assert p2.reduced == ("dram_interface", "inter_cluster_mesh"), (
+            assert p2.reduced == ("dram", "inter_cluster_mesh"), (
                 "the encoder site must not change WHICH stages carry the "
                 f"reduced form: {p2.reduced}")
 
@@ -1102,12 +997,12 @@ def test_several_architectures_are_one_panel_each_and_never_one_axis():
     # only honest layout: these two are NOT the same axis.
     ws = [p.key for p in reconmod.placements_for("simple_weight_stationary", cfg)]
     v1 = [p.key for p in reconmod.placements_for("eyeriss_like", cfg)]
-    assert ws != v1 and len(ws) == 6 and len(v1) == 5, (ws, v1)
+    assert ws != v1 and len(ws) == 5 and len(v1) == 4, (ws, v1)
     ws_stages = [s.key for s in reconmod.stages_for("simple_weight_stationary", cfg)]
     v1_stages = [s.key for s in reconmod.stages_for("eyeriss_like", cfg)]
-    assert set(ws_stages) & set(v1_stages) == {"dram_array", "dram_interface"}, (
-        "the only weight-path stages two different designs share are the two "
-        "DRAM shares; anything else means a stage name is being reused across "
+    assert set(ws_stages) & set(v1_stages) == {"dram"}, (
+        "the only weight-path stage two different designs share is the DRAM; "
+        "anything else means a stage name is being reused across "
         f"designs that do not have the same level: {ws_stages} vs {v1_stages}")
 
     # A repeated name collapses to one panel rather than drawing the design
@@ -1147,29 +1042,30 @@ def test_every_placement_space_is_valid_for_every_supported_design():
         assert all(r["is_a_prefix"] for r in detail["per_placement"]), arch
 
 
-def test_the_retention_buffer_is_one_named_stage_not_every_storage_level():
-    """R4b's register is priced against ONE buffer, chosen from the tables.
 
-    `simple_weight_stationary` has THREE storage stages on its weight path -- a
-    global operand buffer, a PE scratchpad and a stationary weight register --
-    and before the scoping `retention_model()` summed all of their reads and
-    fills, pricing a register against a working set no level ever holds. The
-    buffer is R4b's own reconstruction site, read off `PLACEMENTS`.
+
+def test_task4_never_lands_on_task3s_figure():
+    """A re-optimised mapping must not overwrite the fixed-mapping figure.
+
+    Two paths set the name and they have to agree: env.sh section 10 appends
+    `_optimiser` for a whole-model run (which arrives here as ECC_STEM), and
+    `Config.stem` appends it for a layer-scoped one (where env.sh deliberately
+    leaves ECC_STEM empty so the layer scope can land in the name). Before
+    this, a two-layer Task 4 run wrote
+    `ReconSweep__layers2__<names>.png` -- exactly the file the two-layer Task 3
+    run writes.
     """
-    from eccenergy import recon as reconmod
-    cfg = _cfg()
-    assert reconmod.retention_stage("simple_weight_stationary", cfg) == "pe_spad"
-    assert reconmod.retention_stage("eyeriss_like", cfg) == "weights_spad"
-    assert reconmod.retention_stage("eyeriss_v2_like", cfg) == "weight_spad"
-    for arch in reconmod.supported_archs():
-        key = reconmod.retention_stage(arch, cfg)
-        stages = {s.key: s for s in reconmod.stages_for(arch, cfg)}
-        assert key in stages, (arch, key)
-        assert stages[key].kind == "storage", (arch, key, stages[key].kind)
-        # and it really is the site of every retention boundary
-        for p in reconmod.placements_for(arch, cfg):
-            if p.site_counter == "retained":
-                assert p.site_stage == key, (arch, p.key, p.site_stage, key)
+    t3 = _cfg(ECC_RECON_MODELING="1", ECC_LAYERS="layer2.0.conv1 layer4.0.conv2")
+    t4 = _cfg(ECC_RECON_MODELING="1", ECC_LAYERS="layer2.0.conv1 layer4.0.conv2",
+              ECC_RECON_OPTIMIZER="True", ECC_PHASE="Post")
+    assert t3.stem != t4.stem, (t3.stem, t4.stem)
+    assert t4.stem.startswith("ReconSweep_optimiser"), t4.stem
+    assert t3.layer_slug in t4.stem and t3.layer_slug in t3.stem
+    # ...and the whole-model pair, as env.sh spells it
+    w3 = _cfg(ECC_RECON_MODELING="1", ECC_STEM="ReconSweep")
+    w4 = _cfg(ECC_RECON_MODELING="1", ECC_STEM="ReconSweep_optimiser",
+              ECC_RECON_OPTIMIZER="True", ECC_PHASE="Post")
+    assert (w3.stem, w4.stem) == ("ReconSweep", "ReconSweep_optimiser")
 
 
 def test_the_stem_is_the_recon_stem_and_keeps_a_layer_scope():
@@ -1220,7 +1116,7 @@ _MANIFEST_ENV = {
     # not part of the mapping fingerprint, but they decide what the DRAM band
     # of the figure means, so the real case is evaluated at the same values
     "recon_decode_site": "ECC_RECON_DECODE_SITE",
-    "dram_if_frac": "ECC_DRAM_IF_FRAC",
+    "dram_pj_per_bit": "ECC_DRAM_PJ_PER_BIT",
 }
 
 _REAL_CACHE = {}          # memo: 12 stats files parsed once is enough
@@ -1322,14 +1218,23 @@ def _real_case():
         return None
 
     cats = plot_cats(cfg)
+    # THE OVERRIDES MUST BE APPLIED HERE TOO, exactly as production applies
+    # them (`energy.collect` -> `apply_dram_override`). The raw cache is pure
+    # Timeloop output at Accelergy's own 8 pJ/bit, while `weight_path()`
+    # rescales its DRAM stage to ECC_DRAM_PJ_PER_BIT -- so a fixture that read
+    # `raw["base_w"]` straight off the JSON would compare a rescaled weight
+    # path against an unscaled record and fail every reconciliation. Running
+    # the real function here is also what checks that the two rescalings agree.
+    from eccenergy.energy import Raw, apply_dram_override
+    rec = apply_dram_override(Raw.from_json(raw, cfg), cfg, verbose=False)
     _REAL_CACHE["case"] = {
         "name": f"cached Timeloop output, {arch}/{model}",
         "cfg": cfg, "arch": arch,
         "wpath": reconmod.weight_path(cfg, arch, model, layers, stats),
-        "base": pd.Series(raw["base"]).reindex(cats, fill_value=0.0),
-        "base_w": pd.Series(raw["base_w"]).reindex(cats, fill_value=0.0),
+        "base": rec.base.reindex(cats, fill_value=0.0),
+        "base_w": rec.base_w.reindex(cats, fill_value=0.0),
         "recon_pj": float(man.get("recon_pj_per_codeword", 4.1296273)),
-        "reg_pj": 0.0328125, "stats": stats,
+        "stats": stats,
     }
     return _REAL_CACHE["case"]
 
@@ -1338,7 +1243,7 @@ def _synthetic_case(**env):
     cfg, wp, base, base_w, _gran, _packing = _placement_setup(**env)
     return {"name": "synthetic stats.txt", "cfg": cfg, "arch": "eyeriss_v2_like",
             "wpath": wp, "base": base, "base_w": base_w,
-            "recon_pj": 4.0, "reg_pj": 0.03, "stats": None}
+            "recon_pj": 4.0, "stats": None}
 
 
 def _cases():
@@ -1367,7 +1272,7 @@ def _evaluate(case, k=None, n=None):
     for p in reconmod.placements_for(arch, cfg):
         out[p.key] = reconmod.evaluate_placement(
             cfg, arch, p, case["wpath"], case["base_w"], case["base"],
-            case["recon_pj"], case["reg_pj"], gran, packing)
+            case["recon_pj"], gran, packing)
     return out, packing
 
 
@@ -1522,10 +1427,12 @@ def test_category_energies_are_monotonic_down_the_weight_path():
         # the nesting itself, which everything below depends on
         for a, b in zip(_PATH_ORDER, _PATH_ORDER[1:]):
             assert set(placements[a].reduced) < set(placements[b].reduced), (a, b)
-        assert set(placements["recon5"].reduced) == set(placements["recon4"].reduced)
+        # R4b (recon5 on the eyeriss designs) was removed 2026-09-10
+        assert all(p.key != "recon5" for p in placements.values()) \
+               or case["arch"] == "simple_weight_stationary"
         # ...and every reduced set starts at the die's output
         for p in placements.values():
-            assert p.reduced[0] == "dram_interface", p
+            assert p.reduced[0] == "dram", p
 
         for a, b in zip(_PATH_ORDER, _PATH_ORDER[1:]):
             if a not in ev or b not in ev:
@@ -1548,7 +1455,7 @@ def test_category_energies_are_monotonic_down_the_weight_path():
                 if cat in strict:
                     assert vb < va, (where, va, vb)
 
-        if "recon4" in ev and "recon5" in ev:
+        if False:  # R4b removed 2026-09-10
             for cat in _TRANSPORT_CATS:
                 assert out["recon5"].components.get(cat, 0.0) == \
                     out["recon4"].components.get(cat, 0.0), (case["name"], cat)
@@ -1559,7 +1466,7 @@ def test_category_energies_are_monotonic_down_the_weight_path():
 def test_the_saving_of_each_boundary_matches_its_closed_form():
     """CLOSED-FORM ARITHMETIC -- the identity, not an inequality.
 
-        DRAM(Rx)   == DRAM(embedded)  - f_if x DRAM_w x (1 - K/N)   for EVERY x
+        DRAM(Rx)   == DRAM(embedded)  - DRAM_w x (1 - K/N)           for EVERY x
         NoC(R2)    == NoC(embedded)   - mesh_w x (1 - K/N)
         NoC(R3)    == NoC(embedded)   - (mesh_w + cluster_local_w) x (1 - K/N)
         Local(R4a) == Local(embedded) - weight_spad_w x (1 - K/N)
@@ -1568,59 +1475,65 @@ def test_the_saving_of_each_boundary_matches_its_closed_form():
     identity does not, and it also pins the ceiling the result file prints
     against the same arithmetic. DRAM_w is the WEIGHT share of the DRAM
     category (the category also holds inputs and outputs on the real record),
-    which is what f_if splits.
+    and since 2026-09-09 the whole of it is reducible.
     """
     for case in _cases():
+        from eccenergy import recon as reconmod
         out, packing = _evaluate(case)
         ev = _evaluated(case, out)
-        wp, base, name = case["wpath"], case["base"], case["name"]
+        wp, base, name, arch = (case["wpath"], case["base"], case["name"],
+                                case["arch"])
+        cfg = case["cfg"]
         d = 1.0 - packing.frac
-        mesh = wp.stages["inter_cluster_mesh"].energy_pJ
-        local = wp.stages["cluster_local"].energy_pJ
-        spad = wp.stages["weight_spad"].energy_pJ
-        noc0 = float(base["NoC"])
-        loc0 = float(base["Local (spads/RF)"])
         dram0 = float(base["DRAM"])
         dram_w = float(case["base_w"]["DRAM"])
-        iface = wp.stages["dram_interface"].energy_pJ
-        assert math.isclose(iface, wp.dram_if_frac * dram_w, rel_tol=1e-12), name
-        assert math.isclose(wp.stages["dram_array"].energy_pJ + iface, dram_w,
-                            rel_tol=1e-12), name
+        dram_stage = wp.stages["dram"].energy_pJ
+        assert math.isclose(dram_stage, dram_w, rel_tol=1e-12), name
         for key in ev:
-            assert math.isclose(out[key].components["DRAM"], dram0 - iface * d,
+            assert math.isclose(out[key].components["DRAM"], dram0 - dram_w * d,
                                 rel_tol=1e-12), (name, key)
 
-        assert math.isclose(out["recon1"].components["NoC"], noc0, rel_tol=1e-12), name
-        assert math.isclose(out["recon1"].components["Local (spads/RF)"], loc0,
-                            rel_tol=1e-12), name
-        assert math.isclose(out["recon2"].components["NoC"], noc0 - mesh * d,
-                            rel_tol=1e-12), name
-        assert math.isclose(out["recon2"].components["Local (spads/RF)"], loc0,
-                            rel_tol=1e-12), name
-        for key in ("recon3", "recon4", "recon5"):
-            if key in ev:
-                assert math.isclose(out[key].components["NoC"],
-                                    noc0 - (mesh + local) * d, rel_tol=1e-12), (name, key)
-        assert math.isclose(out["recon3"].components["Local (spads/RF)"], loc0,
-                            rel_tol=1e-12), name
-        for key in ("recon4", "recon5"):
-            if key in ev:
-                assert math.isclose(out[key].components["Local (spads/RF)"],
-                                    loc0 - spad * d, rel_tol=1e-12), (name, key)
-
-        for key, stages in (("recon1", ("dram_interface",)),
-                            ("recon2", ("dram_interface", "inter_cluster_mesh")),
-                            ("recon3", ("dram_interface", "inter_cluster_mesh",
-                                        "cluster_local")),
-                            ("recon4", ("dram_interface", "inter_cluster_mesh",
-                                        "cluster_local", "weight_spad"))):
-            if key not in ev:
+        # THE STAGE NAMES COME FROM THE DESIGN, NOT FROM THIS FILE. The test
+        # used to spell eyeriss_v2_like's three on-chip stages literally while
+        # reading whichever design ReconSweep.json names, so pointing the study
+        # at a design with a different weight path (Task 5 pointed it at
+        # simple_weight_stationary) turned an identity test into a KeyError.
+        # The identity itself is per DESIGN, so it is derived per design: a
+        # boundary's category total is the embedded reference's minus
+        # (1 - K/N) x the energy of the stages IT reduces in that category.
+        by_cat = {}
+        for stage in reconmod.stages_for(arch, cfg):
+            st = wp.stages.get(stage.key)
+            if st is None or stage.kind == "dram":
                 continue
-            ceiling = out[key].detail["reducible_weight_energy_pJ"]
-            want = sum(wp.stages[s].energy_pJ for s in stages)
+            by_cat.setdefault(_category_of(case, stage.key), {})[stage.key] = st.energy_pJ
+
+        for key, res in ((k, out[k]) for k in ev):
+            reduced = set(reconmod.effective_placement(
+                res.placement, cfg).reduced)
+            for cat, stages in by_cat.items():
+                want = float(base[cat]) - d * sum(
+                    e for s, e in stages.items() if s in reduced)
+                assert math.isclose(res.components[cat], want, rel_tol=1e-12), \
+                    (name, key, cat, res.components[cat], want)
+
+            # ...and the ceiling the result file prints is the same arithmetic
+            # over every reducible stage the boundary reaches, DRAM included.
+            ceiling = res.detail["reducible_weight_energy_pJ"]
+            want = sum(wp.stages[s].energy_pJ for s in reduced if s in wp.stages)
             assert math.isclose(ceiling["before_pJ"], want, rel_tol=1e-12), (name, key)
             assert math.isclose(ceiling["ceiling_on_the_saving_pJ"], want * d,
                                 rel_tol=1e-12), (name, key)
+
+        # The ORDERING the closed form implies, which is what made the literal
+        # spelling worth having: each boundary reduces a prefix of the path, so
+        # a later boundary's reducible energy is never smaller than an earlier
+        # one's. This holds on every design without naming a stage.
+        order = [p.key for p in reconmod.placements_for(arch, cfg)
+                 if p.key in ev]
+        befores = [out[k].detail["reducible_weight_energy_pJ"]["before_pJ"]
+                   for k in order]
+        assert befores == sorted(befores), (name, order, befores)
 
 
 # ---------------------------------------------------- 5. nothing goes up
@@ -1630,23 +1543,21 @@ def test_no_stage_or_transport_category_exceeds_the_embedded_reference():
     Reconstruction and its register are charged as their own categories, so no
     weight-path stage and no transport or storage category may ever sit ABOVE
     the embedded reference under any boundary. Compute is required to be
-    exactly equal, and DRAM to sit at EXACTLY emb_DRAM - f_if x DRAM_w x
-    (1 - K/N) -- the array is the embedded arm's under every boundary and the
-    interface is x K/N under every boundary, so both a silent array credit and
-    a forgotten interface scaling are inequalities this catches.
+    exactly equal, and DRAM to sit at EXACTLY emb_DRAM - DRAM_w x
+    (1 - K/N) -- the whole DRAM term is x K/N under every boundary, so a
+    forgotten scaling is
+    an inequality this catches.
     """
     for case in _cases():
         out, packing = _evaluate(case)
         base, wp = case["base"], case["wpath"]
         dram0 = float(base["DRAM"])                 # the category, all tensors
-        dram_w = float(case["base_w"]["DRAM"])      # its weight share, what f_if splits
-        want = dram0 - wp.dram_if_frac * dram_w * (1.0 - packing.frac)
+        dram_w = float(case["base_w"]["DRAM"])      # its weight share, all reducible
+        want = dram0 - dram_w * (1.0 - packing.frac)
         for key, res in _evaluated(case, out).items():
             for stage_key, row in _stage_rows(res).items():
                 assert _after(row) <= row["weight_energy_pJ"] + 1e-6, \
                     (case["name"], key, stage_key)
-                if stage_key == "dram_array":
-                    assert _after(row) == row["weight_energy_pJ"], (case["name"], key)
             for cat in _TRANSPORT_CATS:
                 got, ref = res.components.get(cat, 0.0), float(base.get(cat, 0.0))
                 assert got <= ref + 1e-6, (case["name"], key, cat, got, ref)
@@ -1755,9 +1666,9 @@ def test_every_weight_carrying_level_of_the_real_design_is_claimed_by_a_stage():
     # level, which is the array/interface PAIR by construction, with shares
     # that sum to one (test_the_dram_level_is_claimed_exactly_once_in_total)
     for lv, stages in who.items():
-        assert len(stages) == 1 or sorted(stages) == ["dram_array", "dram_interface"], \
+        assert len(stages) == 1, \
             (lv, stages)
-    assert sorted(who.get("DRAM", [])) == ["dram_array", "dram_interface"], who
+    assert sorted(who.get("DRAM", [])) == ["dram"], who
 
     found = {}
     for path in case["stats"].values():
@@ -1877,7 +1788,7 @@ def test_a_reducible_stage_no_boundary_reduces_stops_the_run():
     # the prefix violation is named per placement, not just in aggregate
     bad = [row["placement"] for row in detail["per_placement"]
            if not row["is_a_prefix"]]
-    assert bad == ["recon2", "recon3", "recon4", "recon5"], bad
+    assert bad == ["recon2", "recon3", "recon4"], bad
 
 
 def test_the_placement_space_check_is_recorded_on_every_result():
@@ -1930,185 +1841,286 @@ def test_the_placement_space_check_is_recorded_on_every_result():
     assert bad["placement_space_covers_the_whole_weight_path"] is False, bad
 
 
-# ------------------------------------------------- the reuse register's WIDTH
-# Added 2026-09-08 with `recon.ReuseRegister`. These pin the audit finding and
-# its fix: R4b used to cut its reconstruction count 82.85x BECAUSE the register
-# served the scratchpad reads, while still billing every one of those reads at
-# K/N. The three modes are the three ways to close that, and each is pinned
-# here so the default cannot silently drift back to the inconsistent one.
 
 
-def test_the_complement_register_is_n_minus_k_bits_and_costs_the_pe_nothing():
-    """Reduced SPad + complement register = exactly weight_bits per weight.
 
-    This is the claim that makes R4b defensible: the register holds only the
-    bits the encoder regenerates, so the PE's weight storage per resident
-    weight is UNCHANGED from the baseline at every K -- against 1.81x for a
-    full-width register. If this ever stops being exactly 1.00x, either the
-    width or the packing model has drifted.
+
+
+
+
+
+
+
+
+# --------------------------------------------- 12. Task 4: capacity dilation
+
+def test_capacity_dilation_scales_only_weight_levels_and_never_a_latch():
+    """The dilation must move weight room and NOTHING else.
+
+    Three things it is not allowed to do, each of which would silently hand the
+    reconstruction arm an advantage reconstruction does not buy:
+
+      * dilate an activation or partial-sum buffer -- that is a different
+        architecture, not this treatment;
+      * dilate a declared `depth: 1` register -- `simple_weight_stationary`'s
+        `weight_reg` is a pipeline latch (FINDINGS 7.5), and turning it into a
+        two-entry buffer invents the reuse level R4b's register is an addition
+        TO;
+      * dilate a level holding Weights BESIDE another dataspace under the
+        default scope -- Timeloop has one capacity per level, so that would
+        also hand the mapper free input-activation room.
+    """
+    from eccenergy import archs as archmod
+    import re
+    cfg = _cfg(ECC_WEIGHT_CAPACITY_SCALE="1.6154")
+    for arch, want, forbidden in (
+            ("eyeriss_like", {"weights_spad"}, {"ifmap_glb", "psum_glb",
+                                                "ifmap_spad", "psum_spad"}),
+            ("eyeriss_v2_like", {"weights_spad"}, {"iact_glb", "psum_glb",
+                                                   "ifmap_spad", "psum_spad"}),
+            ("simple_weight_stationary", {"pe_spad"},
+             {"operand_glb", "psum_glb", "weight_reg",
+              "input_activation_reg", "output_activation_reg"})):
+        before = archmod.arch_source(arch, cfg).read_text()
+        after = archmod._scale_weight_capacity(before, 1.6154, "exclusive",
+                                               arch, quiet=True)
+        assert after != before, arch
+
+        def depths(text):
+            out = {}
+            for part in re.split(r"(?=\n\s*-\s*!)", text):
+                n = re.search(r"name:\s*(\S+)", part)
+                d = re.search(r"\bdepth:\s*(\d+)", part)
+                if n and d:
+                    out[n.group(1)] = int(d.group(1))
+            return out
+
+        d0, d1 = depths(before), depths(after)
+        moved = {k for k in d0 if d1.get(k) != d0[k]}
+        assert moved == want, (arch, moved, want)
+        for level in forbidden:
+            if level in d0:
+                assert d1[level] == d0[level], (arch, level)
+        for level in want:
+            got = d1[level] / d0[level]
+            assert abs(got - 1.6154) < 0.01, (arch, level, got)
+
+
+def test_a_shared_weight_level_is_a_bracket_and_is_named_as_one():
+    """`operand_glb` holds Inputs AND Weights, so it is a choice, not a fact."""
+    from eccenergy import archs as archmod
+    import re
+    cfg = _cfg()
+    base = archmod.arch_source("simple_weight_stationary", cfg).read_text()
+    excl = archmod._scale_weight_capacity(base, 1.6154, "exclusive",
+                                          "simple_weight_stationary", quiet=True)
+    shar = archmod._scale_weight_capacity(base, 1.6154, "shared",
+                                          "simple_weight_stationary", quiet=True)
+
+    def depth_of(text, name):
+        for part in re.split(r"(?=\n\s*-\s*!)", text):
+            if re.search(rf"name:\s*{name}\b", part):
+                m = re.search(r"\bdepth:\s*(\d+)", part)
+                return int(m.group(1)) if m else None
+        return None
+
+    assert depth_of(base, "operand_glb") == depth_of(excl, "operand_glb")
+    assert depth_of(shar, "operand_glb") > depth_of(base, "operand_glb")
+    # the latch is out of BOTH: no scope may invent a reuse level
+    assert depth_of(shar, "weight_reg") == depth_of(base, "weight_reg") == 1
+
+
+def test_each_capacity_is_its_own_mapper_cache_and_a_no_op_keeps_the_old_one():
+    """Task 4 is the DIFF of two mappings, so they must never share a cache.
+
+    And the converse, which is the expensive mistake: a scale that rewrites
+    nothing on a given design must NOT move that design's cache, or every
+    re-run pays for a fresh map of an unchanged architecture -- the trap
+    `archs._patch_dram_depth`'s docstring records for ECC_DRAM_DEPTH.
+    """
+    from eccenergy import archs as archmod
+    seen = {}
+    for scale in ("1.0", "0.5", "1.6154"):
+        cfg = _cfg(ECC_WEIGHT_CAPACITY_SCALE=scale)
+        for arch in ("eyeriss_like", "eyeriss_v2_like",
+                     "simple_weight_stationary"):
+            key = (archmod.effective_variant(arch, cfg),
+                   archmod.arch_fingerprint(arch, cfg))
+            assert seen.setdefault(key, (arch, scale)) == (arch, scale), \
+                (key, seen[key], (arch, scale))
+    # 1.0 is the declared design and must keep the slug it always had
+    cfg1 = _cfg(ECC_WEIGHT_CAPACITY_SCALE="1.0")
+    for arch in ("eyeriss_like", "simple_weight_stationary"):
+        assert "wcap" not in archmod.effective_variant(arch, cfg1), arch
+
+    # a scale so close to 1 that every weight depth rounds back is a no-op and
+    # keeps the undilated cache rather than re-mapping an unchanged design
+    tiny = _cfg(ECC_WEIGHT_CAPACITY_SCALE="1.0005")
+    for arch in ("eyeriss_like", "simple_weight_stationary"):
+        assert (archmod.effective_variant(arch, tiny)
+                == archmod.effective_variant(arch, cfg1)), arch
+
+
+def test_the_dilation_correction_reprices_the_array_and_is_recorded():
+    """The dilated level is re-priced at the DECLARED array's per-access cost.
+
+    Accelergy costs a level from its declared geometry, so `depth x N/K` is
+    billed as a bigger SRAM. The reconstruction arm's array is the same silicon
+    holding narrower values, so that is silicon it does not have. The
+    correction must move the stage's energy by exactly the ERT ratio and must
+    say so; an unreadable ERT must leave the number ALONE and say that instead
+    of scaling by a guess.
     """
     from eccenergy import recon as reconmod
-    for k in (57, 51, 45, 39, 36, 30):
-        packing = reconmod.Packing("stream", 8, k, 63)
-        reg = reconmod.ReuseRegister("complement", 8, k, 63, 0.03)
-        assert math.isclose(reg.bits_per_weight, 8 * (1 - k / 63), rel_tol=1e-12)
-        assert math.isclose(reg.storage_bits_per_resident_weight(packing), 8.0,
-                            rel_tol=1e-12), k
-        assert reg.serves_reads is False
-        # a complement read is charged only its share of the word
-        assert math.isclose(reg.read_pj, 0.03 * (1 - k / 63), rel_tol=1e-12)
-    full = reconmod.ReuseRegister("full_width", 8, 51, 63, 0.03)
-    assert full.bits_per_weight == 8.0
-    assert full.serves_reads is True
-    assert math.isclose(
-        full.storage_bits_per_resident_weight(reconmod.Packing("stream", 8, 51, 63)),
-        8 * 51 / 63 + 8, rel_tol=1e-12)
+    case = _synthetic_case()
+    wp = case["wpath"]
+    key = "weight_spad"
+    st = wp.stages[key]
+    before, reads, writes = st.energy_pJ, st.reads, st.fills
+
+    # READS AND WRITES ARE PRICED SEPARATELY. Build a correction in which the
+    # declared array is cheaper on both, by different factors -- which is the
+    # real case (eyeriss_like at x1.6154: read x1.2395, write x1.3796) and the
+    # one a single read-derived ratio got wrong.
+    # THE BLOCK SIZE MUST CANCEL. Accelergy prices a whole physical word and
+    # Timeloop counts one access per value, so build the dilated split so that
+    # `reads x e_rd + writes x e_wr` comes out at exactly BLOCK times the
+    # level's energy -- the real case (2 on eyeriss_like, 3 on Eyeriss v2), and
+    # the one that made an absolute rebuild refuse a correction it should have
+    # applied. Reads and writes are also given DIFFERENT ratios, because they
+    # do not scale together and a read-derived ratio under-corrects the writes.
+    BLOCK = 2
+    e_rd_dil = BLOCK * before / (reads + 2 * writes) if (reads + 2 * writes) else 1.0
+    corr = {"ok": True, "level": "weight_spad",
+            "read_pJ_dilated": e_rd_dil, "write_pJ_dilated": 2 * e_rd_dil,
+            "read_pJ_declared": 0.8 * e_rd_dil, "write_pJ_declared": 1.4 * e_rd_dil,
+            "read_ratio_declared_over_dilated": 0.8,
+            "write_ratio_declared_over_dilated": 0.7,
+            "provenance": "synthetic"}
+    ratio = ((reads * 0.8 + writes * 1.4) / (reads * 1.0 + writes * 2.0))
+    moved = reconmod.apply_capacity_correction(wp, key, corr)
+    assert moved["corrected"] is True, moved
+    assert math.isclose(wp.stages[key].energy_pJ, before * ratio, rel_tol=1e-9), moved
+    assert math.isclose(moved["moved_pJ"], before * (ratio - 1), rel_tol=1e-9)
+    assert "2 values per physical word" in moved["note"], moved["note"]
+    # ...and it is strictly between the read-only and write-only corrections,
+    # which is the whole point of weighting it by the access mix
+    assert 0.7 < ratio < 1.4, ratio
+
+    # A SPLIT THAT DOES NOT RECONCILE IS REFUSED, not applied: re-pricing from
+    # one would move a bar by an amount nothing checked. 2.5 values per word is
+    # not a physical word.
+    bad = dict(corr, read_pJ_dilated=e_rd_dil * 2.5, write_pJ_dilated=5 * e_rd_dil)
+    kept = wp.stages[key].energy_pJ
+    out = reconmod.apply_capacity_correction(wp, key, bad)
+    assert out["corrected"] is False and out["moved_pJ"] == 0.0, out
+    assert "NOT corrected" in out["note"], out
+    assert wp.stages[key].energy_pJ == kept
+
+    # an unreadable ERT leaves it uncorrected AND says so
+    corr2 = reconmod.capacity_dilation_correction(
+        "/nonexistent/ref", "/nonexistent/dil", ("weights_spad",))
+    assert corr2["ok"] is False
+    assert "NOT corrected" in corr2["provenance"], corr2
 
 
-def test_free_mode_reproduces_the_pre_audit_accounting_exactly():
-    """`free` must stay bit-identical to the old model, or a diff proves nothing.
-
-    It is kept ONLY so the historical +1.36% / +2.97% can be reproduced. If this
-    test fails, `free` has stopped being the historical accounting and the
-    before/after comparison in FINDINGS section 7 is no longer checkable.
-    """
+def test_capacity_dilation_scale_is_derived_from_the_code_not_configured():
+    """N/K comes from the BCH geometry, so a code change moves it by itself."""
     from eccenergy import recon as reconmod
-    cfg, wp, base, base_w, gran, packing = _placement_setup(
-        ECC_RECON_REUSE_REG_MODEL="free")
-    r4b = [p for p in reconmod.placements_for("eyeriss_v2_like")
-           if p.key == "recon5"][0]
-    res = reconmod.evaluate_placement(cfg, "eyeriss_v2_like", r4b, wp, base_w,
-                                      base, recon_pj=4.0, reuse_reg_pj=0.03,
-                                      gran=gran, packing=packing)
-    # writes only, no read term -- the old formula, to the digit
-    assert math.isclose(res.components["Recon overhead"], 40 * 0.03,
-                        rel_tol=1e-12)
-    # and the SPad still carries the full K/N discount on all 400 reads
-    frac = 51 / 63
-    assert math.isclose(res.components["Local (spads/RF)"],
-                        911.0 - 800.0 * (1 - frac), rel_tol=1e-12)
+    for k, want in ((39, 63 / 39), (51, 63 / 51), (30, 63 / 30)):
+        cfg = _cfg(ECC_CONST_K=str(k), ECC_RECON_K=str(k))
+        assert math.isclose(reconmod.capacity_dilation_scale(cfg), want,
+                            abs_tol=5e-5), k
+        # ONE capacity, ONE spelling: the value that goes into the cache slug
+        # must be the value the shell writes, or the evaluator refuses a cache
+        # it has. (63/39 = 1.61539 by %g, 1.6154 rounded -- two directories.)
+        assert f"{reconmod.capacity_dilation_scale(cfg):g}" == \
+            f"{round(63 / k, 4):g}", k
+    # and it composes with a SHRUNK reference: the reconstruction arm is always
+    # N/K times whatever the reference arm's silicon is
+    # The scale is quantised to four DECIMALS, not to four significant
+    # figures, so the tolerance has to be absolute: 0.25 x 63/39 = 0.403846
+    # stores as 0.4038, which is 1.1e-4 relative but 4.6e-5 absolute.
+    cfg = _cfg(ECC_CONST_K="39", ECC_RECON_K="39",
+               ECC_WEIGHT_CAPACITY_SCALE="0.25")
+    assert math.isclose(reconmod.capacity_dilation_scale(cfg),
+                        0.25 * 63 / 39, abs_tol=5e-5)
 
 
-def test_a_full_width_register_must_remove_the_spad_reads_it_serves():
-    """`full_width` may not both serve the reads and leave them billed.
+def test_an_identical_loop_nest_means_an_identical_dram_read_count():
+    """FINDINGS 7.7's finding, as a regression test on whatever caches exist.
 
-    The audit's reading, as a runnable row. Two things must hold: the SPad's
-    read count drops from `reads` to `fills`, and the register is charged a read
-    per weight DELIVERED. It also has to REFUSE when the ERT is not there to
-    split the SPad's read from its write energy, rather than estimating.
+    The Task 4 result rests on one property: where the mapper hands back the
+    same loop nest at the dilated capacity, the reconstruction arm is the
+    reference mapping on the same silicon, so it must report the SAME DRAM
+    weight reads. If a future change to the parser, to the scale quantisation
+    or to the cache keying broke that, the study would report a capacity effect
+    that is really a bookkeeping difference -- the one failure mode this whole
+    exercise exists to avoid.
+
+    THE PAIRS ARE DISCOVERED ON DISK rather than rebuilt from a config, because
+    a config assembled here would have to reproduce every mapper knob the wave
+    was submitted with (objective, victory, algorithm, timeout, NoC) to land on
+    the same slug, and getting one wrong makes the test silently skip instead of
+    silently fail. A `<slug>__wcap<scale>` directory beside its `<slug>` is the
+    pair, whatever produced it.
     """
-    from eccenergy import recon as reconmod
-    cfg, wp, base, base_w, gran, packing = _placement_setup(
-        ECC_RECON_REUSE_REG_MODEL="full_width")
-    r4b = [p for p in reconmod.placements_for("eyeriss_v2_like")
-           if p.key == "recon5"][0]
-    res = reconmod.evaluate_placement(cfg, "eyeriss_v2_like", r4b, wp, base_w,
-                                      base, recon_pj=4.0, reuse_reg_pj=0.03,
-                                      gran=gran, packing=packing)
-    # the synthetic fixture has no ERT, so this must be a refusal, not a guess
-    assert res.status == "unsupported", res.status
-    assert "read/write energy split" in res.reason, res.reason
+    import pathlib as _pl
+    from eccenergy.paths import ROOT
+    try:
+        from eccenergy.experiments import dilation as dilmod
+    except ImportError as exc:                                # pragma: no cover
+        raise _Skip(f"dilation module unavailable: {exc}")
 
+    out = ROOT / "ecc_energy_study" / "outputs"
+    if not out.is_dir():
+        raise _Skip("no mapper cache on this machine")
 
-def test_the_complement_read_term_is_keyed_to_the_code_not_hard_wired():
-    """A stronger code must charge MORE complement reads, not the same.
+    def shapes_of(fp_dir):
+        return {d.name: d / "timeloop-mapper.map.txt" for d in fp_dir.iterdir()
+                if (d / "timeloop-mapper.map.txt").is_file()}
 
-    The mutation this catches is the one the K sweep caught last time: a
-    reduction that is applied but not keyed to K passes every fixed-K test.
-    Here the complement is `weight_bits x (1 - k/n)`, so it must GROW as k
-    falls, while the register write term stays flat.
-    """
-    from eccenergy import recon as reconmod
-    seen = []
-    for k in (57, 51, 45, 39):
-        cfg, wp, base, base_w, gran, packing = _placement_setup(ECC_CONST_K=str(k))
-        r4b = [p for p in reconmod.placements_for("eyeriss_v2_like")
-               if p.key == "recon5"][0]
-        res = reconmod.evaluate_placement(cfg, "eyeriss_v2_like", r4b, wp,
-                                          base_w, base, recon_pj=4.0,
-                                          reuse_reg_pj=0.03, gran=gran,
-                                          packing=packing)
-        rc = res.detail["reconstruction_counts"]
-        seen.append((k, rc["reuse_register_read_energy_pJ"],
-                     rc["reuse_register_write_energy_pJ"]))
-    reads = [r for _, r, _ in seen]
-    writes = [w for _, _, w in seen]
-    assert reads == sorted(reads), seen        # k falls -> complement grows
-    assert len(set(reads)) == len(reads), seen  # and never flat
-    assert len(set(round(w, 12) for w in writes)) == 1, seen
-
-
-def test_full_width_really_moves_the_spad_reads_on_the_real_cache():
-    """On the REAL cache, `full_width` must bill the SPad once per fill.
-
-    The synthetic fixture has no Accelergy ERT, so `full_width` refuses there
-    and the read-removal path is never exercised -- a mutation that deleted the
-    override went uncaught until this test existed. Here the mapper cache does
-    carry the ERT, so the whole path runs and the numbers are checkable:
-
-      * the site stage's energy must collapse towards the FILL count (the SPad
-        is read once per weight filled, not once per MAC),
-      * the register must be charged a read per weight DELIVERED, and
-      * the ECC-marginal diagnostic must be much smaller than what the same
-        register gives a PE with no ECC -- which is the audit's whole point,
-        recorded as a number so it cannot be lost again.
-    """
-    from dataclasses import replace
-    from eccenergy import recon as reconmod
-    case = _real_case()
-    if case is None:
-        raise _Skip(_REAL_CACHE.get("why", "no real mapper cache"))
-    cfg, wp, arch = case["cfg"], case["wpath"], case["arch"]
-    r4b = [p for p in reconmod.placements_for(arch, cfg) if p.key == "recon5"][0]
-    gran = reconmod.Granularity(cfg.code_n, cfg.code_k, cfg.weight_bits,
-                                cfg.recon_granularity)
-    packing = reconmod.Packing(cfg.recon_packing, cfg.weight_bits,
-                               cfg.code_k, cfg.code_n)
-
-    def run(mode):
-        return reconmod.evaluate_placement(
-            replace(cfg, recon_reuse_reg_model=mode), arch, r4b, wp,
-            case["base_w"], case["base"], recon_pj=case["recon_pj"],
-            reuse_reg_pj=case["reg_pj"], gran=gran, packing=packing)
-
-    spad = wp.stages[r4b.site_stage]
-    assert spad.reads > 10 * spad.fills, (spad.reads, spad.fills)
-
-    comp = run("complement")
-    if comp.status != "evaluated" and "infeasible local placement" in comp.reason:
-        # a fact about the mapping, not about the register model: under the 8x2
-        # EDP mappings R4b keeps fewer than G_rec weights resident in layer4
-        raise _Skip(f"R4b is unsupported on this cache: {comp.reason[:80]}")
-    assert comp.status == "evaluated", comp.reason
-    row = [r for r in comp.detail["weight_path_stages"]
-           if r["stage"] == r4b.site_stage][0]
-    # complement: the SPad keeps every read, discounted by exactly K/N
-    assert math.isclose(row["scale"], packing.frac, rel_tol=1e-9), row["scale"]
-
-    full = run("full_width")
-    assert full.status == "evaluated", full.reason
-    notes = full.detail["reconstruction_counts"]["reuse_register_notes"]
-    moved = notes["spad_reads_moved_to_the_register"]
-    assert moved["spad_scalar_reads_before"] == spad.reads
-    assert moved["spad_scalar_reads_after"] == spad.fills
-    assert moved["ert_reconciles_timeloop_to"] < 1e-3, moved
-
-    # the site stage must actually get much cheaper -- this is what the deleted
-    # override used to break silently
-    frow = [r for r in full.detail["weight_path_stages"]
-            if r["stage"] == r4b.site_stage][0]
-    assert frow["scale"] < 0.1 * packing.frac, (frow["scale"], packing.frac)
-    assert frow["energy_after_pJ"] < 0.1 * row["energy_after_pJ"]
-
-    # and the register is charged per weight DELIVERED, not per word
-    rc = full.detail["reconstruction_counts"]
-    assert math.isclose(rc["reuse_register_reads"], spad.reads, rel_tol=1e-12)
-
-    # the diagnostic that names what is ECC's and what is just a register
-    g = notes["what_the_same_register_gives_a_pe_with_no_ecc"]
-    assert g["the_register_alone_saves_pJ"] > 0
-    assert g["ecc_marginal_on_top_of_the_register_pJ"] < \
-        0.1 * g["the_register_alone_saves_pJ"], g
+    checked = identical = pairs = 0
+    for arch_dir in sorted(out.iterdir()):
+        if not arch_dir.is_dir():
+            continue
+        for dil_slug in sorted(arch_dir.glob("*__wcap*")):
+            base = _pl.Path(str(dil_slug).rsplit("__wcap", 1)[0])
+            if not base.is_dir():
+                continue
+            for dil_fp in sorted(dil_slug.glob("fp-*")):
+                dil_shapes = shapes_of(dil_fp)
+                if not dil_shapes:
+                    continue
+                for ref_fp in sorted(base.glob("fp-*")):
+                    ref_shapes = shapes_of(ref_fp)
+                    common = set(ref_shapes) & set(dil_shapes)
+                    if not common:
+                        continue
+                    pairs += 1
+                    for shape in sorted(common):
+                        checked += 1
+                        if ref_shapes[shape].read_text() != dil_shapes[shape].read_text():
+                            continue          # the mapper DID use the room
+                        identical += 1
+                        a = dilmod.read_mapped_layer(
+                            ref_fp / shape / "timeloop-mapper.stats.txt", "DRAM")
+                        b = dilmod.read_mapped_layer(
+                            dil_fp / shape / "timeloop-mapper.stats.txt", "DRAM")
+                        if a is None or b is None:
+                            continue
+                        assert a.dram_weight_reads == b.dram_weight_reads, (
+                            f"{arch_dir.name}/{shape}: the loop nests are "
+                            f"byte-identical but the DRAM weight reads differ "
+                            f"({a.dram_weight_reads:,.0f} vs "
+                            f"{b.dram_weight_reads:,.0f}). One of them is not "
+                            f"being read from the mapping it claims.")
+                    break                     # one reference fp per dilated fp
+    if not pairs:
+        raise _Skip("no <slug>/<slug>__wcap pair on disk -- fill one with "
+                    "hpc/map_capacity_sweep.sh")
+    print(f"        ({identical}/{checked} shapes over {pairs} capacity pair(s) "
+          f"came back byte-identical)", end="")
 
 
 def main():

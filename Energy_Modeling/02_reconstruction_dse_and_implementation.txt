@@ -178,10 +178,21 @@ Encoder:                  1 reconstruction
 Decoded-register reuse:   64 uses
 
 Option C can potentially outperform both A and B.
+    -- MEASURED 2026-09-10: IT DOES NOT. REMOVED. --
+"Decoded-register reuse: 64 uses" assumes the same weight is used repeatedly
+while resident. On the cached Timeloop mappings for resnet18 the number of
+CONSECUTIVE MAC uses of one weight is 1 on 20 of the 21 layers, so a register
+is reloaded on every access. Reuse need not be consecutive, but the register
+must then hold the whole set the inner loops cycle through: 16-384 weights,
+worst case 384, which is the entire pe_spad on simple_weight_stationary. A
+register smaller than that set has a 0% hit rate (a cyclic walk is the worst
+case for any replacement policy), so there is no useful middle size. See
+01_project_context_and_architectures.txt Sec. 2.3.
 
-Research implication:
-Include reconstruction-result retention in the DSE rather than comparing
-only fixed pipeline boundaries.
+Research implication (REVISED):
+Reconstruction-result retention was carried through the DSE as boundary R4b and
+is now removed from it. The best feasible boundary is the PE-local-memory INPUT
+(R3), which needs no extra state and no mapping constraint.
 
 IMPLEMENTATION CLARIFICATION:
 A fair baseline may already retain a full weight in an operand register,
@@ -404,9 +415,11 @@ REC-L3
 REC-L4
     Reconstruct at PE-local-memory output.
 
-REC-L5
+REC-L5  -- REMOVED 2026-09-10, see 01_..., Sec. 2.3 --
     Reconstruct at PE-local-memory output and retain reconstructed values
-    in a decoded-weight reuse register/cache.
+    in a decoded-weight reuse register/cache. Not implemented: there is no
+    consecutive weight reuse to amortize over, and a register covering the
+    cycled set is as large as the scratchpad it sits behind.
 
 Every REC-L* variant carries k bits per codeword across the DRAM interface
 and reads the complete codeword from the DRAM array.
@@ -689,10 +702,14 @@ saving. Moving reconstruction toward computation then saves:
 Extremely late reconstruction may repeatedly regenerate the same weight
 for each MAC use.
 
-A decoded-weight latch/cache may shift the best placement later:
+A decoded-weight latch/cache was hypothesised to shift the best placement
+later:
 
 Reduced interface --> Reduced transport --> Reduced SPad --> XOR
     --> Small full latch --> MAC
+    -- REMOVED 2026-09-10: the "small full latch" catches nothing on these
+       mappings; see 01_..., Sec. 2.3. The best boundary stays at the SPad
+       INPUT, one step EARLIER than this diagram, not later. --
 
 IMPORTANT:
 The U-shaped curve is a hypothesis, not an expected output to force.
@@ -724,7 +741,11 @@ Small reconstructed-weight reuse register
       v
 MAC
 
-Rating: 5/5.
+Rating: 5/5.   -- REMOVED 2026-09-10, see 01_..., Sec. 2.3 --
+The register catches nothing: consecutive weight reuse is 1 on 20 of 21
+resnet18 layers, and a register covering the cycled set is as large as the
+scratchpad. NEW LEADING CANDIDATE for this design: reconstruct at the PE
+weight-SPad INPUT (R3), one step earlier.
 
 Alternative if PE-local replication is expensive:
 
@@ -748,9 +769,13 @@ Stationary decoded-weight register
       v
 Many MAC uses
 
-Rating: 5/5.
-
-Potentially a clear demonstration of reconstruction amortization.
+Rating: 5/5.   -- REMOVED 2026-09-10, see 01_..., Sec. 2.3 --
+"Many MAC uses" is the assumption that failed: the mapper's innermost temporal
+loops below the scratchpad walk C and R, both weight dimensions, so the
+required weight changes every cycle. Measured consecutive uses = 1 on 20 of 21
+resnet18 layers. Even the design named "weight stationary" does not hold a
+weight at the MAC under the mappings it actually chooses.
+NEW LEADING CANDIDATE: reconstruct at the PE input (R3), +11.07% vs embedded.
 
 
 22.3 EYERISS V1
@@ -771,7 +796,12 @@ Reuse latch
       v
 MAC
 
-Rating: 5/5.
+Rating: 5/5.   -- REMOVED 2026-09-10, see 01_..., Sec. 2.3 --
+Same failure as Eyeriss v2 and weight stationary: no consecutive reuse for the
+latch to capture. On this design the PE-local boundaries are additionally
+INFEASIBLE in 4 of 21 layers (fewer than G_rec = 9 weights resident). NEW
+LEADING CANDIDATE: reconstruct at the filter-SPad INPUT (R3), +17.24% vs
+embedded -- the best bar in the study.
 
 Its multicast distribution provides an explicit fanout experiment.
 
@@ -929,7 +959,7 @@ Reduced weight SPad
 Reconstruct at SPad output for each required read/use
 
 
-EV2-CACHE
+EV2-CACHE   -- REMOVED 2026-09-10, see 01_..., Sec. 2.3 --
 
 Reduced DRAM interface
       |
@@ -944,6 +974,11 @@ Reconstruct at SPad output
       |
       v
 Retain reconstructed weight in a small reuse register/cache
+      |
+      v
+NOT IMPLEMENTED: the "small" register has to hold the whole set the inner
+loops cycle through (up to 384 weights, the size of the scratchpad), because
+consecutive weight reuse is 1 on 20 of 21 resnet18 layers.
 
 
 MEASURE
@@ -1103,15 +1138,19 @@ PE-local weight storage
 Reconstruction
       |
       v
-Decoded reuse register
-      |
-      v
 MAC
+
+  (a "decoded reuse register" between Reconstruction and MAC was part of this
+   hierarchy until 2026-09-10; it is REMOVED -- see 01_..., Sec. 2.3)
 
 Treat every feasible boundary at or below the chip ingress as a DSE
 candidate.
 
-Two leading hypotheses:
+Two leading hypotheses, BOTH FALSIFIED 2026-09-10 -- each ends in a decoded
+reuse register, and that register catches nothing on the mappings these designs
+choose (consecutive weight reuse = 1 on 20 of 21 resnet18 layers). They are
+kept as a record of the rejected direction. The boundary that actually wins is
+one step EARLIER, at the PE-local weight-storage INPUT (R3):
 
 
 EYERISS V2
@@ -1153,9 +1192,16 @@ Stationary full-weight MAC register
       v
 Many MAC uses
 
-Objective:
+Objective, AS ORIGINALLY WRITTEN:
 Keep transport and storage reduced from the DRAM output pins down while
 avoiding repeated regeneration of the same XOR-derived weight.
+
+Objective, REVISED 2026-09-10:
+Keep transport and storage reduced from the DRAM output pins down to the
+PE-local weight-storage INPUT. "Avoiding repeated regeneration" is not
+achievable with a per-PE register on these mappings, so it is no longer a goal
+of the study -- the regeneration count is accepted and paid at R3, where it is
+one reconstruction per SPad FILL rather than per read.
 
 
 ======================================================================
@@ -1217,7 +1263,7 @@ Do not assume:
 - The flat DRAM constant is all interface, or all array.
 - A message-only fetch reads fewer DRAM array bits.
 - Every weight can be reconstructed independently.
-- A single latch captures all reuse.
+- A single latch captures all reuse.   <-- CONFIRMED FALSE 2026-09-10 (Sec. 2.3 of 01_...): consecutive reuse is 1 on 20 of 21 layers; R4b removed.
 - Late reconstruction always wins.
 - An added encoder is free in timing, area, leakage, or control.
 - The qualitative ratings are experimental results.

@@ -605,6 +605,231 @@ def _force_acc_bits(text, bits, arch="?", quiet=False):
     return "".join(out)
 
 
+#: Which storage levels `_scale_weight_capacity()` is allowed to touch.
+#: `exclusive` only rewrites a level whose `keep:` list is Weights and nothing
+#: else, so the extra capacity can only be spent on weights -- which is what
+#: the reduced representation actually buys. `shared` also rewrites a level
+#: that holds Weights ALONGSIDE another dataspace (`simple_weight_stationary`'s
+#: `operand_glb` keeps Inputs and Weights): Timeloop has one capacity per
+#: level, so dilating it hands the mapper extra INPUT capacity for free, which
+#: reconstruction does not pay for. The two are an upper and a lower bound on
+#: one design and are quoted as a pair, the same rule CLAUDE.md sets for the
+#: eyeriss `_wglb` variants.
+WEIGHT_CAPACITY_SCOPES = ("exclusive", "shared")
+
+
+def _scale_weight_capacity(text, scale, scope="exclusive", arch="?", quiet=False):
+    """TASK 4: make a weight buffer hold `scale` x as many WEIGHTS.
+
+    WHY THIS IS A MAPPER KNOB AND NOT AN EVALUATOR ONE. Under the
+    reconstruction arm the on-chip weight representation is K/N of full width,
+    so the same physical SRAM holds N/K = 1.615x more weights at BCH(63,39).
+    Whether that buys anything is a question about the MAPPING -- a larger
+    weight tile means fewer DRAM refetches of it -- and Task 3 structurally
+    cannot answer it, because `RECON_OPTIMIZER=False` pins one mapping on every
+    arm and both arms then refetch identically by construction. So the capacity
+    has to be in the architecture the mapper sees, and this rewrites `depth:`
+    on the weight-carrying levels to put it there.
+
+    WHAT IT DOES NOT MODEL, AND WHY THE ENERGY MUST BE CORRECTED AFTERWARDS.
+    Accelergy prices a level from its declared geometry, so a level at
+    `depth x N/K` is costed as a physically LARGER array: more bits, more area,
+    more energy per access. The reconstruction arm's array is not larger -- it
+    is the same array holding narrower values -- so a Task 4 energy number read
+    straight off a dilated mapping is charged for silicon the design does not
+    have. `recon.capacity_dilation_correction()` re-prices those levels at the
+    DECLARED geometry's per-access energy, and the dilated run records the
+    ratio it corrected by. The mapping itself is unaffected either way except
+    through the objective, which is why the ERT delta is reported: a level that
+    got materially dearer per access biases the search AGAINST using the
+    capacity, i.e. against the hypothesis, and that has to be visible rather
+    than assumed away.
+
+    THREE LEVELS ARE DELIBERATELY NOT REWRITTEN.
+
+    * DRAM. It is not on-chip capacity and its depth is set by
+      `ECC_DRAM_DEPTH`.
+    * A level that holds no Weights. Dilating an activation or partial-sum
+      buffer is a different architecture, not this treatment.
+    * A DECLARED `depth: 1` register. `simple_weight_stationary`'s
+      `weight_reg` is a pipeline latch, and FINDINGS 7.5 establishes that the
+      mapping fills it once per read; scaling it to depth 2 would invent a
+      reuse level the design does not have and would change what R4b's
+      register is an addition TO. Reported, not silently skipped.
+
+    A level holding Weights together with another dataspace is governed by
+    `scope` -- see WEIGHT_CAPACITY_SCOPES.
+    """
+    if scale == 1.0:
+        return text
+    touched, skipped = [], []
+    parts = re.split(r"(\n\s*-\s*!)", text)
+    out = []
+    for part in parts:
+        depth = re.search(r"\bdepth:\s*(\d+)", part)
+        if not depth:
+            out.append(part)
+            continue
+        name = re.search(r"name:\s*(\S+)", part)
+        name = name.group(1) if name else "?"
+        keep = re.search(r"keep:\s*\[([^\]]*)\]", part)
+        keep = [s.strip() for s in keep.group(1).split(",") if s.strip()] if keep else []
+        d = int(depth.group(1))
+
+        if "class: DRAM" in part or name == "DRAM":
+            out.append(part)               # never a candidate; not on-chip
+            continue
+        if "Weights" not in keep:
+            out.append(part)
+            continue
+        if keep != ["Weights"] and scope != "shared":
+            skipped.append(f"{name} (holds {'+'.join(keep)}; dilating it would "
+                           f"also hand the mapper free {'/'.join(k for k in keep if k != 'Weights')} "
+                           f"capacity -- ECC_WEIGHT_CAPACITY_SCOPE=shared includes it)")
+            out.append(part)
+            continue
+        if d == 1:
+            skipped.append(f"{name} (declared depth 1 -- a pipeline latch; "
+                           f"scaling it would invent a reuse level the design "
+                           f"does not have)")
+            out.append(part)
+            continue
+
+        nd = max(1, int(round(d * scale)))
+        if nd == d:
+            skipped.append(f"{name} (depth {d} x {scale:g} rounds back to {d})")
+            out.append(part)
+            continue
+        part = re.sub(r"\bdepth:\s*\d+", f"depth: {nd}", part, count=1)
+        touched.append(f"{name} {d}->{nd}")
+        out.append(part)
+
+    if not quiet and arch:
+        note = f"  [weight-capacity] {arch}: x{scale:g} on " + (
+            ", ".join(touched) if touched else "NOTHING")
+        if skipped:
+            note += "; skipped " + "; ".join(skipped)
+        print(note)
+    return "".join(out)
+
+
+#: The loop dimensions a WEIGHT tile is indexed by. A `factors:` pin on any of
+#: them caps how many weights a level can hold whatever its capacity is; a pin
+#: on N, P or Q does not (weights do not index them) and is left alone, so the
+#: activation and partial-sum structure of the dataflow is untouched.
+WEIGHT_DIMENSIONS = ("M", "C", "R", "S")
+
+
+def _relax_weight_factors(text, arch="?", quiet=False):
+    """TASK 4 LEVER 2: let the weight TILE grow into the room a dilation adds.
+
+    WHY CAPACITY ALONE MEASURES ZERO. `_scale_weight_capacity` makes the buffer
+    bigger; it does not make the mapper able to spend it. `eyeriss_like`'s
+    `weights_spad` declares
+
+        temporal:
+          factors: [N=1, M=1, P=1, Q=1, S=1]
+
+    and `M=1` pins the M tile AT THAT LEVEL to one, so the resident tile is
+    M(8 from `psum_spad` below) x C(16) = 128 weights and stays 128 whatever the
+    capacity is. Measured (FINDINGS 7.8): `weights held` is exactly 21,504 at
+    x1, x1.6154, x4, x8, x16 AND x32, where the buffer is at 0.9 % fill. The
+    binding constraint is the DATAFLOW CONSTRAINT, not the silicon, and no
+    capacity sweep can find that out because the constraint does not move.
+
+    WHAT IT REWRITES. On every weight-carrying level that
+    `weight_capacity_levels()` reports (so: never DRAM, never a level holding no
+    Weights, never a declared `depth: 1` latch), the `factors:` entries for
+    M, C, R and S are dropped from the TEMPORAL constraints. N, P and Q keep
+    their pins: weights do not index them, so relaxing those would change the
+    activation and psum tiling instead of the weight tile, which is a different
+    experiment.
+
+    THIS IS A DIFFERENT DATAFLOW AND MUST BE LABELLED AS ONE. Eyeriss v1's
+    `M=1` at the filter spad is the row-stationary dataflow; a design without it
+    is not the chip JSSC 2017 describes, and `source: published` does not
+    licence its name. It gets its own cache (`wrelax`) and both arms of a Task 4
+    pair are mapped under it, so the COMPARISON stays fair even though neither
+    arm is the published design.
+
+    It also widens the mapspace, so the search has strictly more to explore at
+    the same victory condition -- a relaxed run that comes back worse is
+    evidence about the SEARCH, not about the dataflow.
+    """
+    touched, skipped = [], []
+    parts = re.split(r"(\n\s*-\s*!)", text)
+    out = []
+    for part in parts:
+        name = re.search(r"name:\s*(\S+)", part)
+        name = name.group(1) if name else "?"
+        keep = re.search(r"keep:\s*\[([^\]]*)\]", part)
+        keep = [s.strip() for s in keep.group(1).split(",") if s.strip()] if keep else []
+        depth = re.search(r"\bdepth:\s*(\d+)", part)
+        if ("Weights" not in keep or not depth or "class: DRAM" in part
+                or name == "DRAM"):
+            out.append(part)
+            continue
+        if int(depth.group(1)) == 1:
+            skipped.append(f"{name} (declared depth 1 -- a latch)")
+            out.append(part)
+            continue
+        # Only the TEMPORAL factors of this level, never a spatial container's.
+        m = re.search(r"(temporal:\s*\n(?:\s+\w+:.*\n)*?\s+factors:\s*)"
+                      r"\[([^\]]*)\]", part)
+        if not m:
+            skipped.append(f"{name} (no temporal factors: to relax)")
+            out.append(part)
+            continue
+        entries = [e.strip() for e in m.group(2).split(",") if e.strip()]
+        kept = [e for e in entries
+                if e.split("=")[0].strip().upper() not in WEIGHT_DIMENSIONS]
+        if len(kept) == len(entries):
+            skipped.append(f"{name} (pins nothing a weight tile is indexed by)")
+            out.append(part)
+            continue
+        dropped = [e for e in entries if e not in kept]
+        part = part[:m.start(2) - 1] + "[" + ", ".join(kept) + "]" + part[m.end(2) + 1:]
+        touched.append(f"{name} dropped {'/'.join(dropped)}")
+        out.append(part)
+
+    if not quiet and arch:
+        note = f"  [weight-factor-relax] {arch}: " + (
+            "; ".join(touched) if touched else "NOTHING")
+        if skipped:
+            note += "; skipped " + "; ".join(skipped)
+        print(note)
+    return "".join(out)
+
+
+def weight_capacity_levels(arch, cfg):
+    """Which levels a capacity dilation would rewrite, and by how much.
+
+    Reported by `validate`/`diagnose` and by the Task 4 experiment, so a run
+    that dilates NOTHING says so instead of quietly reproducing the declared
+    mapping under a Task 4 heading.
+    """
+    text = arch_source(arch, cfg).read_text()
+    rows = []
+    for part in re.split(r"(?=\n\s*-\s*!)", text):
+        depth = re.search(r"\bdepth:\s*(\d+)", part)
+        name = re.search(r"name:\s*(\S+)", part)
+        if not depth or not name or name.group(1) == "DRAM":
+            continue
+        keep = re.search(r"keep:\s*\[([^\]]*)\]", part)
+        keep = [s.strip() for s in keep.group(1).split(",") if s.strip()] if keep else []
+        if "Weights" not in keep:
+            continue
+        width = re.search(r"\bwidth:\s*(\d+)", part)
+        dw = re.search(r"\bdatawidth:\s*(\d+)", part)
+        d = int(depth.group(1))
+        per_word = (int(width.group(1)) // int(dw.group(1))) if width and dw else 1
+        rows.append({"level": name.group(1), "depth": d, "weights_per_word": per_word,
+                     "weights_per_instance": d * per_word,
+                     "shared_with": [k for k in keep if k != "Weights"],
+                     "latch": d == 1})
+    return rows
+
+
 def _patched_text(arch, cfg, apply_per_arch=True, quiet=False):
     text = arch_source(arch, cfg).read_text()
     text = _patch_dram_depth(text, cfg.dram_depth)
@@ -614,6 +839,11 @@ def _patched_text(arch, cfg, apply_per_arch=True, quiet=False):
         text = _force_datawidth(text, cfg.force_datawidth, None if quiet else arch)
     if apply_per_arch and cfg.acc_bits_override is not None:
         text = _force_acc_bits(text, cfg.acc_bits_override, arch, quiet)
+    if apply_per_arch and cfg.weight_capacity_scale != 1.0:
+        text = _scale_weight_capacity(text, cfg.weight_capacity_scale,
+                                      cfg.weight_capacity_scope, arch, quiet)
+    if apply_per_arch and cfg.weight_factor_relax:
+        text = _relax_weight_factors(text, arch, quiet)
     # Last, so the coefficients land on the final text and are hashed by
     # arch_fingerprint(). Applied regardless of apply_per_arch: the NoC model
     # is a study-wide treatment, not a per-architecture no-op candidate.
@@ -693,6 +923,27 @@ def effective_variant(arch, cfg):
         without = _patched_text(arch, cfg, apply_per_arch=False, quiet=True)
         if with_force != without:
             parts.append(f"dw{cfg.force_datawidth}")
+    if cfg.weight_capacity_scale != 1.0:
+        # A design whose weight levels all round back to their declared depth
+        # is NOT dilated, and must keep reading the undilated cache rather
+        # than paying for a fresh map of an unchanged architecture -- the same
+        # trap `_patch_dram_depth`'s docstring records.
+        base = arch_source(arch, cfg).read_text()
+        if _scale_weight_capacity(base, cfg.weight_capacity_scale,
+                                  cfg.weight_capacity_scope, arch,
+                                  quiet=True) != base:
+            parts.append(f"wcap{cfg.weight_capacity_scale:g}"
+                         + ("-shared" if cfg.weight_capacity_scope == "shared" else ""))
+    if cfg.weight_factor_relax:
+        # Same no-op rule as the capacity scale: a design with no `factors:`
+        # pin on a weight-indexing dimension is not relaxed by this and keeps
+        # its existing cache rather than paying for a fresh map of an unchanged
+        # architecture. `simple_weight_stationary` is exactly that case -- its
+        # weight levels pin nothing a weight tile is indexed by, so its tile is
+        # NOT capped by the dataflow constraints and this lever cannot help it.
+        base = arch_source(arch, cfg).read_text()
+        if _relax_weight_factors(base, arch, quiet=True) != base:
+            parts.append("wrelax")
     return "stock" if not parts else "__".join(parts)
 
 

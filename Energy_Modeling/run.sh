@@ -28,6 +28,19 @@
 #                                  env.sh section 4, or just set
 #                                  ECC_RECON_MODELING=1 and let the one command
 #                                  route everything to it.
+#                                  RECON_OPTIMIZER=True (with ECC_PHASE=Post)
+#                                  makes it TASK 4 instead: the reconstruction
+#                                  bars are re-derived from a SECOND mapping
+#                                  solved against N/K more weight room, so the
+#                                  two arms no longer refetch identically. It
+#                                  needs that second mapper cache and refuses
+#                                  rather than falling back. -> ReconSweep_optimiser
+#      bash run.sh dilation        Task 4 STEP 1: diff the DRAM weight reads of
+#                                  two mapper caches at different weight
+#                                  capacities, so the capacity effect is
+#                                  measured before it is modelled. Maps nothing,
+#                                  draws nothing. Fill the caches with
+#                                  hpc/map_capacity_sweep.sh first.
 #      bash run.sh panels --eval   one image, one panel per ECC_PANEL_MODELS
 #      bash run.sh validate        check the architectures against the shared
 #                                  comparison contract. No container needed.

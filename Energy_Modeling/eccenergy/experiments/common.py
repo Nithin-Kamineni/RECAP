@@ -189,7 +189,7 @@ class Session:
     def finish(self, figures, csv=None, groups=None, extra=None):
         """Write the manifest beside the figure. `extra` is what a stage wants
         recorded at the top level as well as inside `config` -- the placement
-        study puts the decode site and f_if there, because they decide what
+        study puts the decode site and the DRAM pJ/bit there, because they decide what
         the DRAM band on disk means."""
         payload = {
             "recon_pj_per_codeword": self.recon_pj,

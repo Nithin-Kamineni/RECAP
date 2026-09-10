@@ -206,7 +206,16 @@ banner() {
         echo "              is WHERE the boundary sits."
         echo " placements : ${ECC_RECON_PLACEMENT_LIST:-every one this design defines}"\
              "  packing=${ECC_RECON_PACKING} encoder=${ECC_RECON_ENCODER_GRANULARITY}"
-        echo " remapping  : RECON_OPTIMIZER=${RECON_OPTIMIZER} (True is Task 4, not implemented)"
+        if [ "${ECC_RECON_OPTIMIZER}" = "True" ] || [ "${ECC_RECON_OPTIMIZER}" = "1" ]; then
+            echo " remapping  : RECON_OPTIMIZER=True -- TASK 4: the reconstruction bars"
+            echo "              come from a SECOND mapping at weight capacity"
+            echo "              x${ECC_WEIGHT_CAPACITY_SCALE} x N/K (scope=${ECC_WEIGHT_CAPACITY_SCOPE}); needs that"
+            echo "              cache and refuses rather than falling back -> ${ECC_STEM:-ReconSweep_optimiser}"
+        else
+            echo " remapping  : RECON_OPTIMIZER=False -- Task 3, one fixed mapping on every arm"
+            echo "              (True + ECC_PHASE=Post is Task 4; validate the capacity"
+            echo "               assumption first with  bash run.sh dilation)"
+        fi
     fi
     echo " archs      : ${ECC_ARCHS}"
     echo " models     : ${ECC_MODELS}"

@@ -41,15 +41,11 @@ Everything except the boundary. The result file proves it:
   weight_path_reconciles_with_raw_record this module's own re-parse of the
                                          cached stats reproduces the `Raw`
                                          record's weight energy per category
-  dram_array_identical_to_embedded_reference
-                                         no placement credits the DRAM ARRAY:
-                                         (1 - f_if) of the DRAM weight energy
-                                         is the embedded arm's on every bar
-  dram_interface_scaled_by_K_over_N      every placement's DRAM INTERFACE share
-                                         (f_if of it) is x K/N -- the decoder
-                                         is on the DRAM die and only the k
-                                         message bits leave it -- and no bar
-                                         leaves it at full width
+  dram_scaled_by_K_over_N                the WHOLE DRAM weight energy is x K/N
+                                         on every bar -- the decoder is on the
+                                         DRAM die, so only the k message bits
+                                         are read out and driven off it -- and
+                                         no bar leaves it at full width
   non_weight_energy_identical            inputs, partial sums and compute are
                                          the same numbers under every bar
   placement_savings_are_bounded_by_the_weight_path
@@ -59,14 +55,16 @@ Everything except the boundary. The result file proves it:
 THE DRAM TERM, SINCE 2026-09-09
 -------------------------------
 The BCH decoder is on the DRAM die and off the fetch path (01_project_context
-Sec. 1 and 4), so the DRAM weight energy is two weight-path stages: the array
-share `(1 - f_if)`, never reduced, and the interface share `f_if`, scaled by
-K/N under every boundary because only the k message bits leave the die. `f_if`
-is `ECC_DRAM_IF_FRAC` and has no cited default: unset, `run()` prints the DRAM
-ceiling at `recon.F_IF_SENSITIVITY` and refuses. `ECC_RECON_DECODE_SITE=
-controller` reproduces the pre-2026-09-09 numbers (complete codeword across the
-interface) for the diff. The figure subtitle, the table, the manifest and every
-result file carry the decode site and f_if.
+Sec. 1 and 4), so the DRAM weight energy is ONE weight-path stage, `dram`,
+scaled by K/N under every boundary because only the k message bits are read out
+and driven off the die. The `f_if` array/interface split (0.40) was REMOVED on
+2026-09-09: it charged a 38.1% bit cut as a 15.2% energy cut, and the DRAM
+access is designed to collect only the message bits of each codeword. The
+per-bit cost itself is `ECC_DRAM_PJ_PER_BIT` (40 pJ/bit; Accelergy's own is 8).
+`ECC_RECON_DECODE_SITE=
+controller` reproduces the pre-2026-09-09 numbers for the diff. The figure
+subtitle, the table, the manifest and every result file carry the decode site
+and the per-bit cost.
 
 WHAT IS OUTSIDE THE COMPARISON
 ------------------------------
@@ -79,7 +77,10 @@ claim is made anywhere.
 """
 from __future__ import annotations
 
+import dataclasses
 import math
+import pathlib
+import re
 
 import pandas as pd
 
@@ -96,6 +97,11 @@ from . import audit
 from .common import Session
 
 EXPERIMENT = "task3_reconstruction_placement_fixed_mapping"
+#: TASK 4. The same boundaries, but the reconstruction arm gets its OWN
+#: mapping, solved against N/K more weight capacity. `RECON_OPTIMIZER=True`
+#: selects it, `ECC_PHASE=Post` is required, and the two experiments never
+#: share a result file name.
+EXPERIMENT_TASK4 = "task4_reconstruction_aware_mapping_capacity_dilation"
 
 PARITY_KEY = "DRAM external BCH parity"
 
@@ -120,15 +126,16 @@ CODEC_NOTE = (
     "per corrected codeword, is DRAM-process logic, and stays outside the "
     "placement comparison.")
 
-F_IF_NOTE = (
-    "f_if, the interface share of Accelergy's flat per-bit DRAM energy, is an "
-    "ASSUMED value, not a cited one: archs/_shared/provenance.yaml "
-    "`dram_interface_share` records an HBM2 breakdown (I/O 0.3 of 3.92 pJ/bit, "
-    "an interposer lower bound for LPDDR4) and an LPDDR4 figure whose I/O value "
-    "is only plotted, and the study assumes 0.40 (env.sh, 2026-09-09) pending a "
-    "read-off value. The DRAM interface saving is exactly f_if x (1 - K/N) x the "
-    "DRAM weight energy on every placement, so it rescales linearly with f_if and "
-    "changes no ordering among the placements.")
+DRAM_TERM_NOTE = (
+    "THE WHOLE DRAM WEIGHT TERM IS REDUCIBLE BY K/N (2026-09-09). The f_if "
+    "array/interface split -- 0.40, which charged a 38.1% bit cut as a 15.2% "
+    "energy cut -- was removed: the DRAM access is designed to collect only the "
+    "message bits of each codeword, so the array reads fewer bits too. The "
+    "per-bit DYNAMIC access cost is ECC_DRAM_PJ_PER_BIT (40 pJ/bit; FReaC Cache "
+    "MICRO 2020 and Gebhart MICRO 2012 report 28-45) -- see "
+    "archs/_shared/provenance.yaml `dram_access_energy`. Every DRAM number "
+    "scales linearly with it and no ordering among the placements changes. "
+    "E_background and E_refresh are NOT modelled (both 0).")
 
 FIXED_MAPPING_NOTE = (
     "FIXED-MAPPING RESULT. Every access count, fanout, multicast factor and hop "
@@ -168,6 +175,313 @@ def stats_paths_for(cfg, ses, arch, model):
     return out, mapper
 
 
+# --------------------------------------------------------- TASK 4: the second
+#  mapping -- the reconstruction arm's own
+# ----------------------------------------------------------------------------
+TASK4_NOTE = (
+    "RECONSTRUCTION-AWARE MAPPING (Task 4). The reference bars are the design "
+    "at its configured weight capacity; every reconstruction bar is the SAME "
+    "design re-mapped with N/K times as much weight room, because the reduced "
+    "representation stores N/K more weights in the same silicon. So the two "
+    "arms no longer move the same data: the reconstruction arm reloads weight "
+    "tiles from DRAM fewer times, and a read it never issues removes the DRAM "
+    "whole per-access energy, not just a share of it. That is why its saving "
+    "efficiency can exceed the (1 - K/N) = 0.381 a fixed mapping buys, "
+    "and it is the one thing Task 3 structurally cannot show -- with "
+    "RECON_OPTIMIZER=False both arms refetch identically by construction.")
+
+
+@dataclasses.dataclass
+class DilatedView:
+    """The reconstruction arm's own mapping, and everything needed to bill it.
+
+    Built by `dilated_view()`. Holds a SECOND `Session`, because a different
+    weight capacity is a different architecture to the mapper and therefore a
+    different mapper cache, a different raw energy record and a different loop
+    nest -- not a rescale of the first one.
+    """
+    cfg: object                 # the dilated Config (weight_capacity_scale x N/K)
+    scale: float                # the dilated arm's capacity, x the declared design
+    ref_scale: float            # the reference arm's capacity, x the declared design
+    raw: object                 # the dilated mapping's Raw record
+    wpath: object               # its weight path, corrected
+    base_series: object         # its plotted-category totals
+    base_w: object              # the weight share of those
+    stage_key: str              # the stage whose level the dilation rewrote
+    correction: dict            # what capacity_dilation_correction() did
+    capacity: dict              # declared vs dilated Effective size, per design
+    fingerprint: str
+    reconciles: bool
+    recon_check: dict
+
+
+def dilated_view(cfg, ses, arch, model, base_cats, ref_raw):
+    """Solve, read and CORRECT the reconstruction arm's own mapping.
+
+    This function is where `RECON_OPTIMIZER=True`'s old refusal now lives. It
+    stops the run -- rather than falling back to the fixed mapping -- when
+
+      * the design has no weight-carrying storage level a dilation could touch
+        (so there is no capacity effect to measure, only a relabelled Task 3);
+      * the reconstruction arm's mapper cache is missing or short of shapes
+        (the alternative is a figure whose bars come from two different layer
+        sets);
+      * the dilated capacity does not come back N/K times the reference's (a
+        scale that rounded back to the declared depth is not a dilation).
+
+    And one case it handles rather than refuses: when the mapper hands back a
+    BYTE-IDENTICAL loop nest on every shape, the reconstruction arm is the
+    reference mapping on the same silicon, so the reference record is used
+    outright and the run reports that the dilation bought nothing. Anything
+    else would report the artifacts of expressing the dilation as depth -- a
+    dearer array per access, a longer Timeloop-derived hop into it -- as a
+    Task 4 result.
+
+    Each of those would otherwise produce a number that LOOKS like Task 4 and
+    is Task 3, which is exactly what the placeholder existed to prevent.
+    """
+    nk = cfg.code_n / cfg.code_k
+    dil_scale = reconmod.capacity_dilation_scale(cfg)
+    dcfg = dataclasses.replace(cfg, weight_capacity_scale=dil_scale,
+                               experiment=cfg.experiment)
+
+    site = reconmod.dilated_levels(arch, cfg)
+    if site is None:
+        raise SystemExit(
+            f"RECON_OPTIMIZER=True on {arch}, which has no weight-carrying "
+            f"storage level that a capacity dilation can touch (every weight "
+            f"level it declares is a depth-1 latch).\n"
+            f"  Task 4's mechanism IS the extra weight capacity, so there is "
+            f"nothing here to measure and the numbers would be Task 3's under "
+            f"a Task 4 heading.\n"
+            f"  -> RECON_OPTIMIZER=False for the fixed-mapping study")
+    stage_key, prefixes = site
+
+    # The second mapping. `Session` is built from the config alone, so a
+    # different capacity is reached by replacing the field -- config.py stays
+    # the only reader of os.environ.
+    print(f"\n  ---- Task 4: the reconstruction arm's own mapping "
+          f"(weight capacity x{dil_scale:g} = x{cfg.weight_capacity_scale:g} "
+          f"x N/K, N/K = {nk:.4f}) ----")
+    dses = Session(dcfg).setup(need_mapper=True)
+    dses.collect_arch(arch)
+    raw_d = (dses.raws.get(arch) or {}).get(model)
+    if raw_d is None:
+        variant = archmod.effective_variant(arch, dcfg)
+        fp = archmod.arch_fingerprint(arch, dcfg)
+        raise SystemExit(
+            f"RECON_OPTIMIZER=True needs the reconstruction arm's OWN mapping "
+            f"for {arch}/{model} at weight capacity x{dil_scale:g}, and it is "
+            f"not in the cache.\n"
+            f"  expected: {dses.results.mapper_cache(arch, variant, fp)}\n"
+            f"  -> map it:  ECC_PHASE=Post ECC_WEIGHT_CAPACITY_SCALE={dil_scale:g} \\\n"
+            f"                ECC_RECON_ARCHS={arch} bash hpc/map_by_shape.sh --no-eval\n"
+            f"     or the whole sweep:  bash hpc/map_capacity_sweep.sh\n"
+            f"  Refusing rather than falling back to the reference mapping: "
+            f"that fallback IS Task 3, and this heading says otherwise.")
+
+    paths_d, mapper_d = stats_paths_for(dcfg, dses, arch, model)
+    ref_paths, _ = stats_paths_for(cfg, ses, arch, model)
+    if set(paths_d) != set(ref_paths):
+        only_ref = sorted(set(ref_paths) - set(paths_d))
+        only_dil = sorted(set(paths_d) - set(ref_paths))
+        raise SystemExit(
+            f"the two arms of Task 4 are mapped on DIFFERENT layer shapes for "
+            f"{arch}/{model}, so their totals are not comparable:\n"
+            f"  only in the reference (x{cfg.weight_capacity_scale:g}): "
+            f"{', '.join(only_ref) or 'none'}\n"
+            f"  only in the dilated   (x{dil_scale:g}): "
+            f"{', '.join(only_dil) or 'none'}\n"
+            f"  -> finish the missing maps before evaluating")
+
+    wpath_d = reconmod.weight_path(dcfg, arch, model, dses.models[model], paths_d)
+
+    # ---- DID THE MAPPER ACTUALLY USE THE ROOM? -----------------------------
+    # If every layer's loop nest came back byte-identical, the reconstruction
+    # arm is running the REFERENCE MAPPING on the SAME SILICON, and its energy
+    # is the reference's -- exactly, not approximately. Saying so is not a
+    # shortcut, it is the only correct answer, because everything that differs
+    # between the two cached records in that case is an artifact of expressing
+    # the dilation as `depth x N/K`:
+    #
+    #   * Accelergy prices the deeper array dearer per access (1.24x on
+    #     eyeriss_like), which `capacity_dilation_correction()` undoes;
+    #   * Timeloop derives the NoC hop length from the inner level's Accelergy
+    #     AREA when noc.yaml does not pin a `tile_width_um`, so the deeper
+    #     array also LENGTHENS the wires into the PE -- worth +731 kpJ of NoC
+    #     weight energy on eyeriss_like's two-layer scope, or 0.17 pp of the
+    #     saving, all of it against the reconstruction arm.
+    #
+    # Neither is a property of the reconstruction arm's silicon, which is the
+    # declared array holding narrower values. So on an identical nest the
+    # reference record IS the answer, and the run says the dilation bought
+    # nothing rather than reporting the artifacts as a result.
+    nests = {}
+    for shape, dil_p in paths_d.items():
+        ref_p = ref_paths[shape]
+        a = pathlib.Path(ref_p).parent / "timeloop-mapper.map.txt"
+        b = pathlib.Path(dil_p).parent / "timeloop-mapper.map.txt"
+        nests[shape] = (a.is_file() and b.is_file()
+                        and a.read_text() == b.read_text())
+    mapping_identical = bool(nests) and all(nests.values())
+
+    # ---- the capacity actually delivered, read off both mappings -----------
+    cap_ref = _capacity_of(ref_paths, prefixes)
+    cap_dil = _capacity_of(paths_d, prefixes)
+    got = (cap_dil / cap_ref) if cap_ref else 0.0
+    if cap_ref and abs(got - nk) > 0.05 * nk:
+        raise SystemExit(
+            f"the dilated mapping of {arch} reports weight capacity "
+            f"{cap_dil:,} against the reference's {cap_ref:,} -- a factor of "
+            f"{got:.4f}, not the N/K = {nk:.4f} Task 4 is about.\n"
+            f"  A `depth:` that rounded back to its declared value is not a "
+            f"dilation, and the result would be Task 3's under a Task 4 "
+            f"heading.\n"
+            f"  -> check `archs._scale_weight_capacity`'s report for {arch}: a "
+            f"buffer this shallow may not have a distinct integer depth at "
+            f"x{dil_scale:g}")
+
+    # ---- re-price the dilated array at the DECLARED array's cost -----------
+    # Accelergy costs a level from its declared geometry, so the dilated level
+    # is priced as a physically larger array. The reconstruction arm's array is
+    # the same silicon holding narrower values, so that cost is not its cost.
+    ref_dir = next(iter(ref_paths.values()), None)
+    dil_dir = next(iter(paths_d.values()), None)
+    corr = reconmod.capacity_dilation_correction(
+        ref_dir.parent if ref_dir is not None else ".",
+        dil_dir.parent if dil_dir is not None else ".", prefixes)
+
+    if mapping_identical:
+        # The reference mapping on the same silicon: use the reference record
+        # outright. No correction is needed because nothing legitimate moved.
+        print(f"  the mapper returned a BYTE-IDENTICAL loop nest on all "
+              f"{len(nests)} shape(s) -- the extra weight room was not used, "
+              f"so this arm IS the reference mapping and is priced as it")
+        ref_wpath = reconmod.weight_path(cfg, arch, model, ses.models[model],
+                                         ref_paths)
+        return DilatedView(
+            cfg=dcfg, scale=dil_scale, ref_scale=cfg.weight_capacity_scale,
+            raw=ref_raw, wpath=ref_wpath,
+            base_series=ref_raw.base.reindex(base_cats, fill_value=0.0),
+            base_w=ref_raw.base_w.reindex(base_cats, fill_value=0.0),
+            stage_key=stage_key,
+            correction=dict(
+                corr, stage=stage_key, corrected=False, moved_pJ=0.0,
+                mapping_identical=True, per_shape_nest_identical=nests,
+                note=("the dilated mapping is byte-identical to the reference "
+                      "on every shape, so the reference record is used "
+                      "outright: no re-pricing, and NO capacity effect. Every "
+                      "difference between the two cached records here is an "
+                      "artifact of expressing the dilation as depth (a dearer "
+                      "array per access, and a longer Timeloop-derived NoC hop "
+                      "into it), none of it a property of the reconstruction "
+                      "arm's silicon.")),
+            capacity={"reference_weights_per_instance": cap_ref,
+                      "dilated_weights_per_instance": cap_dil,
+                      "delivered_factor": got, "wanted_factor": nk,
+                      "level": prefixes[0] if prefixes else "?",
+                      "the_mapper_used_none_of_it": True},
+            fingerprint=archmod.arch_fingerprint(arch, dcfg),
+            reconciles=True,
+            recon_check={"note": "the reference record's own check applies"})
+
+    moved = reconmod.apply_capacity_correction(wpath_d, stage_key, corr)
+
+    # ...AND ON THE PLOTTED CATEGORY, not only on the weight path. The bar is
+    # drawn from the raw record's per-category totals, so correcting the
+    # weight-path stage alone leaves the drawn stack carrying Accelergy's cost
+    # for the bigger array -- which is how the first Task 4 run came out WORSE
+    # than Task 3 on a byte-identical mapping (eyeriss_like, +8.61 % against
+    # +12.86 %, the whole 18.3 uJ gap being the 1.24x ERT inflation of a
+    # scratchpad whose loop nest had not moved). The dearer array is dearer for
+    # EVERY dataspace it holds, not just for weights, so the correction is
+    # applied to the level's whole energy and to its weight share separately --
+    # they differ whenever the dilated level is shared (ECC_WEIGHT_CAPACITY_
+    # SCOPE=shared puts Inputs in `operand_glb`).
+    # THE CATEGORY MOVES BY EXACTLY WHAT THE STAGE MOVED. `wpath_d`'s stage is
+    # the weight share of that level, re-derived from the cached stats with the
+    # per-instance counts scaled up the way `read_weight_path()` does, and
+    # `cross_check()` reconciles it against this very record -- so it is the
+    # one number that is on the same footing as the category total. The raw
+    # record's own per-level `reads`/`writes` are NOT: they are per instance
+    # while its `energy_pJ` is a total, which priced the level 25x low and got
+    # the correction refused (2026-09-09).
+    base_all = raw_d.base.copy()
+    base_wt = raw_d.base_w.copy()
+    stage_cat = reconmod._category_of(
+        next(s for s in reconmod.stages_for(arch, dcfg) if s.key == stage_key), dcfg)
+    delta = float(moved.get("moved_pJ", 0.0))
+    if delta and stage_cat in base_all.index:
+        base_all[stage_cat] += delta
+        if stage_cat in base_wt.index:
+            base_wt[stage_cat] += delta
+    moved["plotted_category_repriced"] = {"category": stage_cat, "delta_pJ": delta}
+
+    # A SHARED LEVEL'S NON-WEIGHT SHARE IS LEFT UNCORRECTED, and says so. Under
+    # ECC_WEIGHT_CAPACITY_SCOPE=shared the dilated level also holds Inputs, and
+    # the dearer array is dearer for those accesses too -- but their access mix
+    # is not in the weight path, so re-pricing them would be a guess. Leaving
+    # them at Accelergy's cost for the bigger array charges the reconstruction
+    # arm MORE, so the resulting saving is conservative.
+    other = sorted({str(r.get("dataspace")) for r in (raw_d.levels or [])
+                    if r.get("dataspace") != "Weights"
+                    and any(str(r.get("level")) == pre
+                            or str(r.get("level")).startswith(pre)
+                            for pre in prefixes)})
+    if other:
+        moved["uncorrected_dataspaces_on_the_shared_level"] = {
+            "dataspaces": other,
+            "meaning": (f"{stage_key} also holds {', '.join(other)}; their share "
+                        f"of it is left at Accelergy's cost for the DILATED "
+                        f"array, which overcharges the reconstruction arm and "
+                        f"makes this saving a lower bound")}
+
+    # The correction changed a stage's energy, so the weight path no longer
+    # reconciles with the DILATED raw record by construction -- it reconciles
+    # with it MINUS what was corrected. Both numbers are recorded and the
+    # figure's own total is rebuilt from the corrected path below, so the
+    # reconciliation is reported rather than asserted.
+    reconciles, recon_check = reconmod.cross_check(dcfg, arch, wpath_d, base_wt)
+    return DilatedView(
+        cfg=dcfg, scale=dil_scale, ref_scale=cfg.weight_capacity_scale,
+        raw=raw_d, wpath=wpath_d,
+        base_series=base_all.reindex(base_cats, fill_value=0.0),
+        base_w=base_wt.reindex(base_cats, fill_value=0.0),
+        stage_key=stage_key,
+        correction=dict(moved, **{k: v for k, v in corr.items()
+                                  if k != "provenance"},
+                        provenance=corr.get("provenance", "")),
+        capacity={"reference_weights_per_instance": cap_ref,
+                  "dilated_weights_per_instance": cap_dil,
+                  "delivered_factor": got, "wanted_factor": nk,
+                  "level": prefixes[0] if prefixes else "?",
+                  "the_mapper_used_none_of_it": False,
+                  "per_shape_nest_identical": nests},
+        fingerprint=archmod.arch_fingerprint(arch, dcfg),
+        reconciles=reconciles, recon_check=recon_check)
+
+
+def _capacity_of(paths, prefixes):
+    """`Effective size` of the dilated weight level, from any mapped shape.
+
+    Read off the mapping rather than computed from the YAML, so a `depth:` the
+    patch failed to rewrite -- or one Timeloop clamped -- shows up here instead
+    of being assumed.
+    """
+    for path in paths.values():
+        text = pathlib.Path(path).read_text()
+        for part in text.split("=== "):
+            name = part.split(" ===")[0]
+            if "STATS" not in part:
+                continue
+            if not any(name == p or name.startswith(p) for p in prefixes):
+                continue
+            m = re.search(r"Effective size\s*:\s*(\d+)", part)
+            if m:
+                return int(m.group(1))
+    return 0
+
+
 # --------------------------------------------------------------------- report
 def _report(cfg, arch, model, wpath, gran, packing, rows, base_total, emb_total,
             raw=None):
@@ -195,60 +509,9 @@ def _report(cfg, arch, model, wpath, gran, packing, rows, base_total, emb_total,
           f"(K/N = {packing.frac:.4f}), packing={packing.mode}")
     print(f"    ECC group             : {gran.weights_per_codeword:.4f} weights per "
           f"codeword, G_rec = {gran.g_rec} weights must be co-resident")
-    ret = wpath.retention
-    # The register's WIDTH depends on what it holds (recon.ReuseRegister), and
-    # so does the PE-storage figure -- print both, because `1.00x the baseline`
-    # under `complement` versus `1.81x` under `full_width` is the whole of R4b's
-    # capacity story and it used to be reported as the latter unconditionally.
-    reg_w = ret["register_width_bits"]
-    pe_bits = packing.reduced_bits_per_weight + reg_w
-    print(f"    reuse register        : {ret['register_entries_requested']} entries "
-          f"(max {ret['register_entries_required_max']:,} x {reg_w:.4g}b "
-          f"required) -> reconstructions amortized "
-          f"{ret['amortization_vs_no_retention']:,.1f}x vs no retention")
-    print(f"    PE weight storage     : {packing.reduced_bits_per_weight:.4g}b "
-          f"reduced SPad + {reg_w:.4g}b register = {pe_bits:.4g}b per resident "
-          f"weight = {pe_bits / cfg.weight_bits:.2f}x the baseline PE "
-          f"(register model: {ret['register_mode']})")
-    latch = min([(r["consecutive_run_a_one_entry_latch_would_serve"] or 1)
-                 for r in ret["per_layer"]] or [1])
-    dims = sorted({r["innermost_weight_dimension"] for r in ret["per_layer"]
-                   if r["innermost_weight_dimension"]})
-    print(f"    a ONE-ENTRY latch     : would serve {latch:.0f} consecutive "
-          f"use(s) -- the innermost temporal loop below the buffer walks "
-          f"{'/'.join(dims) or '?'}, a WEIGHT dimension, so a latch is useless "
-          f"and R4b needs the register above")
-
-    print(f"\n    the weight path as modelled (weight energy only):")
-    # `arrivals` and `mcast` are printed because a network boundary's encoder
-    # count is the ARRIVAL count, not the injection count, and the two differ by
-    # the multicast factor -- up to 7x on these designs. Showing both is what
-    # makes an R2 bar's reconstruction energy checkable off this table.
-    print(f"      {'stage':22s} {'kind':8s} {'energy uJ':>12s} {'reads':>15s} "
-          f"{'fills':>13s} {'ingress':>15s} {'arrivals':>15s} {'mcast':>6s} "
-          f"{'resident':>9s} {'reducible':>10s}")
-    total = base_total  # only for the share column below
-    for stage in reconmod.stages_for(arch, cfg):
-        st = wpath.stages.get(stage.key)
-        if st is None or st.energy_pJ <= 0:
-            why = ("f_if unset: booked to dram_array (controller-side correction)"
-                   if stage.key == "dram_interface"
-                   else "absent from this architecture as modelled")
-            print(f"      {stage.key:22s} {stage.kind:8s} {why:>12s}")
-            continue
-        red = ("yes" if stage.reducible else
-               "NO (array)" if stage.key == "dram_array" else
-               "NO (ctrl)" if stage.key == "dram_interface" else "NO (ECC)")
-        print(f"      {stage.key:22s} {st.kind:8s} {st.energy_pJ / 1e6:12,.3f} "
-              f"{st.reads:15,.0f} {st.fills:13,.0f} {st.ingresses:15,.0f} "
-              f"{st.deliveries:15,.0f} {st.multicast:6,.0f} "
-              f"{st.utilized_capacity:9,.0f} {red:>10s}")
-
     # THE CEILING. Without this, a 0.06% result reads as a missing term rather
-    # than as arithmetic. It is the honest answer to "where did the storage
-    # saving go": there is only this much of it on this architecture.
-    # ON-CHIP only: the DRAM interface is reducible too, but it is not on chip
-    # and gets its own lines below.
+    # than as arithmetic. ON-CHIP only: the DRAM term is reducible too, but it
+    # is not on chip and gets its own lines below.
     reducible = [s.key for s in reconmod.stages_for(arch, cfg)
                  if s.reducible and s.kind != "dram"]
     on_chip = wpath.reducible_energy(reducible)
@@ -260,36 +523,19 @@ def _report(cfg, arch, model, wpath, gran, packing, rows, base_total, emb_total,
           f"{on_chip * (1 - packing.frac) / 1e6:12,.3f} uJ = "
           f"{on_chip * (1 - packing.frac) / emb_total * 100:5.2f}%   <-- the most "
           f"ANY placement can save")
-    split = wpath.dram_split()
-    dram_w = split["dram_weight_energy_pJ"]
-    arr, ifc = split["dram_array_pJ"], split["dram_interface_pJ"]
-    ondie = split["decode_site"] == "ondie"
-    print(f"      DRAM weight energy, both shares           : "
+    term = wpath.dram_term()
+    dram_w = term["dram_weight_energy_pJ"]
+    ondie = term["decode_site"] == "ondie"
+    print(f"      DRAM weight energy (one term, all of it)  : "
           f"{dram_w / 1e6:12,.3f} uJ = {dram_w / emb_total * 100:5.2f}%   "
-          f"(f_if = {split['f_if']:.4f}; {split['f_if_provenance']})")
-    print(f"        array share (1 - f_if), NOT reducible   : "
-          f"{arr / 1e6:12,.3f} uJ = {arr / emb_total * 100:5.2f}%   (the complete "
-          f"codeword is read for on-die correction)")
+          f"({term['dram_cost_provenance']})")
     if ondie:
-        print(f"        interface share f_if, x K/N on EVERY bar: "
-              f"{ifc / 1e6:12,.3f} uJ = {ifc / emb_total * 100:5.2f}%   (only the "
-              f"k message bits leave the die)")
-        dram_save = ifc * (1 - packing.frac)
-        print(f"        interface x (1 - K/N)                   : "
-              f"{dram_save / 1e6:12,.3f} uJ = {dram_save / emb_total * 100:5.2f}%   "
-              f"<-- the DRAM saving every boundary shares")
-        both = (on_chip + ifc) * (1 - packing.frac)
-        print(f"      on-chip + interface, x (1 - K/N)          : "
-              f"{both / 1e6:12,.3f} uJ = {both / emb_total * 100:5.2f}%   <-- the "
-              f"most ANY placement can save in total")
-    else:
-        print(f"        interface share f_if, NOT reduced       : "
-              f"{ifc / 1e6:12,.3f} uJ = {ifc / emb_total * 100:5.2f}%   "
-              f"(ECC_RECON_DECODE_SITE=controller: the complete codeword "
-              f"crosses the interface -- the pre-2026-09-09 model, for the diff)")
+        print(f"        x K/N on EVERY bar                     : "
+              f"{dram_w * packing.frac / 1e6:12,.3f} uJ  (only the k message "
+              f"bits are read out and driven off the die)")
 
     print(f"\n    {'bar':26s} {'total uJ':>13s} {'vs base':>9s} {'vs emb':>9s} "
-          f"{'DRAM i/f uJ':>12s} {'recon uJ':>12s} {'overhead uJ':>12s} {'N_rec':>16s}")
+          f"{'DRAM saved uJ':>14s} {'recon uJ':>12s} {'overhead uJ':>12s} {'N_rec':>16s}")
     for r in rows:
         if r["status"] != "evaluated":
             print(f"    {r['label'][:26]:26s} {'UNSUPPORTED':>13s}   {r['reason'][:60]}")
@@ -297,11 +543,11 @@ def _report(cfg, arch, model, wpath, gran, packing, rows, base_total, emb_total,
         vb = (base_total - r["total"]) / base_total * 100 if base_total else 0.0
         ve = (emb_total - r["total"]) / emb_total * 100 if emb_total else 0.0
         print(f"    {r['label'][:26]:26s} {r['total'] / 1e6:13,.3f} {vb:8.2f}% "
-              f"{ve:8.2f}% {-r['dram_if_saved_pJ'] / 1e6:12,.3f} "
+              f"{ve:8.2f}% {r['dram_saved_pJ'] / 1e6:14,.3f} "
               f"{r['recon_pJ'] / 1e6:12,.3f} "
               f"{r['overhead_pJ'] / 1e6:12,.3f} {r['n_cw']:16,.0f}")
     print(f"    (vs base / vs emb are SAVINGS: a negative number costs more "
-          f"than the reference; DRAM i/f is the interface energy the bar "
+          f"than the reference; DRAM saved is the DRAM energy the bar "
           f"REMOVED against the embedded reference)")
 
 
@@ -328,38 +574,55 @@ def evaluate(cfg, ses, prov, arch, model, raw):
     wpath = reconmod.weight_path(cfg, arch, model, ses.models[model], paths)
     reconciles, recon_check = reconmod.cross_check(cfg, arch, wpath, base_w)
 
+    # ---- TASK 4: the reconstruction arm gets its OWN mapping ---------------
+    # The reference bars above stay on the configured capacity. Every
+    # reconstruction bar below is re-derived from a SECOND mapping solved
+    # against N/K more weight room, so the two arms no longer move the same
+    # data -- which is the entire mechanism Task 3 cannot show. With
+    # RECON_OPTIMIZER=False `dil` is None and every line below is Task 3's.
+    dil = (dilated_view(cfg, ses, arch, model, cats, raw)
+           if cfg.recon_optimizer else None)
+    p_wpath = dil.wpath if dil else wpath
+    p_base_w = dil.base_w if dil else base_w
+    p_base_series = dil.base_series if dil else base_series
+    p_raw = dil.raw if dil else raw
+
     gran = reconmod.Granularity(cfg.code_n, cfg.code_k, cfg.weight_bits,
                                 cfg.recon_granularity)
     packing = reconmod.Packing(cfg.recon_packing, cfg.weight_bits,
                                cfg.code_k, cfg.code_n)
     recon_pj, recon_prov = load_recon_energy(cfg)
-    if cfg.recon_reuse_reg_pj is not None:
-        reg_pj = cfg.recon_reuse_reg_pj
-        reg_prov = f"ECC_RECON_REUSE_REG_PJ override ({reg_pj} pJ per write)"
-    else:
-        any_dir = next(iter(paths.values()), None)
-        reg_pj, reg_prov = reconmod.reuse_register_pj(
-            any_dir.parent if any_dir is not None else ".")
 
     # Decode: charged to nobody by default (Task 2's rule). When ECC_DECODE=1
     # the embedded layout's codeword count is what every recon bar decodes,
     # because the reduced form is taken AFTER correction.
     n_cw_emb = raw.dram_w_reads / gran.weights_per_codeword
     decode_emb = n_cw_emb * cfg.decode_pj_emb if cfg.decode_enabled else 0.0
-    decode_placement = (decode_emb if cfg.recon_placement_charges_decode else 0.0)
+    # Under Task 4 the reconstruction arm issues FEWER DRAM reads, so it
+    # decodes fewer codewords. Charging it the reference's count would bill it
+    # for reads it never made.
+    n_cw_placement = p_raw.dram_w_reads / gran.weights_per_codeword
+    decode_placement = ((n_cw_placement * cfg.decode_pj_emb)
+                        if (cfg.decode_enabled and cfg.recon_placement_charges_decode)
+                        else 0.0)
 
     # ---- the five placements ------------------------------------------------
     wanted = cfg.recon_placements_for(arch)
     placements = [p for p in reconmod.placements_for(arch, cfg)
                   if not wanted or p.key in wanted or p.variant in wanted]
     results = [reconmod.evaluate_placement(
-        cfg, arch, p, wpath, base_w, base_series, recon_pj, reg_pj, gran,
+        cfg, arch, p, p_wpath, p_base_w, p_base_series, recon_pj, gran,
         packing, decode_pj=decode_placement) for p in placements]
 
     # ---- the result file ---------------------------------------------------
     builder = ResultBuilder(cfg, ses.results, arch, model,
-                            experiment=EXPERIMENT, fixed_mapping=True)
+                            experiment=EXPERIMENT_TASK4 if dil else EXPERIMENT,
+                            fixed_mapping=not dil)
     mapping_ids = audit.mapping_ids_of(raw)
+    # TASK 4: the reconstruction bars come from a DIFFERENT mapping, so they
+    # must carry that mapping's ids. A result file whose recon bars claimed the
+    # reference's ids would be indistinguishable from Task 3's.
+    placement_mapping_ids = audit.mapping_ids_of(p_raw) if dil else mapping_ids
     builder.add(Variant(
         "baseline_external_parity", kind="baseline", status="evaluated",
         total_energy_pJ=base_total, energy_by_component_pJ=base_components,
@@ -382,7 +645,7 @@ def evaluate(cfg, ses, prov, arch, model, raw):
                         "INTERFACE share is this bar's x K/N, because this bar's "
                         "on-chip datapath consumes every weight bit and so its "
                         "complete codeword still crosses the interface"),
-               "dram_split": wpath.dram_split(),
+               "dram_term": wpath.dram_term(),
                "ecc_codec_energy": CODEC_NOTE}))
 
     rows = []
@@ -397,7 +660,7 @@ def evaluate(cfg, ses, prov, arch, model, raw):
             rows.append({"key": p.key, "label": p.short.replace("\n", " "),
                          "status": res.status, "reason": res.reason,
                          "total": None, "recon_pJ": 0.0, "overhead_pJ": 0.0,
-                         "n_cw": 0.0, "dram_if_saved_pJ": 0.0})
+                         "n_cw": 0.0, "dram_saved_pJ": 0.0})
             continue
         counts = res.detail["reconstruction_counts"]
         builder.add(Variant(
@@ -405,41 +668,89 @@ def evaluate(cfg, ses, prov, arch, model, raw):
             total_energy_pJ=res.total_pJ,
             energy_by_component_pJ={k: v for k, v in res.components.items()
                                     if v != 0.0},
-            mapping_ids=mapping_ids, label=label,
+            mapping_ids=placement_mapping_ids, label=label,
             extra=dict(res.detail, placement_key=p.key,
-                       fixed_mapping=FIXED_MAPPING_NOTE,
+                       **({"reconstruction_aware_mapping": TASK4_NOTE,
+                           "weight_capacity": dil.capacity,
+                           "capacity_dilation_correction": dil.correction,
+                           "dram_weight_reads_reference": float(raw.dram_w_reads),
+                           "dram_weight_reads_this_arm": float(p_raw.dram_w_reads),
+                           "refetch_reference":
+                               float(raw.dram_w_reads) / raw.weights if raw.weights else 0.0,
+                           "refetch_this_arm":
+                               float(p_raw.dram_w_reads) / p_raw.weights if p_raw.weights else 0.0}
+                          if dil else {"fixed_mapping": FIXED_MAPPING_NOTE}),
                        ecc_codec_energy=CODEC_NOTE)))
         rows.append({"key": p.key, "label": p.short.replace("\n", " "),
                      "status": "evaluated", "reason": "",
                      "total": res.total_pJ,
                      "recon_pJ": counts["reconstruction_energy_pJ"],
-                     "overhead_pJ": counts["reuse_register_energy_pJ"],
+                     "overhead_pJ": counts["recon_overhead_energy_pJ"],
                      "n_cw": counts["reconstruction_events_codewords"],
-                     "dram_if_saved_pJ":
-                         res.detail["dram_model"]["dram_interface_saving_pJ"]})
+                     "dram_saved_pJ":
+                         res.detail["dram_model"]["dram_saving_pJ"]})
 
     # ---- the checks that make the comparison auditable ---------------------
-    task3_checks(builder, cfg, arch, raw, base_components, emb_components,
-                 e_parity, results, wpath, reconciles, recon_check, base_w,
-                 newly_mapped=getattr(mapper, "n_mapped", 0))
+    # TASK 3 and TASK 4 assert DIFFERENT invariants and must not borrow each
+    # other's. Task 3's "the DRAM array is identical on every bar" is FALSE
+    # under Task 4 and is meant to be: the reconstruction arm issues fewer
+    # reads, so it legitimately pays less array energy. Task 4 therefore
+    # replaces that check with a tighter one -- the array credit must equal
+    # exactly the reads the mapper removed, and not a picojoule more.
+    if dil:
+        task4_checks(builder, cfg, arch, raw, dil, base_components,
+                     emb_components, e_parity, results, wpath, base_w,
+                     newly_mapped=getattr(mapper, "n_mapped", 0))
+    else:
+        task3_checks(builder, cfg, arch, raw, base_components, emb_components,
+                     e_parity, results, wpath, reconciles, recon_check, base_w,
+                     newly_mapped=getattr(mapper, "n_mapped", 0))
 
     # ---- Task 1's checks and caveats, so the baseline bar is as audited ----
     arch_report = audit.common_checks(builder, cfg, arch, raw, pdetail, mapping_ids)
     audit.common_caveats(builder, cfg, arch, raw, pdetail)
     builder.approximate(edetail["traffic"]["method"])
     builder.approximate(CODEC_NOTE)
-    builder.approximate(FIXED_MAPPING_NOTE)
+    if dil:
+        builder.approximate(TASK4_NOTE)
+        builder.approximate(dil.correction.get("provenance", ""))
+        if not dil.capacity.get("the_mapper_used_none_of_it"):
+            builder.approximate(
+                "THE DILATED DESIGN'S NoC HOP LENGTH IS NOT CORRECTED. Where "
+                "archs/_shared/noc.yaml does not pin a `tile_width_um`, "
+                "Timeloop derives the hop length from the inner level's "
+                "Accelergy AREA, so expressing the dilation as `depth x N/K` "
+                "also lengthens the wires into that level. The per-access "
+                "energy is re-priced at the declared array; the hop length is "
+                "not, because the wire share of a network's energy is not "
+                "separable from its switching share after the fact. It costs "
+                "the reconstruction arm NoC energy it would not pay on the "
+                "declared silicon (0.17 pp on eyeriss_like's two-layer scope), "
+                "so this saving is a lower bound on that count too.")
+        _rd = dil.correction.get("read_ratio_declared_over_dilated", 1.0)
+        if _rd and _rd < 0.95:
+            builder.warn(
+                f"Accelergy priced the DILATED {dil.capacity['level']} "
+                f"{1 / _rd:.3f}x DEARER per read than the "
+                f"declared one, because it costs a level from its declared "
+                f"geometry and the dilation is expressed as depth. The energy "
+                f"is corrected back to the declared array (the reconstruction "
+                f"arm's array is the same silicon holding narrower values), but "
+                f"the MAPPER optimised against the dearer one and therefore had "
+                f"a reason not to use the extra capacity. This Task 4 saving is "
+                f"a LOWER bound for that reason.")
+    else:
+        builder.approximate(FIXED_MAPPING_NOTE)
     builder.approximate(packing.to_dict()["meaning"])
     builder.approximate(gran.to_dict()["meaning"])
     if cfg.recon_decode_site == "ondie":
-        builder.approximate(F_IF_NOTE)
+        builder.approximate(DRAM_TERM_NOTE)
         builder.approximate(
-            f"DRAM model (decoder on the DRAM die, off the fetch path): "
-            f"dram_array = (1 - f_if) x DRAM weight energy is never reduced -- "
-            f"whether a message-only fetch touches fewer array bits depends on "
-            f"burst granularity and the codeword layout and is not assumed; "
-            f"dram_interface = f_if x DRAM weight energy is x K/N under every "
-            f"boundary, f_if = {cfg.dram_if_frac} ({cfg.dram_if_frac_note}).")
+            f"DRAM model (decoder on the DRAM die, off the fetch path): the "
+            f"WHOLE DRAM weight energy is x K/N under every boundary -- the "
+            f"f_if array/interface split was removed 2026-09-09, and the DRAM "
+            f"access collects only the message bits of each codeword. "
+            f"{cfg.dram_cost_note}. {cfg.dram_static_note}.")
     else:
         builder.warn(
             "ECC_RECON_DECODE_SITE=controller: this is the pre-2026-09-09 model "
@@ -447,13 +758,13 @@ def evaluate(cfg, ses, prov, arch, model, raw):
             "across the DRAM interface, DRAM identical on every bar), kept as a "
             "runnable row for the diff. Do not quote it as the study's result.")
     builder.approximate(
-        "R4b's reuse register is charged one full-width write per weight it "
-        "retains and reduces the RECONSTRUCTION count only. It is not credited "
-        "with removing scratchpad reads, because a baseline PE holding the same "
-        "operand in the same register would remove exactly as many -- the plan "
-        "asks for the reuse register to be compared against equivalent baseline "
-        "operand-retention behaviour, and this is that comparison. Scratchpad "
-        "read counts are therefore Timeloop's under every bar.")
+        "NO BOUNDARY CARRIES A PER-PE REUSE REGISTER. R4b (SPad output plus a "
+        "reconstructed-weight register) was removed on 2026-09-10: measured on "
+        "these mappings, consecutive weight reuse is 1 on 20 of 21 resnet18 "
+        "layers, so a latch catches nothing, and a register that does pay has "
+        "to hold the whole inner tile -- up to 384 weights against a "
+        "384-weight scratchpad. Scratchpad read counts are Timeloop's under "
+        "every bar.")
     builder.approximate(
         f"Weight-path stages are matched to Timeloop levels by name "
         f"(eccenergy/recon.py WEIGHT_PATHS[{arch!r}]) and the match is verified "
@@ -467,8 +778,8 @@ def evaluate(cfg, ses, prov, arch, model, raw):
             "(Table IV: weight data 288B, weight address 16x7b); this study "
             "models the design DENSE, so there is no metadata array here to "
             "leave at full width. A CSC implementation would apply the reduced "
-            "representation to the weight DATA only, so the scratchpad saving "
-            "of R4a/R4b is an upper bound on what CSC v2 would see.")
+            "representation to the weight DATA only, so R4a's scratchpad "
+            "saving is an upper bound on what CSC v2 would see.")
     if cfg.decode_enabled:
         builder.warn(
             "ECC_DECODE=1: codec energy is charged to the reference bars and "
@@ -484,19 +795,17 @@ def evaluate(cfg, ses, prov, arch, model, raw):
             "granularity": gran.to_dict(),
             "reconstruction_datapath_pJ_per_codeword": recon_pj,
             "reconstruction_datapath_provenance": recon_prov,
-            "reuse_register_pJ_per_write": reg_pj,
-            "reuse_register_provenance": reg_prov,
             "decode_site": cfg.recon_decode_site,
-            "dram_if_frac": cfg.dram_if_frac,
-            "dram_if_frac_provenance": cfg.dram_if_frac_note,
-            "dram_split": wpath.dram_split(),
+            "dram_pj_per_bit": cfg.dram_pj_per_bit,
+            "dram_cost_provenance": cfg.dram_cost_note,
+            "dram_static_terms": cfg.dram_static_note,
+            "dram_term": wpath.dram_term(),
             "placements_defined": [
                 {"key": p.key, "variant": p.variant, "boundary": p.label,
                  "hypothesised_rating": p.rating,
                  "reduced_stages": list(p.reduced),
                  "reconstruction_site": p.site_stage,
                  "access_counter": p.site_counter,
-                 "reuse_register": p.reuse_register,
                  "description": p.description}
                 for p in reconmod.placements_for(arch, cfg)],
             "placements_requested": wanted or "all",
@@ -541,7 +850,7 @@ def task3_checks(builder, cfg, arch, raw, base_components, emb_components,
     # 1. the DRAM term, in BOTH directions. With the decoder on the DRAM die the
     #    array share is the embedded arm's and the interface share is x K/N, so
     #    every placement's DRAM component must sit at EXACTLY
-    #        emb_DRAM - f_if x DRAM_w x (1 - K/N).
+    #        emb_DRAM - DRAM_w x (1 - K/N).
     #    That equality is split into two one-sided checks on purpose: a bar
     #    that quietly credits the array sits BELOW it and fails the first; a
     #    bar that leaves the interface at full width sits ABOVE it and fails
@@ -551,62 +860,46 @@ def task3_checks(builder, cfg, arch, raw, base_components, emb_components,
     #    pre-2026-09-09 `dram_identical_to_embedded_reference`.
     dram_ref = emb_components.get("DRAM", 0.0)
     dram_w = float(base_w.get("DRAM", 0.0))
-    split = wpath.dram_split()
-    ondie = split["decode_site"] == "ondie"
+    term = wpath.dram_term()
+    ondie = term["decode_site"] == "ondie"
     frac = cfg.code_k / cfg.code_n
-    f_if = float(split["f_if"] or 0.0)
-    if_saving = f_if * dram_w * (1.0 - frac) if ondie else 0.0
-    expected = dram_ref - if_saving
+    saving = dram_w * (1.0 - frac) if ondie else 0.0
+    expected = dram_ref - saving
     tol = abs(expected) * 1e-12 + 1e-6
-    rows_a, rows_i, ok_a, ok_i = {}, {}, True, True
+    rows, ok_d = {}, True
     for r in evaluated:
         got = r.components.get("DRAM", 0.0)
         dm = r.detail.get("dram_model", {})
-        a_row_ok = (not dm.get("dram_array_reduced", False)
-                    and math.isclose(dm.get("dram_array_after_pJ", 0.0),
-                                     dm.get("dram_array_pJ", 0.0),
-                                     rel_tol=1e-12, abs_tol=1e-6))
-        a_ok = a_row_ok and got >= expected - tol
-        rows_a[r.placement.key] = {
-            "dram_pJ": got, "expected_dram_pJ": expected,
-            "below_expected_by_pJ": max(0.0, expected - got),
-            "array_row_unreduced": a_row_ok, "passed": a_ok}
-        ok_a = ok_a and a_ok
         want_scale = frac if ondie else 1.0
-        i_row_ok = (bool(dm.get("dram_interface_reduced", False)) == ondie
-                    and math.isclose(dm.get("dram_interface_after_pJ", 0.0),
-                                     dm.get("dram_interface_pJ", 0.0) * want_scale,
-                                     rel_tol=1e-12, abs_tol=1e-6))
-        i_ok = i_row_ok and got <= expected + tol
-        rows_i[r.placement.key] = {
+        row_ok = (bool(dm.get("dram_reduced", False)) == ondie
+                  and math.isclose(dm.get("dram_after_pJ", 0.0),
+                                   dm.get("dram_weight_energy_pJ", 0.0) * want_scale,
+                                   rel_tol=1e-12, abs_tol=1e-6))
+        d_ok = row_ok and math.isclose(got, expected, rel_tol=1e-12, abs_tol=tol)
+        rows[r.placement.key] = {
             "dram_pJ": got, "expected_dram_pJ": expected,
-            "above_expected_by_pJ": max(0.0, got - expected),
-            "interface_row_scaled": i_row_ok, "interface_scale": want_scale,
-            "passed": i_ok}
-        ok_i = ok_i and i_ok
-    common = {"decode_site": split["decode_site"], "f_if": f_if,
-              "dram_weight_energy_pJ": dram_w,
-              "embedded_reference_dram_pJ": dram_ref,
-              "interface_saving_every_placement_pJ": if_saving,
-              "expected_placement_dram_pJ": expected}
+            "off_expected_by_pJ": abs(got - expected),
+            "dram_row_scaled": row_ok, "dram_scale": want_scale,
+            "passed": d_ok}
+        ok_d = ok_d and d_ok
     builder.check(
-        "dram_array_identical_to_embedded_reference", ok_a,
-        dict(common, per_placement=rows_a,
-             rule=("the array stores and reads the complete codeword for on-die "
-                   "correction, so (1 - f_if) of the DRAM weight energy is the "
-                   "embedded arm's under every boundary: no placement's DRAM "
-                   "component may sit BELOW emb_DRAM - f_if x DRAM_w x (1 - K/N), "
-                   "and its dram_array row must be unreduced")))
-    builder.check(
-        "dram_interface_scaled_by_K_over_N", ok_i,
-        dict(common, per_placement=rows_i,
-             rule=("with the decoder on the DRAM die only the k message bits "
-                   "leave it, so f_if of the DRAM weight energy is x K/N under "
-                   "every boundary: no placement's DRAM component may sit ABOVE "
-                   "emb_DRAM - f_if x DRAM_w x (1 - K/N), and its dram_interface "
-                   "row must carry exactly that scale (1.0 under "
-                   "ECC_RECON_DECODE_SITE=controller, where the complete "
-                   "codeword crosses the interface)")))
+        "dram_scaled_by_K_over_N", ok_d,
+        {"decode_site": term["decode_site"],
+         "dram_pj_per_bit": term["dram_pj_per_bit"],
+         "dram_cost_provenance": term["dram_cost_provenance"],
+         "dram_weight_energy_pJ": dram_w,
+         "embedded_reference_dram_pJ": dram_ref,
+         "saving_every_placement_pJ": saving,
+         "expected_placement_dram_pJ": expected,
+         "per_placement": rows,
+         "rule": ("with the decoder on the DRAM die only the k message bits are "
+                  "read out and driven off it, so the WHOLE DRAM weight energy "
+                  "is x K/N under every boundary: every placement's DRAM "
+                  "component must equal emb_DRAM - DRAM_w x (1 - K/N) exactly, "
+                  "and its dram row must carry that scale (1.0 under "
+                  "ECC_RECON_DECODE_SITE=controller). The f_if array/interface "
+                  "split, and with it the separate array check, was removed on "
+                  "2026-09-09; the whole term now moves together")})
 
     # 2. nothing outside the weight path moved
     non_weight = {c: float(base_w.get(c, 0.0)) for c in ("Compute",)}
@@ -678,6 +971,215 @@ def task3_checks(builder, cfg, arch, raw, base_components, emb_components,
                      "requires. Failed: re-run with --eval.")})
 
     # 6. the reference bars still say what Tasks 1 and 2 said
+    dram_diff = (base_components.get("DRAM", 0.0) + base_components.get(PARITY_KEY, 0.0)
+                 - emb_components.get("DRAM", 0.0) - emb_components.get(PARITY_KEY, 0.0))
+    builder.check(
+        "reference_bars_match_tasks_1_and_2",
+        math.isclose(dram_diff, e_parity, rel_tol=1e-12, abs_tol=1e-6),
+        {"baseline_minus_embedded_dram_pJ": dram_diff,
+         "external_parity_pJ": e_parity,
+         "source": "ecc.external_parity() and ecc.embedded_dram(), unchanged"})
+
+
+def task4_checks(builder, cfg, arch, raw, dil, base_components, emb_components,
+                 e_parity, results, ref_wpath, base_w, newly_mapped=0):
+    """The checks that make Task 4's claim -- "the mapper spent the extra room" --
+    auditable, and that stop it borrowing a claim it is not entitled to.
+
+    TASK 3'S CHECKS DO NOT TRANSFER, and running them here would either fail
+    honestly or pass dishonestly. Three of them are about a FIXED mapping:
+
+      dram_scaled_by_K_over_N   too loose here -- the reconstruction arm also
+          issues fewer DRAM reads, and that extra credit is the whole point.
+          Replaced below by a strictly tighter statement: the credit must equal
+          EXACTLY the reads the mapper removed, priced at the reference's own
+          per-read energy, on top of the K/N narrowing.
+      non_weight_energy_identical                  activations and partial sums
+          legitimately move when the mapping changes. Only the MAC count is
+          mapping-invariant, and that is checked, hard: two mappings of the same
+          layer that disagree on Computes are not two mappings of the same
+          layer.
+      only_weight_path_categories_differ           likewise.
+
+    What replaces them is the pair of facts a Task 4 number stands on: the two
+    arms really are the same workload on the same design, and the reconstruction
+    arm really did get N/K more weight room and no other advantage.
+    """
+    evaluated = [r for r in results if r.status == "evaluated"]
+    frac = cfg.code_k / cfg.code_n
+    nk = 1.0 / frac
+    term = dil.wpath.dram_term()
+    ondie = term["decode_site"] == "ondie"
+
+    # 0. the two tables that define the placement space still agree
+    space_ok, space = reconmod.validate_placement_space(arch, cfg)
+    builder.check("placement_space_covers_the_whole_weight_path", space_ok, space)
+
+    # 1. THE TWO ARMS ARE THE SAME WORKLOAD. The MAC count is mapping-invariant
+    #    -- a convolution has the multiplications it has, whatever the tiling --
+    #    so if the two mappings disagree on it they are not two mappings of one
+    #    problem, and every percentage below would be comparing two workloads.
+    #    This is the check that makes the rest of the file meaningful.
+    # `Raw.mac` is filled by `energy.apply_mac_override()` and carries the MAC
+    # count it charged; it is the only place the count survives aggregation.
+    ref_macs = float((getattr(raw, "mac", None) or {}).get("macs", 0.0) or 0.0)
+    dil_macs = float((getattr(dil.raw, "mac", None) or {}).get("macs", 0.0) or 0.0)
+    same_macs = (ref_macs > 0 and math.isclose(ref_macs, dil_macs,
+                                               rel_tol=1e-9, abs_tol=1.0))
+    builder.check(
+        "both_arms_are_the_same_workload", same_macs,
+        {"reference_computes": ref_macs, "dilated_computes": dil_macs,
+         "reference_weights": float(getattr(raw, "weights", 0.0) or 0.0),
+         "dilated_weights": float(getattr(dil.raw, "weights", 0.0) or 0.0),
+         "rule": ("the MAC count is mapping-invariant, so the reference and the "
+                  "reconstruction-aware mapping must report the same Computes. "
+                  "They differ only in HOW the data moves, never in how much "
+                  "arithmetic there is -- and if they differ here, the two "
+                  "totals are not comparable at all")})
+
+    # 2. THE RECONSTRUCTION ARM GOT N/K MORE WEIGHT ROOM AND NOTHING ELSE.
+    #    Read off both mappings' own `Effective size`, not off the YAML: a
+    #    `depth:` the patch failed to rewrite, or one Timeloop clamped, shows up
+    #    here rather than being assumed.
+    cap = dil.capacity
+    cap_ok = (cap["reference_weights_per_instance"] > 0
+              and abs(cap["delivered_factor"] - nk) <= 0.05 * nk)
+    builder.check(
+        "reconstruction_arm_has_N_over_K_more_weight_capacity", cap_ok,
+        dict(cap, reference_scale=dil.ref_scale, dilated_scale=dil.scale,
+             rule=(f"the reduced representation stores N/K = {nk:.4f} times as "
+                   f"many weights in the same silicon, so the mapper for the "
+                   f"reconstruction arm must have been given exactly that much "
+                   f"more room at the weight level -- no more (which would be "
+                   f"unearned) and no less (which would understate it)")))
+
+    # 3. THE ARRAY CREDIT IS EXACTLY THE READS THE MAPPER REMOVED. This is the
+    #    check that separates Task 4 from wishful thinking. Task 3's rule was
+    #    "the array never moves"; here it moves, and it may move by exactly
+    #    `(reads_ref - reads_dil) x pJ_per_read` and no more. A boundary that
+    #    credited itself for reads it still issues fails.
+    dram_ref_emb = emb_components.get("DRAM", 0.0)
+    dram_w_ref = float(base_w.get("DRAM", 0.0))
+    dram_w_dil = float(dil.base_w.get("DRAM", 0.0))
+    reads_ref = float(raw.dram_w_reads)
+    reads_dil = float(dil.raw.dram_w_reads)
+    # The DRAM weight energy scales exactly with the read count (one flat
+    # per-bit constant), so the array term the reconstruction arm owes is the
+    # dilated read count's share of it.
+    dil_expected = dram_w_dil * frac if ondie else dram_w_dil
+    expected = dram_ref_emb - dram_w_ref + dil_expected
+    tol = abs(expected) * 1e-9 + 1e-3
+    rows, ok = {}, True
+    for r in evaluated:
+        got = r.components.get("DRAM", 0.0)
+        dm = r.detail.get("dram_model", {})
+        row_ok = (math.isclose(got, expected, rel_tol=1e-9, abs_tol=tol)
+                  and bool(dm.get("dram_reduced", False)) == ondie)
+        rows[r.placement.key] = {
+            "dram_pJ": got, "expected_dram_pJ": expected,
+            "difference_pJ": got - expected,
+            "array_row_unreduced_within_this_mapping":
+                bool(dm.get("dram_reduced", False)) == ondie,
+            "passed": row_ok}
+        ok = ok and row_ok
+    builder.check(
+        "dram_credit_equals_the_reads_the_mapper_removed", ok,
+        {"per_placement": rows,
+         "reference_dram_weight_reads": reads_ref,
+         "reconstruction_dram_weight_reads": reads_dil,
+         "reads_never_issued": reads_ref - reads_dil,
+         "reference_dram_weight_pJ": dram_w_ref,
+         "reconstruction_dram_weight_pJ": dram_w_dil,
+         "K_over_N": frac,
+         "rule": ("under Task 4 the reconstruction-aware mapping issues fewer "
+                  "DRAM reads AND each read it does issue is narrower, so "
+                  "every placement's DRAM component must equal "
+                  "DRAM_w(dilated) x K/N, shifted by the reference bar's own "
+                  "DRAM. A bar below that is counting a saving twice")})
+
+    # 4. THE SAVING IS DECOMPOSED, and the two halves are reported separately
+    #    because they have different efficiencies and only one of them is new.
+    #    Fixed-mapping efficiency is (1 - K/N) = 0.381 since the f_if split
+    #    was removed (it was f_if x (1 - K/N) = 0.152 at f_if = 0.40); a read
+    #    never issued still has efficiency 1.0, so the two are now much closer.
+    never_issued_pJ = dram_w_ref - dram_w_dil
+    fixed_part = dram_w_dil * (1.0 - frac) if ondie else 0.0
+    builder.check(
+        "dram_saving_is_decomposed_into_refetch_and_narrowing", True,
+        {"reads_never_issued_pJ": never_issued_pJ,
+         "narrowing_on_the_reads_still_issued_pJ": fixed_part,
+         "total_dram_saving_pJ": never_issued_pJ + fixed_part,
+         "efficiency_of_the_refetch_part": 1.0,
+         "efficiency_of_the_narrowing_part": 1.0 - frac,
+         "efficiency_overall": ((never_issued_pJ + fixed_part) / dram_w_ref
+                                if dram_w_ref else 0.0),
+         "refetch_reference": reads_ref / raw.weights if raw.weights else 0.0,
+         "refetch_reconstruction":
+             reads_dil / dil.raw.weights if dil.raw.weights else 0.0,
+         "first_order_prediction_FINDINGS_9_0":
+             ((reads_ref / raw.weights - 1.0) * frac + 1.0) if raw.weights else 0.0,
+         "rule": ("informational, always passes: a read the reconstruction arm "
+                  "never issues removes the whole per-access energy, so its "
+                  "efficiency is 1.0 per pJ, against the (1 - K/N) that "
+                  "narrowing an issued read buys. "
+                  "FINDINGS section 9 item 0 predicts the refetch this arm "
+                  "should show if excess refetch scaled inversely with "
+                  "capacity; the measured value beside it is the validation")})
+
+    # 5. THE CORRECTION IS DECLARED. The dilated level was priced by Accelergy
+    #    as a physically larger array; the reconstruction arm's is the same
+    #    silicon holding narrower values.
+    corr = dil.correction
+    builder.check(
+        "dilated_buffer_repriced_at_the_declared_array", True,
+        dict(corr, rule=("Accelergy costs a level from its declared geometry, "
+                         "so expressing the dilation as `depth x N/K` prices "
+                         "the reconstruction arm's scratchpad as a bigger SRAM "
+                         "than it is. Its energy is re-priced at the declared "
+                         "array's per-access cost. The MAPPER still optimised "
+                         "against the dearer array, so a ratio far from 1.0 "
+                         "means the search had a reason to avoid the capacity "
+                         "and this result is a LOWER bound")))
+
+    # 6. the weight path still reconciles with the dilated raw record
+    builder.check("weight_path_reconciles_with_raw_record",
+                  dil.reconciles, dil.recon_check)
+
+    # 7. a placement cannot save more than the reducible weight energy there is
+    reducible = {}
+    for r in evaluated:
+        avail = sum(dil.wpath.stages[k].energy_pJ for k in r.placement.reduced
+                    if k in dil.wpath.stages)
+        saved = sum(r.detail["energy_saved_by_category_pJ"].values())
+        reducible[r.placement.key] = {
+            "reducible_weight_energy_pJ": avail, "energy_saved_pJ": saved,
+            "within_bound": saved <= avail + 1e-6 and saved >= -1e-6}
+    builder.check(
+        "placement_savings_are_bounded_by_the_weight_path",
+        all(v["within_bound"] for v in reducible.values()),
+        {"per_placement": reducible,
+         "rule": ("within its OWN mapping, a boundary reduces the weight energy "
+                  "of the stages the reduced form reaches and no more. The "
+                  "refetch saving is not in this bound -- it is a smaller "
+                  "weight path to begin with, not a reduction of this one")})
+
+    # 8. NEITHER ARM WAS MAPPED BY THIS RUN. Task 4 re-optimises the mapping,
+    #    but it does so in a separate mapping wave whose cache this reads; an
+    #    evaluation that had to invoke Timeloop would mean the figure and the
+    #    cache disagree about what was solved.
+    builder.check(
+        "evaluation_only_rerun",
+        bool(cfg.from_cache) or newly_mapped == 0,
+        {"ECC_FROM_CACHE": bool(cfg.from_cache),
+         "newly_mapped_shapes": newly_mapped,
+         "reference_fingerprint": archmod.arch_fingerprint(arch, cfg),
+         "reconstruction_fingerprint": dil.fingerprint,
+         "meaning": ("the two arms are two mapper caches, both solved before "
+                     "this evaluation ran. The fingerprints are recorded side "
+                     "by side so a figure drawn from one cache cannot claim "
+                     "two")})
+
+    # 9. the reference bars still say what Tasks 1 and 2 said
     dram_diff = (base_components.get("DRAM", 0.0) + base_components.get(PARITY_KEY, 0.0)
                  - emb_components.get("DRAM", 0.0) - emb_components.get(PARITY_KEY, 0.0))
     builder.check(
@@ -808,7 +1310,7 @@ def panel_for(cfg, arch, model, out):
     def pct(ref, total):
         return ((ref - total) / ref * 100.0) if ref and total is not None else ""
 
-    split = out["wpath"].dram_split()
+    term = out["wpath"].dram_term()
     extra = {}
     for key, total in (("baseline", base_t), ("embedded", emb_t)):
         extra[key] = {
@@ -818,15 +1320,14 @@ def panel_for(cfg, arch, model, out):
             "saving_vs_embedded_only_pct": pct(emb_t, total),
             "reconstruction_events_codewords": "", "reconstruction_uJ": "",
             "recon_overhead_uJ": "", "weights_reconstructed": "",
-            "retention_amortization_x": "", "reducible_energy_uJ": "",
+            "reducible_energy_uJ": "",
             "saving_ceiling_uJ": "",
             "decode_site": "controller (reference bar)",
-            "f_if": split["f_if"],
+            "dram_pj_per_bit": term["dram_pj_per_bit"],
             # the weight share only; the baseline's external parity is on top
-            "dram_array_uJ": split["dram_array_pJ"] / 1e6 if key == "embedded" else "",
-            "dram_interface_uJ": (split["dram_interface_pJ"] / 1e6
-                                  if key == "embedded" else ""),
-            "dram_interface_saving_uJ": 0.0 if key == "embedded" else "",
+            "dram_uJ": (term["dram_weight_energy_pJ"] / 1e6
+                        if key == "embedded" else ""),
+            "dram_saving_uJ": 0.0 if key == "embedded" else "",
             "unavailable_reason": "",
         }
     for res in out["results"]:
@@ -842,25 +1343,24 @@ def panel_for(cfg, arch, model, out):
                 saving_vs_embedded_only_pct=pct(emb_t, res.total_pJ),
                 reconstruction_events_codewords=c["reconstruction_events_codewords"],
                 reconstruction_uJ=c["reconstruction_energy_pJ"] / 1e6,
-                recon_overhead_uJ=c["reuse_register_energy_pJ"] / 1e6,
+                recon_overhead_uJ=c["recon_overhead_energy_pJ"] / 1e6,
                 weights_reconstructed=c["weights_reconstructed"],
-                retention_amortization_x=c["amortization_vs_no_retention"],
                 reducible_energy_uJ=b["before_pJ"] / 1e6,
                 saving_ceiling_uJ=b["ceiling_on_the_saving_pJ"] / 1e6,
-                decode_site=dm["decode_site"], f_if=dm["f_if"],
-                dram_array_uJ=dm["dram_array_after_pJ"] / 1e6,
-                dram_interface_uJ=dm["dram_interface_after_pJ"] / 1e6,
-                dram_interface_saving_uJ=dm["dram_interface_saving_pJ"] / 1e6,
+                decode_site=dm["decode_site"],
+                dram_pj_per_bit=dm["dram_pj_per_bit"],
+                dram_uJ=dm["dram_after_pJ"] / 1e6,
+                dram_saving_uJ=dm["dram_saving_pJ"] / 1e6,
                 unavailable_reason="")
         else:
             row.update(saving_vs_conventional_ecc_pct="",
                        saving_vs_embedded_only_pct="",
                        reconstruction_events_codewords="", reconstruction_uJ="",
                        recon_overhead_uJ="", weights_reconstructed="",
-                       retention_amortization_x="", reducible_energy_uJ="",
-                       saving_ceiling_uJ="", decode_site=split["decode_site"],
-                       f_if=split["f_if"], dram_array_uJ="", dram_interface_uJ="",
-                       dram_interface_saving_uJ="", unavailable_reason=res.reason)
+                       reducible_energy_uJ="",
+                       saving_ceiling_uJ="", decode_site=term["decode_site"],
+                       dram_pj_per_bit=term["dram_pj_per_bit"], dram_uJ="",
+                       dram_saving_uJ="", unavailable_reason=res.reason)
             # An unsupported boundary has no bar, but it must still have a row:
             # a table that simply omits it reads as "not considered".
             groups.append(p.key)
@@ -974,48 +1474,27 @@ def figure(cfg, ses, panels):
                        for g in pan["drawn"]]
 
 
-# ------------------------------------------------------------ the refusal
-def refuse_without_f_if(cfg, arch, model, raw):
-    """No f_if, no number: print the DRAM ceiling at several values and stop.
-
-    01_project_context Sec. 4: "f_if ... comes from a cited DRAM energy
-    breakdown, not from code; when it is uncertain, print the DRAM saving at
-    several values." The whole of what f_if decides is one product -- every
-    placement's DRAM interface saving is f_if x DRAM_w x (1 - K/N), the same
-    on every bar -- so the ceiling can be printed from the raw record alone,
-    before anything is evaluated, and the run then refuses rather than
-    drawing a figure whose largest new term is an assumption.
-    """
-    dram_w = float(raw.base_w.get("DRAM", 0.0))
-    total = float(raw.total)
-    frac = cfg.code_k / cfg.code_n
-    print(f"\n  --- {arch} / {model} : the DRAM interface saving, at several "
-          f"f_if, because ECC_DRAM_IF_FRAC is unset ---")
-    print(f"    DRAM weight energy (both shares)     : {dram_w / 1e6:12,.3f} uJ = "
-          f"{dram_w / total * 100:5.2f}% of the Timeloop total")
-    print(f"    K/N = {frac:.4f}, so the interface share falls by x {1 - frac:.4f}")
-    print(f"    {'f_if':>6s} {'array (1-f_if) uJ':>19s} {'interface f_if uJ':>19s} "
-          f"{'interface x (1-K/N) uJ':>24s} {'of total':>9s}")
-    for f in reconmod.F_IF_SENSITIVITY:
-        save = f * dram_w * (1 - frac)
-        print(f"    {f:6.2f} {(1 - f) * dram_w / 1e6:19,.3f} {f * dram_w / 1e6:19,.3f} "
-              f"{save / 1e6:24,.3f} {save / total * 100:8.2f}%")
-    print(f"    (every reconstruction boundary saves exactly the last column, in "
-          f"addition to its own on-chip saving; the reference bars do not move)")
-    raise SystemExit(
-        "\nREFUSED: " + reconmod.NO_F_IF
-        + f"\n  -> e.g. ECC_DRAM_IF_FRAC=0.25 ECC_RECON_MODELING=1 bash run.sh "
-          f"recon --eval   (labelled on the figure as set for the run)")
-
-
 # ------------------------------------------------------------------------ run
 def run(cfg):
-    if cfg.phase != "Pre":
+    # PHASE AND TASK ARE ONE CHOICE, NOT TWO. `Pre` means the mapping is
+    # ECC-unaware and the ECC effect is applied when evaluating, which is Task
+    # 3; `Post` means the mapping itself was solved for the reduced weight
+    # width, which is Task 4 and needs RECON_OPTIMIZER=True. The two crossed
+    # combinations are both a result filed under a heading that misdescribes
+    # it, so both stop the run. (`config.py` catches Post-without-optimizer
+    # from the other side.)
+    if cfg.recon_optimizer and cfg.phase != "Post":
+        raise SystemExit(
+            f"RECON_OPTIMIZER=True is Task 4 and is a `Post` result: the "
+            f"mapping was re-optimised for the reduced weight width.\n"
+            f"  -> ECC_PHASE=Post RECON_OPTIMIZER=True ...")
+    if not cfg.recon_optimizer and cfg.phase != "Pre":
         raise SystemExit(
             f"ECC_PHASE={cfg.phase} but Task 3 is a `Pre` result by "
             f"construction: the mapping is fixed and ECC-unaware, and the "
             f"placement effect is applied when evaluating. `Post` is Task 4, "
-            f"where the mapping itself is optimised for the reduced width.")
+            f"where the mapping itself is optimised for the reduced width.\n"
+            f"  -> ECC_PHASE=Post RECON_OPTIMIZER=True   runs Task 4")
 
     model = cfg.models[0]
     # ONE PANEL PER ARCHITECTURE, and every one of them checked BEFORE anything
@@ -1067,8 +1546,6 @@ def run(cfg):
                 f"needs its own mapper cache: map it first "
                 f"(ECC_RECON_ARCHS={arch} bash hpc/map_by_shape.sh), or drop it "
                 f"from ECC_RECON_ARCHS")
-        if cfg.recon_decode_site == "ondie" and cfg.dram_if_frac is None:
-            refuse_without_f_if(cfg, arch, model, raw)
         out = evaluate(cfg, ses, prov, arch, model, raw)
         outs[arch] = out
         panels.append(panel_for(cfg, arch, model, out))
@@ -1076,15 +1553,25 @@ def run(cfg):
     figs, csv, groups = figure(cfg, ses, panels)
     ses.finish(figs, csv, groups, extra={
         "recon_decode_site": cfg.recon_decode_site,
-        "dram_if_frac": cfg.dram_if_frac,
-        "dram_if_frac_provenance": cfg.dram_if_frac_note,
+        "dram_pj_per_bit": cfg.dram_pj_per_bit,
+        "dram_cost_provenance": cfg.dram_cost_note,
+        "dram_static_terms": cfg.dram_static_note,
         "panel_per_architecture": list(cfg.archs),
-        "dram_split": {a: o["wpath"].dram_split() for a, o in outs.items()},
+        "dram_term": {a: o["wpath"].dram_term() for a, o in outs.items()},
     })
 
     print("=" * 78)
-    print(f"Task 3 reconstruction placement: {model}, fixed mapping, "
-          f"one panel per architecture.")
+    if cfg.recon_optimizer:
+        print(f"Task 4 reconstruction-AWARE MAPPING: {model}, one panel per "
+              f"architecture.")
+        print(f"  reference arm       : weight capacity x{cfg.weight_capacity_scale:g} "
+              f"of the declared design")
+        print(f"  reconstruction arm  : x"
+              f"{reconmod.capacity_dilation_scale(cfg):g} "
+              f"= x{cfg.weight_capacity_scale:g} x N/K, solved as its own mapping")
+    else:
+        print(f"Task 3 reconstruction placement: {model}, fixed mapping, "
+              f"one panel per architecture.")
     for arch in cfg.archs:
         best = outs[arch]["builder"].best_reconstruction()
         print(f"  {cfg.arch_label(arch).replace(chr(10), ' ')}:")
@@ -1099,7 +1586,15 @@ def run(cfg):
     if len(cfg.archs) > 1:
         print("Each design is measured against ITS OWN reference bars, so a")
         print("percentage on one panel says nothing about the other.")
-    print("This is an evaluator-only, FIXED-MAPPING result. The mapping optimiser")
-    print("was not re-run for any placement -- that is Task 4 (RECON_OPTIMIZER).")
+    if cfg.recon_optimizer:
+        print("The reconstruction bars come from a DIFFERENT mapping than the")
+        print("reference bars: same design, N/K more weight room, solved on its")
+        print("own. So the two arms no longer refetch identically, and a DRAM")
+        print("read the reconstruction arm never issues saves the ARRAY as well")
+        print("as the interface -- efficiency 1.0, against the 0.152 a fixed")
+        print("mapping buys. Both mapper caches pre-existed this evaluation.")
+    else:
+        print("This is an evaluator-only, FIXED-MAPPING result. The mapping optimiser")
+        print("was not re-run for any placement -- that is Task 4 (RECON_OPTIMIZER).")
     print("=" * 78)
     return ses

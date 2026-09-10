@@ -1,0 +1,5007 @@
+{
+ "schema_version": "1.0",
+ "experiment": {
+  "name": "task3_reconstruction_placement_fixed_mapping",
+  "phase": "Pre",
+  "phase_meaning": "Pre: the mapping is ECC-unaware and the ECC effect is applied during energy evaluation only",
+  "mapping_mode": "fixed-mapping",
+  "run_id": "20260910T063101Z__e081b32f",
+  "status": "ok",
+  "units": {
+   "energy": "pJ unless a field name says otherwise",
+   "savings": "percent",
+   "capacity": "bits or bytes as the field name says"
+  }
+ },
+ "identity": {
+  "architecture": "eyeriss_like",
+  "architecture_label": "Eyeriss v1",
+  "model": "resnet18",
+  "layer_scope": "full",
+  "layers": "full model",
+  "bch": {
+   "n": 63,
+   "k": 39,
+   "t": 4,
+   "label": "BCH(63,39)"
+  },
+  "precisions_bits": {
+   "weight": 8,
+   "activation": 8,
+   "accumulator": 16,
+   "accumulator_policy": "paper-native (per architecture)",
+   "accumulator_evidence": "Sec. IV: \"The computation consists of a 16-b two-stage pipelined multiplier and adder. Since the multiplication results are truncated from 32 to 16 b...\"  Verified against the JSSC PDF, 2026-09-06."
+  }
+ },
+ "reference_variants": {
+  "conventional_ecc": "baseline_external_parity",
+  "embedded_only": "embedded_ecc"
+ },
+ "summary": [
+  {
+   "variant": "baseline_external_parity",
+   "kind": "baseline",
+   "status": "evaluated",
+   "total_energy_pJ": 22295753801.29216,
+   "total_energy_uJ": 22295.75380129216,
+   "savings_vs_conventional_ecc_percent": 0.0,
+   "savings_vs_embedded_only_percent": -43.55546726460209,
+   "unavailable_reason": null
+  },
+  {
+   "variant": "embedded_ecc",
+   "kind": "embedded",
+   "status": "evaluated",
+   "total_energy_pJ": 15531107401.29216,
+   "total_energy_uJ": 15531.10740129216,
+   "savings_vs_conventional_ecc_percent": 30.34051443287803,
+   "savings_vs_embedded_only_percent": 0.0,
+   "unavailable_reason": null
+  },
+  {
+   "variant": "recon_source_noc_ingress",
+   "kind": "reconstruction",
+   "status": "evaluated",
+   "total_energy_pJ": 12882733385.996803,
+   "total_energy_uJ": 12882.733385996804,
+   "savings_vs_conventional_ecc_percent": 42.2188928851099,
+   "savings_vs_embedded_only_percent": 17.052061690559277,
+   "unavailable_reason": null
+  },
+  {
+   "variant": "recon_after_array_multicast",
+   "kind": "reconstruction",
+   "status": "evaluated",
+   "total_energy_pJ": 12917371696.933252,
+   "total_energy_uJ": 12917.371696933253,
+   "savings_vs_conventional_ecc_percent": 42.063534554348095,
+   "savings_vs_embedded_only_percent": 16.82903631289968,
+   "unavailable_reason": null
+  },
+  {
+   "variant": "recon_pe_spad_input",
+   "kind": "reconstruction",
+   "status": "evaluated",
+   "total_energy_pJ": 12854124298.502777,
+   "total_energy_uJ": 12854.124298502777,
+   "savings_vs_conventional_ecc_percent": 42.34720919030865,
+   "savings_vs_embedded_only_percent": 17.236266762064,
+   "unavailable_reason": null
+  },
+  {
+   "variant": "recon_pe_spad_output",
+   "kind": "reconstruction",
+   "status": "unsupported",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "savings_vs_conventional_ecc_percent": null,
+   "savings_vs_embedded_only_percent": null,
+   "unavailable_reason": "infeasible local placement: 4 (layer, stage) pair(s) keep fewer than G_rec = 9 weights resident, so the retained bits this boundary would rebuild from were never delivered to that PE. Layers: layer2.0.downsample.0, layer4.0.conv2, layer4.1.conv1, layer4.1.conv2"
+  }
+ ],
+ "best_reconstruction_placement": {
+  "variant": "recon_pe_spad_input",
+  "total_energy_pJ": 12854124298.502777,
+  "savings_vs_conventional_ecc_percent": 42.34720919030865,
+  "savings_vs_embedded_only_percent": 17.236266762064,
+  "evaluated_candidates": 3
+ },
+ "validation": [
+  {
+   "check": "weight_path_reconciles_with_raw_record",
+   "passed": true,
+   "detail": {
+    "per_category": {
+     "DRAM": {
+      "weight_path_module_pJ": 6982860800.0,
+      "raw_record_pJ": 6982860800.0,
+      "relative_difference": 0.0
+     },
+     "Local (spads/RF)": {
+      "weight_path_module_pJ": 799544323.91,
+      "raw_record_pJ": 799544323.91,
+      "relative_difference": 0.0
+     },
+     "NoC": {
+      "weight_path_module_pJ": 245175398.27000004,
+      "raw_record_pJ": 245175398.27000004,
+      "relative_difference": 0.0
+     }
+    },
+    "unclaimed_weight_levels": [],
+    "dram_term": {
+     "decode_site": "ondie",
+     "dram_pj_per_bit": 40.0,
+     "dram_cost_provenance": "ECC_DRAM_PJ_PER_BIT=40 -- within the 28-45 pJ/bit band (FReaC Cache, MICRO 2020; Gebhart et al., MICRO 2012); 2.56 nJ/64b",
+     "dram_weight_energy_pJ": 6982860800.0,
+     "dram_reducible": true,
+     "rule": "dram = DRAM weight energy x K/N under every boundary when the decoder is on the DRAM die (01_project_context Sec. 4). Accelergy's CactiDRAM is one flat per-bit DYNAMIC access constant and the whole of it is credited: the DRAM access fetches only the message bits of each codeword. E_background and E_refresh are not modelled (both 0)"
+    },
+    "rule": "this module re-parses the cached stats and must reproduce the `Raw` record's WEIGHT energy per category exactly; a level carrying weight energy that no stage claims is listed above and makes this check fail. The DRAM category is the one `dram` stage: the array/interface split by f_if was removed on 2026-09-09 and the whole term is reducible"
+   }
+  },
+  {
+   "check": "placement_space_covers_the_whole_weight_path",
+   "passed": true,
+   "detail": {
+    "decode_site": "ondie",
+    "encoder_site": "destination",
+    "reconstruction_counter_per_placement": {
+     "recon1": {
+      "stage": "dram",
+      "stage_kind": "dram",
+      "counter": "reads"
+     },
+     "recon2": {
+      "stage": "array_multicast",
+      "stage_kind": "network",
+      "counter": "deliveries"
+     },
+     "recon3": {
+      "stage": "weights_spad",
+      "stage_kind": "storage",
+      "counter": "fills"
+     },
+     "recon4": {
+      "stage": "weights_spad",
+      "stage_kind": "storage",
+      "counter": "reads"
+     }
+    },
+    "reducible_stages_in_path_order": [
+     "dram",
+     "array_multicast",
+     "pe_local_multicast",
+     "weights_spad"
+    ],
+    "per_placement": [
+     {
+      "placement": "recon1",
+      "boundary": "R1 - reconstruct at the source, before the array network",
+      "reduced_stages": [
+       "dram"
+      ],
+      "expected_prefix_of_the_weight_path": [
+       "dram"
+      ],
+      "is_a_prefix": true
+     },
+     {
+      "placement": "recon2",
+      "boundary": "R2 - reconstruct after the array multicast, at the column edge",
+      "reduced_stages": [
+       "dram",
+       "array_multicast"
+      ],
+      "expected_prefix_of_the_weight_path": [
+       "dram",
+       "array_multicast"
+      ],
+      "is_a_prefix": true
+     },
+     {
+      "placement": "recon3",
+      "boundary": "R3 - reconstruct at the PE filter-spad input",
+      "reduced_stages": [
+       "dram",
+       "array_multicast",
+       "pe_local_multicast"
+      ],
+      "expected_prefix_of_the_weight_path": [
+       "dram",
+       "array_multicast",
+       "pe_local_multicast"
+      ],
+      "is_a_prefix": true
+     },
+     {
+      "placement": "recon4",
+      "boundary": "R4a - reconstruct on every filter-spad read",
+      "reduced_stages": [
+       "dram",
+       "array_multicast",
+       "pe_local_multicast",
+       "weights_spad"
+      ],
+      "expected_prefix_of_the_weight_path": [
+       "dram",
+       "array_multicast",
+       "pe_local_multicast",
+       "weights_spad"
+      ],
+      "is_a_prefix": true
+     }
+    ],
+    "reducible_stages_no_placement_reaches": [],
+    "violations": [],
+    "rule": "the reduced representation is contiguous from the ECC engine down to the boundary, so a placement's reduced set is a PREFIX of the reducible stages in path order; and every reducible stage must be reached by some boundary, or WEIGHT_PATHS and PLACEMENTS have drifted apart",
+    "fix": "edit WEIGHT_PATHS[<arch>] and PLACEMENTS[<arch>] together -- a stage without a boundary that reduces it is a stage the study never asks about (CLAUDE.md, 'Adding an architecture to the PLACEMENT study')"
+   }
+  },
+  {
+   "check": "dram_scaled_by_K_over_N",
+   "passed": true,
+   "detail": {
+    "decode_site": "ondie",
+    "dram_pj_per_bit": 40.0,
+    "dram_cost_provenance": "ECC_DRAM_PJ_PER_BIT=40 -- within the 28-45 pJ/bit band (FReaC Cache, MICRO 2020; Gebhart et al., MICRO 2012); 2.56 nJ/64b",
+    "dram_weight_energy_pJ": 6982860800.0,
+    "embedded_reference_dram_pJ": 11551864320.0,
+    "saving_every_placement_pJ": 2660137447.6190476,
+    "expected_placement_dram_pJ": 8891726872.380953,
+    "per_placement": {
+     "recon1": {
+      "dram_pJ": 8891726872.380953,
+      "expected_dram_pJ": 8891726872.380953,
+      "off_expected_by_pJ": 0.0,
+      "dram_row_scaled": true,
+      "dram_scale": 0.6190476190476191,
+      "passed": true
+     },
+     "recon2": {
+      "dram_pJ": 8891726872.380953,
+      "expected_dram_pJ": 8891726872.380953,
+      "off_expected_by_pJ": 0.0,
+      "dram_row_scaled": true,
+      "dram_scale": 0.6190476190476191,
+      "passed": true
+     },
+     "recon3": {
+      "dram_pJ": 8891726872.380953,
+      "expected_dram_pJ": 8891726872.380953,
+      "off_expected_by_pJ": 0.0,
+      "dram_row_scaled": true,
+      "dram_scale": 0.6190476190476191,
+      "passed": true
+     }
+    },
+    "rule": "with the decoder on the DRAM die only the k message bits are read out and driven off it, so the WHOLE DRAM weight energy is x K/N under every boundary: every placement's DRAM component must equal emb_DRAM - DRAM_w x (1 - K/N) exactly, and its dram row must carry that scale (1.0 under ECC_RECON_DECODE_SITE=controller). The f_if array/interface split, and with it the separate array check, was removed on 2026-09-09; the whole term now moves together"
+   }
+  },
+  {
+   "check": "non_weight_energy_identical",
+   "passed": true,
+   "detail": {
+    "components": {
+     "Compute": {
+      "embedded": 417236869.12,
+      "placements": {
+       "recon1": 417236869.12,
+       "recon2": 417236869.12,
+       "recon3": 417236869.12
+      }
+     }
+    },
+    "weight_share_of_those_categories": {
+     "Compute": 0.0
+    },
+    "rule": "a reconstruction boundary touches the WEIGHT path only; MAC energy is identical under every bar because both are arithmetic on one raw record"
+   }
+  },
+  {
+   "check": "placement_savings_are_bounded_by_the_weight_path",
+   "passed": true,
+   "detail": {
+    "per_placement": {
+     "recon1": {
+      "reducible_weight_energy_pJ": 6982860800.0,
+      "energy_saved_pJ": 2660137447.619047,
+      "within_bound": true
+     },
+     "recon2": {
+      "reducible_weight_energy_pJ": 7062011777.39,
+      "energy_saved_pJ": 2690290200.9104757,
+      "within_bound": true
+     },
+     "recon3": {
+      "reducible_weight_energy_pJ": 7228036198.27,
+      "energy_saved_pJ": 2753537599.340952,
+      "within_bound": true
+     }
+    },
+    "rule": "the saving is a reduction of the weight energy of the stages the reduced form actually reaches; it cannot exceed it and cannot be negative"
+   }
+  },
+  {
+   "check": "only_weight_path_categories_differ_from_the_embedded_reference",
+   "passed": true,
+   "detail": {
+    "per_placement_differences": {
+     "recon1": {
+      "DRAM": {
+       "placement_pJ": 8891726872.380953,
+       "embedded_pJ": 11551864320.0,
+       "difference_pJ": -2660137447.619047
+      }
+     },
+     "recon2": {
+      "NoC": {
+       "placement_pJ": 1326571890.340731,
+       "embedded_pJ": 1356724643.6321595,
+       "difference_pJ": -30152753.291428566
+      },
+      "DRAM": {
+       "placement_pJ": 8891726872.380953,
+       "embedded_pJ": 11551864320.0,
+       "difference_pJ": -2660137447.619047
+      }
+     },
+     "recon3": {
+      "NoC": {
+       "placement_pJ": 1263324491.9102547,
+       "embedded_pJ": 1356724643.6321595,
+       "difference_pJ": -93400151.72190475
+      },
+      "DRAM": {
+       "placement_pJ": 8891726872.380953,
+       "embedded_pJ": 11551864320.0,
+       "difference_pJ": -2660137447.619047
+      }
+     }
+    },
+    "allowed_categories": [
+     "DRAM",
+     "Global buffer",
+     "Local (spads/RF)",
+     "NoC"
+    ],
+    "rule": "outside the two ECC categories, a placement may differ from the embedded reference only in the categories its weight path lives in"
+   }
+  },
+  {
+   "check": "evaluation_only_rerun",
+   "passed": true,
+   "detail": {
+    "ECC_FROM_CACHE": true,
+    "newly_mapped_shapes": 0,
+    "meaning": "passed: every mapping behind this result already existed and the mapper was not invoked -- which is what 'do not modify or rerun the mapping optimizer for this comparison' requires. Failed: re-run with --eval."
+   }
+  },
+  {
+   "check": "reference_bars_match_tasks_1_and_2",
+   "passed": true,
+   "detail": {
+    "baseline_minus_embedded_dram_pJ": 6764646400.0,
+    "external_parity_pJ": 6764646400.0,
+    "source": "ecc.external_parity() and ecc.embedded_dram(), unchanged"
+   }
+  },
+  {
+   "check": "parity_payload_hand_check",
+   "passed": true,
+   "detail": {
+    "method": "codeword-by-codeword walk compared against the closed form; both must agree exactly",
+    "code": "BCH(63,39) over 8-bit weights",
+    "weights_checked": 11678912,
+    "weights_per_codeword": 4,
+    "message_pad_bits_per_codeword": 7,
+    "checks": {
+     "codewords": {
+      "walked": 2919728,
+      "closed_form": 2919728
+     },
+     "payload_bits": {
+      "walked": 93431296,
+      "closed_form": 93431296
+     },
+     "padding_bits_total": {
+      "walked": 20438096,
+      "closed_form": 20438096
+     },
+     "parity_bits": {
+      "walked": 70073472,
+      "closed_form": 70073472
+     },
+     "parity_dram_words": {
+      "walked": 1094898,
+      "closed_form": 1094898
+     }
+    },
+    "mismatches": {},
+    "passed": true
+   }
+  },
+  {
+   "check": "all_layers_mapped",
+   "passed": true,
+   "detail": "21 mapped, 0 skipped"
+  },
+  {
+   "check": "mapping_ids_recorded",
+   "passed": true,
+   "detail": "12 distinct mapping(s) behind this result"
+  },
+  {
+   "check": "architecture_obeys_shared_contract",
+   "passed": true,
+   "detail": {
+    "violations": [],
+    "notes": [
+     "published at 65nm, modelled at 45nm. Deliberate: a mixed-node comparison would report silicon as architecture.",
+     "interconnect: multicast_network_no_routers -- wire 0.12 pJ/b/mm (shared); PE_column: router 0 pJ, ingress 0.915206 pJ, hop from area; PE: router 0 pJ, ingress 0.915206 pJ, hop from area (archs/_shared/noc.yaml)"
+    ]
+   }
+  },
+  {
+   "check": "noc_energy_costed",
+   "passed": true,
+   "detail": {
+    "enabled": true,
+    "noc_pJ": 1356724643.6321595,
+    "share_of_timeloop_total": 0.08735530626227479,
+    "share_of_onchip": 0.3409504310029728,
+    "paper_band_levels": [],
+    "mesh_pJ": 0,
+    "mesh_share_of_onchip": 0.0,
+    "evaluator_only_pJ": 306171874.40216,
+    "evaluator_only_terms": {
+     "enabled": true,
+     "network_word_bits": 8,
+     "outputs_word_bits": 16,
+     "adder_pj_per_bit": 0.0065625,
+     "reduction_hops": 1.0,
+     "noc_scale": 1.0
+    },
+    "pe_latch_pj": 0.0,
+    "tile_width_um": {},
+    "wire_pj_per_bit_mm": 0.12,
+    "router_pj_per_flit": 0.25,
+    "operands_per_flit": 1.0,
+    "levels": {
+     "PE_column": {
+      "router_pj": 0.0,
+      "ingress_pj": 0.9152060000000001
+     },
+     "PE": {
+      "router_pj": 0.0,
+      "ingress_pj": 0.9152060000000001
+     }
+    },
+    "source": "archs/_shared/noc.yaml"
+   }
+  },
+  {
+   "check": "components_sum_to_total[baseline_external_parity]",
+   "passed": true,
+   "detail": "components sum to 22295753801.292160 pJ, total is 22295753801.292160 pJ"
+  },
+  {
+   "check": "components_sum_to_total[embedded_ecc]",
+   "passed": true,
+   "detail": "components sum to 15531107401.292160 pJ, total is 15531107401.292160 pJ"
+  },
+  {
+   "check": "components_sum_to_total[recon_source_noc_ingress]",
+   "passed": true,
+   "detail": "components sum to 12882733385.996803 pJ, total is 12882733385.996803 pJ"
+  },
+  {
+   "check": "components_sum_to_total[recon_after_array_multicast]",
+   "passed": true,
+   "detail": "components sum to 12917371696.933252 pJ, total is 12917371696.933252 pJ"
+  },
+  {
+   "check": "components_sum_to_total[recon_pe_spad_input]",
+   "passed": true,
+   "detail": "components sum to 12854124298.502777 pJ, total is 12854124298.502777 pJ"
+  },
+  {
+   "check": "fixed_mapping_shared_across_variants",
+   "passed": true,
+   "detail": "all evaluated variants reference the same mapping set"
+  }
+ ],
+ "warnings": [
+  "ECC_MAC_PJ_OVERRIDE=0.23 pJ per MAC (M. Horowitz, 'Computing's energy problem (and what we can do about it)', ISSCC 2014, Fig. 1.1.9 'Rough energy costs for various operations in 45nm 0.9V'): the Compute category was rescaled in the evaluator from the ERT's 1.13555 pJ/MAC to MACs x this value. Every ECC PERCENTAGE in this file has a different denominator from the primary result; no saved pJ changed. ECC_OPT_METRIC=edp: a cheaper MAC can move the mapping optimum, and the mapper was NOT re-run (it prices MACs from the ERT) -- a fixed-mapping result"
+ ],
+ "approximations": [
+  "Interconnect energy uses Timeloop's Legacy network model with one shared 45nm wire constant and per-architecture switching terms (archs/_shared/noc.yaml); hop distance is derived by Timeloop from each level's Accelergy area. The recon arm scales the WEIGHT share of NoC energy by K/N like the other on-chip categories.",
+  "exact stored codeword count x measured DRAM refetch factor; parity + message padding; rounded up to whole DRAM words once",
+  "External parity is billed at the measured per-access energy of a DRAM weight read on this architecture, not at an independently modelled parity-region access cost. That is exact if parity is read from the same DRAM by the same controller, which is the conventional-ECC assumption.",
+  "complete codeword read: every bit of every DRAM weight read that Timeloop counts is billed, message and embedded parity alike, and no K/N reduction is applied at DRAM; no external parity; physical DRAM words are ESTIMATED as bits / word rounded up once at the end (bit-proportional -- Timeloop bills per 8-bit scalar); the final chunk's tail padding is reported, not charged, as for the baseline",
+  "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout. Since 2026-09-09 the decoder sits on the DRAM die (ECC_RECON_DECODE_SITE=ondie), off the fetch path; it is the same BCH decoder relocated, runs once per corrected codeword, is DRAM-process logic, and stays outside the placement comparison.",
+  "FIXED-MAPPING RESULT. Every access count, fanout, multicast factor and hop count here is the one Timeloop chose WITHOUT knowing about reconstruction, and the mapper was not re-run for any placement. So this file answers 'what does moving the boundary cost and save at constant data movement', not 'what is the best this architecture can do' -- packed reduced weights raise the effective weight capacity and may enable better tiling, which is Task 4's question and is deliberately not credited here.",
+  "stream: the retained k bits of each codeword are packed with no per-weight alignment, so values per physical word and operands per flit rise by n/k and every stage scales by k/n. aligned: each reduced weight occupies ceil(weight_bits*k/n) whole bits and nothing is repacked, so wire energy falls but a physical word may hold no more values than before and its access count does not move.",
+  "weight: encoder work is proportional to the weights reconstructed, charged at the synthesized per-codeword energy per n/weight_bits of them (the group is rebuilt once and all of it is consumed). codeword: every access at the boundary rebuilds a whole codeword.",
+  "THE WHOLE DRAM WEIGHT TERM IS REDUCIBLE BY K/N (2026-09-09). The f_if array/interface split -- 0.40, which charged a 38.1% bit cut as a 15.2% energy cut -- was removed: the DRAM access is designed to collect only the message bits of each codeword, so the array reads fewer bits too. The per-bit DYNAMIC access cost is ECC_DRAM_PJ_PER_BIT (40 pJ/bit; FReaC Cache MICRO 2020 and Gebhart MICRO 2012 report 28-45) -- see archs/_shared/provenance.yaml `dram_access_energy`. Every DRAM number scales linearly with it and no ordering among the placements changes. E_background and E_refresh are NOT modelled (both 0).",
+  "DRAM model (decoder on the DRAM die, off the fetch path): the WHOLE DRAM weight energy is x K/N under every boundary -- the f_if array/interface split was removed 2026-09-09, and the DRAM access collects only the message bits of each codeword. ECC_DRAM_PJ_PER_BIT=40 -- within the 28-45 pJ/bit band (FReaC Cache, MICRO 2020; Gebhart et al., MICRO 2012); 2.56 nJ/64b. E_total(DRAM) = E_dynamic only; E_background and E_refresh are NOT modelled (both 0) -- the embedded arm holds fewer weight bits in DRAM and is given no credit for it.",
+  "NO BOUNDARY CARRIES A PER-PE REUSE REGISTER. R4b (SPad output plus a reconstructed-weight register) was removed on 2026-09-10: measured on these mappings, consecutive weight reuse is 1 on 20 of 21 resnet18 layers, so a latch catches nothing, and a register that does pay has to hold the whole inner tile -- up to 384 weights against a 384-weight scratchpad. Scratchpad read counts are Timeloop's under every bar.",
+  "Weight-path stages are matched to Timeloop levels by name (eccenergy/recon.py WEIGHT_PATHS['eyeriss_like']) and the match is verified against the raw record's per-category weight energy before any placement is evaluated. A level carrying weight energy that no stage claims fails that check rather than being ignored."
+ ],
+ "variants": [
+  {
+   "name": "baseline_external_parity",
+   "label": "Conventional ECC, BCH parity external in DRAM",
+   "kind": "baseline",
+   "status": "evaluated",
+   "total_energy_pJ": 22295753801.29216,
+   "total_energy_uJ": 22295.75380129216,
+   "unavailable_reason": null,
+   "energy_by_component_pJ": {
+    "DRAM": 11551864320.0,
+    "Global buffer": 983146496.1400002,
+    "Local (spads/RF)": 1222135072.3999999,
+    "NoC": 1356724643.6321595,
+    "Compute": 417236869.12,
+    "DRAM external BCH parity": 6764646400.0
+   },
+   "mapping_ids": [
+    "0ccd57c4f7be38f2",
+    "39d661da72e17d0b",
+    "42d9820ba8bf0b3d",
+    "492981465797874e",
+    "59d37550aeedf5fa",
+    "6ebf4fd280b1312a",
+    "88aa1f2a9dc1d774",
+    "aa2300574ef4ce74",
+    "aea4af013262c009",
+    "b7a05c964e42545b",
+    "dc59924a39fb3f39",
+    "f26194e7ccdc725c"
+   ],
+   "detail": {
+    "external_parity_accounting": {
+     "code": {
+      "n": 63,
+      "k": 39,
+      "weight_bits": 8,
+      "parity_bits_per_codeword": 24,
+      "weights_per_codeword": 4,
+      "message_used_bits": 32,
+      "message_pad_bits_per_codeword": 7,
+      "parity_overhead_frac": 0.75,
+      "parity_overhead_ideal_frac": 0.6153846153846154
+     },
+     "grouping": "layer",
+     "charge_message_padding": true,
+     "dram_word_bits": 64,
+     "stored": {
+      "weights": 11678912,
+      "payload_bits": 93431296,
+      "codewords": 2919728,
+      "message_pad_bits": 20438096,
+      "tail_pad_bits": 0,
+      "parity_bits": 70073472,
+      "parity_dram_words": 1094898,
+      "parity_dram_scalars": 8759184.0,
+      "dram_word_bits": 64,
+      "stored_bits": 183942864,
+      "overhead_frac": 0.96875,
+      "payload_bytes": 11678912.0,
+      "parity_bytes": 8759184.0,
+      "stored_bytes": 22992858.0
+     },
+     "traffic": {
+      "refetch_factor": 1.8684480198155444,
+      "codeword_reads": 5455360.0,
+      "parity_bits": 130928640.0,
+      "message_pad_bits": 38187520.0,
+      "external_bits": 169116160.0,
+      "external_dram_words": 2642440.0,
+      "external_dram_scalars": 21139520.0,
+      "charge_padding": true,
+      "overhead_vs_payload_frac": 0.96875,
+      "method": "exact stored codeword count x measured DRAM refetch factor; parity + message padding; rounded up to whole DRAM words once"
+     },
+     "energy_pJ": 6764646400.0,
+     "pJ_per_dram_weight_scalar": 320.0,
+     "hand_check": {
+      "method": "codeword-by-codeword walk compared against the closed form; both must agree exactly",
+      "code": "BCH(63,39) over 8-bit weights",
+      "weights_checked": 11678912,
+      "weights_per_codeword": 4,
+      "message_pad_bits_per_codeword": 7,
+      "checks": {
+       "codewords": {
+        "walked": 2919728,
+        "closed_form": 2919728
+       },
+       "payload_bits": {
+        "walked": 93431296,
+        "closed_form": 93431296
+       },
+       "padding_bits_total": {
+        "walked": 20438096,
+        "closed_form": 20438096
+       },
+       "parity_bits": {
+        "walked": 70073472,
+        "closed_form": 70073472
+       },
+       "parity_dram_words": {
+        "walked": 1094898,
+        "closed_form": 1094898
+       }
+      },
+      "mismatches": {},
+      "passed": true
+     },
+     "hand_check_passed": true,
+     "comparison_to_flat_model": {
+      "flat_n_over_k_minus_1": 0.6153846153846154,
+      "accounted_overhead": 0.96875,
+      "note": "the flat model assumes the k-bit message field is fully packed with weights; it is not, because a weight cannot straddle a codeword"
+     }
+    },
+    "timeloop_energy_pJ": 15531107401.29216,
+    "ecc_codec_energy": "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout. Since 2026-09-09 the decoder sits on the DRAM die (ECC_RECON_DECODE_SITE=ondie), off the fetch path; it is the same BCH decoder relocated, runs once per corrected codeword, is DRAM-process logic, and stays outside the placement comparison."
+   }
+  },
+  {
+   "name": "embedded_ecc",
+   "label": "Embedded ECC, parity inside the stored weights, no external parity",
+   "kind": "embedded",
+   "status": "evaluated",
+   "total_energy_pJ": 15531107401.29216,
+   "total_energy_uJ": 15531.10740129216,
+   "unavailable_reason": null,
+   "energy_by_component_pJ": {
+    "DRAM": 11551864320.0,
+    "Global buffer": 983146496.1400002,
+    "Local (spads/RF)": 1222135072.3999999,
+    "NoC": 1356724643.6321595,
+    "Compute": 417236869.12,
+    "DRAM external BCH parity": 0.0
+   },
+   "mapping_ids": [
+    "0ccd57c4f7be38f2",
+    "39d661da72e17d0b",
+    "42d9820ba8bf0b3d",
+    "492981465797874e",
+    "59d37550aeedf5fa",
+    "6ebf4fd280b1312a",
+    "88aa1f2a9dc1d774",
+    "aa2300574ef4ce74",
+    "aea4af013262c009",
+    "b7a05c964e42545b",
+    "dc59924a39fb3f39",
+    "f26194e7ccdc725c"
+   ],
+   "detail": {
+    "embedded_dram_accounting": {
+     "code": {
+      "n": 63,
+      "k": 39,
+      "t": 4,
+      "parity_bits_per_codeword": 24
+     },
+     "layout": {
+      "n": 63,
+      "k": 39,
+      "weight_bits": 8,
+      "layout": "bitstream",
+      "layout_meaning": "the MSB-first weight bit stream is cut into fixed n-bit codewords; weights straddle codeword boundaries; the parity overwrites the lowest-significance positions; storage is weight_bits per weight with no external parity",
+      "parity_bits_per_codeword": 24,
+      "codeword_bits": 63,
+      "weights_per_codeword": 7.875,
+      "independent_frac": 0.6190476190476191,
+      "period_bits": 504,
+      "period_codewords": 8,
+      "period_weights": 63,
+      "split_boundaries_per_period": 7,
+      "parity_significance": {
+       "rule": "per chunk, the n-k parity bits overwrite the positions of lowest bit significance (ties: higher chunk index first)",
+       "phases": 8,
+       "parity_slots_by_significance_per_phase": [
+        {
+         "bit0": 7,
+         "bit1": 8,
+         "bit2": 8,
+         "bit3": 1
+        },
+        {
+         "bit0": 8,
+         "bit1": 7,
+         "bit2": 8,
+         "bit3": 1
+        },
+        {
+         "bit0": 8,
+         "bit1": 8,
+         "bit2": 7,
+         "bit3": 1
+        },
+        {
+         "bit0": 8,
+         "bit1": 8,
+         "bit2": 8
+        },
+        {
+         "bit0": 8,
+         "bit1": 8,
+         "bit2": 8
+        },
+        {
+         "bit0": 8,
+         "bit1": 8,
+         "bit2": 8
+        },
+        {
+         "bit0": 8,
+         "bit1": 8,
+         "bit2": 8
+        },
+        {
+         "bit0": 8,
+         "bit1": 8,
+         "bit2": 8
+        }
+       ],
+       "parity_bits_per_weight_by_significance": {
+        "bit0": 1.0,
+        "bit1": 1.0,
+        "bit2": 1.0,
+        "bit3": 0.047619047619047616
+       },
+       "parity_bits_per_weight_total": 3.0476190476190474
+      }
+     },
+     "layout_source": {
+      "pipeline": "ECC-CODE-Engine/4-EmbeddingECC/ecc_embed.py -- approach `replace`, chunk_size = message_parity_size (the codeword n); one int8 tensor per call",
+      "slicing": "Input_Embedding/3-Testing/utils/messageSliceBasedOnChunkSize.py -- fixed n-bit chunks over the MSB-first 8-bit weight stream; chunks span weights; only the last chunk is zero-padded",
+      "encoding": "Input_Embedding/3-Testing/implementations/ParityOverwriteByTopWeightsEncode.py -- systematic BCH(n,k) via galois.BCH(n,k).G; the k highest-significance chunk positions are the message, the n-k lowest-significance positions are overwritten with the parity",
+      "phases": "Input_Embedding/3-Testing/implementations/secded_vectorized.py -- the chunk/weight alignment repeats every lcm(n, 8)/n chunks",
+      "verified": "2026-09-07, read-only inspection of the files above"
+     },
+     "grouping": "layer",
+     "dram_word_bits": 64,
+     "stored": {
+      "weights": 11678912,
+      "payload_bits": 93431296,
+      "codewords": 1483051,
+      "tail_pad_bits": 917,
+      "embedded_parity_bits": 35593224,
+      "split_boundaries": 1297657,
+      "straddling_weights": 1297657,
+      "external_parity_bits": 0,
+      "stored_dram_words": 1459885,
+      "dram_word_bits": 64,
+      "stored_bits": 93432213,
+      "overhead_frac": 9.814698492462312e-06,
+      "bits_per_weight": 8.000078517587939,
+      "payload_bytes": 11678912.0,
+      "external_parity_bytes": 0.0,
+      "stored_bytes": 11679026.625
+     },
+     "traffic": {
+      "refetch_factor": 1.8684480198155444,
+      "codeword_reads": 2771003.704235463,
+      "payload_bits_read": 174571520.0,
+      "embedded_parity_bits_read": 66504088.901651114,
+      "tail_pad_bits_read": 1713.3668341708542,
+      "external_bits": 0.0,
+      "external_dram_words": 0.0,
+      "external_dram_scalars": 0.0,
+      "physical_dram_words_estimate": 2727680.0,
+      "overhead_vs_payload_frac": 0.0,
+      "method": "complete codeword read: every bit of every DRAM weight read that Timeloop counts is billed, message and embedded parity alike, and no K/N reduction is applied at DRAM; no external parity; physical DRAM words are ESTIMATED as bits / word rounded up once at the end (bit-proportional -- Timeloop bills per 8-bit scalar); the final chunk's tail padding is reported, not charged, as for the baseline"
+     },
+     "dram_weight_energy_pJ": 6982860800.0,
+     "external_parity_energy_pJ": 0.0,
+     "energy_pJ": 0.0,
+     "pJ_per_dram_weight_scalar": 320.0,
+     "hand_check": {
+      "method": "per-layer codeword-by-codeword walk (each tensor its own stream) summed over layers, compared against the summed closed form; both must agree exactly",
+      "code": "BCH(63,39) embedded in 8-bit weights",
+      "grouping": "layer",
+      "layers_checked": 21,
+      "weights_checked": 11678912,
+      "weights_per_codeword": 7.875,
+      "checks": {
+       "codewords": {
+        "walked": 1483051,
+        "closed_form": 1483051
+       },
+       "payload_bits": {
+        "walked": 93431296,
+        "closed_form": 93431296
+       },
+       "tail_pad_bits": {
+        "walked": 917,
+        "closed_form": 917
+       },
+       "stored_bits": {
+        "walked": 93432213,
+        "closed_form": 93432213
+       },
+       "split_boundaries": {
+        "walked": 1297657,
+        "closed_form": 1297657
+       },
+       "straddling_weights": {
+        "walked": 1297657,
+        "closed_form": 1297657
+       },
+       "stored_dram_words": {
+        "walked": 1459885,
+        "closed_form": 1459885
+       },
+       "external_parity_bits": {
+        "walked": 0,
+        "closed_form": 0
+       }
+      },
+      "mismatches": {},
+      "passed": true
+     },
+     "hand_check_passed": true,
+     "comparison_to_baseline_layout": {
+      "baseline_weights_per_codeword": 4,
+      "baseline_stored_bits_per_weight": 15.75,
+      "embedded_weights_per_codeword": 7.875,
+      "embedded_stored_bits_per_weight": 8.000078517587939,
+      "note": "the baseline stores a codeword BESIDE the data and packs only whole weights into its k-bit message field; the embedded pipeline cuts the weight bit stream itself into n-bit codewords. The two arms therefore count codewords differently, and neither count is a modelling choice."
+     }
+    },
+    "dram_energy_removed_vs_conventional_pJ": 6764646400.0,
+    "role": "the reference Task 3 measures reconstruction against: every placement reads the same complete codeword out of the DRAM ARRAY as this bar; with the decoder on the DRAM die (ECC_RECON_DECODE_SITE=ondie) every placement's DRAM INTERFACE share is this bar's x K/N, because this bar's on-chip datapath consumes every weight bit and so its complete codeword still crosses the interface",
+    "dram_term": {
+     "decode_site": "ondie",
+     "dram_pj_per_bit": 40.0,
+     "dram_cost_provenance": "ECC_DRAM_PJ_PER_BIT=40 -- within the 28-45 pJ/bit band (FReaC Cache, MICRO 2020; Gebhart et al., MICRO 2012); 2.56 nJ/64b",
+     "dram_weight_energy_pJ": 6982860800.0,
+     "dram_reducible": true,
+     "rule": "dram = DRAM weight energy x K/N under every boundary when the decoder is on the DRAM die (01_project_context Sec. 4). Accelergy's CactiDRAM is one flat per-bit DYNAMIC access constant and the whole of it is credited: the DRAM access fetches only the message bits of each codeword. E_background and E_refresh are not modelled (both 0)"
+    },
+    "ecc_codec_energy": "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout. Since 2026-09-09 the decoder sits on the DRAM die (ECC_RECON_DECODE_SITE=ondie), off the fetch path; it is the same BCH decoder relocated, runs once per corrected codeword, is DRAM-process logic, and stays outside the placement comparison."
+   }
+  },
+  {
+   "name": "recon_source_noc_ingress",
+   "label": "R1 - reconstruct at the source, before the array network  [hypothesis 3/5]",
+   "kind": "reconstruction",
+   "status": "evaluated",
+   "total_energy_pJ": 12882733385.996803,
+   "total_energy_uJ": 12882.733385996804,
+   "unavailable_reason": null,
+   "energy_by_component_pJ": {
+    "DRAM": 8891726872.380953,
+    "Global buffer": 983146496.1400002,
+    "Local (spads/RF)": 1222135072.3999999,
+    "NoC": 1356724643.6321595,
+    "Compute": 417236869.12,
+    "Reconstruction": 11763432.32368965
+   },
+   "mapping_ids": [
+    "0ccd57c4f7be38f2",
+    "39d661da72e17d0b",
+    "42d9820ba8bf0b3d",
+    "492981465797874e",
+    "59d37550aeedf5fa",
+    "6ebf4fd280b1312a",
+    "88aa1f2a9dc1d774",
+    "aa2300574ef4ce74",
+    "aea4af013262c009",
+    "b7a05c964e42545b",
+    "dc59924a39fb3f39",
+    "f26194e7ccdc725c"
+   ],
+   "detail": {
+    "placement": {
+     "key": "recon1",
+     "boundary": "R1 - reconstruct at the source, before the array network",
+     "hypothesised_rating": "3/5",
+     "description": "Sec. 7.1's source-side reconstruction. The die drives only the k message bits across the DRAM interface and an encoder at the chip source restores them before the array network, so nothing on chip carries the reduced form. It is the control that isolates the DRAM-interface saving -- which every boundary shares -- from every on-chip saving, and it pays one reconstruction per codeword fetched from DRAM with nothing but that interface saving against it.",
+     "reduced_stages": [
+      "dram"
+     ],
+     "reconstruction_site": {
+      "stage": "dram",
+      "counter": "reads"
+     }
+    },
+    "feasibility": {
+     "group_assembly": "not PE-local: the reduced form is only in transit, in codeword order from the ECC engine, so a whole group is always available",
+     "G_rec": 9
+    },
+    "reduced_representation": {
+     "mode": "stream",
+     "meaning": "stream: the retained k bits of each codeword are packed with no per-weight alignment, so values per physical word and operands per flit rise by n/k and every stage scales by k/n. aligned: each reduced weight occupies ceil(weight_bits*k/n) whole bits and nothing is repacked, so wire energy falls but a physical word may hold no more values than before and its access count does not move.",
+     "full_bits_per_weight": 8,
+     "reduced_bits_per_weight": 4.9523809523809526,
+     "retained_fraction_k_over_n": 0.6190476190476191,
+     "source": "02_reconstruction_dse_and_implementation.txt section 16; the stream layout is eccenergy/embedded.py's"
+    },
+    "reconstruction_granularity": {
+     "charging": "weight",
+     "meaning": "weight: encoder work is proportional to the weights reconstructed, charged at the synthesized per-codeword energy per n/weight_bits of them (the group is rebuilt once and all of it is consumed). codeword: every access at the boundary rebuilds a whole codeword.",
+     "weights_per_codeword": 7.875,
+     "G_rec_weights_touched_per_codeword": 9,
+     "G_rec_meaning": "weights whose retained bits must be available at once to rebuild one ECC group; a codeword that starts mid-weight reaches into one weight more than its length implies",
+     "source": "02_reconstruction_dse_and_implementation.txt section 15; the layout is eccenergy/embedded.py's"
+    },
+    "reconstruction_counts": {
+     "weights_reconstructed": 21821440.0,
+     "counter": "reads",
+     "counter_meaning": "one reconstruction per weight read out of the stage",
+     "encoder_site": "destination",
+     "network_multicast_factor": 1.0,
+     "network_fanout": 1.0,
+     "if_one_encoder_before_the_fanout": 0.0,
+     "if_one_encoder_per_destination": 0.0,
+     "multicast_multiplicity_of_this_boundary": 1.0,
+     "reconstruction_events_codewords": 2770976.507936508,
+     "pJ_per_codeword": 4.2452299,
+     "reconstruction_energy_pJ": 11763432.32368965,
+     "recon_overhead_energy_pJ": 0.0
+    },
+    "reducible_weight_energy_pJ": {
+     "stages_left_reduced": [
+      "dram"
+     ],
+     "before_pJ": 6982860800.0,
+     "ceiling_on_the_saving_pJ": 2660137447.6190476,
+     "note": "the most this boundary could give back if reconstruction were free; the DRAM interface share plus the whole on-chip weight path is the ceiling for ANY boundary, and on this architecture the on-chip part is a small share of inference energy"
+    },
+    "weight_path_stages": [
+     {
+      "stage": "dram",
+      "kind": "dram",
+      "timeloop_levels": [
+       "DRAM"
+      ],
+      "weight_energy_pJ": 6982860800.0,
+      "weight_wire_energy_pJ": 0.0,
+      "weight_switching_energy_pJ": 1396572160.0,
+      "weight_scalar_reads_total": 21821440.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 0.0,
+      "weight_network_deliveries_total": 0.0,
+      "network_multicast_factor": 1.0,
+      "network_fanout": 1.0,
+      "weights_resident_per_instance": 8192,
+      "physical_word_bits": 64,
+      "instances": 1,
+      "share_of_the_timeloop_level": 1.0,
+      "category": "DRAM",
+      "carries_reduced": true,
+      "scale": 0.6190476190476191,
+      "energy_after_pJ": 4322723352.380953,
+      "energy_saved_pJ": 2660137447.619047
+     },
+     {
+      "stage": "array_multicast",
+      "kind": "network",
+      "timeloop_levels": [
+       "NoC: inter_PE_column_spatial <==> inter_PE_spatial"
+      ],
+      "weight_energy_pJ": 79150977.39000002,
+      "weight_wire_energy_pJ": 59103049.362636805,
+      "weight_switching_energy_pJ": 20047928.02736318,
+      "weight_scalar_reads_total": 0.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 21821440.0,
+      "weight_network_deliveries_total": 142010368.0,
+      "network_multicast_factor": 14.0,
+      "network_fanout": 14.0,
+      "weights_resident_per_instance": 0.0,
+      "physical_word_bits": 8,
+      "instances": 1,
+      "share_of_the_timeloop_level": 1.0,
+      "category": "NoC",
+      "carries_reduced": false,
+      "scale": 1.0,
+      "energy_saved_pJ": 0.0
+     },
+     {
+      "stage": "pe_local_multicast",
+      "kind": "network",
+      "timeloop_levels": [
+       "NoC: inter_PE_spatial <==> ifmap_spad"
+      ],
+      "weight_energy_pJ": 166024420.88000003,
+      "weight_wire_energy_pJ": 35906716.57207786,
+      "weight_switching_energy_pJ": 130117704.30792214,
+      "weight_scalar_reads_total": 0.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 142010368.0,
+      "weight_network_deliveries_total": 142010368.0,
+      "network_multicast_factor": 1.0,
+      "network_fanout": 12.0,
+      "weights_resident_per_instance": 0.0,
+      "physical_word_bits": 8,
+      "instances": 14,
+      "share_of_the_timeloop_level": 1.0,
+      "category": "NoC",
+      "carries_reduced": false,
+      "scale": 1.0,
+      "energy_saved_pJ": 0.0
+     },
+     {
+      "stage": "weights_spad",
+      "kind": "storage",
+      "timeloop_levels": [
+       "weights_spad"
+      ],
+      "weight_energy_pJ": 799544323.91,
+      "weight_wire_energy_pJ": 0.0,
+      "weight_switching_energy_pJ": 799544323.91,
+      "weight_scalar_reads_total": 1814073344.0,
+      "weight_scalar_fills_total": 142010368.0,
+      "weight_network_ingresses_total": 0.0,
+      "weight_network_deliveries_total": 0.0,
+      "network_multicast_factor": 1.0,
+      "network_fanout": 1.0,
+      "weights_resident_per_instance": 8,
+      "physical_word_bits": 16,
+      "instances": 168,
+      "share_of_the_timeloop_level": 1.0,
+      "category": "Local (spads/RF)",
+      "carries_reduced": false,
+      "scale": 1.0,
+      "energy_saved_pJ": 0.0
+     }
+    ],
+    "energy_saved_by_category_pJ": {
+     "DRAM": 2660137447.619047
+    },
+    "weight_energy_before_pJ": {
+     "DRAM": 6982860800.0,
+     "Global buffer": 0.0,
+     "Local (spads/RF)": 799544323.91,
+     "NoC": 245175398.27000004,
+     "Compute": 0.0,
+     "ECC decode": 0.0,
+     "Reconstruction": 0.0,
+     "Recon overhead": 0.0
+    },
+    "dram_model": {
+     "decode_site": "ondie",
+     "dram_pj_per_bit": 40.0,
+     "dram_cost_provenance": "ECC_DRAM_PJ_PER_BIT=40 -- within the 28-45 pJ/bit band (FReaC Cache, MICRO 2020; Gebhart et al., MICRO 2012); 2.56 nJ/64b",
+     "dram_weight_energy_pJ": 6982860800.0,
+     "dram_after_pJ": 4322723352.380953,
+     "dram_reduced": true,
+     "dram_scale": 0.6190476190476191,
+     "dram_saving_pJ": 2660137447.619047,
+     "rule": "the decoder is on the DRAM die and off the fetch path: only the k message bits of each n-bit codeword are read out and driven off the die, so the WHOLE DRAM weight term is scaled by K/N under every boundary, R1 included. The f_if array/interface split was removed on 2026-09-09. E_background and E_refresh are not modelled (both 0)"
+    },
+    "placement_key": "recon1",
+    "fixed_mapping": "FIXED-MAPPING RESULT. Every access count, fanout, multicast factor and hop count here is the one Timeloop chose WITHOUT knowing about reconstruction, and the mapper was not re-run for any placement. So this file answers 'what does moving the boundary cost and save at constant data movement', not 'what is the best this architecture can do' -- packed reduced weights raise the effective weight capacity and may enable better tiling, which is Task 4's question and is deliberately not credited here.",
+    "ecc_codec_energy": "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout. Since 2026-09-09 the decoder sits on the DRAM die (ECC_RECON_DECODE_SITE=ondie), off the fetch path; it is the same BCH decoder relocated, runs once per corrected codeword, is DRAM-process logic, and stays outside the placement comparison."
+   }
+  },
+  {
+   "name": "recon_after_array_multicast",
+   "label": "R2 - reconstruct after the array multicast, at the column edge  [hypothesis 4/5]",
+   "kind": "reconstruction",
+   "status": "evaluated",
+   "total_energy_pJ": 12917371696.933252,
+   "total_energy_uJ": 12917.371696933253,
+   "unavailable_reason": null,
+   "energy_by_component_pJ": {
+    "DRAM": 8891726872.380953,
+    "Global buffer": 983146496.1400002,
+    "Local (spads/RF)": 1222135072.3999999,
+    "NoC": 1326571890.340731,
+    "Compute": 417236869.12,
+    "Reconstruction": 76554496.55156867
+   },
+   "mapping_ids": [
+    "0ccd57c4f7be38f2",
+    "39d661da72e17d0b",
+    "42d9820ba8bf0b3d",
+    "492981465797874e",
+    "59d37550aeedf5fa",
+    "6ebf4fd280b1312a",
+    "88aa1f2a9dc1d774",
+    "aa2300574ef4ce74",
+    "aea4af013262c009",
+    "b7a05c964e42545b",
+    "dc59924a39fb3f39",
+    "f26194e7ccdc725c"
+   ],
+   "detail": {
+    "placement": {
+     "key": "recon2",
+     "boundary": "R2 - reconstruct after the array multicast, at the column edge",
+     "hypothesised_rating": "4/5",
+     "description": "Sec. 7.1's multicast tradeoff, resolved in favour of reduced-width shared transport: the 14-way column multicast carries the reduced form and one encoder per column restores it before the column's own fanout. Fewer encoders than one per PE, and the long half of the array network moves fewer bits. The encoders run once per word ARRIVING at a column, which on this design's own mappings is up to 7x the number injected -- that multiplicity is the cost side of the tradeoff and `ECC_RECON_ENCODER_SITE=source` prices the other side (one encoder, full-width network) for comparison.",
+     "reduced_stages": [
+      "dram",
+      "array_multicast"
+     ],
+     "reconstruction_site": {
+      "stage": "array_multicast",
+      "counter": "deliveries"
+     }
+    },
+    "feasibility": {
+     "group_assembly": "not PE-local: the reduced form is only in transit, in codeword order from the ECC engine, so a whole group is always available",
+     "G_rec": 9
+    },
+    "reduced_representation": {
+     "mode": "stream",
+     "meaning": "stream: the retained k bits of each codeword are packed with no per-weight alignment, so values per physical word and operands per flit rise by n/k and every stage scales by k/n. aligned: each reduced weight occupies ceil(weight_bits*k/n) whole bits and nothing is repacked, so wire energy falls but a physical word may hold no more values than before and its access count does not move.",
+     "full_bits_per_weight": 8,
+     "reduced_bits_per_weight": 4.9523809523809526,
+     "retained_fraction_k_over_n": 0.6190476190476191,
+     "source": "02_reconstruction_dse_and_implementation.txt section 16; the stream layout is eccenergy/embedded.py's"
+    },
+    "reconstruction_granularity": {
+     "charging": "weight",
+     "meaning": "weight: encoder work is proportional to the weights reconstructed, charged at the synthesized per-codeword energy per n/weight_bits of them (the group is rebuilt once and all of it is consumed). codeword: every access at the boundary rebuilds a whole codeword.",
+     "weights_per_codeword": 7.875,
+     "G_rec_weights_touched_per_codeword": 9,
+     "G_rec_meaning": "weights whose retained bits must be available at once to rebuild one ECC group; a codeword that starts mid-weight reaches into one weight more than its length implies",
+     "source": "02_reconstruction_dse_and_implementation.txt section 15; the layout is eccenergy/embedded.py's"
+    },
+    "reconstruction_counts": {
+     "weights_reconstructed": 142010368.0,
+     "counter": "deliveries",
+     "counter_meaning": "one reconstruction per weight word ARRIVING at a destination of the network, i.e. ingresses x multicast factor: one encoder PER DESTINATION (ECC_RECON_ENCODER_SITE=destination)",
+     "encoder_site": "destination",
+     "network_multicast_factor": 14.0,
+     "network_fanout": 14.0,
+     "if_one_encoder_before_the_fanout": 21821440.0,
+     "if_one_encoder_per_destination": 142010368.0,
+     "multicast_multiplicity_of_this_boundary": 6.507836696386673,
+     "reconstruction_events_codewords": 18033062.603174604,
+     "pJ_per_codeword": 4.2452299,
+     "reconstruction_energy_pJ": 76554496.55156867,
+     "recon_overhead_energy_pJ": 0.0
+    },
+    "reducible_weight_energy_pJ": {
+     "stages_left_reduced": [
+      "dram",
+      "array_multicast"
+     ],
+     "before_pJ": 7062011777.39,
+     "ceiling_on_the_saving_pJ": 2690290200.910476,
+     "note": "the most this boundary could give back if reconstruction were free; the DRAM interface share plus the whole on-chip weight path is the ceiling for ANY boundary, and on this architecture the on-chip part is a small share of inference energy"
+    },
+    "weight_path_stages": [
+     {
+      "stage": "dram",
+      "kind": "dram",
+      "timeloop_levels": [
+       "DRAM"
+      ],
+      "weight_energy_pJ": 6982860800.0,
+      "weight_wire_energy_pJ": 0.0,
+      "weight_switching_energy_pJ": 1396572160.0,
+      "weight_scalar_reads_total": 21821440.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 0.0,
+      "weight_network_deliveries_total": 0.0,
+      "network_multicast_factor": 1.0,
+      "network_fanout": 1.0,
+      "weights_resident_per_instance": 8192,
+      "physical_word_bits": 64,
+      "instances": 1,
+      "share_of_the_timeloop_level": 1.0,
+      "category": "DRAM",
+      "carries_reduced": true,
+      "scale": 0.6190476190476191,
+      "energy_after_pJ": 4322723352.380953,
+      "energy_saved_pJ": 2660137447.619047
+     },
+     {
+      "stage": "array_multicast",
+      "kind": "network",
+      "timeloop_levels": [
+       "NoC: inter_PE_column_spatial <==> inter_PE_spatial"
+      ],
+      "weight_energy_pJ": 79150977.39000002,
+      "weight_wire_energy_pJ": 59103049.362636805,
+      "weight_switching_energy_pJ": 20047928.02736318,
+      "weight_scalar_reads_total": 0.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 21821440.0,
+      "weight_network_deliveries_total": 142010368.0,
+      "network_multicast_factor": 14.0,
+      "network_fanout": 14.0,
+      "weights_resident_per_instance": 0.0,
+      "physical_word_bits": 8,
+      "instances": 1,
+      "share_of_the_timeloop_level": 1.0,
+      "category": "NoC",
+      "carries_reduced": true,
+      "scale": 0.6190476190476188,
+      "energy_after_pJ": 48998224.09857142,
+      "energy_saved_pJ": 30152753.291428596
+     },
+     {
+      "stage": "pe_local_multicast",
+      "kind": "network",
+      "timeloop_levels": [
+       "NoC: inter_PE_spatial <==> ifmap_spad"
+      ],
+      "weight_energy_pJ": 166024420.88000003,
+      "weight_wire_energy_pJ": 35906716.57207786,
+      "weight_switching_energy_pJ": 130117704.30792214,
+      "weight_scalar_reads_total": 0.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 142010368.0,
+      "weight_network_deliveries_total": 142010368.0,
+      "network_multicast_factor": 1.0,
+      "network_fanout": 12.0,
+      "weights_resident_per_instance": 0.0,
+      "physical_word_bits": 8,
+      "instances": 14,
+      "share_of_the_timeloop_level": 1.0,
+      "category": "NoC",
+      "carries_reduced": false,
+      "scale": 1.0,
+      "energy_saved_pJ": 0.0
+     },
+     {
+      "stage": "weights_spad",
+      "kind": "storage",
+      "timeloop_levels": [
+       "weights_spad"
+      ],
+      "weight_energy_pJ": 799544323.91,
+      "weight_wire_energy_pJ": 0.0,
+      "weight_switching_energy_pJ": 799544323.91,
+      "weight_scalar_reads_total": 1814073344.0,
+      "weight_scalar_fills_total": 142010368.0,
+      "weight_network_ingresses_total": 0.0,
+      "weight_network_deliveries_total": 0.0,
+      "network_multicast_factor": 1.0,
+      "network_fanout": 1.0,
+      "weights_resident_per_instance": 8,
+      "physical_word_bits": 16,
+      "instances": 168,
+      "share_of_the_timeloop_level": 1.0,
+      "category": "Local (spads/RF)",
+      "carries_reduced": false,
+      "scale": 1.0,
+      "energy_saved_pJ": 0.0
+     }
+    ],
+    "energy_saved_by_category_pJ": {
+     "DRAM": 2660137447.619047,
+     "NoC": 30152753.291428596
+    },
+    "weight_energy_before_pJ": {
+     "DRAM": 6982860800.0,
+     "Global buffer": 0.0,
+     "Local (spads/RF)": 799544323.91,
+     "NoC": 245175398.27000004,
+     "Compute": 0.0,
+     "ECC decode": 0.0,
+     "Reconstruction": 0.0,
+     "Recon overhead": 0.0
+    },
+    "dram_model": {
+     "decode_site": "ondie",
+     "dram_pj_per_bit": 40.0,
+     "dram_cost_provenance": "ECC_DRAM_PJ_PER_BIT=40 -- within the 28-45 pJ/bit band (FReaC Cache, MICRO 2020; Gebhart et al., MICRO 2012); 2.56 nJ/64b",
+     "dram_weight_energy_pJ": 6982860800.0,
+     "dram_after_pJ": 4322723352.380953,
+     "dram_reduced": true,
+     "dram_scale": 0.6190476190476191,
+     "dram_saving_pJ": 2660137447.619047,
+     "rule": "the decoder is on the DRAM die and off the fetch path: only the k message bits of each n-bit codeword are read out and driven off the die, so the WHOLE DRAM weight term is scaled by K/N under every boundary, R1 included. The f_if array/interface split was removed on 2026-09-09. E_background and E_refresh are not modelled (both 0)"
+    },
+    "placement_key": "recon2",
+    "fixed_mapping": "FIXED-MAPPING RESULT. Every access count, fanout, multicast factor and hop count here is the one Timeloop chose WITHOUT knowing about reconstruction, and the mapper was not re-run for any placement. So this file answers 'what does moving the boundary cost and save at constant data movement', not 'what is the best this architecture can do' -- packed reduced weights raise the effective weight capacity and may enable better tiling, which is Task 4's question and is deliberately not credited here.",
+    "ecc_codec_energy": "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout. Since 2026-09-09 the decoder sits on the DRAM die (ECC_RECON_DECODE_SITE=ondie), off the fetch path; it is the same BCH decoder relocated, runs once per corrected codeword, is DRAM-process logic, and stays outside the placement comparison."
+   }
+  },
+  {
+   "name": "recon_pe_spad_input",
+   "label": "R3 - reconstruct at the PE filter-spad input  [hypothesis 4/5]",
+   "kind": "reconstruction",
+   "status": "evaluated",
+   "total_energy_pJ": 12854124298.502777,
+   "total_energy_uJ": 12854.124298502777,
+   "unavailable_reason": null,
+   "energy_by_component_pJ": {
+    "DRAM": 8891726872.380953,
+    "Global buffer": 983146496.1400002,
+    "Local (spads/RF)": 1222135072.3999999,
+    "NoC": 1263324491.9102547,
+    "Compute": 417236869.12,
+    "Reconstruction": 76554496.55156867
+   },
+   "mapping_ids": [
+    "0ccd57c4f7be38f2",
+    "39d661da72e17d0b",
+    "42d9820ba8bf0b3d",
+    "492981465797874e",
+    "59d37550aeedf5fa",
+    "6ebf4fd280b1312a",
+    "88aa1f2a9dc1d774",
+    "aa2300574ef4ce74",
+    "aea4af013262c009",
+    "b7a05c964e42545b",
+    "dc59924a39fb3f39",
+    "f26194e7ccdc725c"
+   ],
+   "detail": {
+    "placement": {
+     "key": "recon3",
+     "boundary": "R3 - reconstruct at the PE filter-spad input",
+     "hypothesised_rating": "4/5",
+     "description": "Both halves of the array network carry the reduced form and the encoder sits at the scratchpad write port, so the spad keeps its published 224 x 16b capacity and its full-width read cost. The encoder runs once per weight FILLED into a PE, the smallest count of any boundary below the network. Sec. 7.2's PE-FIFO boundary would sit between R2 and R3; the model has no FIFO level, so this is the first boundary after the whole network.",
+     "reduced_stages": [
+      "dram",
+      "array_multicast",
+      "pe_local_multicast"
+     ],
+     "reconstruction_site": {
+      "stage": "weights_spad",
+      "counter": "fills"
+     }
+    },
+    "feasibility": {
+     "group_assembly": "not PE-local: the reduced form is only in transit, in codeword order from the ECC engine, so a whole group is always available",
+     "G_rec": 9
+    },
+    "reduced_representation": {
+     "mode": "stream",
+     "meaning": "stream: the retained k bits of each codeword are packed with no per-weight alignment, so values per physical word and operands per flit rise by n/k and every stage scales by k/n. aligned: each reduced weight occupies ceil(weight_bits*k/n) whole bits and nothing is repacked, so wire energy falls but a physical word may hold no more values than before and its access count does not move.",
+     "full_bits_per_weight": 8,
+     "reduced_bits_per_weight": 4.9523809523809526,
+     "retained_fraction_k_over_n": 0.6190476190476191,
+     "source": "02_reconstruction_dse_and_implementation.txt section 16; the stream layout is eccenergy/embedded.py's"
+    },
+    "reconstruction_granularity": {
+     "charging": "weight",
+     "meaning": "weight: encoder work is proportional to the weights reconstructed, charged at the synthesized per-codeword energy per n/weight_bits of them (the group is rebuilt once and all of it is consumed). codeword: every access at the boundary rebuilds a whole codeword.",
+     "weights_per_codeword": 7.875,
+     "G_rec_weights_touched_per_codeword": 9,
+     "G_rec_meaning": "weights whose retained bits must be available at once to rebuild one ECC group; a codeword that starts mid-weight reaches into one weight more than its length implies",
+     "source": "02_reconstruction_dse_and_implementation.txt section 15; the layout is eccenergy/embedded.py's"
+    },
+    "reconstruction_counts": {
+     "weights_reconstructed": 142010368.0,
+     "counter": "fills",
+     "counter_meaning": "one reconstruction per weight written into the stage",
+     "encoder_site": "destination",
+     "network_multicast_factor": 1.0,
+     "network_fanout": 1.0,
+     "if_one_encoder_before_the_fanout": 0.0,
+     "if_one_encoder_per_destination": 0.0,
+     "multicast_multiplicity_of_this_boundary": 1.0,
+     "reconstruction_events_codewords": 18033062.603174604,
+     "pJ_per_codeword": 4.2452299,
+     "reconstruction_energy_pJ": 76554496.55156867,
+     "recon_overhead_energy_pJ": 0.0
+    },
+    "reducible_weight_energy_pJ": {
+     "stages_left_reduced": [
+      "dram",
+      "array_multicast",
+      "pe_local_multicast"
+     ],
+     "before_pJ": 7228036198.27,
+     "ceiling_on_the_saving_pJ": 2753537599.3409524,
+     "note": "the most this boundary could give back if reconstruction were free; the DRAM interface share plus the whole on-chip weight path is the ceiling for ANY boundary, and on this architecture the on-chip part is a small share of inference energy"
+    },
+    "weight_path_stages": [
+     {
+      "stage": "dram",
+      "kind": "dram",
+      "timeloop_levels": [
+       "DRAM"
+      ],
+      "weight_energy_pJ": 6982860800.0,
+      "weight_wire_energy_pJ": 0.0,
+      "weight_switching_energy_pJ": 1396572160.0,
+      "weight_scalar_reads_total": 21821440.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 0.0,
+      "weight_network_deliveries_total": 0.0,
+      "network_multicast_factor": 1.0,
+      "network_fanout": 1.0,
+      "weights_resident_per_instance": 8192,
+      "physical_word_bits": 64,
+      "instances": 1,
+      "share_of_the_timeloop_level": 1.0,
+      "category": "DRAM",
+      "carries_reduced": true,
+      "scale": 0.6190476190476191,
+      "energy_after_pJ": 4322723352.380953,
+      "energy_saved_pJ": 2660137447.619047
+     },
+     {
+      "stage": "array_multicast",
+      "kind": "network",
+      "timeloop_levels": [
+       "NoC: inter_PE_column_spatial <==> inter_PE_spatial"
+      ],
+      "weight_energy_pJ": 79150977.39000002,
+      "weight_wire_energy_pJ": 59103049.362636805,
+      "weight_switching_energy_pJ": 20047928.02736318,
+      "weight_scalar_reads_total": 0.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 21821440.0,
+      "weight_network_deliveries_total": 142010368.0,
+      "network_multicast_factor": 14.0,
+      "network_fanout": 14.0,
+      "weights_resident_per_instance": 0.0,
+      "physical_word_bits": 8,
+      "instances": 1,
+      "share_of_the_timeloop_level": 1.0,
+      "category": "NoC",
+      "carries_reduced": true,
+      "scale": 0.6190476190476188,
+      "energy_after_pJ": 48998224.09857142,
+      "energy_saved_pJ": 30152753.291428596
+     },
+     {
+      "stage": "pe_local_multicast",
+      "kind": "network",
+      "timeloop_levels": [
+       "NoC: inter_PE_spatial <==> ifmap_spad"
+      ],
+      "weight_energy_pJ": 166024420.88000003,
+      "weight_wire_energy_pJ": 35906716.57207786,
+      "weight_switching_energy_pJ": 130117704.30792214,
+      "weight_scalar_reads_total": 0.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 142010368.0,
+      "weight_network_deliveries_total": 142010368.0,
+      "network_multicast_factor": 1.0,
+      "network_fanout": 12.0,
+      "weights_resident_per_instance": 0.0,
+      "physical_word_bits": 8,
+      "instances": 14,
+      "share_of_the_timeloop_level": 1.0,
+      "category": "NoC",
+      "carries_reduced": true,
+      "scale": 0.619047619047619,
+      "energy_after_pJ": 102777022.4495238,
+      "energy_saved_pJ": 63247398.43047622
+     },
+     {
+      "stage": "weights_spad",
+      "kind": "storage",
+      "timeloop_levels": [
+       "weights_spad"
+      ],
+      "weight_energy_pJ": 799544323.91,
+      "weight_wire_energy_pJ": 0.0,
+      "weight_switching_energy_pJ": 799544323.91,
+      "weight_scalar_reads_total": 1814073344.0,
+      "weight_scalar_fills_total": 142010368.0,
+      "weight_network_ingresses_total": 0.0,
+      "weight_network_deliveries_total": 0.0,
+      "network_multicast_factor": 1.0,
+      "network_fanout": 1.0,
+      "weights_resident_per_instance": 8,
+      "physical_word_bits": 16,
+      "instances": 168,
+      "share_of_the_timeloop_level": 1.0,
+      "category": "Local (spads/RF)",
+      "carries_reduced": false,
+      "scale": 1.0,
+      "energy_saved_pJ": 0.0
+     }
+    ],
+    "energy_saved_by_category_pJ": {
+     "DRAM": 2660137447.619047,
+     "NoC": 93400151.72190481
+    },
+    "weight_energy_before_pJ": {
+     "DRAM": 6982860800.0,
+     "Global buffer": 0.0,
+     "Local (spads/RF)": 799544323.91,
+     "NoC": 245175398.27000004,
+     "Compute": 0.0,
+     "ECC decode": 0.0,
+     "Reconstruction": 0.0,
+     "Recon overhead": 0.0
+    },
+    "dram_model": {
+     "decode_site": "ondie",
+     "dram_pj_per_bit": 40.0,
+     "dram_cost_provenance": "ECC_DRAM_PJ_PER_BIT=40 -- within the 28-45 pJ/bit band (FReaC Cache, MICRO 2020; Gebhart et al., MICRO 2012); 2.56 nJ/64b",
+     "dram_weight_energy_pJ": 6982860800.0,
+     "dram_after_pJ": 4322723352.380953,
+     "dram_reduced": true,
+     "dram_scale": 0.6190476190476191,
+     "dram_saving_pJ": 2660137447.619047,
+     "rule": "the decoder is on the DRAM die and off the fetch path: only the k message bits of each n-bit codeword are read out and driven off the die, so the WHOLE DRAM weight term is scaled by K/N under every boundary, R1 included. The f_if array/interface split was removed on 2026-09-09. E_background and E_refresh are not modelled (both 0)"
+    },
+    "placement_key": "recon3",
+    "fixed_mapping": "FIXED-MAPPING RESULT. Every access count, fanout, multicast factor and hop count here is the one Timeloop chose WITHOUT knowing about reconstruction, and the mapper was not re-run for any placement. So this file answers 'what does moving the boundary cost and save at constant data movement', not 'what is the best this architecture can do' -- packed reduced weights raise the effective weight capacity and may enable better tiling, which is Task 4's question and is deliberately not credited here.",
+    "ecc_codec_energy": "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout. Since 2026-09-09 the decoder sits on the DRAM die (ECC_RECON_DECODE_SITE=ondie), off the fetch path; it is the same BCH decoder relocated, runs once per corrected codeword, is DRAM-process logic, and stays outside the placement comparison."
+   }
+  },
+  {
+   "name": "recon_pe_spad_output",
+   "label": "R4a - reconstruct on every filter-spad read  [hypothesis 3/5]",
+   "kind": "reconstruction",
+   "status": "unsupported",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "unavailable_reason": "infeasible local placement: 4 (layer, stage) pair(s) keep fewer than G_rec = 9 weights resident, so the retained bits this boundary would rebuild from were never delivered to that PE. Layers: layer2.0.downsample.0, layer4.0.conv2, layer4.1.conv1, layer4.1.conv2",
+   "energy_by_component_pJ": {},
+   "mapping_ids": [],
+   "detail": {
+    "feasibility": {
+     "G_rec": 9,
+     "rule": "a PE-local boundary needs G_rec weights of the codeword group resident at once; a smaller resident tile means the retained bits the rebuild depends on were never sent to that PE",
+     "checked_stages": [
+      "weights_spad"
+     ],
+     "infeasible_layers": [
+      {
+       "layer": "layer2.0.downsample.0",
+       "shape": "C64_M128_R1_S1_P28_Q28_ws2_hs2",
+       "stage": "weights_spad",
+       "weights_resident": 8,
+       "G_rec_required": 9
+      },
+      {
+       "layer": "layer4.0.conv2",
+       "shape": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+       "stage": "weights_spad",
+       "weights_resident": 8,
+       "G_rec_required": 9
+      },
+      {
+       "layer": "layer4.1.conv1",
+       "shape": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+       "stage": "weights_spad",
+       "weights_resident": 8,
+       "G_rec_required": 9
+      },
+      {
+       "layer": "layer4.1.conv2",
+       "shape": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+       "stage": "weights_spad",
+       "weights_resident": 8,
+       "G_rec_required": 9
+      }
+     ],
+     "verdict": "4 (layer, stage) pair(s) hold fewer than G_rec weights -- the placement is rejected rather than estimated",
+     "reason": "infeasible local placement: 4 (layer, stage) pair(s) keep fewer than G_rec = 9 weights resident, so the retained bits this boundary would rebuild from were never delivered to that PE. Layers: layer2.0.downsample.0, layer4.0.conv2, layer4.1.conv1, layer4.1.conv2"
+    },
+    "placement_key": "recon4"
+   }
+  }
+ ],
+ "detail": {
+  "architecture": {
+   "source_yaml": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/archs/eyeriss_like/arch_paper.yaml",
+   "fingerprint": "92387e81b60c",
+   "accumulator_bits": 16,
+   "accumulator_evidence": "Sec. IV: \"The computation consists of a 16-b two-stage pipelined multiplier and adder. Since the multiplication results are truncated from 32 to 16 b...\"  Verified against the JSSC PDF, 2026-09-06.",
+   "contract_report": {
+    "arch": "eyeriss_like",
+    "violations": [],
+    "notes": [
+     "published at 65nm, modelled at 45nm. Deliberate: a mixed-node comparison would report silicon as architecture.",
+     "interconnect: multicast_network_no_routers -- wire 0.12 pJ/b/mm (shared); PE_column: router 0 pJ, ingress 0.915206 pJ, hop from area; PE: router 0 pJ, ingress 0.915206 pJ, hop from area (archs/_shared/noc.yaml)"
+    ],
+    "facts": {
+     "source": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/archs/eyeriss_like/arch_paper.yaml",
+     "origin": "published",
+     "label": "Eyeriss v1",
+     "accumulator_bits": 16,
+     "accumulator_evidence": "Sec. IV: \"The computation consists of a 16-b two-stage pipelined multiplier and adder. Since the multiplication results are truncated from 32 to 16 b...\"  Verified against the JSSC PDF, 2026-09-06.",
+     "citation": "Y.-H. Chen, T. Krishna, J. Emer, V. Sze, \"Eyeriss: An Energy-Efficient Reconfigurable Accelerator for Deep Convolutional Neural Networks\", IEEE JSSC 52(1), 2017.",
+     "technology_declared": [
+      "45nm"
+     ],
+     "noc": {
+      "structure": "multicast_network_no_routers",
+      "wire_pj_per_bit_mm": 0.12,
+      "source": "published",
+      "router_pj_per_flit": 0.25,
+      "operands_per_flit": 1.0,
+      "pe_latch_pj": 0.0,
+      "levels": {
+       "PE_column": {
+        "router_pj": 0.0,
+        "ingress_pj": 0.9152060000000001,
+        "tile_width_um": null
+       },
+       "PE": {
+        "router_pj": 0.0,
+        "ingress_pj": 0.9152060000000001,
+        "tile_width_um": null
+       }
+      },
+      "datapath_levels": [],
+      "components_digest": "6743fff86989"
+     },
+     "dram": {
+      "width": 64,
+      "datawidth": 8,
+      "depth": 1048576
+     },
+     "mac": {
+      "multiplier_width": 8,
+      "adder_width": 16
+     },
+     "levels": [
+      {
+       "name": "ifmap_glb",
+       "class": "smartbuffer_SRAM",
+       "depth": 6656,
+       "width": 64,
+       "datawidth": 8,
+       "entries_each": 53248,
+       "instances": 1,
+       "keep": [
+        "Inputs"
+       ],
+       "bypass": [
+        "Weights",
+        "Outputs"
+       ]
+      },
+      {
+       "name": "psum_glb",
+       "class": "smartbuffer_SRAM",
+       "depth": 6144,
+       "width": 64,
+       "datawidth": 16,
+       "entries_each": 24576,
+       "instances": 1,
+       "keep": [
+        "Outputs"
+       ],
+       "bypass": [
+        "Weights",
+        "Inputs"
+       ]
+      },
+      {
+       "name": "ifmap_spad",
+       "class": "smartbuffer_RF_decoded",
+       "depth": 12,
+       "width": 16,
+       "datawidth": 8,
+       "entries_each": 24,
+       "instances": 168,
+       "keep": [
+        "Inputs"
+       ],
+       "bypass": []
+      },
+      {
+       "name": "weights_spad",
+       "class": "smartbuffer_SRAM",
+       "depth": 224,
+       "width": 16,
+       "datawidth": 8,
+       "entries_each": 448,
+       "instances": 168,
+       "keep": [
+        "Weights"
+       ],
+       "bypass": []
+      },
+      {
+       "name": "psum_spad",
+       "class": "smartbuffer_RF_decoded",
+       "depth": 24,
+       "width": 16,
+       "datawidth": 16,
+       "entries_each": 24,
+       "instances": 168,
+       "keep": [
+        "Outputs"
+       ],
+       "bypass": []
+      }
+     ],
+     "total_fanout": 168,
+     "weight_levels": [
+      {
+       "name": "weights_spad",
+       "entries_each": 448,
+       "instances": 168,
+       "entries_total": 75264
+      }
+     ],
+     "weight_capacity": 75264,
+     "glb_keeps_weights": false
+    }
+   },
+   "provenance": {
+    "source_document": "Chen, Krishna, Emer, Sze, IEEE JSSC 52(1), 2017",
+    "url": "https://eems.mit.edu/wp-content/uploads/2016/11/eyeriss_jssc_2017.pdf",
+    "verified": "2026-09-06",
+    "levels": {
+     "DRAM": {
+      "quote": "study-wide DRAM model, not from the paper",
+      "note": "LPDDR4 64b word at 8b operands; identical for every design."
+     },
+     "ifmap_glb + psum_glb": {
+      "quote": "\"The Eyeriss accelerator has a GLB of 108 kB ... 100 kB of the GLB is allocated for ifmaps and psums as required by the RS dataflow for reuse. ... the space is divided into 25 banks, each of which is a 512-b x 64-b (4 kB) SRAM. Each bank is assigned entirely to ifmaps or psums, and the assignment is reconfigurable\"",
+      "modelled": "13 banks ifmap (52 kB) + 12 banks psum (48 kB) = the 100 kB",
+      "approximation": "Timeloop has no dynamic repartitioning, so the reconfigurable 25-bank split is frozen at 13/12. Bank GEOMETRY (512 x 64b) is exact, which is what sets per-access energy; only the ifmap:psum ratio is fixed."
+     },
+     "filter_glb_8kB": {
+      "quote": "\"Even though it is not required by the dataflow, the remaining 8 kB (two banks of 512-b x 64-b SRAMs) of the GLB is allocated for filter weights to compensate for insufficient off-chip traffic bandwidth.\"",
+      "modelled": "NOT modelled as a reuse level (!Nothing on the Weights branch)",
+      "rationale": "The paper is explicit that it is a prefetch buffer the RS dataflow does not need. Declaring it as a Timeloop storage level would hand v1 a full extra stage of weight reuse the dataflow does not actually have, which is exactly the quantity this study measures."
+     },
+     "weights_spad": {
+      "quote": "The filter spad is implemented in a 224-b x 16-b SRAM due to its large size",
+      "modelled": "depth 224, width 16, datawidth 8 -> 448 8-bit weights per PE"
+     },
+     "ifmap_spad": {
+      "quote": "the ifmap and psum spads of size 12 b x 16 b and 24 b x 16 b, respectively, are implemented using registers",
+      "modelled": "depth 12, width 16, datawidth 8 -> 24 8-bit iacts per PE"
+     },
+     "psum_spad": {
+      "quote": "the ifmap and psum spads of size 12 b x 16 b and 24 b x 16 b",
+      "modelled": "depth 24, width 16, datawidth 16 -> 24 psums at the accumulator width"
+     },
+     "mac": {
+      "quote": "\"The computation consists of a 16-b two-stage pipelined multiplier and adder. Since the multiplication results are truncated from 32 to 16 b\"",
+      "modelled": "multiplier_width 8 (study quantization), adder_width 16 (published)"
+     },
+     "PE_array": {
+      "quote": "Sec. V-B describes a broadcast tag \"of the same size of the PE array (i.e., 168 b)\", fixing the array at 168 PEs.",
+      "modelled": "meshX 14 x meshY 12 = 168 PEs"
+     }
+    }
+   }
+  },
+  "workload": {
+   "file": "cnn",
+   "layers": [
+    {
+     "name": "conv1",
+     "shape_signature": "C3_M64_R7_S7_P112_Q112_ws2_hs2",
+     "dims": {
+      "C": 3,
+      "M": 64,
+      "R": 7,
+      "S": 7,
+      "P": 112,
+      "Q": 112,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 9408,
+     "macs": 118013952
+    },
+    {
+     "name": "layer1.0.conv1",
+     "shape_signature": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+     "dims": {
+      "C": 64,
+      "M": 64,
+      "R": 3,
+      "S": 3,
+      "P": 56,
+      "Q": 56,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 36864,
+     "macs": 115605504
+    },
+    {
+     "name": "layer1.0.conv2",
+     "shape_signature": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+     "dims": {
+      "C": 64,
+      "M": 64,
+      "R": 3,
+      "S": 3,
+      "P": 56,
+      "Q": 56,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 36864,
+     "macs": 115605504
+    },
+    {
+     "name": "layer1.1.conv1",
+     "shape_signature": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+     "dims": {
+      "C": 64,
+      "M": 64,
+      "R": 3,
+      "S": 3,
+      "P": 56,
+      "Q": 56,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 36864,
+     "macs": 115605504
+    },
+    {
+     "name": "layer1.1.conv2",
+     "shape_signature": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+     "dims": {
+      "C": 64,
+      "M": 64,
+      "R": 3,
+      "S": 3,
+      "P": 56,
+      "Q": 56,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 36864,
+     "macs": 115605504
+    },
+    {
+     "name": "layer2.0.conv1",
+     "shape_signature": "C64_M128_R3_S3_P28_Q28_ws2_hs2",
+     "dims": {
+      "C": 64,
+      "M": 128,
+      "R": 3,
+      "S": 3,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 73728,
+     "macs": 57802752
+    },
+    {
+     "name": "layer2.0.conv2",
+     "shape_signature": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+     "dims": {
+      "C": 128,
+      "M": 128,
+      "R": 3,
+      "S": 3,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 147456,
+     "macs": 115605504
+    },
+    {
+     "name": "layer2.0.downsample.0",
+     "shape_signature": "C64_M128_R1_S1_P28_Q28_ws2_hs2",
+     "dims": {
+      "C": 64,
+      "M": 128,
+      "R": 1,
+      "S": 1,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 8192,
+     "macs": 6422528
+    },
+    {
+     "name": "layer2.1.conv1",
+     "shape_signature": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+     "dims": {
+      "C": 128,
+      "M": 128,
+      "R": 3,
+      "S": 3,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 147456,
+     "macs": 115605504
+    },
+    {
+     "name": "layer2.1.conv2",
+     "shape_signature": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+     "dims": {
+      "C": 128,
+      "M": 128,
+      "R": 3,
+      "S": 3,
+      "P": 28,
+      "Q": 28,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 147456,
+     "macs": 115605504
+    },
+    {
+     "name": "layer3.0.conv1",
+     "shape_signature": "C128_M256_R3_S3_P14_Q14_ws2_hs2",
+     "dims": {
+      "C": 128,
+      "M": 256,
+      "R": 3,
+      "S": 3,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 294912,
+     "macs": 57802752
+    },
+    {
+     "name": "layer3.0.conv2",
+     "shape_signature": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 256,
+      "M": 256,
+      "R": 3,
+      "S": 3,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 589824,
+     "macs": 115605504
+    },
+    {
+     "name": "layer3.0.downsample.0",
+     "shape_signature": "C128_M256_R1_S1_P14_Q14_ws2_hs2",
+     "dims": {
+      "C": 128,
+      "M": 256,
+      "R": 1,
+      "S": 1,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 32768,
+     "macs": 6422528
+    },
+    {
+     "name": "layer3.1.conv1",
+     "shape_signature": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 256,
+      "M": 256,
+      "R": 3,
+      "S": 3,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 589824,
+     "macs": 115605504
+    },
+    {
+     "name": "layer3.1.conv2",
+     "shape_signature": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+     "dims": {
+      "C": 256,
+      "M": 256,
+      "R": 3,
+      "S": 3,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 589824,
+     "macs": 115605504
+    },
+    {
+     "name": "layer4.0.conv1",
+     "shape_signature": "C256_M512_R3_S3_P7_Q7_ws2_hs2",
+     "dims": {
+      "C": 256,
+      "M": 512,
+      "R": 3,
+      "S": 3,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 1179648,
+     "macs": 57802752
+    },
+    {
+     "name": "layer4.0.conv2",
+     "shape_signature": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+     "dims": {
+      "C": 512,
+      "M": 512,
+      "R": 3,
+      "S": 3,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 2359296,
+     "macs": 115605504
+    },
+    {
+     "name": "layer4.0.downsample.0",
+     "shape_signature": "C256_M512_R1_S1_P7_Q7_ws2_hs2",
+     "dims": {
+      "C": 256,
+      "M": 512,
+      "R": 1,
+      "S": 1,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 131072,
+     "macs": 6422528
+    },
+    {
+     "name": "layer4.1.conv1",
+     "shape_signature": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+     "dims": {
+      "C": 512,
+      "M": 512,
+      "R": 3,
+      "S": 3,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 2359296,
+     "macs": 115605504
+    },
+    {
+     "name": "layer4.1.conv2",
+     "shape_signature": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+     "dims": {
+      "C": 512,
+      "M": 512,
+      "R": 3,
+      "S": 3,
+      "P": 7,
+      "Q": 7,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 2359296,
+     "macs": 115605504
+    },
+    {
+     "name": "fc",
+     "shape_signature": "C512_M1000_R1_S1_P1_Q1_ws1_hs1",
+     "dims": {
+      "C": 512,
+      "M": 1000,
+      "R": 1,
+      "S": 1,
+      "P": 1,
+      "Q": 1,
+      "Wstride": 1,
+      "Hstride": 1,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 512000,
+     "macs": 512000
+    }
+   ],
+   "layer_scope": "full",
+   "total_weights": 11678912
+  },
+  "per_layer": [
+   {
+    "layer": "conv1",
+    "shape": "C3_M64_R7_S7_P112_Q112_ws2_hs2",
+    "status": "ok",
+    "weights": 9408,
+    "macs": 118013952,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "39d661da72e17d0b",
+    "mapping_cached": true,
+    "total_energy_pJ": 1288990716.9957242,
+    "dram_weight_reads": 2107392.0,
+    "dram_weight_energy_pJ": 134873088.0,
+    "compute_energy_pJ_charged": 27143208.96,
+    "dram_weight_energy_pJ_charged": 674365440.0
+   },
+   {
+    "layer": "layer1.0.conv1",
+    "shape": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+    "status": "ok",
+    "weights": 36864,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "6ebf4fd280b1312a",
+    "mapping_cached": true,
+    "total_energy_pJ": 507226427.44127965,
+    "dram_weight_reads": 589824.0,
+    "dram_weight_energy_pJ": 37748736.0,
+    "compute_energy_pJ_charged": 26589265.919999998,
+    "dram_weight_energy_pJ_charged": 188743680.0
+   },
+   {
+    "layer": "layer1.0.conv2",
+    "shape": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+    "status": "ok",
+    "weights": 36864,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "6ebf4fd280b1312a",
+    "mapping_cached": true,
+    "total_energy_pJ": 507226427.44127965,
+    "dram_weight_reads": 589824.0,
+    "dram_weight_energy_pJ": 37748736.0,
+    "compute_energy_pJ_charged": 26589265.919999998,
+    "dram_weight_energy_pJ_charged": 188743680.0
+   },
+   {
+    "layer": "layer1.1.conv1",
+    "shape": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+    "status": "ok",
+    "weights": 36864,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "6ebf4fd280b1312a",
+    "mapping_cached": true,
+    "total_energy_pJ": 507226427.44127965,
+    "dram_weight_reads": 589824.0,
+    "dram_weight_energy_pJ": 37748736.0,
+    "compute_energy_pJ_charged": 26589265.919999998,
+    "dram_weight_energy_pJ_charged": 188743680.0
+   },
+   {
+    "layer": "layer1.1.conv2",
+    "shape": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+    "status": "ok",
+    "weights": 36864,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "6ebf4fd280b1312a",
+    "mapping_cached": true,
+    "total_energy_pJ": 507226427.44127965,
+    "dram_weight_reads": 589824.0,
+    "dram_weight_energy_pJ": 37748736.0,
+    "compute_energy_pJ_charged": 26589265.919999998,
+    "dram_weight_energy_pJ_charged": 188743680.0
+   },
+   {
+    "layer": "layer2.0.conv1",
+    "shape": "C64_M128_R3_S3_P28_Q28_ws2_hs2",
+    "status": "ok",
+    "weights": 73728,
+    "macs": 57802752,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "dc59924a39fb3f39",
+    "mapping_cached": true,
+    "total_energy_pJ": 502231559.1550855,
+    "dram_weight_reads": 589824.0,
+    "dram_weight_energy_pJ": 37748736.0,
+    "compute_energy_pJ_charged": 13294632.959999999,
+    "dram_weight_energy_pJ_charged": 188743680.0
+   },
+   {
+    "layer": "layer2.0.conv2",
+    "shape": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+    "status": "ok",
+    "weights": 147456,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "492981465797874e",
+    "mapping_cached": true,
+    "total_energy_pJ": 1043615465.6999383,
+    "dram_weight_reads": 589824.0,
+    "dram_weight_energy_pJ": 37748736.0,
+    "compute_energy_pJ_charged": 26589265.919999998,
+    "dram_weight_energy_pJ_charged": 188743680.0
+   },
+   {
+    "layer": "layer2.0.downsample.0",
+    "shape": "C64_M128_R1_S1_P28_Q28_ws2_hs2",
+    "status": "ok",
+    "weights": 8192,
+    "macs": 6422528,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "0ccd57c4f7be38f2",
+    "mapping_cached": true,
+    "total_energy_pJ": 85706474.86331943,
+    "dram_weight_reads": 65536.0,
+    "dram_weight_energy_pJ": 4194304.0,
+    "compute_energy_pJ_charged": 1477181.44,
+    "dram_weight_energy_pJ_charged": 20971520.0
+   },
+   {
+    "layer": "layer2.1.conv1",
+    "shape": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+    "status": "ok",
+    "weights": 147456,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "492981465797874e",
+    "mapping_cached": true,
+    "total_energy_pJ": 1043615465.6999383,
+    "dram_weight_reads": 589824.0,
+    "dram_weight_energy_pJ": 37748736.0,
+    "compute_energy_pJ_charged": 26589265.919999998,
+    "dram_weight_energy_pJ_charged": 188743680.0
+   },
+   {
+    "layer": "layer2.1.conv2",
+    "shape": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+    "status": "ok",
+    "weights": 147456,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "492981465797874e",
+    "mapping_cached": true,
+    "total_energy_pJ": 1043615465.6999383,
+    "dram_weight_reads": 589824.0,
+    "dram_weight_energy_pJ": 37748736.0,
+    "compute_energy_pJ_charged": 26589265.919999998,
+    "dram_weight_energy_pJ_charged": 188743680.0
+   },
+   {
+    "layer": "layer3.0.conv1",
+    "shape": "C128_M256_R3_S3_P14_Q14_ws2_hs2",
+    "status": "ok",
+    "weights": 294912,
+    "macs": 57802752,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "aa2300574ef4ce74",
+    "mapping_cached": true,
+    "total_energy_pJ": 1721488558.442448,
+    "dram_weight_reads": 4128768.0,
+    "dram_weight_energy_pJ": 264241152.0,
+    "compute_energy_pJ_charged": 13294632.959999999,
+    "dram_weight_energy_pJ_charged": 1321205760.0
+   },
+   {
+    "layer": "layer3.0.conv2",
+    "shape": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 589824,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "42d9820ba8bf0b3d",
+    "mapping_cached": true,
+    "total_energy_pJ": 484053392.5612526,
+    "dram_weight_reads": 589824.0,
+    "dram_weight_energy_pJ": 37748736.0,
+    "compute_energy_pJ_charged": 26589265.919999998,
+    "dram_weight_energy_pJ_charged": 188743680.0
+   },
+   {
+    "layer": "layer3.0.downsample.0",
+    "shape": "C128_M256_R1_S1_P14_Q14_ws2_hs2",
+    "status": "ok",
+    "weights": 32768,
+    "macs": 6422528,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "aea4af013262c009",
+    "mapping_cached": true,
+    "total_energy_pJ": 90997839.46578644,
+    "dram_weight_reads": 131072.0,
+    "dram_weight_energy_pJ": 8388608.0,
+    "compute_energy_pJ_charged": 1477181.44,
+    "dram_weight_energy_pJ_charged": 41943040.0
+   },
+   {
+    "layer": "layer3.1.conv1",
+    "shape": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 589824,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "42d9820ba8bf0b3d",
+    "mapping_cached": true,
+    "total_energy_pJ": 484053392.5612526,
+    "dram_weight_reads": 589824.0,
+    "dram_weight_energy_pJ": 37748736.0,
+    "compute_energy_pJ_charged": 26589265.919999998,
+    "dram_weight_energy_pJ_charged": 188743680.0
+   },
+   {
+    "layer": "layer3.1.conv2",
+    "shape": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+    "status": "ok",
+    "weights": 589824,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "42d9820ba8bf0b3d",
+    "mapping_cached": true,
+    "total_energy_pJ": 484053392.5612526,
+    "dram_weight_reads": 589824.0,
+    "dram_weight_energy_pJ": 37748736.0,
+    "compute_energy_pJ_charged": 26589265.919999998,
+    "dram_weight_energy_pJ_charged": 188743680.0
+   },
+   {
+    "layer": "layer4.0.conv1",
+    "shape": "C256_M512_R3_S3_P7_Q7_ws2_hs2",
+    "status": "ok",
+    "weights": 1179648,
+    "macs": 57802752,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "59d37550aeedf5fa",
+    "mapping_cached": true,
+    "total_energy_pJ": 652993325.4662938,
+    "dram_weight_reads": 1179648.0,
+    "dram_weight_energy_pJ": 75497472.0,
+    "compute_energy_pJ_charged": 13294632.959999999,
+    "dram_weight_energy_pJ_charged": 377487360.0
+   },
+   {
+    "layer": "layer4.0.conv2",
+    "shape": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+    "status": "ok",
+    "weights": 2359296,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "88aa1f2a9dc1d774",
+    "mapping_cached": true,
+    "total_energy_pJ": 1437409800.0310204,
+    "dram_weight_reads": 2359296.0,
+    "dram_weight_energy_pJ": 150994944.0,
+    "compute_energy_pJ_charged": 26589265.919999998,
+    "dram_weight_energy_pJ_charged": 754974720.0
+   },
+   {
+    "layer": "layer4.0.downsample.0",
+    "shape": "C256_M512_R1_S1_P7_Q7_ws2_hs2",
+    "status": "ok",
+    "weights": 131072,
+    "macs": 6422528,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "b7a05c964e42545b",
+    "mapping_cached": true,
+    "total_energy_pJ": 77536395.07008019,
+    "dram_weight_reads": 131072.0,
+    "dram_weight_energy_pJ": 8388608.0,
+    "compute_energy_pJ_charged": 1477181.44,
+    "dram_weight_energy_pJ_charged": 41943040.0
+   },
+   {
+    "layer": "layer4.1.conv1",
+    "shape": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+    "status": "ok",
+    "weights": 2359296,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "88aa1f2a9dc1d774",
+    "mapping_cached": true,
+    "total_energy_pJ": 1437409800.0310204,
+    "dram_weight_reads": 2359296.0,
+    "dram_weight_energy_pJ": 150994944.0,
+    "compute_energy_pJ_charged": 26589265.919999998,
+    "dram_weight_energy_pJ_charged": 754974720.0
+   },
+   {
+    "layer": "layer4.1.conv2",
+    "shape": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+    "status": "ok",
+    "weights": 2359296,
+    "macs": 115605504,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "88aa1f2a9dc1d774",
+    "mapping_cached": true,
+    "total_energy_pJ": 1437409800.0310204,
+    "dram_weight_reads": 2359296.0,
+    "dram_weight_energy_pJ": 150994944.0,
+    "compute_energy_pJ_charged": 26589265.919999998,
+    "dram_weight_energy_pJ_charged": 754974720.0
+   },
+   {
+    "layer": "fc",
+    "shape": "C512_M1000_R1_S1_P1_Q1_ws1_hs1",
+    "status": "ok",
+    "weights": 512000,
+    "macs": 512000,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "f26194e7ccdc725c",
+    "mapping_cached": true,
+    "total_energy_pJ": 187020847.19167107,
+    "dram_weight_reads": 512000.0,
+    "dram_weight_energy_pJ": 32768000.0,
+    "compute_energy_pJ_charged": 117759.99999999999,
+    "dram_weight_energy_pJ_charged": 163840000.0
+   }
+  ],
+  "per_level": [
+   {
+    "level": "DRAM",
+    "dataspace": "Inputs",
+    "category": "DRAM",
+    "instances": 1,
+    "energy_pJ": 1285166080.0,
+    "reads": 4016139.0,
+    "writes": 0.0,
+    "dram_pj_per_bit": 40.0
+   },
+   {
+    "level": "DRAM",
+    "dataspace": "Outputs",
+    "category": "DRAM",
+    "instances": 1,
+    "energy_pJ": 3283837440.0,
+    "reads": 3888640.0,
+    "writes": 6373352.0,
+    "dram_pj_per_bit": 40.0
+   },
+   {
+    "level": "DRAM",
+    "dataspace": "Weights",
+    "category": "DRAM",
+    "instances": 1,
+    "energy_pJ": 6982860800.0,
+    "reads": 21821440.0,
+    "writes": 0.0,
+    "dram_pj_per_bit": 40.0
+   },
+   {
+    "level": "NoC: inter_PE_column_spatial <==> inter_PE_spatial",
+    "dataspace": "Inputs",
+    "category": "NoC",
+    "instances": null,
+    "energy_pJ": 268954168.35,
+    "reads": 72698368.0,
+    "writes": 0.0
+   },
+   {
+    "level": "NoC: inter_PE_column_spatial <==> inter_PE_spatial",
+    "dataspace": "Outputs",
+    "category": "NoC",
+    "instances": null,
+    "energy_pJ": 207388498.14000002,
+    "reads": 74562536.0,
+    "writes": 0.0
+   },
+   {
+    "level": "NoC: inter_PE_column_spatial <==> inter_PE_spatial",
+    "dataspace": "Weights",
+    "category": "NoC",
+    "instances": null,
+    "energy_pJ": 79150977.39,
+    "reads": 21821440.0,
+    "writes": 0.0
+   },
+   {
+    "level": "NoC: inter_PE_column_spatial <==> inter_PE_spatial [psum word width]",
+    "dataspace": "Outputs",
+    "category": "NoC",
+    "instances": null,
+    "energy_pJ": 139150538.93456,
+    "reads": 0.0,
+    "writes": 0.0
+   },
+   {
+    "level": "NoC: inter_PE_spatial <==> ifmap_spad",
+    "dataspace": "Inputs",
+    "category": "NoC",
+    "instances": null,
+    "energy_pJ": 215518457.87,
+    "reads": 12450304.0,
+    "writes": 0.0
+   },
+   {
+    "level": "NoC: inter_PE_spatial <==> ifmap_spad",
+    "dataspace": "Outputs",
+    "category": "NoC",
+    "instances": null,
+    "energy_pJ": 113516246.6,
+    "reads": 5842020.0,
+    "writes": 0.0
+   },
+   {
+    "level": "NoC: inter_PE_spatial <==> ifmap_spad",
+    "dataspace": "Weights",
+    "category": "NoC",
+    "instances": null,
+    "energy_pJ": 166024420.88,
+    "reads": 10411008.0,
+    "writes": 0.0
+   },
+   {
+    "level": "NoC: inter_PE_spatial <==> ifmap_spad [psum word width]",
+    "dataspace": "Outputs",
+    "category": "NoC",
+    "instances": null,
+    "energy_pJ": 45277957.64232,
+    "reads": 0.0,
+    "writes": 0.0
+   },
+   {
+    "level": "NoC: inter_PE_spatial <==> ifmap_spad [spatial reduction]",
+    "dataspace": "Outputs",
+    "category": "NoC",
+    "instances": null,
+    "energy_pJ": 121743377.82528,
+    "reads": 31947876.0,
+    "writes": 0.0
+   },
+   {
+    "level": "ifmap_glb",
+    "dataspace": "Inputs",
+    "category": "Global buffer",
+    "instances": 1,
+    "energy_pJ": 222694709.26,
+    "reads": 72698368.0,
+    "writes": 4016139.0
+   },
+   {
+    "level": "ifmap_spad",
+    "dataspace": "Inputs",
+    "category": "Local (spads/RF)",
+    "instances": 168,
+    "energy_pJ": 58567185.43,
+    "reads": 14627840.0,
+    "writes": 2901248.0
+   },
+   {
+    "level": "mac",
+    "dataspace": "Compute",
+    "category": "Compute",
+    "instances": 168,
+    "energy_pJ": 417236869.1200001,
+    "reads": 0.0,
+    "writes": 0.0,
+    "mac_pj_override": 0.23
+   },
+   {
+    "level": "psum_glb",
+    "dataspace": "Outputs",
+    "category": "Global buffer",
+    "instances": 1,
+    "energy_pJ": 760451786.88,
+    "reads": 72077824.0,
+    "writes": 78451176.0
+   },
+   {
+    "level": "psum_spad",
+    "dataspace": "Outputs",
+    "category": "Local (spads/RF)",
+    "instances": 168,
+    "energy_pJ": 364023563.06,
+    "reads": 14490732.0,
+    "writes": 17755776.0
+   },
+   {
+    "level": "weights_spad",
+    "dataspace": "Weights",
+    "category": "Local (spads/RF)",
+    "instances": 168,
+    "energy_pJ": 799544323.91,
+    "reads": 14627840.0,
+    "writes": 999424.0
+   }
+  ],
+  "mac_energy": {
+   "macs": 1814073344.0,
+   "compute_pJ_ert": 2059970985.7999995,
+   "ert_pj_per_mac": 1.1355500000114656,
+   "override_pj_per_mac": 0.23,
+   "pj_per_mac_charged": 0.23,
+   "source": "ECC_MAC_PJ_OVERRIDE",
+   "citation_short": "Horowitz ISSCC 2014 int8 mult+add, 45 nm",
+   "citation": "M. Horowitz, 'Computing's energy problem (and what we can do about it)', ISSCC 2014, Fig. 1.1.9 'Rough energy costs for various operations in 45nm 0.9V'",
+   "compute_pJ_charged": 417236869.12,
+   "compute_scale": 0.20254502223387583,
+   "opt_metric": "edp",
+   "mapping_note": "ECC_OPT_METRIC=edp: a cheaper MAC can move the mapping optimum, and the mapper was NOT re-run (it prices MACs from the ERT) -- a fixed-mapping result"
+  },
+  "mappings": [
+   {}
+  ],
+  "raw_energy_cache": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/results/_raw/eyeriss_like/vic2000__vicx__alg-random_pruned__to2000__noc__paper/fp-92387e81b60c/cnn/layers-full/cls-instances/rw-joint/resnet18.json",
+  "mapper_cache": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/ecc_energy_study/outputs/eyeriss_like/multimodel__vic2000__vicx__alg-random_pruned__to2000__noc__paper/fp-92387e81b60c",
+  "reconstruction_placement": {
+   "weight_path": {
+    "architecture": "eyeriss_like",
+    "model": "resnet18",
+    "stages": [
+     {
+      "stage": "dram",
+      "kind": "dram",
+      "timeloop_levels": [
+       "DRAM"
+      ],
+      "weight_energy_pJ": 6982860800.0,
+      "weight_wire_energy_pJ": 0.0,
+      "weight_switching_energy_pJ": 1396572160.0,
+      "weight_scalar_reads_total": 21821440.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 0.0,
+      "weight_network_deliveries_total": 0.0,
+      "network_multicast_factor": 1.0,
+      "network_fanout": 1.0,
+      "weights_resident_per_instance": 8192,
+      "physical_word_bits": 64,
+      "instances": 1,
+      "share_of_the_timeloop_level": 1.0
+     },
+     {
+      "stage": "array_multicast",
+      "kind": "network",
+      "timeloop_levels": [
+       "NoC: inter_PE_column_spatial <==> inter_PE_spatial"
+      ],
+      "weight_energy_pJ": 79150977.39000002,
+      "weight_wire_energy_pJ": 59103049.362636805,
+      "weight_switching_energy_pJ": 20047928.02736318,
+      "weight_scalar_reads_total": 0.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 21821440.0,
+      "weight_network_deliveries_total": 142010368.0,
+      "network_multicast_factor": 14.0,
+      "network_fanout": 14.0,
+      "weights_resident_per_instance": 0.0,
+      "physical_word_bits": 8,
+      "instances": 1,
+      "share_of_the_timeloop_level": 1.0
+     },
+     {
+      "stage": "pe_local_multicast",
+      "kind": "network",
+      "timeloop_levels": [
+       "NoC: inter_PE_spatial <==> ifmap_spad"
+      ],
+      "weight_energy_pJ": 166024420.88000003,
+      "weight_wire_energy_pJ": 35906716.57207786,
+      "weight_switching_energy_pJ": 130117704.30792214,
+      "weight_scalar_reads_total": 0.0,
+      "weight_scalar_fills_total": 0.0,
+      "weight_network_ingresses_total": 142010368.0,
+      "weight_network_deliveries_total": 142010368.0,
+      "network_multicast_factor": 1.0,
+      "network_fanout": 12.0,
+      "weights_resident_per_instance": 0.0,
+      "physical_word_bits": 8,
+      "instances": 14,
+      "share_of_the_timeloop_level": 1.0
+     },
+     {
+      "stage": "weights_spad",
+      "kind": "storage",
+      "timeloop_levels": [
+       "weights_spad"
+      ],
+      "weight_energy_pJ": 799544323.91,
+      "weight_wire_energy_pJ": 0.0,
+      "weight_switching_energy_pJ": 799544323.91,
+      "weight_scalar_reads_total": 1814073344.0,
+      "weight_scalar_fills_total": 142010368.0,
+      "weight_network_ingresses_total": 0.0,
+      "weight_network_deliveries_total": 0.0,
+      "network_multicast_factor": 1.0,
+      "network_fanout": 1.0,
+      "weights_resident_per_instance": 8,
+      "physical_word_bits": 16,
+      "instances": 168,
+      "share_of_the_timeloop_level": 1.0
+     }
+    ],
+    "stage_definitions": [
+     {
+      "stage": "dram",
+      "label": "DRAM (dynamic access, whole term reducible)",
+      "kind": "dram",
+      "timeloop_level_prefixes": [
+       "DRAM"
+      ],
+      "carries_reduced_representation_possible": true,
+      "evidence": "the decoder is on the DRAM die and off the fetch path, so only the k message bits of each n-bit codeword are read out and driven off the die: the whole per-bit DYNAMIC access constant carries k of every n bits under every boundary (01_project_context Sec. 1 and Sec. 4). The DRAM access is designed to fetch only the message bits of each codeword. The f_if array/interface split was removed 2026-09-09."
+     },
+     {
+      "stage": "array_multicast",
+      "label": "Flat array NoC (multicast across PE columns)",
+      "kind": "network",
+      "timeloop_level_prefixes": [
+       "NoC: inter_PE_column_spatial"
+      ],
+      "carries_reduced_representation_possible": true,
+      "evidence": "JSSC 2017 Sec. V: 168 PEs in a 12 x 14 array fed by a multicast network. `archs/eyeriss_like/arch_paper.yaml` declares PE_column with meshX 14, so this is Timeloop's outer fanout level -- the long-distance half of Sec. 7.1's 'flat multicast NoC'."
+     },
+     {
+      "stage": "pe_local_multicast",
+      "label": "Column-local distribution to the 12 PEs",
+      "kind": "network",
+      "timeloop_level_prefixes": [
+       "NoC: inter_PE_spatial"
+      ],
+      "carries_reduced_representation_possible": true,
+      "evidence": "the inner fanout level of the same array network: PE with meshY 12, one column of the 12 x 14 array. Sec. 7.1's multicast tradeoff -- one encoder before the fanout, or one per destination after it -- is the R2/R3 pair below."
+     },
+     {
+      "stage": "weights_spad",
+      "label": "PE filter scratchpad",
+      "kind": "storage",
+      "timeloop_level_prefixes": [
+       "weights_spad"
+      ],
+      "carries_reduced_representation_possible": true,
+      "evidence": "JSSC 2017 Sec. V-B: 'the filter spad is implemented in a 224-b x 16-b SRAM due to its large size'. This is the innermost level holding weights: the MAC reads it directly, with no decoded-weight register in the design -- so a retained-reconstruction boundary here would have been a pure ADDITION, which is part of why R4b was removed."
+     }
+    ],
+    "dram_term": {
+     "decode_site": "ondie",
+     "dram_pj_per_bit": 40.0,
+     "dram_cost_provenance": "ECC_DRAM_PJ_PER_BIT=40 -- within the 28-45 pJ/bit band (FReaC Cache, MICRO 2020; Gebhart et al., MICRO 2012); 2.56 nJ/64b",
+     "dram_weight_energy_pJ": 6982860800.0,
+     "dram_reducible": true,
+     "rule": "dram = DRAM weight energy x K/N under every boundary when the decoder is on the DRAM die (01_project_context Sec. 4). Accelergy's CactiDRAM is one flat per-bit DYNAMIC access constant and the whole of it is credited: the DRAM access fetches only the message bits of each codeword. E_background and E_refresh are not modelled (both 0)"
+    },
+    "multicast_arrival_chain": {
+     "rule": "a network's destination-side arrivals should equal what the next stage takes in (the next network's ingresses, or the scratchpad's fills); this is the cross-check on the arrival count a network boundary's encoders are charged per, and it is recorded rather than enforced",
+     "per_network": [
+      {
+       "network": "array_multicast",
+       "words_injected_ingresses": 21821440.0,
+       "words_received_by_destinations": 142010368.0,
+       "multicast_factor_reported_by_timeloop": 14.0,
+       "effective_multiplicity": 6.507836696386673,
+       "next_stage": "pe_local_multicast",
+       "next_stage_takes_in": 142010368.0,
+       "arrivals_match_the_next_stage": true
+      },
+      {
+       "network": "pe_local_multicast",
+       "words_injected_ingresses": 142010368.0,
+       "words_received_by_destinations": 142010368.0,
+       "multicast_factor_reported_by_timeloop": 1.0,
+       "effective_multiplicity": 1.0,
+       "next_stage": "weights_spad",
+       "next_stage_takes_in": 142010368.0,
+       "arrivals_match_the_next_stage": true
+      }
+     ]
+    },
+    "unclaimed_weight_levels": [],
+    "per_layer": [
+     {
+      "layer": "conv1",
+      "shape": "C3_M64_R7_S7_P112_Q112_ws2_hs2",
+      "weights": 9408,
+      "repeat_count": 1.0,
+      "weight_energy_pJ": 754813551.74,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 674365440.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 134873088.0,
+        "weight_scalar_reads_total": 2107392.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 9408,
+        "physical_word_bits": 64,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "array_multicast": {
+        "stage": "array_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_column_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 8041179.42,
+        "weight_wire_energy_pJ": 6104834.016889445,
+        "weight_switching_energy_pJ": 1936345.4031105551,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 2107392.0,
+        "weight_network_deliveries_total": 14751744.0,
+        "network_multicast_factor": 7.0,
+        "network_fanout": 14.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "pe_local_multicast": {
+        "stage": "pe_local_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 16937040.99,
+        "weight_wire_energy_pJ": 3419023.9012711686,
+        "weight_switching_energy_pJ": 13518017.088728828,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 14751744.0,
+        "weight_network_deliveries_total": 14751744.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 7.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 14,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "weights_spad": {
+        "stage": "weights_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 55469891.33,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 55469891.33,
+        "weight_scalar_reads_total": 118013952.0,
+        "weight_scalar_fills_total": 14751744.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 84,
+        "physical_word_bits": 16,
+        "instances": 98,
+        "share_of_the_timeloop_level": 1.0
+       }
+      }
+     },
+     {
+      "layer": "layer1.0.conv1",
+      "shape": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+      "weights": 36864,
+      "repeat_count": 1.0,
+      "weight_energy_pJ": 237414783.00000003,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 188743680.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 37748736.0,
+        "weight_scalar_reads_total": 589824.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 36864,
+        "physical_word_bits": 64,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "array_multicast": {
+        "stage": "array_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_column_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 1260139.74,
+        "weight_wire_energy_pJ": 718721.2609594259,
+        "weight_switching_energy_pJ": 541418.4790405738,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 589824.0,
+        "weight_network_deliveries_total": 1179648.0,
+        "network_multicast_factor": 2.0,
+        "network_fanout": 8.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "pe_local_multicast": {
+        "stage": "pe_local_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 1391531.11,
+        "weight_wire_energy_pJ": 310657.2466744904,
+        "weight_switching_energy_pJ": 1080873.8633255097,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 1179648.0,
+        "weight_network_deliveries_total": 1179648.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 12.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 8,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "weights_spad": {
+        "stage": "weights_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 46019432.15,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 46019432.15,
+        "weight_scalar_reads_total": 115605504.0,
+        "weight_scalar_fills_total": 1179648.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 64,
+        "physical_word_bits": 16,
+        "instances": 96,
+        "share_of_the_timeloop_level": 1.0
+       }
+      }
+     },
+     {
+      "layer": "layer1.0.conv2",
+      "shape": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+      "weights": 36864,
+      "repeat_count": 1.0,
+      "weight_energy_pJ": 237414783.00000003,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 188743680.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 37748736.0,
+        "weight_scalar_reads_total": 589824.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 36864,
+        "physical_word_bits": 64,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "array_multicast": {
+        "stage": "array_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_column_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 1260139.74,
+        "weight_wire_energy_pJ": 718721.2609594259,
+        "weight_switching_energy_pJ": 541418.4790405738,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 589824.0,
+        "weight_network_deliveries_total": 1179648.0,
+        "network_multicast_factor": 2.0,
+        "network_fanout": 8.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "pe_local_multicast": {
+        "stage": "pe_local_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 1391531.11,
+        "weight_wire_energy_pJ": 310657.2466744904,
+        "weight_switching_energy_pJ": 1080873.8633255097,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 1179648.0,
+        "weight_network_deliveries_total": 1179648.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 12.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 8,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "weights_spad": {
+        "stage": "weights_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 46019432.15,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 46019432.15,
+        "weight_scalar_reads_total": 115605504.0,
+        "weight_scalar_fills_total": 1179648.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 64,
+        "physical_word_bits": 16,
+        "instances": 96,
+        "share_of_the_timeloop_level": 1.0
+       }
+      }
+     },
+     {
+      "layer": "layer1.1.conv1",
+      "shape": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+      "weights": 36864,
+      "repeat_count": 1.0,
+      "weight_energy_pJ": 237414783.00000003,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 188743680.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 37748736.0,
+        "weight_scalar_reads_total": 589824.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 36864,
+        "physical_word_bits": 64,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "array_multicast": {
+        "stage": "array_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_column_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 1260139.74,
+        "weight_wire_energy_pJ": 718721.2609594259,
+        "weight_switching_energy_pJ": 541418.4790405738,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 589824.0,
+        "weight_network_deliveries_total": 1179648.0,
+        "network_multicast_factor": 2.0,
+        "network_fanout": 8.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "pe_local_multicast": {
+        "stage": "pe_local_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 1391531.11,
+        "weight_wire_energy_pJ": 310657.2466744904,
+        "weight_switching_energy_pJ": 1080873.8633255097,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 1179648.0,
+        "weight_network_deliveries_total": 1179648.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 12.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 8,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "weights_spad": {
+        "stage": "weights_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 46019432.15,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 46019432.15,
+        "weight_scalar_reads_total": 115605504.0,
+        "weight_scalar_fills_total": 1179648.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 64,
+        "physical_word_bits": 16,
+        "instances": 96,
+        "share_of_the_timeloop_level": 1.0
+       }
+      }
+     },
+     {
+      "layer": "layer1.1.conv2",
+      "shape": "C64_M64_R3_S3_P56_Q56_ws1_hs1",
+      "weights": 36864,
+      "repeat_count": 1.0,
+      "weight_energy_pJ": 237414783.00000003,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 188743680.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 37748736.0,
+        "weight_scalar_reads_total": 589824.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 36864,
+        "physical_word_bits": 64,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "array_multicast": {
+        "stage": "array_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_column_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 1260139.74,
+        "weight_wire_energy_pJ": 718721.2609594259,
+        "weight_switching_energy_pJ": 541418.4790405738,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 589824.0,
+        "weight_network_deliveries_total": 1179648.0,
+        "network_multicast_factor": 2.0,
+        "network_fanout": 8.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "pe_local_multicast": {
+        "stage": "pe_local_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 1391531.11,
+        "weight_wire_energy_pJ": 310657.2466744904,
+        "weight_switching_energy_pJ": 1080873.8633255097,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 1179648.0,
+        "weight_network_deliveries_total": 1179648.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 12.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 8,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "weights_spad": {
+        "stage": "weights_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 46019432.15,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 46019432.15,
+        "weight_scalar_reads_total": 115605504.0,
+        "weight_scalar_fills_total": 1179648.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 64,
+        "physical_word_bits": 16,
+        "instances": 96,
+        "share_of_the_timeloop_level": 1.0
+       }
+      }
+     },
+     {
+      "layer": "layer2.0.conv1",
+      "shape": "C64_M128_R3_S3_P28_Q28_ws2_hs2",
+      "weights": 73728,
+      "repeat_count": 1.0,
+      "weight_energy_pJ": 229181193.01999998,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 188743680.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 37748736.0,
+        "weight_scalar_reads_total": 589824.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 73728,
+        "physical_word_bits": 64,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "array_multicast": {
+        "stage": "array_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_column_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 2880880.6,
+        "weight_wire_energy_pJ": 2338781.312596847,
+        "weight_switching_energy_pJ": 542099.2874031533,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 589824.0,
+        "weight_network_deliveries_total": 8257536.0,
+        "network_multicast_factor": 14.0,
+        "network_fanout": 14.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "pe_local_multicast": {
+        "stage": "pe_local_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 9740717.78,
+        "weight_wire_energy_pJ": 2174600.728953918,
+        "weight_switching_energy_pJ": 7566117.051046082,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 8257536.0,
+        "weight_network_deliveries_total": 8257536.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 12.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 14,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "weights_spad": {
+        "stage": "weights_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 27815914.64,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 27815914.64,
+        "weight_scalar_reads_total": 57802752.0,
+        "weight_scalar_fills_total": 8257536.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 128,
+        "physical_word_bits": 16,
+        "instances": 168,
+        "share_of_the_timeloop_level": 1.0
+       }
+      }
+     },
+     {
+      "layer": "layer2.0.conv2",
+      "shape": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+      "weights": 147456,
+      "repeat_count": 1.0,
+      "weight_energy_pJ": 243732601.44,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 188743680.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 37748736.0,
+        "weight_scalar_reads_total": 589824.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 147456,
+        "physical_word_bits": 64,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "array_multicast": {
+        "stage": "array_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_column_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 2250592.49,
+        "weight_wire_energy_pJ": 1708641.5901795558,
+        "weight_switching_energy_pJ": 541950.8998204443,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 589824.0,
+        "weight_network_deliveries_total": 4128768.0,
+        "network_multicast_factor": 7.0,
+        "network_fanout": 14.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "pe_local_multicast": {
+        "stage": "pe_local_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 4870358.89,
+        "weight_wire_energy_pJ": 1087300.364476959,
+        "weight_switching_energy_pJ": 3783058.525523041,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 4128768.0,
+        "weight_network_deliveries_total": 4128768.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 12.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 14,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "weights_spad": {
+        "stage": "weights_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 47867970.06,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 47867970.06,
+        "weight_scalar_reads_total": 115605504.0,
+        "weight_scalar_fills_total": 4128768.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 16,
+        "physical_word_bits": 16,
+        "instances": 168,
+        "share_of_the_timeloop_level": 1.0
+       }
+      }
+     },
+     {
+      "layer": "layer2.0.downsample.0",
+      "shape": "C64_M128_R1_S1_P28_Q28_ws2_hs2",
+      "weights": 8192,
+      "repeat_count": 1.0,
+      "weight_energy_pJ": 24545627.259999998,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 20971520.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 4194304.0,
+        "weight_scalar_reads_total": 65536.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 8192,
+        "physical_word_bits": 64,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "array_multicast": {
+        "stage": "array_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_column_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 250065.83,
+        "weight_wire_energy_pJ": 189849.0638884032,
+        "weight_switching_energy_pJ": 60216.76611159679,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 65536.0,
+        "weight_network_deliveries_total": 458752.0,
+        "network_multicast_factor": 7.0,
+        "network_fanout": 14.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "pe_local_multicast": {
+        "stage": "pe_local_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 520934.59,
+        "weight_wire_energy_pJ": 100660.26825667557,
+        "weight_switching_energy_pJ": 420274.32174332446,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 458752.0,
+        "weight_network_deliveries_total": 458752.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 8.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 14,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "weights_spad": {
+        "stage": "weights_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 2803106.84,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 2803106.84,
+        "weight_scalar_reads_total": 6422528.0,
+        "weight_scalar_fills_total": 458752.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 8,
+        "physical_word_bits": 16,
+        "instances": 112,
+        "share_of_the_timeloop_level": 1.0
+       }
+      }
+     },
+     {
+      "layer": "layer2.1.conv1",
+      "shape": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+      "weights": 147456,
+      "repeat_count": 1.0,
+      "weight_energy_pJ": 243732601.44,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 188743680.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 37748736.0,
+        "weight_scalar_reads_total": 589824.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 147456,
+        "physical_word_bits": 64,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "array_multicast": {
+        "stage": "array_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_column_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 2250592.49,
+        "weight_wire_energy_pJ": 1708641.5901795558,
+        "weight_switching_energy_pJ": 541950.8998204443,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 589824.0,
+        "weight_network_deliveries_total": 4128768.0,
+        "network_multicast_factor": 7.0,
+        "network_fanout": 14.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "pe_local_multicast": {
+        "stage": "pe_local_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 4870358.89,
+        "weight_wire_energy_pJ": 1087300.364476959,
+        "weight_switching_energy_pJ": 3783058.525523041,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 4128768.0,
+        "weight_network_deliveries_total": 4128768.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 12.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 14,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "weights_spad": {
+        "stage": "weights_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 47867970.06,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 47867970.06,
+        "weight_scalar_reads_total": 115605504.0,
+        "weight_scalar_fills_total": 4128768.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 16,
+        "physical_word_bits": 16,
+        "instances": 168,
+        "share_of_the_timeloop_level": 1.0
+       }
+      }
+     },
+     {
+      "layer": "layer2.1.conv2",
+      "shape": "C128_M128_R3_S3_P28_Q28_ws1_hs1",
+      "weights": 147456,
+      "repeat_count": 1.0,
+      "weight_energy_pJ": 243732601.44,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 188743680.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 37748736.0,
+        "weight_scalar_reads_total": 589824.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 147456,
+        "physical_word_bits": 64,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "array_multicast": {
+        "stage": "array_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_column_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 2250592.49,
+        "weight_wire_energy_pJ": 1708641.5901795558,
+        "weight_switching_energy_pJ": 541950.8998204443,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 589824.0,
+        "weight_network_deliveries_total": 4128768.0,
+        "network_multicast_factor": 7.0,
+        "network_fanout": 14.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "pe_local_multicast": {
+        "stage": "pe_local_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 4870358.89,
+        "weight_wire_energy_pJ": 1087300.364476959,
+        "weight_switching_energy_pJ": 3783058.525523041,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 4128768.0,
+        "weight_network_deliveries_total": 4128768.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 12.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 14,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "weights_spad": {
+        "stage": "weights_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 47867970.06,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 47867970.06,
+        "weight_scalar_reads_total": 115605504.0,
+        "weight_scalar_fills_total": 4128768.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 16,
+        "physical_word_bits": 16,
+        "instances": 168,
+        "share_of_the_timeloop_level": 1.0
+       }
+      }
+     },
+     {
+      "layer": "layer3.0.conv1",
+      "shape": "C128_M256_R3_S3_P14_Q14_ws2_hs2",
+      "weights": 294912,
+      "repeat_count": 1.0,
+      "weight_energy_pJ": 1411808099.64,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 1321205760.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 264241152.0,
+        "weight_scalar_reads_total": 4128768.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 294912,
+        "physical_word_bits": 64,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "array_multicast": {
+        "stage": "array_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_column_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 15754147.43,
+        "weight_wire_energy_pJ": 11960491.13125689,
+        "weight_switching_energy_pJ": 3793656.2987431097,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 4128768.0,
+        "weight_network_deliveries_total": 28901376.0,
+        "network_multicast_factor": 7.0,
+        "network_fanout": 14.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "pe_local_multicast": {
+        "stage": "pe_local_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 34092512.22,
+        "weight_wire_energy_pJ": 7611102.549106227,
+        "weight_switching_energy_pJ": 26481409.670893766,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 28901376.0,
+        "weight_network_deliveries_total": 28901376.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 12.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 14,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "weights_spad": {
+        "stage": "weights_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 40755679.99,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 40755679.99,
+        "weight_scalar_reads_total": 57802752.0,
+        "weight_scalar_fills_total": 28901376.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 192,
+        "physical_word_bits": 16,
+        "instances": 168,
+        "share_of_the_timeloop_level": 1.0
+       }
+      }
+     },
+     {
+      "layer": "layer3.0.conv2",
+      "shape": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+      "weights": 589824,
+      "repeat_count": 1.0,
+      "weight_energy_pJ": 243550653.83,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 188743680.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 37748736.0,
+        "weight_scalar_reads_total": 589824.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 589824,
+        "physical_word_bits": 64,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "array_multicast": {
+        "stage": "array_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_column_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 2250592.49,
+        "weight_wire_energy_pJ": 1708641.5901795558,
+        "weight_switching_energy_pJ": 541950.8998204443,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 589824.0,
+        "weight_network_deliveries_total": 4128768.0,
+        "network_multicast_factor": 7.0,
+        "network_fanout": 14.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "pe_local_multicast": {
+        "stage": "pe_local_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 4688411.28,
+        "weight_wire_energy_pJ": 905942.4085131758,
+        "weight_switching_energy_pJ": 3782468.871486825,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 4128768.0,
+        "weight_network_deliveries_total": 4128768.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 8.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 14,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "weights_spad": {
+        "stage": "weights_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 47867970.06,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 47867970.06,
+        "weight_scalar_reads_total": 115605504.0,
+        "weight_scalar_fills_total": 4128768.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 192,
+        "physical_word_bits": 16,
+        "instances": 112,
+        "share_of_the_timeloop_level": 1.0
+       }
+      }
+     },
+     {
+      "layer": "layer3.0.downsample.0",
+      "shape": "C128_M256_R1_S1_P14_Q14_ws2_hs2",
+      "weights": 32768,
+      "repeat_count": 1.0,
+      "weight_energy_pJ": 46575698.01,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 41943040.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 8388608.0,
+        "weight_scalar_reads_total": 131072.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 32768,
+        "physical_word_bits": 64,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "array_multicast": {
+        "stage": "array_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_column_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 500131.66,
+        "weight_wire_energy_pJ": 379698.1277768064,
+        "weight_switching_energy_pJ": 120433.53222319359,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 131072.0,
+        "weight_network_deliveries_total": 917504.0,
+        "network_multicast_factor": 7.0,
+        "network_fanout": 14.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "pe_local_multicast": {
+        "stage": "pe_local_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 1041869.17,
+        "weight_wire_energy_pJ": 201320.53458104967,
+        "weight_switching_energy_pJ": 840548.6354189503,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 917504.0,
+        "weight_network_deliveries_total": 917504.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 8.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 14,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "weights_spad": {
+        "stage": "weights_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 3090657.18,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 3090657.18,
+        "weight_scalar_reads_total": 6422528.0,
+        "weight_scalar_fills_total": 917504.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 16,
+        "physical_word_bits": 16,
+        "instances": 112,
+        "share_of_the_timeloop_level": 1.0
+       }
+      }
+     },
+     {
+      "layer": "layer3.1.conv1",
+      "shape": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+      "weights": 589824,
+      "repeat_count": 1.0,
+      "weight_energy_pJ": 243550653.83,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 188743680.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 37748736.0,
+        "weight_scalar_reads_total": 589824.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 589824,
+        "physical_word_bits": 64,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "array_multicast": {
+        "stage": "array_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_column_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 2250592.49,
+        "weight_wire_energy_pJ": 1708641.5901795558,
+        "weight_switching_energy_pJ": 541950.8998204443,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 589824.0,
+        "weight_network_deliveries_total": 4128768.0,
+        "network_multicast_factor": 7.0,
+        "network_fanout": 14.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "pe_local_multicast": {
+        "stage": "pe_local_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 4688411.28,
+        "weight_wire_energy_pJ": 905942.4085131758,
+        "weight_switching_energy_pJ": 3782468.871486825,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 4128768.0,
+        "weight_network_deliveries_total": 4128768.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 8.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 14,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "weights_spad": {
+        "stage": "weights_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 47867970.06,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 47867970.06,
+        "weight_scalar_reads_total": 115605504.0,
+        "weight_scalar_fills_total": 4128768.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 192,
+        "physical_word_bits": 16,
+        "instances": 112,
+        "share_of_the_timeloop_level": 1.0
+       }
+      }
+     },
+     {
+      "layer": "layer3.1.conv2",
+      "shape": "C256_M256_R3_S3_P14_Q14_ws1_hs1",
+      "weights": 589824,
+      "repeat_count": 1.0,
+      "weight_energy_pJ": 243550653.83,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 188743680.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 37748736.0,
+        "weight_scalar_reads_total": 589824.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 589824,
+        "physical_word_bits": 64,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "array_multicast": {
+        "stage": "array_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_column_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 2250592.49,
+        "weight_wire_energy_pJ": 1708641.5901795558,
+        "weight_switching_energy_pJ": 541950.8998204443,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 589824.0,
+        "weight_network_deliveries_total": 4128768.0,
+        "network_multicast_factor": 7.0,
+        "network_fanout": 14.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "pe_local_multicast": {
+        "stage": "pe_local_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 4688411.28,
+        "weight_wire_energy_pJ": 905942.4085131758,
+        "weight_switching_energy_pJ": 3782468.871486825,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 4128768.0,
+        "weight_network_deliveries_total": 4128768.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 8.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 14,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "weights_spad": {
+        "stage": "weights_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 47867970.06,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 47867970.06,
+        "weight_scalar_reads_total": 115605504.0,
+        "weight_scalar_fills_total": 4128768.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 192,
+        "physical_word_bits": 16,
+        "instances": 112,
+        "share_of_the_timeloop_level": 1.0
+       }
+      }
+     },
+     {
+      "layer": "layer4.0.conv1",
+      "shape": "C256_M512_R3_S3_P7_Q7_ws2_hs2",
+      "weights": 1179648,
+      "repeat_count": 1.0,
+      "weight_energy_pJ": 419181282.18,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 377487360.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 75497472.0,
+        "weight_scalar_reads_total": 1179648.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 1179648,
+        "physical_word_bits": 64,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "array_multicast": {
+        "stage": "array_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_column_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 4501184.98,
+        "weight_wire_energy_pJ": 3417283.1803591116,
+        "weight_switching_energy_pJ": 1083901.7996408886,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 1179648.0,
+        "weight_network_deliveries_total": 8257536.0,
+        "network_multicast_factor": 7.0,
+        "network_fanout": 14.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "pe_local_multicast": {
+        "stage": "pe_local_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 9376822.56,
+        "weight_wire_energy_pJ": 1811884.8170263516,
+        "weight_switching_energy_pJ": 7564937.74297365,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 8257536.0,
+        "weight_network_deliveries_total": 8257536.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 8.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 14,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "weights_spad": {
+        "stage": "weights_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 27815914.64,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 27815914.64,
+        "weight_scalar_reads_total": 57802752.0,
+        "weight_scalar_fills_total": 8257536.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 24,
+        "physical_word_bits": 16,
+        "instances": 112,
+        "share_of_the_timeloop_level": 1.0
+       }
+      }
+     },
+     {
+      "layer": "layer4.0.conv2",
+      "shape": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+      "weights": 2359296,
+      "repeat_count": 1.0,
+      "weight_energy_pJ": 839090354.78,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 754974720.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 150994944.0,
+        "weight_scalar_reads_total": 2359296.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 2359296,
+        "physical_word_bits": 64,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "array_multicast": {
+        "stage": "array_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_column_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 9002369.96,
+        "weight_wire_energy_pJ": 6834566.360718223,
+        "weight_switching_energy_pJ": 2167803.599281777,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 2359296.0,
+        "weight_network_deliveries_total": 16515072.0,
+        "network_multicast_factor": 7.0,
+        "network_fanout": 14.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "pe_local_multicast": {
+        "stage": "pe_local_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 19481435.55,
+        "weight_wire_energy_pJ": 4349201.455675351,
+        "weight_switching_energy_pJ": 15132234.094324652,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 16515072.0,
+        "weight_network_deliveries_total": 16515072.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 12.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 14,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "weights_spad": {
+        "stage": "weights_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 55631829.27,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 55631829.27,
+        "weight_scalar_reads_total": 115605504.0,
+        "weight_scalar_fills_total": 16515072.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 8,
+        "physical_word_bits": 16,
+        "instances": 168,
+        "share_of_the_timeloop_level": 1.0
+       }
+      }
+     },
+     {
+      "layer": "layer4.0.downsample.0",
+      "shape": "C256_M512_R1_S1_P7_Q7_ws2_hs2",
+      "weights": 131072,
+      "repeat_count": 1.0,
+      "weight_energy_pJ": 46575698.01,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 41943040.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 8388608.0,
+        "weight_scalar_reads_total": 131072.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 131072,
+        "physical_word_bits": 64,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "array_multicast": {
+        "stage": "array_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_column_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 500131.66,
+        "weight_wire_energy_pJ": 379698.1277768064,
+        "weight_switching_energy_pJ": 120433.53222319359,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 131072.0,
+        "weight_network_deliveries_total": 917504.0,
+        "network_multicast_factor": 7.0,
+        "network_fanout": 14.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "pe_local_multicast": {
+        "stage": "pe_local_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 1041869.17,
+        "weight_wire_energy_pJ": 201320.53458104967,
+        "weight_switching_energy_pJ": 840548.6354189503,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 917504.0,
+        "weight_network_deliveries_total": 917504.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 8.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 14,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "weights_spad": {
+        "stage": "weights_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 3090657.18,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 3090657.18,
+        "weight_scalar_reads_total": 6422528.0,
+        "weight_scalar_fills_total": 917504.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 128,
+        "physical_word_bits": 16,
+        "instances": 112,
+        "share_of_the_timeloop_level": 1.0
+       }
+      }
+     },
+     {
+      "layer": "layer4.1.conv1",
+      "shape": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+      "weights": 2359296,
+      "repeat_count": 1.0,
+      "weight_energy_pJ": 839090354.78,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 754974720.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 150994944.0,
+        "weight_scalar_reads_total": 2359296.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 2359296,
+        "physical_word_bits": 64,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "array_multicast": {
+        "stage": "array_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_column_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 9002369.96,
+        "weight_wire_energy_pJ": 6834566.360718223,
+        "weight_switching_energy_pJ": 2167803.599281777,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 2359296.0,
+        "weight_network_deliveries_total": 16515072.0,
+        "network_multicast_factor": 7.0,
+        "network_fanout": 14.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "pe_local_multicast": {
+        "stage": "pe_local_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 19481435.55,
+        "weight_wire_energy_pJ": 4349201.455675351,
+        "weight_switching_energy_pJ": 15132234.094324652,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 16515072.0,
+        "weight_network_deliveries_total": 16515072.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 12.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 14,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "weights_spad": {
+        "stage": "weights_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 55631829.27,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 55631829.27,
+        "weight_scalar_reads_total": 115605504.0,
+        "weight_scalar_fills_total": 16515072.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 8,
+        "physical_word_bits": 16,
+        "instances": 168,
+        "share_of_the_timeloop_level": 1.0
+       }
+      }
+     },
+     {
+      "layer": "layer4.1.conv2",
+      "shape": "C512_M512_R3_S3_P7_Q7_ws1_hs1",
+      "weights": 2359296,
+      "repeat_count": 1.0,
+      "weight_energy_pJ": 839090354.78,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 754974720.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 150994944.0,
+        "weight_scalar_reads_total": 2359296.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 2359296,
+        "physical_word_bits": 64,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "array_multicast": {
+        "stage": "array_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_column_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 9002369.96,
+        "weight_wire_energy_pJ": 6834566.360718223,
+        "weight_switching_energy_pJ": 2167803.599281777,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 2359296.0,
+        "weight_network_deliveries_total": 16515072.0,
+        "network_multicast_factor": 7.0,
+        "network_fanout": 14.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "pe_local_multicast": {
+        "stage": "pe_local_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 19481435.55,
+        "weight_wire_energy_pJ": 4349201.455675351,
+        "weight_switching_energy_pJ": 15132234.094324652,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 16515072.0,
+        "weight_network_deliveries_total": 16515072.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 12.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 14,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "weights_spad": {
+        "stage": "weights_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 55631829.27,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 55631829.27,
+        "weight_scalar_reads_total": 115605504.0,
+        "weight_scalar_fills_total": 16515072.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 8,
+        "physical_word_bits": 16,
+        "instances": 168,
+        "share_of_the_timeloop_level": 1.0
+       }
+      }
+     },
+     {
+      "layer": "fc",
+      "shape": "C512_M1000_R1_S1_P1_Q1_ws1_hs1",
+      "weights": 512000,
+      "repeat_count": 1.0,
+      "weight_energy_pJ": 166119410.17000002,
+      "stages": {
+       "dram": {
+        "stage": "dram",
+        "kind": "dram",
+        "timeloop_levels": [
+         "DRAM"
+        ],
+        "weight_energy_pJ": 163840000.0,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 32768000.0,
+        "weight_scalar_reads_total": 512000.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 512000,
+        "physical_word_bits": 64,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "array_multicast": {
+        "stage": "array_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_column_spatial <==> inter_PE_spatial"
+        ],
+        "weight_energy_pJ": 1172032.03,
+        "weight_wire_energy_pJ": 701980.7350227992,
+        "weight_switching_energy_pJ": 470051.2949772009,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 512000.0,
+        "weight_network_deliveries_total": 512000.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 10.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 1,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "pe_local_multicast": {
+        "stage": "pe_local_multicast",
+        "kind": "network",
+        "timeloop_levels": [
+         "NoC: inter_PE_spatial <==> ifmap_spad"
+        ],
+        "weight_energy_pJ": 585912.8,
+        "weight_wire_energy_pJ": 116841.56560699778,
+        "weight_switching_energy_pJ": 469071.2343930023,
+        "weight_scalar_reads_total": 0.0,
+        "weight_scalar_fills_total": 0.0,
+        "weight_network_ingresses_total": 512000.0,
+        "weight_network_deliveries_total": 512000.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 10.0,
+        "weights_resident_per_instance": 0.0,
+        "physical_word_bits": 8,
+        "instances": 10,
+        "share_of_the_timeloop_level": 1.0
+       },
+       "weights_spad": {
+        "stage": "weights_spad",
+        "kind": "storage",
+        "timeloop_levels": [
+         "weights_spad"
+        ],
+        "weight_energy_pJ": 521465.34,
+        "weight_wire_energy_pJ": 0.0,
+        "weight_switching_energy_pJ": 521465.34,
+        "weight_scalar_reads_total": 512000.0,
+        "weight_scalar_fills_total": 512000.0,
+        "weight_network_ingresses_total": 0.0,
+        "weight_network_deliveries_total": 0.0,
+        "network_multicast_factor": 1.0,
+        "network_fanout": 1.0,
+        "weights_resident_per_instance": 80,
+        "physical_word_bits": 16,
+        "instances": 100,
+        "share_of_the_timeloop_level": 1.0
+       }
+      }
+     }
+    ]
+   },
+   "packing": {
+    "mode": "stream",
+    "meaning": "stream: the retained k bits of each codeword are packed with no per-weight alignment, so values per physical word and operands per flit rise by n/k and every stage scales by k/n. aligned: each reduced weight occupies ceil(weight_bits*k/n) whole bits and nothing is repacked, so wire energy falls but a physical word may hold no more values than before and its access count does not move.",
+    "full_bits_per_weight": 8,
+    "reduced_bits_per_weight": 4.9523809523809526,
+    "retained_fraction_k_over_n": 0.6190476190476191,
+    "source": "02_reconstruction_dse_and_implementation.txt section 16; the stream layout is eccenergy/embedded.py's"
+   },
+   "granularity": {
+    "charging": "weight",
+    "meaning": "weight: encoder work is proportional to the weights reconstructed, charged at the synthesized per-codeword energy per n/weight_bits of them (the group is rebuilt once and all of it is consumed). codeword: every access at the boundary rebuilds a whole codeword.",
+    "weights_per_codeword": 7.875,
+    "G_rec_weights_touched_per_codeword": 9,
+    "G_rec_meaning": "weights whose retained bits must be available at once to rebuild one ECC group; a codeword that starts mid-weight reaches into one weight more than its length implies",
+    "source": "02_reconstruction_dse_and_implementation.txt section 15; the layout is eccenergy/embedded.py's"
+   },
+   "reconstruction_datapath_pJ_per_codeword": 4.2452299,
+   "reconstruction_datapath_provenance": "BCH_N63_results.json [BCH_63_39_t4] n=63 k=39 t=4 (incremental+idle): inc=1.4561000 idle=2.7891299",
+   "decode_site": "ondie",
+   "dram_pj_per_bit": 40.0,
+   "dram_cost_provenance": "ECC_DRAM_PJ_PER_BIT=40 -- within the 28-45 pJ/bit band (FReaC Cache, MICRO 2020; Gebhart et al., MICRO 2012); 2.56 nJ/64b",
+   "dram_static_terms": "E_total(DRAM) = E_dynamic only; E_background and E_refresh are NOT modelled (both 0) -- the embedded arm holds fewer weight bits in DRAM and is given no credit for it",
+   "dram_term": {
+    "decode_site": "ondie",
+    "dram_pj_per_bit": 40.0,
+    "dram_cost_provenance": "ECC_DRAM_PJ_PER_BIT=40 -- within the 28-45 pJ/bit band (FReaC Cache, MICRO 2020; Gebhart et al., MICRO 2012); 2.56 nJ/64b",
+    "dram_weight_energy_pJ": 6982860800.0,
+    "dram_reducible": true,
+    "rule": "dram = DRAM weight energy x K/N under every boundary when the decoder is on the DRAM die (01_project_context Sec. 4). Accelergy's CactiDRAM is one flat per-bit DYNAMIC access constant and the whole of it is credited: the DRAM access fetches only the message bits of each codeword. E_background and E_refresh are not modelled (both 0)"
+   },
+   "placements_defined": [
+    {
+     "key": "recon1",
+     "variant": "recon_source_noc_ingress",
+     "boundary": "R1 - reconstruct at the source, before the array network",
+     "hypothesised_rating": "3/5",
+     "reduced_stages": [
+      "dram"
+     ],
+     "reconstruction_site": "dram",
+     "access_counter": "reads",
+     "description": "Sec. 7.1's source-side reconstruction. The die drives only the k message bits across the DRAM interface and an encoder at the chip source restores them before the array network, so nothing on chip carries the reduced form. It is the control that isolates the DRAM-interface saving -- which every boundary shares -- from every on-chip saving, and it pays one reconstruction per codeword fetched from DRAM with nothing but that interface saving against it."
+    },
+    {
+     "key": "recon2",
+     "variant": "recon_after_array_multicast",
+     "boundary": "R2 - reconstruct after the array multicast, at the column edge",
+     "hypothesised_rating": "4/5",
+     "reduced_stages": [
+      "dram",
+      "array_multicast"
+     ],
+     "reconstruction_site": "array_multicast",
+     "access_counter": "deliveries",
+     "description": "Sec. 7.1's multicast tradeoff, resolved in favour of reduced-width shared transport: the 14-way column multicast carries the reduced form and one encoder per column restores it before the column's own fanout. Fewer encoders than one per PE, and the long half of the array network moves fewer bits. The encoders run once per word ARRIVING at a column, which on this design's own mappings is up to 7x the number injected -- that multiplicity is the cost side of the tradeoff and `ECC_RECON_ENCODER_SITE=source` prices the other side (one encoder, full-width network) for comparison."
+    },
+    {
+     "key": "recon3",
+     "variant": "recon_pe_spad_input",
+     "boundary": "R3 - reconstruct at the PE filter-spad input",
+     "hypothesised_rating": "4/5",
+     "reduced_stages": [
+      "dram",
+      "array_multicast",
+      "pe_local_multicast"
+     ],
+     "reconstruction_site": "weights_spad",
+     "access_counter": "fills",
+     "description": "Both halves of the array network carry the reduced form and the encoder sits at the scratchpad write port, so the spad keeps its published 224 x 16b capacity and its full-width read cost. The encoder runs once per weight FILLED into a PE, the smallest count of any boundary below the network. Sec. 7.2's PE-FIFO boundary would sit between R2 and R3; the model has no FIFO level, so this is the first boundary after the whole network."
+    },
+    {
+     "key": "recon4",
+     "variant": "recon_pe_spad_output",
+     "boundary": "R4a - reconstruct on every filter-spad read",
+     "hypothesised_rating": "3/5",
+     "reduced_stages": [
+      "dram",
+      "array_multicast",
+      "pe_local_multicast",
+      "weights_spad"
+     ],
+     "reconstruction_site": "weights_spad",
+     "access_counter": "reads",
+     "description": "The scratchpad stores the reduced form, so its write and read bit-volume fall with its capacity, and the encoder sits at its read port. Row-stationary reuse is what makes this expensive: the MAC reads the spad directly, once per MAC, so the encoder runs once per weight DELIVERED rather than once per weight stored."
+    }
+   ],
+   "placements_requested": [
+    "recon1",
+    "recon2",
+    "recon3",
+    "recon4"
+   ]
+  }
+ },
+ "provenance": {
+  "config": {
+   "experiment": "recon",
+   "sweep": "arch",
+   "sweep_archs": [
+    "simple_weight_stationary",
+    "eyeriss_like"
+   ],
+   "sweep_models": [
+    "resnet18"
+   ],
+   "sweep_ks": [
+    39
+   ],
+   "panel_models": [],
+   "const_arch": "simple_weight_stationary",
+   "const_model": "resnet18",
+   "const_k": 39,
+   "approaches": [
+    "baseline",
+    "embedded",
+    "recon"
+   ],
+   "weight_bits": 8,
+   "activation_bits": 8,
+   "acc_bits_override": null,
+   "code_n": 63,
+   "emb_weights_per_cw_override": null,
+   "parity_grouping": "layer",
+   "parity_charge_padding": true,
+   "decode_enabled": false,
+   "decode_pj_base": 40.0,
+   "decode_pj_emb": 40.0,
+   "recon_charges_decode": true,
+   "recon_json": "data/dc/BCH_N63_results.json",
+   "recon_include_idle": true,
+   "recon_pj_override": null,
+   "recon_incremental_fallback_pj": 1.8995,
+   "recon_idle_fallback_pj": 2.2301273,
+   "recon_modeling": true,
+   "recon_optimizer": false,
+   "recon_placement_keys": [
+    "simple_weight_stationary=recon1 recon2 recon3 recon4 recon5",
+    "eyeriss_like=recon1 recon2 recon3 recon4"
+   ],
+   "recon_stem": "ReconSweep",
+   "recon_packing": "stream",
+   "recon_granularity": "weight",
+   "recon_onchip_fraction": null,
+   "recon_placement_charges_decode": true,
+   "recon_decode_site": "ondie",
+   "recon_encoder_site": "destination",
+   "dram_pj_per_bit": 40.0,
+   "dram_background_pj": 0.0,
+   "dram_refresh_pj": 0.0,
+   "weak_enabled": false,
+   "weak_n": 63,
+   "weak_k": 57,
+   "baseline_inflates_onchip": false,
+   "split_read_write": false,
+   "classify_mode": "instances",
+   "arch_fidelity": "paper",
+   "force_technology": "",
+   "force_datawidth": null,
+   "dram_depth": 1048576,
+   "global_cycle_seconds": "1e-9",
+   "weight_capacity_scale": 1.0,
+   "weight_capacity_scope": "exclusive",
+   "weight_factor_relax": false,
+   "noc_enabled": true,
+   "noc_wire_pj_per_bit_mm": null,
+   "noc_router_pj": null,
+   "noc_pe_latch_pj": null,
+   "noc_scale": 1.0,
+   "mac_pj_override": 0.23,
+   "layers": [],
+   "phase": "Pre",
+   "overwrite": false,
+   "cache_strict": true,
+   "rerun_optimiser": false,
+   "run_note": "",
+   "opt_metric": "edp",
+   "victory": 2000,
+   "victory_scaling": "levels",
+   "mapper_threads": 18,
+   "mapper_timeout": 2000,
+   "mapper_algorithm": "random_pruned",
+   "mapper_seed": null,
+   "mapper_search_size": null,
+   "mapper_max_permutations": 16,
+   "results_dir": "results",
+   "replot_only": true,
+   "from_cache": true,
+   "palette": "house",
+   "dpi": 400,
+   "formats": [
+    "png",
+    "pdf"
+   ],
+   "title_note": "",
+   "nice_labels": true,
+   "stem_override": "ReconSweep",
+   "archs": [
+    "simple_weight_stationary",
+    "eyeriss_like"
+   ],
+   "models": [
+    "resnet18"
+   ],
+   "code_k": 39,
+   "code_t": 4,
+   "workload": "cnn",
+   "stem": "ReconSweep",
+   "arch_variant_slug": "vic2000__vicx__alg-random_pruned__to2000__noc__paper",
+   "weights_per_codeword": 4,
+   "emb_weights_per_cw": 4,
+   "parity_frac": 0.6153846153846154,
+   "sram_scale": 0.6190476190476191,
+   "weak_overhead": 1.0
+  },
+  "config_hash": "e081b32f",
+  "mapper_settings": {
+   "optimization_metric": "edp",
+   "victory_condition_base": 2000,
+   "victory_scaling": "levels",
+   "algorithm": "random_pruned",
+   "timeout": 2000,
+   "search_size": null,
+   "max_permutations_per_if_visit": 16,
+   "num_threads": 18,
+   "seed": null,
+   "seed_supported": false,
+   "seed_note": "timeloop-mapper v4 exposes no random seed; pytimeloop's Mapper spec has no `random_seed` attribute. ECC_MAPPER_SEED is RECORDED so a result says which value was asked for, but it does not make the search deterministic. What does bound it is the thread count and victory condition, both of which are in the fingerprint -- so pin ECC_MAPPER_THREADS for a reproducible run rather than leaving it at 'all cores', which differs per machine."
+  },
+  "mapper_fingerprint": "5ba0ce73",
+  "command": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/eccenergy/__main__.py recon --eval",
+  "git_commit": "a6ac6a4799b0335da213c190f7896072f73245cb",
+  "started_utc": "2026-09-10T06:31:01+00:00",
+  "finished_utc": "2026-09-10T06:31:01+00:00",
+  "runtime_seconds": 0.0,
+  "host": "login12.ufhpc",
+  "user": "vkamineni",
+  "platform": "Linux-5.14.0-687.36.1.el9_8.x86_64-x86_64-with-glibc2.35",
+  "project_root": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling"
+ }
+}

@@ -37,24 +37,22 @@ whose stage is absent from the model is reported `unsupported`, never silently
 skipped -- for `eyeriss_v2_like` there is no weight GLB at all, so no
 "reconstruct at the global buffer" boundary exists to evaluate.
 
-The one level that is TWO stages is the DRAM. Accelergy's CactiDRAM bills a
-DRAM read as one flat per-bit constant that contains both the array read and
-the off-die transfer, and Timeloop charges the DRAM-to-chip network zero, so
-the evaluator splits that constant itself with `f_if`, the interface share of
-the per-bit DRAM energy (01_project_context Sec. 4; 02_..., Sec. 19 and risk
-6):
+The DRAM is ONE stage, and the whole of it is reducible (changed 2026-09-09).
+Accelergy's CactiDRAM bills a DRAM read as one flat per-bit DYNAMIC ACCESS
+constant -- 8 pJ/bit for LPDDR4 as modelled, verified at 64.0 pJ per 8-bit
+word -- and Timeloop charges the DRAM-to-chip network zero, so that constant
+is the entire DRAM term:
 
-    dram_array      (1 - f_if) x DRAM weight energy    never reduced
-    dram_interface       f_if  x DRAM weight energy    x K/N under EVERY boundary
+    dram = DRAM weight energy x K/N   under EVERY boundary, R1 included
 
-The two stages both match Timeloop's `DRAM` level and `read_weight_path()`
-requires their shares to sum to one, so the level is still claimed exactly
-once in total and `cross_check()` still reconciles their sum against the `Raw`
-record's DRAM category. `f_if` is `ECC_DRAM_IF_FRAC` and has no default: it is
-a cited DRAM energy breakdown, not a modelling choice, and with it unset the
-study refuses to evaluate and prints the DRAM ceiling at several values
-instead (experiments/recon.py). `archs/_shared/provenance.yaml`
-(`dram_interface_share`) records what has been found so far.
+It used to be TWO stages, `dram_array` ((1 - f_if) of it, never reduced) and
+`dram_interface` (f_if of it, reduced), with `f_if = ECC_DRAM_IF_FRAC = 0.40`.
+That split charged a 38.1% bit cut as a 15.2% energy cut and is REMOVED: the
+DRAM access is designed to fetch only the message bits of each codeword, so the
+whole per-bit constant carries k of every n bits.
+`ECC_DRAM_PJ_PER_BIT` sets the per-bit cost itself (energy.apply_dram_override);
+`archs/_shared/provenance.yaml` `dram_access_energy` carries the citations.
+E_background and E_refresh are NOT modelled (both 0) -- see env.sh section 4.
 
 THE DECODER IS ON THE DRAM DIE  (since 2026-09-09)
 -------------------------------------------------
@@ -63,7 +61,7 @@ fetch path (it corrects at write, on a scrub pass or on a prior access), so at
 fetch time the stored codeword is already corrected and only the k message
 bits of each n-bit codeword are driven across the DRAM interface. The array
 still stores and reads the complete codeword -- a row activation and a burst
-move whole words -- so only `dram_interface` is reducible, and it is reduced
+move whole words -- so `dram` is reduced
 under every boundary, R1 included. `ECC_RECON_DECODE_SITE=controller` is the
 pre-2026-09-09 model (decode on the fetch path, the complete codeword across
 the interface, DRAM identical on every bar), kept as a runnable row so the
@@ -110,7 +108,15 @@ result can be read against them; they are not results.
     R2  recon2  reconstruct at the destination-cluster boundary         [4/5]
     R3  recon3  reconstruct at the PE weight-SPad input                 [4/5]
     R4a recon4  reconstruct on every weight-SPad read                   [3/5]
-    R4b recon5  SPad output plus a reconstructed-weight reuse register  [5/5]
+
+R4b -- SPad output plus a reconstructed-weight reuse register -- was REMOVED on
+2026-09-10. Measured on the cached mappings, consecutive weight reuse is 1 on
+20 of 21 resnet18 layers, so a latch-sized register catches nothing (a cyclic
+walk is the LRU worst case, with no partial hit rate); a register that DOES pay
+has to hold the whole inner tile, up to 384 weights against a 384-weight
+scratchpad. The same argument rules it out on every dataflow in the study:
+output- and input-stationary hold the psum or the activation in the PE, so
+weights stream past the MAC faster still. FINDINGS 7.1.
 
 RECONSTRUCTION GRANULARITY IS A CONSTRAINT, NOT A DETAIL
 --------------------------------------------------------
@@ -126,19 +132,15 @@ the layers named. It is not evaluated with a plausible number.
 
 WHAT IS DELIBERATELY NOT CREDITED
 ---------------------------------
-* The DRAM ARRAY is not credited. The array stores and reads the complete
-  codeword for on-die correction; whether a message-only fetch touches fewer
-  array bits depends on burst granularity and the codeword layout, and it is
-  not assumed. `dram_array` = (1 - f_if) x the DRAM weight energy is the
-  embedded arm's under every boundary, to the digit, and a recorded check
-  (`dram_array_identical_to_embedded_reference`) fails if a bar takes more
-  than the interface saving.
-* The DRAM INTERFACE IS credited, and by exactly K/N: only the k message bits
-  of each codeword leave the die, so `dram_interface` = f_if x the DRAM weight
-  energy x K/N under every boundary (`dram_interface_scaled_by_K_over_N`
-  fails if a bar leaves it at full width). It is the same saving on every
-  bar, so it moves every placement against the embedded reference by the same
-  amount and changes no ordering among them.
+* The WHOLE DRAM term IS credited, by exactly K/N: only the k message bits of
+  each codeword are read out and driven off the die, so `dram` = the DRAM
+  weight energy x K/N under every boundary (`dram_scaled_by_K_over_N` fails if
+  a bar leaves it at full width). It is the same saving on every bar, so it
+  moves every placement against the embedded reference by the same amount and
+  changes no ordering among them.
+* E_background and E_refresh are not modelled (both 0). An arm that stores
+  fewer weight bits in DRAM would save both, so this understates the embedded
+  and reconstruction arms alike.
 * The DECODER is still outside the comparison. It is the same BCH decoder
   relocated to the DRAM die, runs once per corrected codeword off the fetch
   path, and is DRAM-process logic; it cancels between the embedded bar and
@@ -148,17 +150,10 @@ WHAT IS DELIBERATELY NOT CREDITED
   access count is Timeloop's. Packed reduced weights would raise the effective
   SPad capacity -- that is Task 4's question, and crediting it here would mix
   the two answers.
-* No operand-retention saving for anybody, and since 2026-09-08 R4b's register
-  is no longer able to claim one. It holds the n-k bits the encoder regenerates
-  -- `weight_bits x (1 - k/n)` per weight -- so it cannot serve a scratchpad
-  read on its own: SPad read counts stay Timeloop's under every arm, the K/N
-  discount on them is real rather than double-counted, and the register is
-  charged BOTH its writes and its lockstep reads. `ReuseRegister` has the full
-  argument, including why the previous accounting (a write and nothing else,
-  with the reconstruction count amortized 82.85x as if the register served the
-  reads) was internally inconsistent, and what a full-width operand cache
-  would really be worth. Set `ECC_RECON_REUSE_REG_MODEL=full_width` to price it
-  that way, or `=free` to reproduce the pre-2026-09-08 numbers.
+* No operand-retention saving for anybody. Scratchpad read counts stay
+  Timeloop's under every arm, so the K/N discount on them is real rather than
+  double-counted. No boundary carries a per-PE reuse register (R4b, removed
+  2026-09-10), so `Recon overhead` is structurally zero.
 """
 from __future__ import annotations
 
@@ -187,10 +182,6 @@ class Stage:
     prefixes: tuple
     reducible: bool           # can this stage ever carry the reduced form?
     evidence: str = ""
-    #: Only for `kind == "dram"`: which share of the one Timeloop DRAM level
-    #: this stage is, `array` ((1 - f_if) of it) or `interface` (f_if of it).
-    #: The two together are the whole level; `read_weight_path()` insists.
-    dram_share: str = ""
 
     def matches(self, level):
         return any(level == p or level.startswith(p) for p in self.prefixes)
@@ -202,20 +193,16 @@ class Stage:
 #: the hierarchical mesh -- which is why there is no global-buffer boundary in
 #: `PLACEMENTS` either.
 _EYERISS_V2_PATH = (
-    Stage("dram_array", "DRAM array (complete codeword read)", "dram", ("DRAM",),
-          reducible=False, dram_share="array",
-          evidence="the array stores and reads the complete embedded codeword "
-                   "for on-die correction: a row activation and a burst move "
-                   "whole words and cannot pick the k message bits out of a "
-                   "chunk (01_project_context Sec. 1 and Sec. 4, E_array; "
-                   "02_..., risk 6: do not credit the array)"),
-    Stage("dram_interface", "DRAM interface (message bits leave the die)", "dram",
-          ("DRAM",), reducible=True, dram_share="interface",
+    Stage("dram", "DRAM (dynamic access, whole term reducible)", "dram",
+          ("DRAM",), reducible=True,
           evidence="the decoder is on the DRAM die and off the fetch path, so "
-                   "only the k message bits of each n-bit codeword are driven "
-                   "off the die: I/O drivers, link and controller port carry k "
-                   "of every n bits under every boundary (01_project_context "
-                   "Sec. 1 and Sec. 4, E_interface x k/n)"),
+                   "only the k message bits of each n-bit codeword are read out "
+                   "and driven off the die: the whole per-bit DYNAMIC access "
+                   "constant carries k of every n bits under every boundary "
+                   "(01_project_context Sec. 1 and Sec. 4). The DRAM access "
+                   "is designed to fetch only the message bits of each "
+                   "codeword. The f_if array/interface split was removed "
+                   "2026-09-09."),
     Stage("inter_cluster_mesh", "Inter-cluster mesh (HM-NoC)", "network",
           ("NoC: inter_PE_cluster_spatial",), reducible=True,
           evidence="JETCAS 2019 Sec. III-C: the hierarchical mesh joins the GLB "
@@ -234,12 +221,16 @@ _EYERISS_V2_PATH = (
 #: `eyeriss_v2_like_wglb` adds a weight GLB, so it has one more reducible stage
 #: and one more boundary. Registered so the study can be repeated on the
 #: bracketing variant without editing this file.
-_EYERISS_V2_WGLB_PATH = _EYERISS_V2_PATH[:2] + (
+#: The DRAM is ONE stage since 2026-09-09, so the weight GLB is inserted
+#: after index 1, not 2. Sliced by name rather than a literal so a future
+#: change to the DRAM stages cannot silently reorder this path again.
+_V2_DRAM_N = sum(1 for _s in _EYERISS_V2_PATH if _s.kind == "dram")
+_EYERISS_V2_WGLB_PATH = _EYERISS_V2_PATH[:_V2_DRAM_N] + (
     Stage("weight_glb", "Weight global buffer", "storage", ("weight_glb",),
           reducible=True,
           evidence="the variant's extra weight level; NOT in the v2 paper -- see "
                    "archs/eyeriss_v2_like_wglb/README.md"),
-) + _EYERISS_V2_PATH[2:]
+) + _EYERISS_V2_PATH[_V2_DRAM_N:]
 
 #: `eyeriss_like` -- Eyeriss v1 as modelled by `archs/eyeriss_like/`, outer to
 #: inner. JSSC 2017 allocates 8 kB of the 108 kB GLB to filter weights, but the
@@ -258,21 +249,16 @@ _EYERISS_V2_WGLB_PATH = _EYERISS_V2_PATH[:2] + (
 #: rather than omitted; `weight_path()` would refuse if a weight-carrying level
 #: went unclaimed.
 _EYERISS_V1_PATH = (
-    Stage("dram_array", "DRAM array (complete codeword read)", "dram", ("DRAM",),
-          reducible=False, dram_share="array",
-          evidence="the array stores and reads the complete embedded codeword "
-                   "for on-die correction: a row activation and a burst move "
-                   "whole words and cannot pick the k message bits out of a "
-                   "chunk (01_project_context Sec. 1 and Sec. 4, E_array; "
-                   "02_..., risk 6: do not credit the array)"),
-    Stage("dram_interface", "DRAM interface (message bits leave the die)", "dram",
-          ("DRAM",), reducible=True, dram_share="interface",
+    Stage("dram", "DRAM (dynamic access, whole term reducible)", "dram",
+          ("DRAM",), reducible=True,
           evidence="the decoder is on the DRAM die and off the fetch path, so "
-                   "only the k message bits of each n-bit codeword are driven "
-                   "off the die: I/O drivers, link and controller port carry k "
-                   "of every n bits under every boundary (01_project_context "
-                   "Sec. 1 and Sec. 4, E_interface x k/n; Sec. 7 calls this "
-                   "level the DRAM interface / iFIFO)"),
+                   "only the k message bits of each n-bit codeword are read out "
+                   "and driven off the die: the whole per-bit DYNAMIC access "
+                   "constant carries k of every n bits under every boundary "
+                   "(01_project_context Sec. 1 and Sec. 4). The DRAM access "
+                   "is designed to fetch only the message bits of each "
+                   "codeword. The f_if array/interface split was removed "
+                   "2026-09-09."),
     Stage("array_multicast", "Flat array NoC (multicast across PE columns)",
           "network", ("NoC: inter_PE_column_spatial",), reducible=True,
           evidence="JSSC 2017 Sec. V: 168 PEs in a 12 x 14 array fed by a "
@@ -291,9 +277,9 @@ _EYERISS_V1_PATH = (
           evidence="JSSC 2017 Sec. V-B: 'the filter spad is implemented in a "
                    "224-b x 16-b SRAM due to its large size'. This is the "
                    "innermost level holding weights: the MAC reads it directly, "
-                   "with no decoded-weight register in the design, which is why "
-                   "R4b's register is an ADDITION here and Sec. 7.2 rates it "
-                   "5/5."),
+                   "with no decoded-weight register in the design -- so a "
+                   "retained-reconstruction boundary here would have been a "
+                   "pure ADDITION, which is part of why R4b was removed."),
 )
 
 #: `simple_weight_stationary` as modelled by `archs/simple_weight_stationary/`,
@@ -308,21 +294,16 @@ _EYERISS_V1_PATH = (
 #: global buffer's output (Sec. 6.2, 3/5) and one below the stationary register
 #: at the MAC input (Sec. 6.2, 2/5).
 _WS_PATH = (
-    Stage("dram_array", "DRAM array (complete codeword read)", "dram", ("DRAM",),
-          reducible=False, dram_share="array",
-          evidence="the array stores and reads the complete embedded codeword "
-                   "for on-die correction: a row activation and a burst move "
-                   "whole words and cannot pick the k message bits out of a "
-                   "chunk (01_project_context Sec. 1 and Sec. 4, E_array; "
-                   "02_..., risk 6: do not credit the array)"),
-    Stage("dram_interface", "DRAM interface (message bits leave the die)", "dram",
-          ("DRAM",), reducible=True, dram_share="interface",
+    Stage("dram", "DRAM (dynamic access, whole term reducible)", "dram",
+          ("DRAM",), reducible=True,
           evidence="the decoder is on the DRAM die and off the fetch path, so "
-                   "only the k message bits of each n-bit codeword are driven "
-                   "off the die: I/O drivers, link and controller port carry k "
-                   "of every n bits under every boundary (01_project_context "
-                   "Sec. 1 and Sec. 4, E_interface x k/n; Sec. 6 calls this "
-                   "level the DRAM interface / memory controller)"),
+                   "only the k message bits of each n-bit codeword are read out "
+                   "and driven off the die: the whole per-bit DYNAMIC access "
+                   "constant carries k of every n bits under every boundary "
+                   "(01_project_context Sec. 1 and Sec. 4). The DRAM access "
+                   "is designed to fetch only the message bits of each "
+                   "codeword. The f_if array/interface split was removed "
+                   "2026-09-09."),
     Stage("operand_glb", "Global operand buffer (weight share)", "storage",
           ("operand_glb",), reducible=True,
           evidence="Sec. 6's 'global/weight buffer'. "
@@ -352,8 +333,8 @@ _WS_PATH = (
                    "scratchpad and the MAC. CLAUDE.md's rule for Simba applies "
                    "here too: determine whether the proposal can reuse an "
                    "existing register rather than assuming a new one. R4b's "
-                   "register cannot be this one (it must cover the whole "
-                   "inner tile, not one weight -- see `retention_model()`), and "
+                   "register would have had to cover the whole inner tile, "
+                   "not one weight, which is why R4b was removed; and "
                    "a boundary BELOW this register (Sec. 6.2's MAC-input row, "
                    "2/5) needs G_rec weights co-resident in a level that holds "
                    "one, so it is reducible in the table and reported "
@@ -363,9 +344,9 @@ _WS_PATH = (
 
 
 #: Where the BCH decoder sits. `ondie` is the model since 2026-09-09 (decoder
-#: on the DRAM die, off the fetch path, `dram_interface` reducible under every
+#: on the DRAM die, off the fetch path, `dram` reducible under every
 #: boundary); `controller` is the pre-2026-09-09 model kept as a runnable row
-#: for the diff (`dram_interface` not reducible, DRAM identical on every bar).
+#: for the diff (`dram` not reducible, DRAM identical on every bar).
 #: `config.RECON_DECODE_SITES` must stay in step with this tuple.
 DECODE_SITES = ("ondie", "controller")
 
@@ -390,11 +371,6 @@ DECODE_SITES = ("ondie", "controller")
 #: a source-side encoder count with a destination-side network saving.
 #: `config.RECON_ENCODER_SITES` must stay in step with this tuple.
 ENCODER_SITES = ("destination", "source")
-
-#: What the study prints instead of a number when `ECC_DRAM_IF_FRAC` is unset
-#: and the decoder is on the die (experiments/recon.py prints the ceiling at
-#: each of these).
-F_IF_SENSITIVITY = (0.10, 0.25, 0.50)
 
 WEIGHT_PATHS = {
     "eyeriss_v2_like": _EYERISS_V2_PATH,
@@ -438,7 +414,6 @@ class Placement:
     reduced: tuple
     site_stage: str
     site_counter: str
-    reuse_register: bool
     description: str
 
 
@@ -447,8 +422,8 @@ _V2_PLACEMENTS = (
         "recon1", "recon_source_noc_ingress",
         "R1 - reconstruct at the source / weight-NoC ingress",
         "R1\n@ NoC source", "2/5",
-        reduced=("dram_interface",), site_stage="dram_array",
-        site_counter="reads", reuse_register=False,
+        reduced=("dram",), site_stage="dram",
+        site_counter="reads",
         description=(
             "The die drives only the k message bits of each codeword across "
             "the DRAM interface and one (or a few) encoders at the weight-NoC "
@@ -464,9 +439,9 @@ _V2_PLACEMENTS = (
         "recon2", "recon_destination_cluster",
         "R2 - reconstruct at the destination-cluster boundary",
         "R2\n@ cluster edge", "4/5",
-        reduced=("dram_interface", "inter_cluster_mesh"),
+        reduced=("dram", "inter_cluster_mesh"),
         site_stage="inter_cluster_mesh",
-        site_counter="deliveries", reuse_register=False,
+        site_counter="deliveries",
         description=(
             "The long-distance hierarchical mesh carries the reduced form and "
             "an encoder at each destination cluster restores it before the "
@@ -484,8 +459,8 @@ _V2_PLACEMENTS = (
         "recon3", "recon_pe_spad_input",
         "R3 - reconstruct at the PE weight-SPad input",
         "R3\n@ SPad input", "4/5",
-        reduced=("dram_interface", "inter_cluster_mesh", "cluster_local"),
-        site_stage="weight_spad", site_counter="fills", reuse_register=False,
+        reduced=("dram", "inter_cluster_mesh", "cluster_local"),
+        site_stage="weight_spad", site_counter="fills",
         description=(
             "Both networks carry the reduced form; the encoder sits at the "
             "scratchpad write port, so the SPad itself stays full width and "
@@ -497,9 +472,9 @@ _V2_PLACEMENTS = (
         "recon4", "recon_pe_spad_output",
         "R4a - reconstruct on every weight-SPad read",
         "R4a\n@ SPad output", "3/5",
-        reduced=("dram_interface", "inter_cluster_mesh", "cluster_local",
+        reduced=("dram", "inter_cluster_mesh", "cluster_local",
                  "weight_spad"),
-        site_stage="weight_spad", site_counter="reads", reuse_register=False,
+        site_stage="weight_spad", site_counter="reads",
         description=(
             "The scratchpad stores the reduced form, so its write and read "
             "bit-volume fall too, and the encoder sits at its read port. The "
@@ -507,30 +482,6 @@ _V2_PLACEMENTS = (
             "encoder now runs once per weight DELIVERED to the datapath, and a "
             "weight-stationary inner loop delivers each resident weight "
             "thousands of times."),
-    ),
-    Placement(
-        "recon5", "recon_pe_spad_output_reuse_reg",
-        "R4b - SPad output with a reconstructed-weight reuse register",
-        "R4b\n@ SPad + reg", "5/5",
-        reduced=("dram_interface", "inter_cluster_mesh", "cluster_local",
-                 "weight_spad"),
-        site_stage="weight_spad", site_counter="retained",
-        reuse_register=True,
-        description=(
-            "R4a's savings with the reconstruction amortized: a register holds "
-            "what the encoder rebuilt and reloads only when the required weight "
-            "changes, so one reconstruction serves every use until the "
-            "scratchpad tile is replaced. The amortization is read off the "
-            "mapping -- the loops below the scratchpad walk a tile of "
-            "`inner_tile` weights and repeat reads/fills times -- so a register "
-            "covering that tile reconstructs once per FILL, the same count as "
-            "R3, while keeping the scratchpad reduced. A register smaller than "
-            "the tile catches nothing, because a cyclic walk is the LRU worst "
-            "case. See `retention_model()`. WHAT the register holds is a "
-            "separate question from how often it is reloaded, and it decides "
-            "what R4b may be charged: by default it retains only the n-k bits "
-            "the encoder regenerates, which is why the scratchpad's read count "
-            "is still Timeloop's. See `ReuseRegister`."),
     ),
 )
 
@@ -544,8 +495,8 @@ _EYERISS_V1_PLACEMENTS = (
         "recon1", "recon_source_noc_ingress",
         "R1 - reconstruct at the source, before the array network",
         "R1\n@ source", "3/5",
-        reduced=("dram_interface",), site_stage="dram_array",
-        site_counter="reads", reuse_register=False,
+        reduced=("dram",), site_stage="dram",
+        site_counter="reads",
         description=(
             "Sec. 7.1's source-side reconstruction. The die drives only the k "
             "message bits across the DRAM interface and an encoder at the chip "
@@ -560,9 +511,8 @@ _EYERISS_V1_PLACEMENTS = (
         "recon2", "recon_after_array_multicast",
         "R2 - reconstruct after the array multicast, at the column edge",
         "R2\n@ column edge", "4/5",
-        reduced=("dram_interface", "array_multicast"),
+        reduced=("dram", "array_multicast"),
         site_stage="array_multicast", site_counter="deliveries",
-        reuse_register=False,
         description=(
             "Sec. 7.1's multicast tradeoff, resolved in favour of reduced-width "
             "shared transport: the 14-way column multicast carries the reduced "
@@ -578,8 +528,8 @@ _EYERISS_V1_PLACEMENTS = (
         "recon3", "recon_pe_spad_input",
         "R3 - reconstruct at the PE filter-spad input",
         "R3\n@ spad input", "4/5",
-        reduced=("dram_interface", "array_multicast", "pe_local_multicast"),
-        site_stage="weights_spad", site_counter="fills", reuse_register=False,
+        reduced=("dram", "array_multicast", "pe_local_multicast"),
+        site_stage="weights_spad", site_counter="fills",
         description=(
             "Both halves of the array network carry the reduced form and the "
             "encoder sits at the scratchpad write port, so the spad keeps its "
@@ -593,32 +543,15 @@ _EYERISS_V1_PLACEMENTS = (
         "recon4", "recon_pe_spad_output",
         "R4a - reconstruct on every filter-spad read",
         "R4a\n@ spad output", "3/5",
-        reduced=("dram_interface", "array_multicast", "pe_local_multicast",
+        reduced=("dram", "array_multicast", "pe_local_multicast",
                  "weights_spad"),
-        site_stage="weights_spad", site_counter="reads", reuse_register=False,
+        site_stage="weights_spad", site_counter="reads",
         description=(
             "The scratchpad stores the reduced form, so its write and read "
             "bit-volume fall with its capacity, and the encoder sits at its "
             "read port. Row-stationary reuse is what makes this expensive: the "
             "MAC reads the spad directly, once per MAC, so the encoder runs "
             "once per weight DELIVERED rather than once per weight stored."),
-    ),
-    Placement(
-        "recon5", "recon_pe_spad_output_reuse_reg",
-        "R4b - filter-spad output with a reconstructed-weight reuse register",
-        "R4b\n@ spad + reg", "5/5",
-        reduced=("dram_interface", "array_multicast", "pe_local_multicast",
-                 "weights_spad"),
-        site_stage="weights_spad", site_counter="retained", reuse_register=True,
-        description=(
-            "Sec. 7.2's 'reconstructed-weight latch', rated 5/5: R4a's savings "
-            "with the reconstruction amortized. The loops below the filter spad "
-            "walk a tile of `inner_tile` weights and repeat reads/fills times, "
-            "so a register covering that tile reconstructs once per FILL -- the "
-            "same count as R3 -- while the scratchpad stays reduced. This "
-            "design has NO register between the spad and the MAC, so unlike the "
-            "weight-stationary design the register is a genuine addition and is "
-            "charged as one. See `retention_model()` and `ReuseRegister`."),
     ),
 )
 
@@ -636,8 +569,8 @@ _WS_PLACEMENTS = (
         "recon1", "recon_source_noc_ingress",
         "R1 - reconstruct at chip ingress, before the weight buffer",
         "R1\n@ chip ingress", "control",
-        reduced=("dram_interface",), site_stage="dram_array",
-        site_counter="reads", reuse_register=False,
+        reduced=("dram",), site_stage="dram",
+        site_counter="reads",
         description=(
             "The die drives only the k message bits across the DRAM interface "
             "and an encoder at chip ingress restores them before the global "
@@ -652,8 +585,8 @@ _WS_PLACEMENTS = (
         "recon2", "recon_global_buffer_output",
         "R2 - reconstruct at the global weight-buffer output",
         "R2\n@ buffer output", "3/5",
-        reduced=("dram_interface", "operand_glb"),
-        site_stage="operand_glb", site_counter="reads", reuse_register=False,
+        reduced=("dram", "operand_glb"),
+        site_stage="operand_glb", site_counter="reads",
         description=(
             "Sec. 6.2's R1, rated 3/5: the 64 kB operand buffer holds weight "
             "tiles in the reduced form, so its weight capacity and its weight "
@@ -666,8 +599,8 @@ _WS_PLACEMENTS = (
         "recon3", "recon_noc_output_pe_input",
         "R3 - reconstruct at the weight-NoC output / PE input",
         "R3\n@ PE input", "4/5",
-        reduced=("dram_interface", "operand_glb", "weight_noc"),
-        site_stage="pe_spad", site_counter="fills", reuse_register=False,
+        reduced=("dram", "operand_glb", "weight_noc"),
+        site_stage="pe_spad", site_counter="fills",
         description=(
             "Sec. 6.2's R2, rated 4/5: the buffer AND the 256-PE distribution "
             "network carry the reduced form, and an encoder at each PE input "
@@ -681,8 +614,8 @@ _WS_PLACEMENTS = (
         "recon4", "recon_pe_rf_output",
         "R4a - reconstruct on every weight-RF read",
         "R4a\n@ RF output", "2/5",
-        reduced=("dram_interface", "operand_glb", "weight_noc", "pe_spad"),
-        site_stage="pe_spad", site_counter="reads", reuse_register=False,
+        reduced=("dram", "operand_glb", "weight_noc", "pe_spad"),
+        site_stage="pe_spad", site_counter="reads",
         description=(
             "Sec. 6.2's R3a, rated 2/5 and the one row of the WS table rated "
             "BELOW the early boundaries. The scratchpad stores the reduced "
@@ -695,32 +628,12 @@ _WS_PLACEMENTS = (
             "pipeline latch here, not a reuse register."),
     ),
     Placement(
-        "recon5", "recon_pe_rf_output_reuse_reg",
-        "R4b - weight-RF output with a decoded stationary register",
-        "R4b\n@ RF + reg", "5/5",
-        reduced=("dram_interface", "operand_glb", "weight_noc", "pe_spad"),
-        site_stage="pe_spad", site_counter="retained", reuse_register=True,
-        description=(
-            "Sec. 6.2's R3b, rated 5/5 and the preferred hypothesis of the "
-            "whole WS section: reduced DRAM interface, reduced buffer, reduced "
-            "network, reduced PE weight memory, one XOR reconstruction, then a "
-            "small full-width stationary register reused across many MACs. The "
-            "amortization is read off the mapping, not assumed -- the loops "
-            "below the scratchpad walk `inner_tile` weights and repeat "
-            "reads/fills times, so a register covering that tile reconstructs "
-            "once per FILL, the same count as R3. NOTE this is NOT the design's "
-            "existing depth-1 `weight_reg`: that holds one weight and the tile "
-            "is hundreds, and a register smaller than the tile catches nothing "
-            "because a cyclic walk is the LRU worst case. See "
-            "`retention_model()` and `ReuseRegister`."),
-    ),
-    Placement(
-        "recon6", "recon_mac_input",
+        "recon5", "recon_mac_input",
         "R5 - reconstruct at the MAC input (stationary register reduced too)",
         "R5\n@ MAC input", "2/5",
-        reduced=("dram_interface", "operand_glb", "weight_noc", "pe_spad",
+        reduced=("dram", "operand_glb", "weight_noc", "pe_spad",
                  "weight_reg"),
-        site_stage="weight_reg", site_counter="reads", reuse_register=False,
+        site_stage="weight_reg", site_counter="reads",
         description=(
             "Sec. 6.2's MAC row, rated 2/5: the latest boundary the design "
             "admits, with even the stationary register holding the reduced form "
@@ -775,7 +688,7 @@ def stages_for(arch, cfg=None):
     """The weight path of `arch`, as the decode site makes it.
 
     The tables above are written for the on-die decoder. Under `controller`
-    the complete codeword crosses the interface, so `dram_interface` is handed
+    the complete codeword crosses the interface, so `dram` is handed
     back with `reducible=False` and nothing else changes -- which is exactly
     what makes the old numbers come back rather than a different model.
     """
@@ -783,7 +696,7 @@ def stages_for(arch, cfg=None):
         raise KeyError(arch)
     stages = WEIGHT_PATHS[arch]
     if decode_site(cfg) == "controller":
-        stages = tuple(replace(s, reducible=False) if s.key == "dram_interface"
+        stages = tuple(replace(s, reducible=False) if s.key == "dram"
                        else s for s in stages)
     return stages
 
@@ -798,9 +711,9 @@ def effective_placement(placement, cfg):
     arrivals -- one encoder before the fanout instead of one per destination.
     Both are the pre-2026-09-09 model, kept runnable so the change is a diff.
     """
-    if decode_site(cfg) == "controller" and "dram_interface" in placement.reduced:
+    if decode_site(cfg) == "controller" and "dram" in placement.reduced:
         placement = replace(placement, reduced=tuple(
-            k for k in placement.reduced if k != "dram_interface"))
+            k for k in placement.reduced if k != "dram"))
     if encoder_site(cfg) == "source" and placement.site_counter == "deliveries":
         placement = replace(placement, site_counter="ingresses")
     return placement
@@ -819,36 +732,6 @@ def placement_by_key(arch, key, cfg=None):
     return None
 
 
-def retention_stage(arch, cfg=None):
-    """The weight buffer R4b's reuse register sits behind, for `arch`.
-
-    WHY THIS IS DERIVED FROM THE TABLES AND NOT ASSUMED. `retention_model()`
-    needs ONE buffer's read and fill counts and ONE buffer's resident tile: the
-    register it prices holds what that buffer hands the encoder. On
-    `eyeriss_v2_like` and `eyeriss_like` the question does not arise, because
-    exactly one weight-path stage is storage. On `simple_weight_stationary`
-    THREE are -- a global operand buffer, a PE scratchpad and a stationary
-    weight register -- and summing their reads and fills would price a register
-    against a working set no level ever holds.
-
-    The buffer is the reconstruction site of the placement whose count comes
-    from retention (`site_counter == "retained"`), i.e. R4b's own site, so it
-    is read off `PLACEMENTS` rather than stated a second time. A design with no
-    such placement falls back to the innermost storage stage in path order,
-    which is what a register would sit behind if one were added.
-    """
-    sites = {p.site_stage for p in placements_for(arch, cfg)
-             if p.site_counter == "retained"}
-    if len(sites) > 1:
-        raise ValueError(
-            f"{arch} has retention placements at more than one stage {sorted(sites)}; "
-            f"a reuse register is priced against ONE buffer's reads, fills and "
-            f"resident tile, so PLACEMENTS[{arch!r}] must put every "
-            f"`site_counter='retained'` boundary at the same stage")
-    if sites:
-        return sites.pop()
-    storage = [s.key for s in stages_for(arch, cfg) if s.kind == "storage"]
-    return storage[-1] if storage else ""
 
 
 def validate_placement_space(arch, cfg=None):
@@ -896,7 +779,7 @@ def validate_placement_space(arch, cfg=None):
     # because that is a table error and there is no number it could produce.
     _COUNTERS = {"reads": ("dram", "storage"), "fills": ("storage",),
                  "ingresses": ("network",), "deliveries": ("network",),
-                 "retained": ("storage",)}
+                 }
     for pl in placements_for(arch, cfg):
         want = _COUNTERS.get(pl.site_counter)
         st = by_key.get(pl.site_stage)
@@ -1047,7 +930,6 @@ class LayerWeightPath:
     weights: int
     scale: float
     stages: dict
-    nest: dict                      # weight_loop_nest() for this layer
     unclaimed: list                 # weight-carrying levels no stage claimed
     stats_path: str
 
@@ -1070,115 +952,6 @@ WEIGHT_DIMS = frozenset("CMRSG")
 STREAM_ORDER = ("M", "C", "R", "S")
 
 
-def weight_loop_nest(map_txt, prefixes=()):
-    """What the loop nest below one weight buffer implies for reuse.
-
-    `prefixes` names the level to look below -- the weight-path stage the reuse
-    register sits behind (`retention_stage()`). Empty means the innermost level
-    of the mapping that holds Weights, which is what this took before
-    2026-09-09 and what it still resolves to on both eyeriss designs, whose
-    innermost weight level IS their scratchpad. It is NOT what
-    `simple_weight_stationary` resolves to: its innermost weight level is a
-    depth-1 stationary register with no loops below it at all, so an unscoped
-    read reports `inner_tile = 1` for a mapping whose scratchpad tile is 192,
-    and the register R4b needs would be sized against the wrong number.
-    `level_selected_by` in the returned dict records which of the two happened.
-
-    Returns a dict. Three quantities, and they answer three different questions
-    that the first version of this module ran together:
-
-    `inner_tile`      the product of the loop bounds over WEIGHT dimensions
-                      below the innermost weight buffer -- i.e. how many
-                      DISTINCT weights those loops walk before repeating. It
-                      equals the buffer's utilized capacity on every mapping
-                      measured here, and it is the capacity a reconstructed-
-                      weight register needs to cover to serve the repeats.
-    `consecutive_run` the product of the innermost weight-INVARIANT temporal
-                      loop bounds: how many uses in a row one weight gets, and
-                      therefore what a ONE-ENTRY latch can serve. This is 1
-                      whenever the innermost temporal loop walks a weight
-                      dimension.
-    `innermost_weight_dim`
-                      the fastest-varying weight dimension below the buffer.
-                      With the [M][C][R][S] stream order above, only `S` makes
-                      consecutively accessed weights consecutive in the
-                      codeword bit stream; anything else strides across
-                      codewords, so a group-sized buffer catches nothing.
-
-    THE DISTINCTION MATTERS AND GETTING IT WRONG IS WHAT MADE R4b LOOK USELESS.
-    `consecutive_run` is 1 for every mapping in this study, because the
-    innermost temporal loop is `M` or `C`. But the source discussion's R4b
-    (`01_project_context_and_architectures.txt` Sec. 5.4, EV2-C) is not a
-    one-entry latch that must see consecutive uses -- it is
-    "Reload/reconstruct when the required weight CHANGES", a retained
-    reconstruction that survives until the weight it holds is replaced. What
-    that serves is `reads / fills` uses per reconstruction, which is 49x-6272x
-    here, not 1x.
-    """
-    out = {"inner_tile": 0, "consecutive_run": 1.0, "innermost_weight_dim": None,
-           "loops_below": [], "weight_level": "", "evidence": "",
-           "level_requested": list(prefixes),
-           "level_selected_by": "innermost weight level"}
-    path = pathlib.Path(map_txt)
-    if not path.exists():
-        out["evidence"] = "no map.txt in the mapper cache -- nothing read"
-        return out
-    lines = path.read_text().split("\n")
-    idx = [i for i, ln in enumerate(lines) if re.search(r"\bWeights:\s*\d", ln)]
-    if not idx:
-        out["evidence"] = "no level in the mapping holds Weights"
-        return out
-    inner = max(idx)
-    if prefixes:
-        def _named(i):
-            head = lines[i].split("[")[0].strip()
-            return any(head == p or head.startswith(p) for p in prefixes)
-        named = [i for i in idx if _named(i)]
-        if named:
-            inner = max(named)
-            out["level_selected_by"] = "retention stage"
-        else:
-            # Recorded, not silently swallowed: the stage the register is priced
-            # against should be a level of the mapping, and if it is not, the
-            # tile below the innermost weight level is the fallback and the
-            # record says so.
-            out["level_selected_by"] = (
-                f"innermost weight level (FALLBACK: no level matching "
-                f"{list(prefixes)} holds Weights in this mapping)")
-    out["weight_level"] = lines[inner].split("[")[0].strip()
-    loops = []
-    for ln in lines[inner + 1:]:
-        m = _LOOP.search(ln)
-        if m:
-            loops.append((m.group(1), int(m.group(2)), bool(m.group(3))))
-    out["loops_below"] = [{"dimension": d, "bound": b,
-                           "kind": "spatial" if s else "temporal"}
-                          for d, b, s in loops]
-
-    tile = 1
-    for dim, bound, _spatial in loops:
-        if dim in WEIGHT_DIMS:
-            tile *= bound
-    out["inner_tile"] = tile
-
-    run, trace = 1.0, []
-    for dim, bound, spatial in reversed(loops):
-        if spatial:
-            trace.append(f"skip spatial {dim}={bound}")
-            continue
-        if dim in WEIGHT_DIMS:
-            trace.append(f"stop at temporal {dim}={bound} (changes the weight)")
-            if out["innermost_weight_dim"] is None:
-                out["innermost_weight_dim"] = dim
-            break
-        run *= bound
-        trace.append(f"x{bound} temporal {dim} (weight-invariant)")
-    out["consecutive_run"] = run
-    if not loops:
-        trace.append("no loops below the weight level")
-    out["evidence"] = f"below {out['weight_level']}: " + "; ".join(trace)
-    out["stream_consecutive"] = (out["innermost_weight_dim"] == STREAM_ORDER[-1])
-    return out
 
 
 def _network_split(specs, block, energy_total, instances):
@@ -1218,61 +991,48 @@ def _network_split(specs, block, energy_total, instances):
     return wire * k, switch * k, model
 
 
-NO_F_IF = (
-    "ECC_DRAM_IF_FRAC is not set. The decoder is on the DRAM die "
-    "(ECC_RECON_DECODE_SITE=ondie), so the DRAM weight energy has to be split "
-    "into its array and interface shares, and f_if -- the interface share of "
-    "Accelergy's flat per-bit DRAM constant -- is a CITED DRAM energy breakdown, "
-    "not a modelling choice. No LPDDR4 array-vs-I/O breakdown is cited in "
-    "archs/_shared/provenance.yaml yet (see its `dram_interface_share` block "
-    "for what has been found), so the study refuses to produce a single number. "
-    "Set ECC_DRAM_IF_FRAC=<0..1] for a sensitivity run, or "
-    "ECC_RECON_DECODE_SITE=controller for the pre-2026-09-09 model, in which "
-    "nothing depends on the split.")
 
 
-def dram_interface_fraction(cfg):
-    """`(f_if, provenance)` -- the interface share the DRAM level is split by.
-
-    Under `controller` an unset `f_if` is 0.0 and the whole level is booked to
-    `dram_array`: neither share is reducible there, so no number depends on the
-    split and refusing would only stop the diff row from running. Under `ondie`
-    an unset `f_if` is a refusal, because every placement's DRAM term depends
-    on it and there is no cited default (`NO_F_IF`).
-    """
-    f = getattr(cfg, "dram_if_frac", None) if cfg is not None else None
-    site = decode_site(cfg)
-    if f is None:
-        if site == "controller":
-            return 0.0, ("ECC_DRAM_IF_FRAC unset; the whole DRAM level is booked "
-                         "to dram_array. Under controller-side correction "
-                         "neither share is reduced, so no number depends on it")
-        raise ValueError(NO_F_IF)
-    f = float(f)
-    if not 0.0 <= f <= 1.0:
-        raise ValueError(f"ECC_DRAM_IF_FRAC={f} is not a fraction in [0, 1]")
-    return f, f"ECC_DRAM_IF_FRAC={f} ({getattr(cfg, 'dram_if_frac_note', '') or 'set for this run'})"
-
-
-def _level_shares(claimants, f_if, level):
+def _level_shares(claimants, level):
     """How much of one Timeloop level each claiming stage is.
 
-    One claimant owns the level. Two are allowed only when they are the
-    `dram_array` / `dram_interface` pair, whose shares (1 - f_if) and f_if sum
-    to one -- so the level is still claimed exactly once in total. Anything
-    else is a table error and is refused rather than double-counted.
+    Exactly one claimant owns a level. The `dram_array`/`dram_interface` pair
+    that used to split the DRAM level by `f_if` was removed on 2026-09-09 -- the
+    DRAM level is one `dram` stage and the whole of it is reducible -- so a
+    level claimed twice is now always a table error.
     """
     if len(claimants) == 1:
         return {claimants[0].key: 1.0}
-    shares = {s.dram_share for s in claimants}
-    if (len(claimants) != 2 or any(s.kind != "dram" for s in claimants)
-            or shares != {"array", "interface"}):
-        raise ValueError(
-            f"Timeloop level {level!r} is claimed by {[s.key for s in claimants]}; "
-            f"a level may be claimed by exactly one stage, or by the "
-            f"dram_array/dram_interface pair that splits it by f_if")
-    return {s.key: (f_if if s.dram_share == "interface" else 1.0 - f_if)
-            for s in claimants}
+    raise ValueError(
+        f"Timeloop level {level!r} is claimed by {[s.key for s in claimants]}; "
+        f"a level may be claimed by exactly one stage")
+
+
+def apply_dram_pj_per_bit(stages, cfg):
+    """Rescale the `dram` stage to ECC_DRAM_PJ_PER_BIT, in place.
+
+    THE WEIGHT PATH IS RE-PARSED FROM THE CACHED TIMELOOP OUTPUT, so it carries
+    Accelergy's own per-bit DRAM constant (8.0 pJ/bit for LPDDR4 as modelled),
+    while the `Raw` record it must reconcile against has already been rescaled
+    by `energy.apply_dram_override()`. Without this the two disagree by the
+    override ratio and `cross_check()` fails -- which is exactly what happened
+    when ECC_DRAM_PJ_PER_BIT was introduced, so the check earned its keep.
+
+    The ERT per-bit is read back off the stage itself (energy / (reads x
+    weight_bits)), so this needs no second source of truth for the 8.0.
+    """
+    tgt = getattr(cfg, "dram_pj_per_bit", None)
+    if tgt is None:
+        return stages
+    for st in stages.values():
+        if st.kind != "dram":
+            continue
+        bits = float(st.reads or 0.0) * float(cfg.weight_bits)
+        if bits <= 0 or st.energy_pJ <= 0:
+            continue
+        ert = st.energy_pJ / bits
+        st.energy_pJ *= float(tgt) / ert
+    return stages
 
 
 def read_weight_path(cfg, arch, layer, stats_path):
@@ -1288,7 +1048,6 @@ def read_weight_path(cfg, arch, layer, stats_path):
     scale = float(getattr(layer, "count", 1) or 1)
     stage_defs = stages_for(arch, cfg)
     stages = {s.key: StageStats(s.key, s.kind) for s in stage_defs}
-    f_if, _f_note = dram_interface_fraction(cfg)
     unclaimed = []
 
     # ---- storage and arithmetic levels -------------------------------------
@@ -1306,7 +1065,7 @@ def read_weight_path(cfg, arch, layer, stats_path):
         if not claimants:
             unclaimed.append({"level": level, "weight_energy_pJ": energy})
             continue
-        shares = _level_shares(claimants, f_if, level)
+        shares = _level_shares(claimants, level)
         util = _grab(r"Utilized instances \(max\)\s*:\s*(\d+)", wblock, int) or 1
         reads = (_grab(rf"Scalar reads \(per-instance\)\s*:\s*{_NUM}", wblock)
                  or 0.0) * util * scale
@@ -1317,10 +1076,9 @@ def read_weight_path(cfg, arch, layer, stats_path):
         word = _grab(r"Word bits\s*:\s*(\d+)", body, int) or cfg.weight_bits
         blk = _grab(r"Block size\s*:\s*(\d+)", body, int) or 1
         for stage in claimants:
-            # ENERGY is split by the stage's share of the level; the ACCESS
-            # COUNTS are not -- a scalar read of the DRAM is one read of the
-            # array and one word across the interface, so both stages see all
-            # of them (R1 counts its reconstructions off dram_array's reads).
+            # ENERGY is the stage's share of the level (1.0 -- one claimant
+            # per level since the f_if split was removed); the ACCESS COUNTS
+            # are not scaled (R1 counts its reconstructions off dram's reads).
             share = shares[stage.key]
             st = stages[stage.key]
             st.levels.append(level)
@@ -1396,14 +1154,11 @@ def read_weight_path(cfg, arch, layer, stats_path):
         st.block_bits = max(st.block_bits,
                             _grab(r"Word bits\s*:\s*(\d+)", specs, int) or cfg.weight_bits)
 
-    ret_key = retention_stage(arch, cfg)
-    ret_prefixes = next((s.prefixes for s in stage_defs if s.key == ret_key), ())
-    nest = weight_loop_nest(stats_path.parent / "timeloop-mapper.map.txt",
-                            ret_prefixes)
+    apply_dram_pj_per_bit(stages, cfg)
     return LayerWeightPath(
         layer=getattr(layer, "name", "?"), shape=getattr(layer, "shape_name", "?"),
         weights=int(getattr(layer, "weights", 0)), scale=scale, stages=stages,
-        nest=nest, unclaimed=unclaimed, stats_path=str(stats_path))
+        unclaimed=unclaimed, stats_path=str(stats_path))
 
 
 @dataclass
@@ -1413,45 +1168,47 @@ class ModelWeightPath:
     model: str
     stages: dict
     per_layer: list
-    retention: dict
     unclaimed: list
     #: Directory holding the cached Timeloop output, hence the Accelergy ERT.
-    #: `ReuseRegister(mode='full_width')` needs it to split the scratchpad's
-    #: read energy from its write energy; every other mode ignores it.
+    #: Task 4's dilation correction needs it to reprice a level from the ERT.
     stats_dir: str = ""
     #: The stage definitions this path was read with -- `stages_for(arch, cfg)`,
-    #: so `dram_interface.reducible` reflects the decode site of the run.
+    #: so `dram.reducible` reflects the decode site of the run.
     stage_defs: tuple = ()
     decode_site: str = "ondie"
-    dram_if_frac: float = 0.0
-    dram_if_note: str = ""
+    #: pJ per bit of dynamic DRAM access actually charged, and where it came
+    #: from (energy.apply_dram_override / config.dram_cost_note). Replaced
+    #: `dram_if_frac` when the array/interface split was removed 2026-09-09.
+    dram_pj_per_bit: float = 0.0
+    dram_cost_note: str = ""
 
     def stage(self, key):
         return self.stages.get(key)
 
     def dram_weight_energy(self):
-        """The whole DRAM weight energy: both shares, i.e. the Raw record's."""
+        """The DRAM weight energy -- one stage, i.e. the Raw record's."""
         return sum(s.energy_pJ for s in self.stages.values() if s.kind == "dram")
 
-    def dram_split(self):
-        """The array/interface split of the DRAM weight energy, as a record."""
-        array = self.stages.get("dram_array")
-        iface = self.stages.get("dram_interface")
+    def dram_term(self):
+        """The DRAM weight term, as a record. ONE stage since 2026-09-09.
+
+        The `dram_array` / `dram_interface` pair and its `f_if` multiplier are
+        gone: the whole DRAM weight energy is reducible by K/N.
+        """
+        d = self.stages.get("dram")
         return {
             "decode_site": self.decode_site,
-            "f_if": self.dram_if_frac,
-            "f_if_provenance": self.dram_if_note,
+            "dram_pj_per_bit": self.dram_pj_per_bit,
+            "dram_cost_provenance": self.dram_cost_note,
             "dram_weight_energy_pJ": self.dram_weight_energy(),
-            "dram_array_pJ": array.energy_pJ if array else 0.0,
-            "dram_interface_pJ": iface.energy_pJ if iface else 0.0,
-            "interface_reducible": bool(iface is not None and any(
-                s.key == "dram_interface" and s.reducible for s in self.stage_defs)),
-            "rule": ("dram_array = (1 - f_if) x DRAM weight energy, never reduced; "
-                     "dram_interface = f_if x DRAM weight energy, x K/N under "
-                     "every boundary when the decoder is on the DRAM die "
-                     "(01_project_context Sec. 4). Accelergy's CactiDRAM is one "
-                     "flat per-bit constant, so the split is the evaluator's, "
-                     "and f_if is a cited parameter, not a default"),
+            "dram_reducible": bool(d is not None and any(
+                st.key == "dram" and st.reducible for st in self.stage_defs)),
+            "rule": ("dram = DRAM weight energy x K/N under every boundary when "
+                     "the decoder is on the DRAM die (01_project_context Sec. 4). "
+                     "Accelergy's CactiDRAM is one flat per-bit DYNAMIC access "
+                     "constant and the whole of it is credited: the DRAM "
+                     "access fetches only the message bits of each codeword. "
+                     "E_background and E_refresh are not modelled (both 0)"),
         }
 
     def total_weight_energy(self):
@@ -1531,12 +1288,10 @@ class ModelWeightPath:
                 {"stage": s.key, "label": s.label, "kind": s.kind,
                  "timeloop_level_prefixes": list(s.prefixes),
                  "carries_reduced_representation_possible": s.reducible,
-                 "share_of_the_dram_level": s.dram_share or None,
                  "evidence": s.evidence}
                 for s in self.stage_defs],
-            "dram_split": self.dram_split(),
+            "dram_term": self.dram_term(),
             "multicast_arrival_chain": self.multicast_chain(),
-            "reconstructed_weight_retention": self.retention,
             "unclaimed_weight_levels": self.unclaimed,
             "per_layer": self.per_layer,
         }
@@ -1551,7 +1306,6 @@ def weight_path(cfg, arch, model, layers, stats_paths):
     """
     stage_defs = stages_for(arch, cfg)
     stages = {s.key: StageStats(s.key, s.kind) for s in stage_defs}
-    f_if, f_note = dram_interface_fraction(cfg)
     per_layer, unclaimed, layer_paths = [], [], []
     for layer in layers:
         path = stats_paths.get(layer.shape_name)
@@ -1582,156 +1336,22 @@ def weight_path(cfg, arch, model, layers, stats_paths):
         per_layer.append({
             "layer": lp.layer, "shape": lp.shape, "weights": lp.weights,
             "repeat_count": lp.scale,
-            "loop_nest_below_weight_buffer": lp.nest,
             "weight_energy_pJ": lp.total_weight_energy(),
             "stages": {k: st.to_dict() for k, st in lp.stages.items()
                        if st.energy_pJ > 0},
         })
         layer_paths.append(lp)
 
-    retention = retention_model(cfg, arch, layer_paths,
-                                retention_stage(arch, cfg))
     stats_dir = str(pathlib.Path(layer_paths[-1].stats_path).parent) \
         if layer_paths else ""
     return ModelWeightPath(arch=arch, model=model, stages=stages,
-                           per_layer=per_layer, retention=retention,
+                           per_layer=per_layer,
                            unclaimed=unclaimed, stats_dir=stats_dir,
                            stage_defs=stage_defs, decode_site=decode_site(cfg),
-                           dram_if_frac=f_if, dram_if_note=f_note)
+                           dram_pj_per_bit=float(getattr(cfg, 'dram_pj_per_bit', None) or 0.0),
+                           dram_cost_note=getattr(cfg, 'dram_cost_note', ''))
 
 
-# ===========================================================================
-#  R4b: how many uses does ONE reconstruction serve?
-# ===========================================================================
-def retention_model(cfg, arch, layer_paths, stage_key=None):
-    """The reconstruction count for a boundary that RETAINS what it rebuilt.
-
-    `stage_key` is the buffer the register sits behind -- `retention_stage()`,
-    i.e. R4b's own reconstruction site. It matters on any design with more than
-    one storage stage on its weight path: `simple_weight_stationary` has three,
-    and summing their reads and fills would price a register against a working
-    set no single level holds. Both eyeriss designs have exactly one, so
-    scoping is a no-op there and their numbers are unchanged.
-
-    THIS IS THE QUANTITY THE FIRST VERSION OF THIS MODULE GOT WRONG, so it is
-    worth being explicit about what changed and why.
-
-    R4b is `01_project_context_and_architectures.txt` Sec. 5.4's EV2-C:
-
-        4-bit SPad --> XOR encoder --> 8-bit decoded weight register --> MAC
-                          ^                         |
-                          |                         +--> Reuse across MAC uses
-                   Reload/reconstruct when the required weight changes
-
-    The first model read that as a ONE-ENTRY latch and asked how many uses a
-    weight gets IN A ROW. On every mapping in this study that is 1, because the
-    innermost temporal loop below the scratchpad walks `M` or `C` -- both weight
-    dimensions -- so R4b came out identical to R4a and the 5/5 boundary looked
-    useless. That was an artifact of the question, not a property of the design:
-    "reload when the required weight CHANGES" is a retained reconstruction, not
-    one that must see back-to-back uses.
-
-    What it actually serves is set by the register's CAPACITY against the
-    working set the loops below the scratchpad walk:
-
-    * The loops below the weight buffer walk `inner_tile` distinct weights and
-      then repeat. Measured on all 12 resnet18 shapes here, `inner_tile` equals
-      the buffer's utilized capacity exactly.
-    * That walk repeats `reads / fills` times before the buffer is refilled --
-      49x to 6272x on these mappings.
-    * A register that holds the tile therefore reconstructs each weight ONCE
-      PER FILL: `N_rec = fills`, the same count as R3, while keeping the
-      scratchpad reduced -- which is exactly why the source discussion rates
-      R4b above both R3 and R4a.
-    * A register SMALLER than the tile catches nothing: the access pattern is a
-      cyclic walk of period `inner_tile`, which is the standard worst case for
-      LRU, so every access misses and `N_rec = reads`. That is not a
-      simplification -- cyclic-walk-versus-LRU has no partial hit rate.
-
-    `ECC_RECON_REUSE_REG_ENTRIES` picks the capacity: `tile` (the default)
-    sizes it to whatever the mapping's tile turns out to be, and an integer
-    fixes it so a small buffer can be asked about. Either way the register
-    capacity REQUIRED is reported, because a tile-sized register is not
-    obviously "small compared with the SPad" -- on these mappings it is 16-256
-    full-width weights against a 288-weight scratchpad, and that is a real
-    overhead the plan asks to be shown rather than assumed away.
-    """
-    want = cfg.recon_reuse_reg_entries          # "tile" or an int
-    stage_key = stage_key or retention_stage(arch, cfg)
-    rows, rec_weights, reads_total, fills_total = [], 0.0, 0.0, 0.0
-    need = 0
-    for lp in layer_paths:
-        one = lp.stages.get(stage_key)
-        if one is not None and one.kind == "storage":
-            spads = [one]
-        else:
-            # No such stage in this layer's path: fall back to every storage
-            # stage, which is what this did before the scoping and is exact on
-            # a design that has only one.
-            spads = [st for st in lp.stages.values() if st.kind == "storage"]
-        reads = sum(st.reads for st in spads)
-        fills = sum(st.fills for st in spads)
-        resident = max([st.utilized_capacity for st in spads] or [0])
-        tile = lp.nest.get("inner_tile") or 0
-        # The tile the loops walk and the tile the buffer holds should agree;
-        # where they do not, take the LARGER as the working set a register has
-        # to cover, because a register that covers less of it catches nothing.
-        working_set = max(tile, resident)
-        entries = working_set if want == "tile" else int(want)
-        covers = entries >= working_set > 0
-        need = max(need, working_set)
-        rec = fills if covers else reads
-        rec_weights += rec
-        reads_total += reads
-        fills_total += fills
-        rows.append({
-            "layer": lp.layer, "shape": lp.shape,
-            "buffer": [st.key for st in spads],
-            "loop_nest_level_selected_by": lp.nest.get("level_selected_by"),
-            "weights_resident_in_buffer": resident,
-            "inner_tile_walked_by_the_loops": tile,
-            "working_set_weights": working_set,
-            "register_entries": entries,
-            "register_covers_the_working_set": covers,
-            "buffer_weight_reads_total": reads,
-            "buffer_weight_fills_total": fills,
-            "uses_per_reconstruction": (reads / fills) if fills else 0.0,
-            "weights_reconstructed": rec,
-            "consecutive_run_a_one_entry_latch_would_serve":
-                lp.nest.get("consecutive_run"),
-            "innermost_weight_dimension": lp.nest.get("innermost_weight_dim"),
-            "accesses_are_consecutive_in_the_codeword_bit_stream":
-                lp.nest.get("stream_consecutive"),
-        })
-    return {
-        "buffer_the_register_sits_behind": stage_key,
-        "register_entries_requested": want,
-        "register_entries_required_max": need,
-        # The width depends on WHAT the register holds -- see `ReuseRegister`.
-        # `complement` (the default since 2026-09-08) retains only the n-k bits
-        # the encoder regenerates, so reduced SPad + register is exactly
-        # weight_bits per resident weight: 1.00x the baseline PE, not 1.81x.
-        "register_width_bits": (
-            cfg.weight_bits * (1.0 - cfg.code_k / cfg.code_n)
-            if getattr(cfg, "recon_reuse_reg_model", "free") == "complement"
-            else cfg.weight_bits),
-        "register_mode": getattr(cfg, "recon_reuse_reg_model", "free"),
-        "weights_reconstructed_with_retention": rec_weights,
-        "weights_reconstructed_without_retention": reads_total,
-        "weights_reconstructed_at_buffer_fill": fills_total,
-        "amortization_vs_no_retention": (reads_total / rec_weights)
-                                        if rec_weights else 1.0,
-        "rule": ("the loops below the innermost weight buffer walk `inner_tile` "
-                 "distinct weights and repeat reads/fills times; a register that "
-                 "holds that working set reconstructs each weight once per fill, "
-                 "and one smaller than it catches nothing because a cyclic walk "
-                 "is the LRU worst case"),
-        "source": ("01_project_context_and_architectures.txt Sec. 2.3 and 5.4 "
-                   "(EV2-C): 'Reload/reconstruct when the required weight "
-                   "changes' -- a retained reconstruction, not a latch that "
-                   "must see consecutive uses"),
-        "per_layer": rows,
-    }
 
 
 # ===========================================================================
@@ -1793,10 +1413,8 @@ class Packing:
     def weights_per_word(self, block_bits, reduced=True):
         """How many weights one physical word of `block_bits` carries.
 
-        Public because the reuse register is accessed in LOCKSTEP with the
-        scratchpad -- one register access per scratchpad access -- so its
-        access count is the scratchpad's word count, not its scalar count.
-        See `ReuseRegister`.
+        Public because a caller may need the scratchpad's WORD count rather
+        than its scalar count.
         """
         return self._per_word(block_bits,
                               self.reduced_bits_per_weight if reduced
@@ -1830,181 +1448,198 @@ class Packing:
         }
 
 
+
+
+
+
+
+
 # ===========================================================================
-#  R4b's reuse register: WHAT IT HOLDS, and therefore what it costs
-#  Added 2026-09-08 after the audit described below. READ THIS BEFORE
-#  TOUCHING R4b -- it is the whole argument for R4b's headline number.
+#  TASK 4: capacity dilation -- the correction the dilated mapping needs
 # ===========================================================================
-@dataclass(frozen=True)
-class ReuseRegister:
-    """What R4b's register physically stores, which decides three things at once:
-    its width, whether it serves scratchpad reads, and what it may be charged.
+def capacity_dilation_scale(cfg):
+    """The reconstruction arm's effective weight capacity, as a scale factor.
 
-    ------------------------------------------------------------------------
-    THE HOLE THIS CLOSES  (the audit, 2026-09-08)
-    ------------------------------------------------------------------------
-    Until now `evaluate_placement` did two things that could not both be true:
-
-      1. set `N_rec = fills` for R4b (2.78 M instead of R4a's 230 M) BECAUSE
-         the register retains what the encoder rebuilt and serves 82.85 uses
-         per reconstruction; and
-      2. scaled the WHOLE `weights_spad` energy by K/N -- that is, kept
-         Timeloop's 1,814,073,344 scalar reads (one per MAC) intact, as if the
-         register were not there.
-
-    If the register serves 82.85 of every 82.85 uses then those uses do not
-    read the scratchpad, and the K/N discount is being taken on read traffic
-    the same register has already removed. 97.6% of the scratchpad's 369.276
-    uJ is read energy (604,691,115 word reads x 0.596239 pJ = 360.540 uJ,
-    against 8.735 uJ of fills; the ERT reconciles Timeloop's total to 0.000%),
-    so this is not a rounding argument -- it is the entire result. Under the
-    old `free` accounting R4b scored +2.971% vs embedded at BCH(63,39); charge
-    it consistently as a full-width operand cache and reconstruction's own
-    marginal value drops to +0.16%, the rest being an ECC-independent register.
-
-    ------------------------------------------------------------------------
-    THE RESOLUTION: THE REGISTER NEVER NEEDED TO BE FULL WIDTH
-    ------------------------------------------------------------------------
-    Go back to the layout in `embedded.py`. The weight bit stream is cut into
-    n-bit chunks and `ParityOverwriteByTopWeightsEncode` OVERWRITES the n-k
-    lowest-significance bits of each chunk with parity. On chip the reduced
-    form keeps the k message bits per chunk; reconstruction re-runs the encoder
-    to regenerate the n-k bits that were overwritten and splices them back so
-    the 8-bit weight boundaries line up again.
-
-    So the register only has to hold the regenerated COMPLEMENT -- n-k bits per
-    n-bit chunk, i.e. `weight_bits x (1 - k/n)` per weight (3.05 b at
-    BCH(63,39), 1.52 b at BCH(63,51)) -- not a whole 8-bit weight. Then:
-
-      * the scratchpad IS still read once per MAC, in reduced form, so the K/N
-        discount on all 1.81 G reads is real and not double-counted;
-      * the encoder still runs once per fill, so `N_rec = fills` still holds;
-      * scratchpad + register = `weight_bits x k/n + weight_bits x (1 - k/n)`
-        = exactly `weight_bits` per resident weight -- 1.00x the baseline PE's
-        weight storage at EVERY K, against 1.81x for a full-width register;
-      * and the symmetry objection dies: a baseline PE stores whole weights,
-        has no missing bits, and there is nothing to hand it that would let it
-        make the same saving. The register is genuinely an ECC component.
-
-    ------------------------------------------------------------------------
-    WHY `full_width` IS KEPT AS A MODE RATHER THAN ARGUED AGAINST IN PROSE
-    ------------------------------------------------------------------------
-    `full_width` reproduces the auditor's reading as a RUNNABLE row: the
-    register holds whole weights, serves the reads, and the scratchpad is
-    touched only on fills. It also reports what the same register would give a
-    PE with no ECC at all, priced two ways, because that is the number the
-    reading turns on. Charged at the ERT's cheapest per-PE register write
-    (0.0328 pJ, `ifmap_spad`, a 24x8b = 192-bit array) the register alone looks
-    worth ~6-7% of total inference energy; priced instead at `weights_spad`'s
-    own read energy -- and a 256x8b register is 2048 bits against that
-    scratchpad's 96x24b = 2304 bits, i.e. the SAME array -- it is worth about
-    nothing, because you cannot beat a 288-entry register file by putting a
-    256-entry register file in front of it. Both figures are emitted so the
-    conclusion is checkable instead of asserted.
-
-    ------------------------------------------------------------------------
-    THE MODES
-    ------------------------------------------------------------------------
-    `complement`  the register holds the n-k regenerated bits per weight and is
-                  read in LOCKSTEP with the scratchpad (one register access per
-                  scratchpad word access), charged at the ERT register energy
-                  scaled by the complement's share of the word. Scratchpad read
-                  counts are Timeloop's. THE DEFAULT, and the only mode whose
-                  storage, access counts and energy are mutually consistent.
-    `full_width`  the register holds whole weights and SERVES the reads, so the
-                  scratchpad is read once per fill instead of once per MAC.
-                  Requires the design's ERT to split the scratchpad's read and
-                  write energy; refuses rather than estimating if it cannot.
-    `free`        the historical accounting, kept only so the pre-2026-09-08
-                  numbers can be reproduced for a diff: register writes are
-                  charged, register reads are not, and scratchpad read counts
-                  are Timeloop's. Internally inconsistent -- see above.
-
-    Only the WRITE term is common to all three, and it is deliberately charged
-    at the unscaled per-access energy for one write per weight reconstructed,
-    which over-charges `complement` (its writes install 3.05 b, not 8 b).
+    The reference arm's physical buffer is `cfg.weight_capacity_scale` times
+    the declared design (1.0 normally; below 1 when the study is shrinking the
+    design to find the regime where capacity binds at all). The reconstruction
+    arm stores the same weights at K/N of full width in that SAME silicon, so
+    it holds N/K times as many of them.
     """
-    mode: str
-    weight_bits: int
-    k: int
-    n: int
-    pj: float                      # per-access energy, the design's own ERT
-
-    @property
-    def frac(self):
-        return self.k / self.n
-
-    @property
-    def bits_per_weight(self):
-        """Register width per resident weight."""
-        if self.mode == "complement":
-            return self.weight_bits * (1.0 - self.frac)
-        return float(self.weight_bits)
-
-    @property
-    def serves_reads(self):
-        """Does a MAC read get its operand from the register instead of the SPad?"""
-        return self.mode == "full_width"
-
-    @property
-    def read_pj(self):
-        """Per-access read energy, scaled by the fraction of the word it holds."""
-        if self.mode == "complement":
-            return self.pj * (1.0 - self.frac)
-        if self.mode == "full_width":
-            return self.pj
-        return 0.0
-
-    def storage_bits_per_resident_weight(self, packing):
-        """SPad bits + register bits per weight, the honest capacity figure."""
-        return packing.reduced_bits_per_weight + self.bits_per_weight
-
-    def to_dict(self, packing):
-        total = self.storage_bits_per_resident_weight(packing)
-        return {
-            "mode": self.mode,
-            "meaning": {
-                "complement": ("holds only the n-k bits per weight that the "
-                               "encoder regenerates, so it cannot serve a read "
-                               "on its own and the SPad read count is unchanged"),
-                "full_width": ("holds whole reconstructed weights and serves the "
-                               "reads, so the SPad is read once per fill"),
-                "free": ("historical: writes charged, reads not charged, SPad "
-                         "read count unchanged -- internally inconsistent, kept "
-                         "only to reproduce the pre-2026-09-08 numbers"),
-            }[self.mode],
-            "register_bits_per_weight": self.bits_per_weight,
-            "reduced_spad_bits_per_weight": packing.reduced_bits_per_weight,
-            "total_pe_bits_per_resident_weight": total,
-            "vs_baseline_pe_weight_storage": total / self.weight_bits,
-            "serves_spad_reads": self.serves_reads,
-            "pJ_per_write": self.pj,
-            "pJ_per_read": self.read_pj,
-            "why_the_complement_is_n_minus_k": (
-                "embedded.py: ParityOverwriteByTopWeightsEncode overwrites the "
-                "n-k lowest-significance bits of each n-bit chunk of the weight "
-                "bit stream with parity. On chip the reduced form keeps the k "
-                "message bits; reconstruction regenerates those n-k bits. Only "
-                "they have to be retained, which is weight_bits*(1-k/n) per "
-                "weight, and reduced SPad + register is then exactly "
-                "weight_bits per resident weight at every K"),
-        }
+    # Rounded to the same four decimals `config.load_config()` quantises the
+    # reference scale to, so the derived capacity has ONE spelling and
+    # therefore one cache directory. See the comment there.
+    return round(cfg.weight_capacity_scale * cfg.code_n / cfg.code_k, 4)
 
 
-#: `ReuseRegister.mode` values, for config validation.
-REUSE_REG_MODES = ("complement", "full_width", "free")
+def capacity_dilation_correction(ref_stats_dir, dil_stats_dir, prefixes):
+    """The DECLARED array's per-access energies, for re-pricing a dilated level.
+
+    THE PROBLEM. To ask the mapper what it would do with N/K more weight room,
+    the room has to be in the YAML it reads, so `archs._scale_weight_capacity`
+    multiplies that level's `depth:`. Accelergy then costs the level from its
+    declared geometry and prices it as a physically LARGER array. The
+    reconstruction arm's array is not larger. It is the same array holding
+    narrower values, which is the whole premise. Charging it CACTI's cost for
+    the bigger array would bill the design for silicon it does not have, and
+    would do so in the direction that makes reconstruction look worse.
+
+    READS AND WRITES ARE CORRECTED SEPARATELY, because they do not scale
+    together. On `eyeriss_like` at x1.6154 the weight scratchpad's read energy
+    goes 0.783354 -> 0.970977 pJ (x1.2395) and its write energy 1.25362 ->
+    1.72943 (x1.3796): a single read-derived ratio leaves the write half
+    under-corrected, which showed up as a 0.22 pp residual between Task 4 and
+    Task 3 on a mapping that was byte-identical. So the correction re-prices
+    from the access counts -- `reads x e_read + writes x e_write` at the
+    DECLARED energies -- and `correct_level_energy()` reconciles the same
+    arithmetic at the DILATED energies against Timeloop's own total before
+    trusting it.
+
+    WHAT IT CANNOT FIX, AND WHY THAT IS THE CONSERVATIVE DIRECTION. The mapper
+    optimised against the DEARER array, so a level that got materially more
+    expensive per access was one the search had a reason to avoid -- the found
+    mapping is therefore no better than the one a correctly-priced search would
+    have found, and the Task 4 saving this yields is a LOWER bound.
+
+    Returns a dict; `ok` False leaves the energy uncorrected and says why,
+    rather than scaling by a guess.
+    """
+    e_rd_ref, e_wr_ref, prov_ref = storage_access_pj(ref_stats_dir, prefixes)
+    e_rd_dil, e_wr_dil, prov_dil = storage_access_pj(dil_stats_dir, prefixes)
+    level = prefixes[0] if prefixes else "?"
+    if not (e_rd_ref and e_wr_ref and e_rd_dil and e_wr_dil):
+        return {"ok": False, "level": level,
+                "provenance": (
+                    "NOT corrected: the declared and dilated ERTs are not both "
+                    f"readable ({prov_ref} / {prov_dil}). The dilated level is "
+                    "left at Accelergy's cost for the LARGER array, which "
+                    "understates the reconstruction arm.")}
+    return {
+        "ok": True, "level": level,
+        "read_pJ_declared": e_rd_ref, "read_pJ_dilated": e_rd_dil,
+        "write_pJ_declared": e_wr_ref, "write_pJ_dilated": e_wr_dil,
+        "read_ratio_declared_over_dilated": e_rd_ref / e_rd_dil,
+        "write_ratio_declared_over_dilated": e_wr_ref / e_wr_dil,
+        "provenance": (
+            f"dilated {level} re-priced at the DECLARED array's per-access "
+            f"energies: read {e_rd_dil:.6f} -> {e_rd_ref:.6f} pJ "
+            f"(x{e_rd_ref / e_rd_dil:.4f}), write {e_wr_dil:.6f} -> "
+            f"{e_wr_ref:.6f} pJ (x{e_wr_ref / e_wr_dil:.4f}). The "
+            f"reconstruction arm's array is the same silicon holding narrower "
+            f"values, so Accelergy's cost for the deeper array is not its cost."),
+    }
+
+
+def correct_level_energy(corr, energy_pJ, reads, writes, tol=0.02):
+    """`energy_pJ` re-priced at the declared array, from its own access counts.
+
+    THE BLOCK SIZE CANCELS, AND THAT IS WHY THIS IS A RATIO. Accelergy's ERT
+    prices one VECTOR access -- a whole physical word -- while Timeloop counts
+    SCALAR accesses, one per value, so `reads x e_read` overstates a level's
+    energy by exactly its block size (2 on `eyeriss_like`'s 16-bit,
+    8-bit-datawidth weight scratchpad; 3 on Eyeriss v2's 24-bit one). Rebuilding
+    an absolute energy therefore needs the packing, and getting it wrong is
+    silent. Re-pricing as an access-weighted RATIO does not:
+
+        corrected = energy x  (reads x e_read_declared + writes x e_write_declared)
+                             ---------------------------------------------------
+                              (reads x e_read_dilated  + writes x e_write_dilated)
+
+    Both sums carry the same block size, so it divides out, and what is left is
+    exactly "how much cheaper the declared array is for THIS mix of reads and
+    writes". That matters because reads and writes do not scale together: on
+    `eyeriss_like` at x1.6154 the read energy rises 1.2395x and the write energy
+    1.3796x, so a read-derived ratio leaves the write half under-corrected.
+
+    THE RECONCILIATION IS STILL DONE, on the one thing the ratio cannot check:
+    that the ERT split describes this level at all. `rebuilt / energy_pJ` must
+    come out as a whole number of values per word -- the block size. Anything
+    else means the split and the level do not belong together, and the energy
+    is returned UNCHANGED with the discrepancy named, the same refusal
+    `evaluate_placement` makes before re-billing scratchpad reads from an
+    unreconciled ERT split.
+
+    Returns `(corrected_pJ, note)`.
+    """
+    if not corr.get("ok") or energy_pJ <= 0:
+        return energy_pJ, corr.get("provenance", "not corrected")
+    dil = reads * corr["read_pJ_dilated"] + writes * corr["write_pJ_dilated"]
+    ref = reads * corr["read_pJ_declared"] + writes * corr["write_pJ_declared"]
+    if dil <= 0:
+        return energy_pJ, (f"NOT corrected: {corr['level']} reports no accesses "
+                           f"to re-price ({reads:,.0f} reads, {writes:,.0f} writes)")
+    per_word = dil / energy_pJ
+    if per_word < 1.0 - tol or abs(per_word - round(per_word)) > tol * max(1.0, per_word):
+        return energy_pJ, (
+            f"NOT corrected: the dilated ERT split does not reproduce "
+            f"Timeloop's {corr['level']} energy as a whole number of values "
+            f"per physical word -- {reads:,.0f} reads + {writes:,.0f} writes "
+            f"price at {dil:,.0f} pJ against Timeloop's {energy_pJ:,.0f} pJ, a "
+            f"factor of {per_word:.4f}. Refusing to re-price from an "
+            f"unreconciled split.")
+    return energy_pJ * (ref / dil), (
+        f"{corr['provenance']} Applied as an access-weighted ratio "
+        f"x{ref / dil:.6f} over {reads:,.0f} reads and {writes:,.0f} writes; "
+        f"the split reconciles with Timeloop at {round(per_word)} values per "
+        f"physical word.")
+
+
+def apply_capacity_correction(wpath, stage_key, corr):
+    """Re-price one weight-path stage at the declared array. Returns what moved.
+
+    Kept deliberately small and explicit: the correction touches exactly the
+    stage whose level the dilation rewrote, and `cross_check()` is re-run
+    against the corrected totals afterwards, so a correction that does not
+    reconcile fails the run instead of quietly shifting a bar.
+    """
+    st = wpath.stages.get(stage_key)
+    if st is None or not corr.get("ok"):
+        return {"stage": stage_key, "corrected": False,
+                "moved_pJ": 0.0, "note": corr.get("provenance", "no such stage")}
+    before = st.energy_pJ
+    after, note = correct_level_energy(corr, before, st.reads, st.fills)
+    if after == before:
+        return {"stage": stage_key, "corrected": False, "before_pJ": before,
+                "after_pJ": before, "moved_pJ": 0.0, "note": note}
+    scale = after / before
+    st.energy_pJ = after
+    st.switch_pJ *= scale
+    st.wire_pJ *= scale
+    return {"stage": stage_key, "corrected": True, "before_pJ": before,
+            "after_pJ": after, "moved_pJ": after - before, "scale": scale,
+            "note": note}
+
+
+def dilated_levels(arch, cfg):
+    """`(stage_key, prefixes)` for the stage the dilation rewrote, or None.
+
+    The dilation scales the WEIGHT-carrying storage levels; the one whose
+    per-access cost the correction has to undo is the innermost of them, which
+    is also the stage every PE-local boundary sits at. A design whose weight
+    levels are all `depth: 1` latches is not dilated at all and returns None,
+    which is what makes `RECON_OPTIMIZER=True` refuse on it rather than draw a
+    figure that claims a capacity effect it cannot have.
+    """
+    from . import archs as archmod
+    rows = [r for r in archmod.weight_capacity_levels(arch, cfg) if not r["latch"]]
+    if not rows:
+        return None
+    level = rows[-1]["level"]
+    for stage in stages_for(arch, cfg):
+        if stage.matches(level):
+            return stage.key, stage.prefixes
+    return None
 
 
 def storage_access_pj(stats_dir, prefixes):
     """(read_pJ, write_pJ, provenance) for a storage level, from the design's ERT.
 
-    Only `ReuseRegister(mode='full_width')` needs this: to move the scratchpad's
-    read count from `reads` to `fills` the two per-access energies have to be
-    separable, and Timeloop's stats print one `Energy (total)` per dataspace.
-    The split is taken from the same Accelergy ERT the mapper cache already
-    holds beside every mapping, and `evaluate_placement` cross-checks it against
-    Timeloop's own total before using it. Returns `(None, None, why)` when the
-    ERT is missing, so the caller can REFUSE rather than estimate.
+    Task 4's dilation correction needs this: to reprice a level whose read and
+    write counts move apart, the two per-access energies have to be separable,
+    and Timeloop's stats print one `Energy (total)` per dataspace. The split is
+    taken from the same Accelergy ERT the mapper cache already holds beside
+    every mapping. Returns `(None, None, why)` when the ERT is missing, so the
+    caller can REFUSE rather than estimate.
     """
     ert = pathlib.Path(stats_dir) / "timeloop-mapper.ERT_summary.yaml"
     if not ert.exists():
@@ -2202,15 +1837,15 @@ class PlacementResult:
 
 
 def evaluate_placement(cfg, arch, placement, wpath, base_w_by_cat, base_by_cat,
-                       recon_pj, reuse_reg_pj, gran, packing, decode_pj=0.0):
+                       recon_pj, gran, packing, decode_pj=0.0):
     """Cost one boundary. Fixed mapping: every access count is Timeloop's.
 
     `base_by_cat` / `base_w_by_cat` are the plotted-category totals and their
     weight share, from the SAME `Raw` record the baseline and embedded arms use.
     A stage's saving is subtracted from its own category, so the stack still
-    sums to the total. The DRAM category moves by exactly the interface share's
-    K/N reduction and no more: `dram_array` is never in a `reduced` set, and
-    `dram_interface` is in every one of them when the decoder is on the die
+    sums to the total. The DRAM category moves by exactly its K/N reduction and
+    no more: the single `dram` stage is in every `reduced` set when the decoder
+    is on the die
     (and in none when `ECC_RECON_DECODE_SITE=controller` -- `placement` is
     passed through `effective_placement()` first, so a caller handing in the
     table's on-die form still gets the right row).
@@ -2221,63 +1856,6 @@ def evaluate_placement(cfg, arch, placement, wpath, base_w_by_cat, base_by_cat,
     if not ok:
         return PlacementResult(placement, "unsupported", {}, 0.0,
                                {"feasibility": feas}, feas["reason"])
-
-    # ---- 0. the reuse register: WHAT IT HOLDS decides what it may be charged
-    # See `ReuseRegister`. This block is the 2026-09-08 fix: a register that
-    # serves the reads must remove them from the scratchpad, and one that only
-    # caches the n-k regenerated bits must be READ on every delivery. Either
-    # way the register can no longer be charged a write and nothing else.
-    reuse_reg = ReuseRegister(getattr(cfg, "recon_reuse_reg_model", "free"),
-                              cfg.weight_bits, cfg.code_k, cfg.code_n,
-                              reuse_reg_pj)
-    energy_override, reg_notes, fw = {}, {}, None
-    if placement.reuse_register and reuse_reg.serves_reads:
-        # `full_width`: the MAC's operand comes from the register, so the
-        # scratchpad is touched once per FILL, not once per MAC. Splitting its
-        # read from its write energy needs the design's own ERT; if that is not
-        # in the mapper cache this mode REFUSES rather than estimating.
-        site = next((s for s in stage_defs
-                     if s.key == placement.site_stage), None)
-        st_site0 = wpath.stages.get(placement.site_stage)
-        e_rd, e_wr, prov = storage_access_pj(wpath.stats_dir,
-                                            site.prefixes if site else ())
-        if e_rd is None or st_site0 is None:
-            return PlacementResult(
-                placement, "unsupported", {}, 0.0,
-                {"feasibility": feas,
-                 "reuse_register": reuse_reg.to_dict(packing),
-                 "reason": prov},
-                f"reuse register mode `full_width` needs the scratchpad's "
-                f"read/write energy split: {prov}")
-        wpw_full = packing.weights_per_word(st_site0.block_bits, reduced=False)
-        wpw_red = packing.weights_per_word(st_site0.block_bits, reduced=True)
-        # Cross-check the ERT against Timeloop's own total before trusting it.
-        rebuilt = (st_site0.reads / wpw_full * e_rd
-                   + st_site0.fills / wpw_full * e_wr)
-        rel = abs(rebuilt - st_site0.energy_pJ) / st_site0.energy_pJ
-        if rel > 1e-3:
-            return PlacementResult(
-                placement, "unsupported", {}, 0.0,
-                {"feasibility": feas,
-                 "reuse_register": reuse_reg.to_dict(packing),
-                 "ert_reconciliation": {"from_ert_pJ": rebuilt,
-                                        "timeloop_pJ": st_site0.energy_pJ,
-                                        "relative_error": rel,
-                                        "provenance": prov}},
-                f"the ERT read/write split does not reproduce Timeloop's "
-                f"{placement.site_stage} energy ({rel:.2%} off); refusing to "
-                f"re-bill its reads from an unreconciled split")
-        # One scratchpad read per weight filled (to feed the encoder), plus the
-        # fill write itself -- both in the reduced form.
-        energy_override[placement.site_stage] = (
-            st_site0.fills / wpw_red * (e_rd + e_wr))
-        reg_notes["spad_reads_moved_to_the_register"] = {
-            "spad_scalar_reads_before": st_site0.reads,
-            "spad_scalar_reads_after": st_site0.fills,
-            "provenance": prov,
-            "ert_reconciles_timeloop_to": rel,
-        }
-        fw = {"e_rd": e_rd, "e_wr": e_wr, "wpw_full": wpw_full, "st": st_site0}
 
     # ---- 1. what the reduced representation saves, stage by stage -----------
     saved_by_cat = {}
@@ -2293,10 +1871,7 @@ def evaluate_placement(cfg, arch, placement, wpath, base_w_by_cat, base_by_cat,
                                "carries_reduced": False, "scale": 1.0,
                                "energy_saved_pJ": 0.0})
             continue
-        if stage.key in energy_override:
-            after = energy_override[stage.key]
-            scale = after / st.energy_pJ if st.energy_pJ else 1.0
-        elif stage.kind == "dram":
+        if stage.kind == "dram":
             # The interface carries k of every n bits of the codeword STREAM
             # the die emits, so it scales by exactly K/N whatever the on-chip
             # packing does with the bits after ingress (`aligned` repacks on
@@ -2318,84 +1893,17 @@ def evaluate_placement(cfg, arch, placement, wpath, base_w_by_cat, base_by_cat,
 
     # ---- 2. what reconstruction costs --------------------------------------
     st_site = wpath.stages[placement.site_stage]
-    ret = wpath.retention
-    if placement.site_counter == "retained":
-        # R4b: the count comes from the retention model, which is per layer --
-        # a layer whose tile the register cannot cover contributes its READS
-        # while the others contribute their FILLS.
-        accesses = ret["weights_reconstructed_with_retention"]
-    else:
-        accesses = st_site.counter(placement.site_counter)
+    accesses = st_site.counter(placement.site_counter)
     n_cw = gran.codewords(accesses)
     recon_energy = n_cw * recon_pj
 
-    # ---- 2b. what the reuse register costs ----------------------------------
-    # WRITES: one per weight the encoder installs, at the unscaled per-access
-    # energy. Deliberately conservative under `complement`, whose writes install
-    # only weight_bits*(1-k/n) bits.
-    #
-    # READS: charged from 2026-09-08, and this is the audit fix. Before that
-    # date the register was charged a write and nothing else, on the argument
-    # that its reads "replace scratchpad reads that are still billed". That
-    # argument only holds if the register does NOT serve the reads -- and R4b's
-    # whole reconstruction saving comes from claiming it does. `ReuseRegister`
-    # documents the resolution; the short version is that a register holding
-    # only the n-k regenerated bits cannot serve a read alone, so the SPad read
-    # count stays Timeloop's AND the register is read alongside it, in lockstep
-    # (one register access per SPad word access, not per scalar weight).
-    reg_writes = accesses if placement.reuse_register else 0.0
-    reg_reads = 0.0
-    if placement.reuse_register and reuse_reg.read_pj > 0:
-        if reuse_reg.serves_reads:
-            # the register IS the operand source: one access per weight delivered
-            reg_reads = st_site.reads
-        else:
-            # lockstep with the scratchpad: one access per reduced word read
-            wpw = packing.weights_per_word(st_site.block_bits, reduced=True)
-            reg_reads = st_site.reads / wpw if wpw > 0 else st_site.reads
-    overhead = reg_writes * reuse_reg.pj + reg_reads * reuse_reg.read_pj
-
-    # THE NUMBER THE `full_width` READING TURNS ON. If a whole-weight operand
-    # cache is what R4b needs, then the SAME cache bolted onto a PE with NO ECC
-    # at all would remove the same 1.81 G scratchpad reads -- and if that
-    # ECC-free saving is most of R4b's headline, the headline is a memory-
-    # hierarchy change wearing an ECC label. That is precisely the audit's
-    # claim, so it is COMPUTED here rather than argued about. Read
-    # `ecc_marginal_*` as the only part reconstruction can take credit for.
-    #
-    # Note this is a diagnostic computed inside recon.py, NOT a fourth bar: the
-    # Task 1 baseline code is frozen and no register is added to it. What it
-    # says under this design's own ERT is that the answer depends entirely on
-    # what a register access is priced at -- at `ifmap_spad`'s 0.0328 pJ (a
-    # 192-bit array) the register alone looks worth ~6%, and at `weights_spad`'s
-    # own read energy (a 2304-bit array, which is what a 2048-bit register
-    # actually is) it is worth about nothing.
-    if fw is not None:
-        others = sum(st.energy_pJ for k, st in wpath.stages.items()
-                     if k in placement.reduced and k != placement.site_stage)
-        onchip_before = others + fw["st"].energy_pJ
-        base_reg = (fw["st"].fills / fw["wpw_full"] * (fw["e_rd"] + fw["e_wr"])
-                    + others
-                    + fw["st"].fills * reuse_reg.pj
-                    + fw["st"].reads * reuse_reg.read_pj)
-        r4b_onchip = (onchip_before - sum(saved_by_cat.values())
-                      + recon_energy + overhead)
-        reg_notes["what_the_same_register_gives_a_pe_with_no_ecc"] = {
-            "embedded_no_register_onchip_weight_pJ": onchip_before,
-            "baseline_plus_the_same_register_onchip_weight_pJ": base_reg,
-            "the_register_alone_saves_pJ": onchip_before - base_reg,
-            "r4b_register_plus_ecc_onchip_weight_pJ": r4b_onchip,
-            "ecc_marginal_on_top_of_the_register_pJ": base_reg - r4b_onchip,
-            "pJ_per_register_access_assumed": reuse_reg.read_pj,
-            "note": ("a 256x8b register is 2048 bits against weights_spad's own "
-                     "96x24b = 2304 bits, i.e. the same array -- so pricing its "
-                     "accesses at ifmap_spad's 192-bit energy is the assumption "
-                     "this row exists to expose. Set ECC_RECON_REUSE_REG_PJ to "
-                     "weights_spad's per-weight read energy to price it by its "
-                     "own size; `the_register_alone_saves_pJ` then goes to about "
-                     "zero, because a 256-entry register file cannot beat the "
-                     "288-entry register file it sits in front of"),
-        }
+    # No reconstruction boundary carries a reuse register any more (R4b was
+    # removed 2026-09-10: consecutive weight reuse is 1 on 20 of 21 resnet18
+    # layers, so a latch catches nothing, and a register that DOES pay has to
+    # hold the whole inner tile -- up to 384 weights, the entire scratchpad).
+    # `Recon overhead` is kept as a category so the stacks, the legend and the
+    # result schema are unchanged; it is structurally zero.
+    overhead = 0.0
 
     # ---- 3. assemble the stack ---------------------------------------------
     components = {c: float(v) for c, v in base_by_cat.items()}
@@ -2414,7 +1922,7 @@ def evaluate_placement(cfg, arch, placement, wpath, base_w_by_cat, base_by_cat,
             "reduced_stages": list(placement.reduced),
             "reconstruction_site": {
                 "stage": placement.site_stage, "counter": placement.site_counter,
-                "reuse_register": placement.reuse_register},
+                },
         },
         "feasibility": feas,
         "reduced_representation": packing.to_dict(),
@@ -2432,10 +1940,6 @@ def evaluate_placement(cfg, arch, placement, wpath, base_w_by_cat, base_by_cat,
                                "a destination of the network, i.e. ingresses x "
                                "multicast factor: one encoder PER DESTINATION "
                                "(ECC_RECON_ENCODER_SITE=destination)"),
-                "retained": ("one reconstruction per weight per buffer FILL "
-                             "where the reuse register covers the tile the "
-                             "loops walk, per read where it does not -- see "
-                             "reconstructed_weight_retention"),
             }[placement.site_counter],
             # Both readings of a network boundary, always, so the multiplicity
             # is visible rather than implied by which counter was chosen.
@@ -2447,30 +1951,12 @@ def evaluate_placement(cfg, arch, placement, wpath, base_w_by_cat, base_by_cat,
             "multicast_multiplicity_of_this_boundary": (
                 (st_site.deliveries / st_site.ingresses)
                 if st_site.ingresses > 0 else 1.0),
-            "amortization_vs_no_retention": (
-                ret["amortization_vs_no_retention"]
-                if placement.site_counter == "retained" else 1.0),
             "reconstruction_events_codewords": n_cw,
             "pJ_per_codeword": recon_pj,
             "reconstruction_energy_pJ": recon_energy,
-            "reuse_register_writes": reg_writes,
-            "pJ_per_reuse_register_write": (reuse_reg.pj if placement.reuse_register
-                                            else 0.0),
-            "reuse_register_reads": reg_reads,
-            "pJ_per_reuse_register_read": (reuse_reg.read_pj
-                                           if placement.reuse_register else 0.0),
-            "reuse_register_write_energy_pJ": reg_writes * reuse_reg.pj,
-            "reuse_register_read_energy_pJ": reg_reads * reuse_reg.read_pj,
-            "reuse_register_energy_pJ": overhead,
-            "reuse_register_model": (reuse_reg.to_dict(packing)
-                                     if placement.reuse_register else None),
-            "reuse_register_notes": reg_notes or None,
-            "reuse_register_entries_required": (
-                ret["register_entries_required_max"]
-                if placement.reuse_register else 0),
-            "reuse_register_bits_required": (
-                ret["register_entries_required_max"] * reuse_reg.bits_per_weight
-                if placement.reuse_register else 0),
+            # R4b and its reuse register were removed on 2026-09-10; no
+            # boundary carries per-PE buffering, so this is structurally zero.
+            "recon_overhead_energy_pJ": overhead,
         },
         "reducible_weight_energy_pJ": {
             "stages_left_reduced": list(placement.reduced),
@@ -2495,38 +1981,29 @@ def dram_model_detail(wpath, placement, stage_rows, packing):
     """What this placement did to the two DRAM stages, as a record.
 
     Replaces the pre-2026-09-09 `dram_unchanged` string. Both checks in
-    experiments/recon.py (`dram_array_identical_to_embedded_reference`,
-    `dram_interface_scaled_by_K_over_N`) read these rows AND the DRAM
+    experiments/recon.py (`dram_scaled_by_K_over_N`) reads these rows AND the DRAM
     component, so a bar cannot report one thing here and draw another.
     """
     rows = {r["stage"]: r for r in stage_rows if r["kind"] == "dram"}
-    array = rows.get("dram_array", {})
-    iface = rows.get("dram_interface", {})
-    a_before = array.get("weight_energy_pJ", 0.0)
-    i_before = iface.get("weight_energy_pJ", 0.0)
-    i_after = iface.get("energy_after_pJ", i_before)
-    reduced = "dram_interface" in placement.reduced
+    d = rows.get("dram", {})
+    before = d.get("weight_energy_pJ", 0.0)
+    after = d.get("energy_after_pJ", before)
+    reduced = "dram" in placement.reduced
     return {
         "decode_site": wpath.decode_site,
-        "f_if": wpath.dram_if_frac,
-        "f_if_provenance": wpath.dram_if_note,
-        "dram_weight_energy_pJ": a_before + i_before,
-        "dram_array_pJ": a_before,
-        "dram_array_after_pJ": array.get("energy_after_pJ", a_before),
-        "dram_array_reduced": bool(array.get("carries_reduced", False)),
-        "dram_interface_pJ": i_before,
-        "dram_interface_after_pJ": i_after,
-        "dram_interface_reduced": reduced,
-        "dram_interface_scale": packing.frac if reduced else 1.0,
-        "dram_interface_saving_pJ": i_before - i_after,
-        "rule": (("the decoder is on the DRAM die and off the fetch path: the "
-                  "array reads the complete codeword (never reduced) and only "
-                  "the k message bits cross the interface (x K/N), under every "
-                  "boundary") if wpath.decode_site == "ondie" else
-                 ("controller-side correction (pre-2026-09-09 model): the "
-                  "complete codeword crosses the interface, so neither DRAM "
-                  "share is reduced and the DRAM term is the embedded arm's, "
-                  "to the digit")),
+        "dram_pj_per_bit": wpath.dram_pj_per_bit,
+        "dram_cost_provenance": wpath.dram_cost_note,
+        "dram_weight_energy_pJ": before,
+        "dram_after_pJ": after,
+        "dram_reduced": reduced,
+        "dram_scale": packing.frac if reduced else 1.0,
+        "dram_saving_pJ": before - after,
+        "rule": ("the decoder is on the DRAM die and off the fetch path: only "
+                 "the k message bits of each n-bit codeword are read out and "
+                 "driven off the die, so the WHOLE DRAM weight term is scaled "
+                 "by K/N under every boundary, R1 included. The f_if "
+                 "array/interface split was removed on 2026-09-09. "
+                 "E_background and E_refresh are not modelled (both 0)"),
     }
 
 
@@ -2574,71 +2051,13 @@ def cross_check(cfg, arch, wpath, base_w_by_cat, tol=1e-6):
     return ok, {
         "per_category": rows,
         "unclaimed_weight_levels": wpath.unclaimed,
-        "dram_split": wpath.dram_split(),
+        "dram_term": wpath.dram_term(),
         "rule": ("this module re-parses the cached stats and must reproduce the "
                  "`Raw` record's WEIGHT energy per category exactly; a level "
                  "carrying weight energy that no stage claims is listed above "
-                 "and makes this check fail. The DRAM category is the SUM of "
-                 "dram_array and dram_interface, whose shares of the one "
-                 "Timeloop level are (1 - f_if) and f_if"),
+                 "and makes this check fail. The DRAM category is the one "
+                 "`dram` stage: the array/interface split by f_if was removed "
+                 "on 2026-09-09 and the whole term is reducible"),
     }
 
 
-def reuse_register_pj(stats_dir, fallback=0.0328125):
-    """Per-access energy of the reconstructed-weight register, from the design's ERT.
-
-    R4b needs a small register after the encoder. Rather than invent a number,
-    take the design's OWN Accelergy ERT (written into the mapper cache beside
-    every mapping) and use the cheapest per-PE register write in it. For
-    `eyeriss_v2_like` that is the 24 x 8b `ifmap_spad` at 0.0328 pJ.
-
-    HOW CONSERVATIVE THAT IS DEPENDS ON THE MODE, and the docstring used to get
-    this backwards -- it called 0.0328 pJ conservative because "a one-entry
-    latch costs less than a 24-entry register file", but R4b needs a register
-    sized to the working set (16-256 entries here), not a latch.
-
-    * `complement` (the default): the register is `entries x weight_bits x
-      (1-k/n)` = 390 bits at 256 entries and BCH(63,51), 780 at BCH(63,39) --
-      2x-4x `ifmap_spad`'s 192 bits, and each access is charged only
-      `(1-k/n)` of this energy while covering several weights at once. Roughly
-      fair, and the write term is over-charged (billed unscaled, per weight).
-    * `full_width`: the register is `entries x weight_bits` = 2048 bits at 256
-      entries, which is 10.7x `ifmap_spad` and 0.89x `weights_spad`'s own
-      96x24b = 2304 bits. Pricing THAT at `ifmap_spad`'s energy is not
-      conservative, it is the assumption the mode exists to expose: an array
-      the size of the scratchpad costs what the scratchpad costs, and at
-      `weights_spad`'s 0.596 pJ per 24-bit word the register stops being worth
-      anything at all. `ECC_RECON_REUSE_REG_PJ` overrides it for exactly this
-      sensitivity.
-
-    Returns `(pJ, provenance)`.
-    """
-    ert = pathlib.Path(stats_dir) / "timeloop-mapper.ERT_summary.yaml"
-    if not ert.exists():
-        return fallback, (f"no ERT in the mapper cache; fallback constant "
-                          f"{fallback} pJ per write")
-    try:
-        import yaml
-        blob = yaml.safe_load(ert.read_text())
-        best, who = None, None
-        for entry in (blob.get("ERT_summary", {}).get("table_summary") or []):
-            name = str(entry.get("name", ""))
-            m = re.search(r"\[1\.\.(\d+)\]$", name)
-            if not m or int(m.group(1)) <= 1:
-                continue          # a shared buffer, not a per-PE register
-            for action in (entry.get("actions") or []):
-                if action.get("name") != "write":
-                    continue
-                e = float(action.get("energy", 0.0))
-                if e > 0 and (best is None or e < best):
-                    best, who = e, name
-        if best is None:
-            return fallback, (f"no per-PE write energy in {ert.name}; fallback "
-                              f"constant {fallback} pJ per write")
-        return best, (f"{ert.name}: cheapest per-PE register write, "
-                      f"{who} = {best} pJ (Accelergy, this design's own ERT). "
-                      f"Conservative: a one-entry latch costs less than the "
-                      f"register file this is taken from.")
-    except Exception as exc:                                  # pragma: no cover
-        return fallback, (f"could not read {ert.name} ({type(exc).__name__}); "
-                          f"fallback constant {fallback} pJ per write")

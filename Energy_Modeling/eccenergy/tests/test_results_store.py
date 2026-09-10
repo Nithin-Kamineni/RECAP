@@ -233,7 +233,7 @@ def test_roundtrip():
                       status="unsupported",
                       unavailable_reason="this architecture has no weight NoC level",
                       mapping_ids=["m1", "m2"]))
-        b.add(Variant("recon_pe_spad_output_reuse_reg", kind="reconstruction",
+        b.add(Variant("recon_mac_input", kind="reconstruction",
                       status="not_implemented",
                       unavailable_reason="Task 3 has not been implemented"))
         path = b.write()
@@ -264,7 +264,7 @@ def test_roundtrip():
         names = {v["name"] for v in doc["variants"]}
         assert {"baseline_external_parity", "embedded_ecc", "recon_pe_spad_input",
                 "recon_pe_spad_output", "recon_source_noc_ingress",
-                "recon_pe_spad_output_reuse_reg"} == names, names
+                "recon_mac_input"} == names, names
         for v in doc["variants"]:
             if v["status"] != "evaluated":
                 assert v["total_energy_pJ"] is None, v

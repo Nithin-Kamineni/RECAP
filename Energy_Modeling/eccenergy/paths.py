@@ -158,7 +158,7 @@ class Results:
         return d / f"{model}.json"
 
     # ---- mapper cache (the expensive one) ----------------------------------
-    def mapper_cache(self, arch, variant=None, fingerprint=None):
+    def mapper_cache(self, arch, variant=None, fingerprint=None, create=True):
         """`ecc_energy_study/outputs/<arch>/<subdir>`.
 
         `subdir` stays 'multimodel' / 'llm' for the stock architecture
@@ -178,7 +178,14 @@ class Results:
             # sees plus the search settings. A cache entry can then never be a
             # mapping for a different design that happened to share a slug.
             d = d / f"fp-{fingerprint}"
-        d.mkdir(parents=True, exist_ok=True)
+        # `create=False` for a pure READER. Resolving a path used to create it,
+        # so a read-only report that enumerates (design x capacity) left an
+        # empty `<slug>/fp-<hash>/` behind for every combination it asked
+        # about -- 45 of them from one test run on 2026-09-09, which makes an
+        # `ls` of the cache tree claim capacities that were never mapped.
+        # Anything that WRITES a mapping keeps the default.
+        if create:
+            d.mkdir(parents=True, exist_ok=True)
         return d
 
     def legacy_mapper_cache(self, arch, variant=None):

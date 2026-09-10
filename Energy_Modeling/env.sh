@@ -272,8 +272,11 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #   recon2  R2   reconstruct at the destination-cluster boundary       [4/5]
 #   recon3  R3   reconstruct at the PE weight-SPad input               [4/5]
 #   recon4  R4a  reconstruct on every weight-SPad read                 [3/5]
-#   recon5  R4b  SPad output plus a reconstructed-weight reuse register[5/5]
 # The bracketed ratings are the source discussion's HYPOTHESES, not results.
+# R4b (SPad output plus a reconstructed-weight reuse register) was REMOVED on
+# 2026-09-10: consecutive weight reuse is 1 on 20 of 21 resnet18 layers, so a
+# latch catches nothing, and a register that does pay has to hold the whole
+# inner tile -- up to 384 weights, the entire scratchpad. See FINDINGS 7.1.
 #
 # A bash associative array CANNOT be exported, so section 10 flattens the entry
 # for ECC_RECON_ARCH into ECC_RECON_PLACEMENT_LIST, which is what the code reads.
@@ -285,7 +288,6 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #   recon2  R2   reconstruct after the array multicast, at the column edge[4/5]
 #   recon3  R3   reconstruct at the PE filter-spad input                  [4/5]
 #   recon4  R4a  reconstruct on every filter-spad read                    [3/5]
-#   recon5  R4b  filter-spad output plus a reconstructed-weight register  [5/5]
 #
 # For simple_weight_stationary, from Sec. 6.1/6.2 -- SIX, because it is the only
 # design in the study with both a weight global buffer above the network and a
@@ -294,16 +296,15 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #   recon2  R2   reconstruct at the global weight-buffer output           [3/5]
 #   recon3  R3   reconstruct at the weight-NoC output / PE input          [4/5]
 #   recon4  R4a  reconstruct on every weight-RF read                      [2/5]
-#   recon5  R4b  weight-RF output plus a decoded stationary register      [5/5]
-#   recon6  R5   reconstruct at the MAC input (register reduced too)      [2/5]
-# recon6 is expected to be reported INFEASIBLE, not to produce a number: the
-# register holds one weight and a rebuild needs G_rec = 9 co-resident. It is
-# listed so the study answers Sec. 6.2's MAC row instead of omitting it.
+#   recon5  R5   reconstruct at the MAC input (register reduced too)      [2/5]
+# recon5 here is expected to be reported INFEASIBLE, not to produce a number:
+# the register holds one weight and a rebuild needs G_rec = 9 co-resident. It
+# is listed so the study answers Sec. 6.2's MAC row instead of omitting it.
 declare -A ECC_RECON_PLACEMENTS=(
-    [eyeriss_v2_like]="recon1 recon2 recon3 recon4 recon5"
-    [eyeriss_v2_like_wglb]="recon1 recon2 recon3 recon4 recon5"
-    [eyeriss_like]="recon1 recon2 recon3 recon4 recon5"
-    [simple_weight_stationary]="recon1 recon2 recon3 recon4 recon5 recon6"
+    [eyeriss_v2_like]="recon1 recon2 recon3 recon4"
+    [eyeriss_v2_like_wglb]="recon1 recon2 recon3 recon4"
+    [eyeriss_like]="recon1 recon2 recon3 recon4"
+    [simple_weight_stationary]="recon1 recon2 recon3 recon4 recon5"
     # Still to come, each with its own weight path in recon.py:
     #   [simba_like]="..."  [simple_output_stationary]="..."
     #   [simple_input_stationary]="..."
@@ -346,62 +347,8 @@ declare -A ECC_RECON_PLACEMENTS=(
 #             the right one if nothing buffers the group.
 : "${ECC_RECON_ENCODER_GRANULARITY:=weight}"
 
-# How many entries R4b's reconstructed-weight register holds.
-#   tile  size it to the working set the mapping's loops below the weight buffer
-#         actually walk (16-256 weights on the eyeriss_v2_like resnet18
-#         mappings). Then one reconstruction serves every use until the buffer
-#         is refilled -- 49x to 6272x here -- which is what Sec. 5.4's EV2-C
-#         ("reload/reconstruct when the required weight CHANGES") describes.
-#   <n>   a fixed number of entries. A register SMALLER than the working set
-#         catches nothing, because the access pattern is a cyclic walk and that
-#         is the LRU worst case -- so `1` (a plain latch) makes R4b collapse
-#         onto R4a. Use it to ask what a small group buffer would do.
-# The capacity REQUIRED is reported either way: a tile-sized register is not
-# obviously small next to a 288-weight scratchpad, and that is a real overhead.
-: "${ECC_RECON_REUSE_REG_ENTRIES:=tile}"
 
-# WHAT R4b's reuse register HOLDS. This is not a detail: it decides the
-# register's width, whether a MAC's operand comes from the register or the
-# scratchpad, and therefore what R4b may be charged. Added 2026-09-08 after an
-# audit found the old accounting used the register's retention to cut the
-# reconstruction count 82.9x while still billing all 1.81 G scratchpad reads.
-#   complement  the register holds ONLY the n-k bits per weight that the encoder
-#               regenerates -- weight_bits*(1-K/N), so 1.52 b at BCH(63,51) and
-#               3.05 b at BCH(63,39). embedded.py's layout is what makes this
-#               enough: the parity OVERWROTE the n-k lowest-significance bits of
-#               each n-bit chunk, so those are the only bits missing on chip.
-#               The register therefore cannot serve a read on its own; the
-#               scratchpad is still read once per MAC in reduced form (so the
-#               K/N discount on it is real, not double-counted) and the register
-#               is read in lockstep and charged for it. Reduced scratchpad plus
-#               register is exactly weight_bits per resident weight -- 1.00x the
-#               baseline PE at every K, against 1.81x for a full-width register.
-#               THE DEFAULT: the only mode whose storage, access counts and
-#               energy agree with each other.
-#   full_width  the register holds whole reconstructed weights and SERVES the
-#               reads, so the scratchpad is touched once per FILL. This is the
-#               auditor's reading, kept as a runnable row rather than argued
-#               about in prose. It needs the design's ERT to split scratchpad
-#               read from write energy and REFUSES if that is missing. Note what
-#               it implies: 256 x 8b = 2048 bits per PE against weights_spad's
-#               own 96 x 24b = 2304 bits, i.e. a second scratchpad -- so also
-#               set ECC_RECON_REUSE_REG_PJ to weights_spad's read energy
-#               (0.596/3 = 0.1987 pJ per weight) to see the register stop being
-#               worth anything, which is the point.
-#   free        the pre-2026-09-08 accounting: writes charged, reads not charged,
-#               scratchpad read count unchanged. Internally inconsistent; kept
-#               ONLY so the historical +1.36% / +2.97% can be reproduced for a
-#               diff. Do not quote a number produced under it.
-: "${ECC_RECON_REUSE_REG_MODEL:=complement}"
 
-# Per-access energy of R4b's reconstructed-weight reuse register.
-# EMPTY = take the cheapest per-PE register write out of the design's OWN
-# Accelergy ERT in the mapper cache (0.0328 pJ for eyeriss_v2_like's 24x8b
-# ifmap_spad). Under `complement` that is roughly fair and the write term is
-# over-charged (billed unscaled, per weight, though a write installs only
-# (1-K/N) of a word). Under `full_width` it is NOT conservative -- see the mode
-# list above. Set a value to override it.
-: "${ECC_RECON_REUSE_REG_PJ:=}"
 
 # Fraction of the weight bits held on chip. EMPTY = derived from the code (K/N),
 # which is what the embedded layout dictates. Set it only for a sensitivity run.
@@ -413,22 +360,21 @@ declare -A ECC_RECON_PLACEMENTS=(
 
 # ---- where the BCH decoder sits, and what that does to the DRAM term --------
 # 01_project_context_and_architectures.txt Sec. 1 and 4. Accelergy's CactiDRAM
-# bills a DRAM read as ONE flat per-bit constant that contains both the array
-# read and the off-die transfer, so the evaluator splits it into two weight-path
-# stages (eccenergy/recon.py WEIGHT_PATHS):
-#     dram_array      = (1 - f_if) x DRAM weight energy    never reduced
-#     dram_interface  =      f_if  x DRAM weight energy    x K/N under EVERY boundary
+# bills a DRAM read as ONE flat per-bit DYNAMIC access constant. Since
+# 2026-09-09 that constant is a SINGLE weight-path stage `dram`
+# (eccenergy/recon.py WEIGHT_PATHS) and it is reducible in full:
+#     dram = DRAM weight energy x K/N   under EVERY boundary, R1 included
+# The f_if array/interface split that used to sit here is REMOVED; see
+# ECC_DRAM_PJ_PER_BIT below for what replaced it and what it assumes.
 #   ondie       the decoder is on the DRAM die and OFF the fetch path (it
 #               corrects at write, on a scrub pass or on a prior access), so at
 #               fetch time only the k message bits of each n-bit codeword are
-#               driven across the DRAM interface. The array still stores and
-#               reads the complete codeword -- a row activation and a burst move
-#               whole words -- so only the interface share falls, and it falls
-#               on every R bar, R1 included. THE DEFAULT since 2026-09-09.
+#               read out and driven off the die, so the WHOLE DRAM weight
+#               term falls by K/N, on every R bar, R1 included. THE DEFAULT.
 #   controller  the pre-2026-09-09 model: correction at the memory controller,
-#               on the fetch path, so the complete codeword crosses the
-#               interface and the DRAM term is identical on every bar. Kept as a
-#               runnable row so the change can be diffed; do not quote it.
+#               on the fetch path, so the complete codeword is read AND crosses
+#               the interface and the DRAM term is identical on every bar. Kept
+#               as a runnable row so the change can be diffed; do not quote it.
 # The two reference bars (Task 1 conventional, Task 2 embedded) keep
 # controller-side correction under BOTH settings and do not move.
 : "${ECC_RECON_DECODE_SITE:=ondie}"
@@ -458,20 +404,45 @@ declare -A ECC_RECON_PLACEMENTS=(
 # PE-local boundary already counts destination-side scratchpad accesses.
 : "${ECC_RECON_ENCODER_SITE:=destination}"
 
-# f_if, the INTERFACE share of the per-bit DRAM energy (E_interface / (E_array +
-# E_interface)), in (0, 1]. It is the only new parameter of the on-die model.
-# 0.40 IS AN ASSUMPTION, NOT A CITATION (decided 2026-09-09): no LPDDR4
-# array-vs-I/O breakdown has been cited yet -- archs/_shared/provenance.yaml
-# `dram_interface_share` records what was found (an HBM2 number at ~0.08 for an
-# interposer link, and an LPDDR4 figure whose I/O bar is only plotted) -- so the
-# study assumes 40% of the per-bit DRAM energy is spent driving bits off the die
-# over a terminated LPDDR4 link. The figure subtitle, the table, the manifest and
-# every result file carry the value and call it assumed. The DRAM saving of every
-# reconstruction boundary is exactly f_if x (1 - K/N) x the DRAM weight energy,
-# linear in f_if, so a cited value rescales it without changing any ordering.
-# EMPTY refuses to evaluate under `ondie` and prints the ceiling at 0.10 / 0.25 /
-# 0.50 instead. Under `controller` nothing depends on it.
-: "${ECC_DRAM_IF_FRAC:=0.40}"
+# ---- DRAM DYNAMIC ACCESS ENERGY (the denominator that sets every DRAM % ) ---
+# THE WHOLE DRAM WEIGHT ENERGY IS REDUCIBLE BY K/N (decided 2026-09-09, replacing
+# f_if / ECC_DRAM_IF_FRAC, which is GONE). Accelergy's CactiDRAM bills a DRAM read
+# as ONE flat per-bit DYNAMIC access constant -- 512 pJ per 64-bit access = 8
+# pJ/bit, verified from the cached records at 64.0 pJ per 8-bit word. It is a
+# per-access read/write coefficient: it is NOT the energy of holding data in
+# LPDDR4 over time. The study used to split it into an array share and an
+# interface share and credit reconstruction only the interface share (f_if=0.40),
+# which charged a 38.1% bit cut as a 15.2% energy cut. That split is removed:
+# a reconstruction boundary that fetches k of every n bits is credited the full
+# K/N of the DRAM weight energy.
+#
+#     dram = DRAM weight energy x K/N   under EVERY boundary, R1 included
+#
+# The DRAM access is custom-designed to collect only the interleaved message
+# bits of each codeword, so the array reads fewer bits too and the whole term
+# scales.
+#
+# pJ PER BIT OF DYNAMIC DRAM ACCESS. Rescales the whole DRAM category
+# evaluator-side (eccenergy/energy.py apply_dram_override), exactly as
+# ECC_MAC_PJ_OVERRIDE does for Compute. EMPTY = leave Accelergy's 8 pJ/bit alone.
+#   8   Accelergy CactiDRAM LPDDR4 as modelled -- the pre-2026-09-09 value, and
+#       far below every measured figure in the literature.
+#   20  Horowitz, ISSCC 2014 ("Computing's Energy Problem"): 32b DRAM read =
+#       640 pJ -> 20 pJ/bit = 1.28 nJ / 64b.
+#   40  THE DEFAULT since 2026-09-09. Within the 28-45 pJ/bit band reported by
+#       FReaC Cache (MICRO 2020) and Gebhart et al. (MICRO 2012); 2.56 nJ / 64b.
+#       archs/_shared/provenance.yaml `dram_access_energy` records the sources.
+: "${ECC_DRAM_PJ_PER_BIT:=40}"
+
+# The other two terms of E_total(DRAM) = E_dynamic + E_background + E_refresh.
+# BOTH ARE DELIBERATELY 0 FOR NOW (2026-09-09): the study's question is on-chip
+# energy, and the 8/40 pJ/bit constant above is the DYNAMIC term only. Modelling
+# them is a TODO (prompt_1.md) and is NOT neutral to the result -- reconstruction
+# holds fewer weight bits in DRAM, so the embedded arm should save background and
+# refresh energy too, which this study currently gives it no credit for. Units:
+# pJ per bit-second and pJ per bit per refresh window; 0 disables the term.
+: "${ECC_DRAM_BACKGROUND_PJ:=0}"
+: "${ECC_DRAM_REFRESH_PJ:=0}"
 
 
 # =============================================================================
@@ -510,6 +481,80 @@ declare -A ECC_RECON_PLACEMENTS=(
 #                              design at once -- it invalidates EVERY cache.
 : "${ECC_FORCE_DATAWIDTH:=}"
 : "${ECC_FORCE_TECHNOLOGY:=}"
+
+# ---- TASK 4: WEIGHT CAPACITY THE MAPPER SEES -------------------------------
+# Multiplies the declared `depth:` of the WEIGHT-carrying storage levels in the
+# architecture handed to Timeloop. This is the whole mechanism of Task 4.
+#
+# WHY IT IS A MAPPER KNOB. Under the reconstruction arm the on-chip weight
+# representation is K/N of full width, so the same physical SRAM holds
+# N/K = 1.6154x more weights at BCH(63,39) (eyeriss_like 75,264 -> 121,580
+# weights; simple_weight_stationary 164,096 -> 265,078). A larger weight tile
+# means the reconstruction arm RELOADS TILES FROM DRAM FEWER TIMES than the
+# embedded reference, and a read never issued removes the DRAM ARRAY energy as
+# well as the interface energy -- efficiency 1.0 per uJ, against the
+# f_if x (1 - K/N) = 0.152 a fixed mapping buys. Task 3 cannot show it at all:
+# RECON_OPTIMIZER=False pins ONE mapping on every arm, so both arms refetch
+# identically by construction. The capacity therefore has to be in the
+# architecture the SEARCH sees, which is what this rewrites.
+#
+#   1.0      the design as declared -- the embedded/conventional reference
+#   1.6154   = N/K at BCH(63,39): the reconstruction arm's effective capacity
+#   < 1.0    SHRINKS the design. NOT a curiosity: at the declared sizes weight
+#            capacity is usually NOT the binding constraint (the mappings leave
+#            most of the weight spad unused while still refetching), so the
+#            dilation buys nothing until the buffer is small enough to bind.
+#            Shrinking the reference and dilating from there is how the study
+#            finds the regime where the two are MULTIPLICATIVE.
+#
+# Each value is a different architecture to the mapper and gets its OWN cache
+# directory (slug `wcap<scale>`), which is the point: Task 4 is the DIFF of two
+# mappings. A design where the scale rounds every weight level back to its
+# declared depth is not dilated at all and keeps the undilated cache.
+: "${ECC_WEIGHT_CAPACITY_SCALE:=1.0}"
+
+# Which levels the scale above may rewrite.
+#   exclusive  only a level whose `keep:` list is Weights and NOTHING else, so
+#              the extra room can only be spent on weights. This is the
+#              conservative bound and the default.
+#   shared     also a level holding Weights beside another dataspace
+#              (simple_weight_stationary's `operand_glb` keeps Inputs and
+#              Weights). Timeloop has one capacity per level, so dilating it
+#              hands the mapper free INPUT capacity that reconstruction does
+#              not pay for -- the optimistic bound.
+# The two bracket one design and are quoted as a pair, the same rule CLAUDE.md
+# sets for the eyeriss `_wglb` variants. A declared `depth: 1` register is
+# never scaled under either: it is a pipeline latch, and turning it into a
+# 2-entry buffer would invent a reuse level the design does not have.
+: "${ECC_WEIGHT_CAPACITY_SCOPE:=exclusive}"
+
+# TASK 4 LEVER 2 -- let the weight TILE grow into the room, not just the room.
+# ECC_WEIGHT_CAPACITY_SCALE makes the buffer bigger; it does not make the mapper
+# able to SPEND it, and measured (FINDINGS 7.8) that is the whole reason the
+# capacity sweep reads zero. eyeriss_like's weights_spad declares
+#     temporal: {factors: [N=1, M=1, P=1, Q=1, S=1]}
+# and the M=1 pins the M tile AT that level to one, so the resident tile is
+# M(8, from psum_spad below) x C(16) = 128 weights and stays 128 whatever the
+# capacity is: `weights held` is EXACTLY 21,504 at x1, x1.6154, x4, x8, x16 and
+# x32, the last of those at 0.9% fill. The binding constraint is the DATAFLOW
+# CONSTRAINT, not the silicon, and no capacity sweep can discover that because
+# the constraint never moves.
+#   =1 drops the factors: pins on the WEIGHT-INDEXING dimensions (M, C, R, S)
+#      of the temporal constraints on weight-carrying levels. N, P and Q keep
+#      theirs -- weights do not index them, so relaxing those would retile the
+#      activations and partial sums instead, which is a different experiment.
+# THIS IS A DIFFERENT DATAFLOW. Eyeriss v1's M=1 at the filter spad IS the
+# row-stationary dataflow, so a design run under this is not the chip JSSC 2017
+# describes and must never be quoted as it -- `source: published` does not
+# licence the name here. Its own cache (slug `wrelax`) and its own fingerprint;
+# BOTH arms of a Task 4 pair are mapped under it, so the comparison stays fair
+# even though neither arm is the published design. A design that pins nothing a
+# weight tile is indexed by is not relaxed and keeps its existing cache --
+# simple_weight_stationary is exactly that, so this lever cannot help it.
+# It also WIDENS the mapspace, so at the same ECC_VICTORY the search has
+# strictly more to explore: a relaxed run that comes back worse is evidence
+# about the SEARCH, not about the dataflow.
+: "${ECC_WEIGHT_FACTOR_RELAX:=0}"
 
 # ---- the MAC cost, i.e. the DENOMINATOR of every ECC percentage -------------
 # An ECC saving is saved_uJ / total_uJ. The saved uJ are weight traffic and do
@@ -768,11 +813,20 @@ if [ "${ECC_RECON_MODELING}" = "1" ]; then
     unset _a _keys
     # The placement study owns its own output name (section 4), and a
     # selected-layer run must keep its layer scope in it, as everywhere else.
+    # TASK 4 OWNS ITS OWN NAME. RECON_OPTIMIZER=True re-optimises the mapping
+    # for the reduced weight width, so its bars are not comparable with a
+    # fixed-mapping ReconSweep.png and must never overwrite it. Same rule as
+    # the three sweeps: the stem comes from the configuration alone.
+    _ecc_stem="${ECC_RECON_STEM}"
+    case "${ECC_RECON_OPTIMIZER}" in
+        [Tt]rue|1|[Yy]es) _ecc_stem="${ECC_RECON_STEM}_optimiser" ;;
+    esac
     if [ -z "${ECC_LAYERS}" ]; then
-        ECC_STEM="${ECC_RECON_STEM}"
+        ECC_STEM="${_ecc_stem}"
     else
         ECC_STEM=""
     fi
+    unset _ecc_stem
     # `recon` is the only evaluation this study writes: it holds Task 1's and
     # Task 2's bars itself, from Task 1's and Task 2's own functions.
     ECC_EVAL_EXPERIMENTS="recon"
@@ -836,12 +890,14 @@ export ECC_PROJECT_ROOT ECC_SIF ECC_TASKFILE ECC_USE_CONTAINER ECC_PYTHON \
        ECC_RECON_MODELING ECC_RECON_ARCH ECC_RECON_ARCHS ECC_RECON_MODEL ECC_RECON_CODE_N \
        ECC_RECON_K ECC_RECON_STEM ECC_RECON_PLACEMENT_LIST \
        ECC_RECON_OPTIMIZER RECON_OPTIMIZER ECC_RECON_PACKING \
-       ECC_RECON_ENCODER_GRANULARITY ECC_RECON_REUSE_REG_PJ \
-       ECC_RECON_REUSE_REG_ENTRIES ECC_RECON_REUSE_REG_MODEL \
+       ECC_RECON_ENCODER_GRANULARITY \
        ECC_RECON_ONCHIP_FRACTION ECC_RECON_PLACEMENT_CHARGES_DECODE \
-       ECC_RECON_DECODE_SITE ECC_RECON_ENCODER_SITE ECC_DRAM_IF_FRAC \
+       ECC_RECON_DECODE_SITE ECC_RECON_ENCODER_SITE \
+       ECC_DRAM_PJ_PER_BIT ECC_DRAM_BACKGROUND_PJ ECC_DRAM_REFRESH_PJ \
        ECC_WEIGHT_BITS ECC_ACTIVATION_BITS ECC_ACC_BITS ECC_ARCH_FIDELITY \
        ECC_FORCE_DATAWIDTH ECC_FORCE_TECHNOLOGY ECC_DRAM_DEPTH ECC_MAC_PJ_OVERRIDE \
+       ECC_WEIGHT_CAPACITY_SCALE ECC_WEIGHT_CAPACITY_SCOPE \
+       ECC_WEIGHT_FACTOR_RELAX \
        ECC_GLOBAL_CYCLE_SECONDS ECC_NOC ECC_NOC_WIRE_PJ_PER_BIT_MM \
        ECC_NOC_ROUTER_PJ ECC_NOC_PE_LATCH_PJ ECC_NOC_SCALE \
        ECC_PARITY_GROUPING ECC_PARITY_CHARGE_PADDING ECC_EMB_WEIGHTS_PER_CW \

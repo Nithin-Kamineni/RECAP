@@ -232,42 +232,46 @@ The encoder may execute once for every MAC use of the weight.
 
 
 2.3 LATE RECONSTRUCTION WITH A RECONSTRUCTED-WEIGHT LATCH/CACHE
+    -- REJECTED AND REMOVED FROM THE STUDY, 2026-09-10 --
 
-DRAM (on-die ECC)
-   |
-   | 4 bits
-   v
-4-bit SRAM
-   |
-   +--4 bits--> NoC --4 bits--> 4-bit weight SPad
-                                  |
-                                  | Read once
-                                  v
-                               XOR encoder
-                                  |
-                                  | 8 bits
-                                  v
-                         Reconstructed-weight
-                            register/latch
-                                  |
-                                  +--> reuse
-                                  +--> reuse
-                                  +--> reuse
-                                  +--> reuse --> MAC
+The proposal was to hold reconstructed weights in a register/latch between the
+weight SPad and the MAC, so one reconstruction could serve many MAC uses:
 
-Goal:
-Preserve most benefits of late reconstruction without paying reconstruction
-energy for every reuse.
+    4-bit SPad --> XOR encoder --> reconstructed-weight register --> MAC
+                                            +--> reuse x N
 
-This is particularly promising for weight-stationary architectures and
-Simba.
+It was rated 5/5 on architectural promise and evaluated as boundary R4b. IT DOES
+NOT WORK, and the measurement is not close:
 
-A latch and a cache are different implementations:
-- A latch/register can retain the currently active weight.
-- A cache can retain multiple reconstructed weights but adds lookup,
-  replacement, and storage costs.
+  * A LATCH CATCHES NOTHING. Measured on the cached Timeloop mappings for
+    resnet18, the number of MAC operations that use the same weight
+    CONSECUTIVELY is 1 on 20 of the 21 layers (the exception is conv1, at 196).
+    The innermost temporal loops below the scratchpad walk weight dimensions
+    (C, R, S), so the required weight changes every cycle and a 1-, 2- or
+    4-entry register is reloaded on every access.
+  * A REGISTER THAT DOES PAY IS A SECOND SCRATCHPAD. Reuse does not need to be
+    consecutive, but the register must then hold the whole set the inner loops
+    cycle through. That set is 16-384 weights across the layers, worst case 384
+    -- and simple_weight_stationary's pe_spad holds exactly 384 weights. There
+    is no useful middle: a register smaller than the cycled set has a 0% hit
+    rate, because a cyclic walk is the worst case for any replacement policy.
+  * NO DATAFLOW IN THE STUDY ESCAPES THIS. Weight-stationary is the best case
+    and already fails. Output- and input-stationary hold the psum or the
+    activation in the PE by definition, so weights stream past the MAC faster
+    still. Simba's PE behaves like Eyeriss v2, where the boundary is infeasible
+    anyway (fewer than G_rec = 9 weights resident in 4 of 21 layers).
+  * THE MAPPER CANNOT BE ASKED TO FIX IT CHEAPLY. Holding a weight while
+    sweeping output positions is expressible as a loop-order constraint, and
+    Timeloop does produce such a nest for conv1 (P14/Q14 innermost). But weight
+    reuse trades directly against psum residency -- 196 consecutive uses needs
+    196 partial sums live in the PE -- so buying it costs more in psum traffic
+    than the boundary was worth. R4b beat R3 by only 1.34 points even with a
+    384-entry register charged nothing for area or leakage.
 
-The appropriate mechanism depends on the actual weight-access schedule.
+CONCLUSION: reconstruct at the PE weight-SPad INPUT (R3). It needs no extra
+state, no mapping constraint, and it is the lowest-energy feasible boundary on
+both designs measured. Every R4b row, rating and diagram below is retained only
+as a record of the rejected option; the code no longer implements it.
 
 
 ======================================================================
@@ -492,7 +496,8 @@ operate simultaneously.
         |
         v
  Reconstructed-weight latch/cache
-        |     R4b: retain reconstructed values for reuse  [5/5]
+        |     R4b: retain reconstructed values for reuse
+        |     -- REMOVED 2026-09-10, see Sec. 2.3 --
         v
        MAC
 
@@ -539,7 +544,7 @@ This is a compromise between:
 | Cluster router/local distribution | Multicast/unicast to PEs | Reduced preferred | Cluster-local boundary | Output | Keeps much of HM-NoC reduced; localizes reconstruction | Replication and throughput requirements depend on distribution | 4/5 |
 | PE weight-SPad input | Fills local weight memory | Reduced to full | R3 | SPad input | Reduced NoC traffic; reconstruction once per local fill | SPad remains full-width | 4/5 |
 | PE weight SPad | Stores CSC weight data | Reduced | R4a | SPad output | Saves local capacity and access bit-volume | May repeatedly reconstruct the same weight | 3/5 |
-| Post-SPad decoded latch/cache | Holds reconstructed active weight(s) | Full | R4b | Encoder output | Reduced SPad plus amortized reconstruction | Extra register/cache and control | 5/5 |
+| Post-SPad decoded latch/cache | Holds reconstructed active weight(s) | Full | R4b | Encoder output | Reduced SPad plus amortized reconstruction | Extra register/cache and control | REMOVED 2026-09-10 (Sec. 2.3): the register would have to hold the whole inner tile |
 | MAC input | Consumes full weight | Full | Very late placement possible | MAC input | Longest reduced-representation lifetime | Timing and throughput risk | 2/5 |
 
 
@@ -588,6 +593,7 @@ Reconstruction count can increase substantially.
 
 
 EV2-C: WEIGHT-SPAD OUTPUT PLUS DECODED-WEIGHT LATCH
+       -- REJECTED AND REMOVED, 2026-09-10 (see Sec. 2.3) --
 
 4-bit SPad --> XOR encoder --> 8-bit decoded weight register --> MAC
                   ^                         |
@@ -596,6 +602,11 @@ EV2-C: WEIGHT-SPAD OUTPUT PLUS DECODED-WEIGHT LATCH
            Reload/reconstruct when the required weight changes
 
 Leading hypothesis from the source discussion: 5/5.
+MEASURED OUTCOME: rejected. "Reload when the required weight changes" happens on
+every access -- consecutive weight reuse is 1 on 20 of 21 resnet18 layers -- and
+a register that covers the whole cycled set has to hold up to 384 weights, the
+size of the scratchpad it sits behind. Not implemented. Reconstruct at the SPad
+INPUT (EV2-B / R3) instead.
 
 Potential benefits:
 - Reduced DRAM-interface traffic.
@@ -666,7 +677,8 @@ MAC <--- Streaming activations
         v
  Full stationary-weight latch
         |
-        +--> R3b: reconstruct once, reuse full weight     [5/5]
+        +--> R3b: reconstruct once, reuse full weight
+        |    -- REMOVED 2026-09-10, see Sec. 2.3 --
         v
        MAC
 
@@ -699,7 +711,7 @@ register and reuse mechanism already present.
 | Global/weight buffer | Holds weight tiles | Reduced preferred | R1 | Buffer output | Global storage/access savings | Full-width downstream NoC | 3/5 |
 | Weight NoC | Broadcasts/multicasts weights | Reduced preferred | R2 | NoC output/PE input | Reduced network traffic | Destination encoder replication | 4/5 |
 | PE weight RF | Holds local weights | Reduced preferred | R3a | RF output | Reduced RF storage/read width | Repeated reconstruction without retained full weights | 2/5 |
-| Decoded stationary register | Holds active full weight | Full | R3b | Register input | One reconstruction supports many uses | Small full-width storage/control cost | 5/5 |
+| Decoded stationary register | Holds active full weight | Full | R3b | Register input | One reconstruction supports many uses | Small full-width storage/control cost | REMOVED 2026-09-10 (Sec. 2.3): "many uses" is 1 use on 20 of 21 layers |
 | MAC | Repeatedly consumes weight | Full | Avoid repeated critical-path reconstruction | Input | Reuse opportunity | Timing/throughput risk | 2/5 |
 
 Preferred hypothesis:
@@ -803,7 +815,8 @@ Encoder
   v
 Decoded reuse register
   |
-  +--> R3b: retain reconstructed weight              [5/5]
+  +--> R3b: retain reconstructed weight
+  |    -- REMOVED 2026-09-10, see Sec. 2.3 --
   v
 MAC
 
@@ -848,7 +861,7 @@ variable.
 | Flat array NoC | Multicasts/distributes weights | Destination reconstruction | Output | Network-width saving | More encoder instances | 4/5 |
 | PE FIFO | Buffers incoming weights | FIFO-output reconstruction | Output | Keeps transport reduced | FIFO-only storage benefit may be small | 3/5 |
 | PE weight RF/SPad | Exploits RS reuse | Local-output reconstruction | Output | Storage/read savings | Repeated encoding without retained full weights | 3/5 |
-| Reconstructed-weight latch | Holds currently reused weight | Reconstruct before latch | Input | Local savings with amortized XOR | Additional state | 5/5 |
+| Reconstructed-weight latch | Holds currently reused weight | Reconstruct before latch | Input | Local savings with amortized XOR | Additional state | REMOVED 2026-09-10 (Sec. 2.3): no consecutive reuse to amortize over |
 | MAC | Executes products | Very late reconstruction possible | Input | Maximum reduced lifetime | Timing risk | 2/5 |
 
 
@@ -936,7 +949,7 @@ multicast, forwarding, and buffering still determine the counts.
 | Weight SRAM/GLB | Buffers weights | Reduced | Output | SRAM saving | Expands before NoC | 3/5 |
 | Weight NoC | Delivers weights | Reduced | Destination | Reduced bandwidth/switching | Encoder duplication may be needed | 5/5 |
 | PE input FIFO | Buffers incoming weights | Reduced | FIFO output | Narrow local FIFO | Reconstruction per delivered weight/group | 4/5 |
-| MAC operand latch | Holds short-lived operand | Full | Latch input | Very late reconstruction | Must sustain operand demand | 4/5 |
+| MAC operand latch | Holds short-lived operand | Full | Latch input | Very late reconstruction | Must sustain operand demand | REMOVED 2026-09-10 (Sec. 2.3); the MAC-input boundary itself is retained and reported INFEASIBLE (G_rec = 9) |
 | Partial-sum RF | Stores outputs | Not weight storage | No | N/A | N/A | N/A |
 
 Promising path:
@@ -1148,7 +1161,7 @@ Vector-MAC stationary register
 | NoP | Package/chiplet communication | Reduced | R2 at output | Saves package communication | Chiplet NoC carries full data | 3/5 |
 | Chiplet NoC | Routes to PEs | Reduced | R3 at output | Saves NoP and NoC traffic | Full PE weight-buffer storage | 4/5 |
 | Distributed weight buffer | Holds local weight tile | Reduced | R4 at output | Saves NoP, NoC, local storage/access | Local encoder needed | 5/5 |
-| Vector-MAC weight register | Retains reconstructed weight | Full | Reconstruction before register | Once per stationary-weight load | Account for register/state costs | 5/5 |
+| Vector-MAC weight register | Retains reconstructed weight | Full | Reconstruction before register | Once per stationary-weight load | Account for register/state costs | REMOVED 2026-09-10 (Sec. 2.3): same failure as R4b -- Simba's PE behaves like Eyeriss v2 |
 | Vector MAC | Reuses stationary weight | Full | Avoid encoding every MAC | Strong amortization opportunity | N/A | N/A |
 
 Promising implementation:
@@ -1184,19 +1197,33 @@ These rankings are hypotheses. The DRAM-interface saving is common to every
 column of one row, so it moves every boundary of an architecture by the
 same amount and does not reorder the columns.
 
-| Architecture | Early/global reconstruction | After NoC | Local weight-storage output | Local output + decoded reuse register | Likely best candidate |
-|--------------|-----------------------------|-----------|-----------------------------|---------------------------------------|-----------------------|
-| Eyeriss v2 | 2/5 | 4/5 | 3/5 | 5/5 | SPad output plus decoded microcache/latch |
-| Weight stationary | 3/5 | 4/5 | 2/5 for naive repeated encoding | 5/5 | Reduced RF plus decoded stationary register |
-| Eyeriss v1 | 3/5 | 4/5 | 3/5 | 5/5 | PE weight SPad/RF output plus reuse latch |
-| Output stationary | 3/5 | 5/5 | 4/5 | Less central in the streaming abstraction | Destination-side NoC/PE input |
-| Input stationary | 3/5 | 5/5 | 4/5 | Less central in the streaming abstraction | Destination-side NoC/PE input |
-| Simba | 2/5 | 4/5 | 5/5 | 5/5 | Distributed weight-buffer output to vector-MAC registers |
+The "decoded reuse register" column is REMOVED (2026-09-10, Sec. 2.3): the
+register it assumes has to hold the whole set the inner loops cycle through
+(16-384 weights, worst case the entire scratchpad), because consecutive weight
+reuse is 1 on 20 of 21 resnet18 layers. It is struck through below rather than
+deleted so the rejected hypothesis stays on the record.
 
-General hypothesis:
+| Architecture | Early/global reconstruction | After NoC | Local weight-storage output | ~~Local output + decoded reuse register~~ | Likely best candidate |
+|--------------|-----------------------------|-----------|-----------------------------|---------------------------------------|-----------------------|
+| Eyeriss v2 | 2/5 | 4/5 | 3/5 | ~~5/5~~ REMOVED | SPad INPUT (R3) |
+| Weight stationary | 3/5 | 4/5 | 2/5 for naive repeated encoding | ~~5/5~~ REMOVED | PE INPUT (R3) |
+| Eyeriss v1 | 3/5 | 4/5 | 3/5 | ~~5/5~~ REMOVED | SPad INPUT (R3) |
+| Output stationary | 3/5 | 5/5 | 4/5 | n/a -- holds the psum, not the weight | Destination-side NoC/PE input |
+| Input stationary | 3/5 | 5/5 | 4/5 | n/a -- holds the activation, not the weight | Destination-side NoC/PE input |
+| Simba | 2/5 | 4/5 | 5/5 | ~~5/5~~ REMOVED | Distributed weight-buffer output |
+
+MEASURED OUTCOME (2026-09-10): the best feasible boundary is the PE weight-SPad
+INPUT (R3) on both designs evaluated -- +11.07% vs embedded on
+simple_weight_stationary and +17.24% on eyeriss_like. It needs no extra state
+and no mapping constraint.
+
+General hypothesis, as originally written and now FALSIFIED:
 
 Architectures with strong local weight reuse favor reconstruction
 immediately before a small stationary decoded-weight register.
+  -> The premise fails: the mappings these designs actually choose walk weight
+     dimensions in the innermost temporal loops, so there is no local weight
+     reuse for a small register to exploit.
 
 Architectures with streaming weights favor reconstruction after the
 weight-distribution network, subject to fanout, forwarding, and encoder

@@ -115,7 +115,7 @@ def main(argv=None):
 
     # imported here so a config error never pays for matplotlib/pandas import
     from .ecc import load_recon_energy, recon_pj_for_k
-    from .experiments import (baseline, diagnose, embedded, panels, recon, sweep,
+    from .experiments import (baseline, diagnose, dilation, embedded, panels, recon, sweep,
                               validate)
 
     recon_pj, provenance = load_recon_energy(cfg)
@@ -139,6 +139,12 @@ def main(argv=None):
                # from the same cached mappings; the boundary is the axis and the
                # mapper is never re-run.
                "recon": recon.run,
+               # Task 4 STEP 1: diff the DRAM weight reads of two mapper caches
+               # at different weight capacities. Reads caches only, maps
+               # nothing, writes no figure -- it decides whether the capacity
+               # effect exists on a design before the energy model is asked to
+               # price it.
+               "dilation": lambda cfg: dilation.main([]),
                # `map` is the mapping-generation half of the split the plan
                # requires: solve and cache the mappings for the selected layers,
                # write no result, evaluate nothing.

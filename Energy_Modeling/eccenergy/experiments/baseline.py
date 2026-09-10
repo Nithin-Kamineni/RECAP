@@ -42,8 +42,6 @@ RECONSTRUCTION_PLACEMENTS = [
     ("recon_destination_cluster", "reconstruct at the destination-cluster boundary"),
     ("recon_pe_spad_input", "reconstruct at the PE weight-SPad input"),
     ("recon_pe_spad_output", "reconstruct at the weight-SPad output, repeated"),
-    ("recon_pe_spad_output_reuse_reg",
-     "reconstruct at the SPad output with a reconstructed-weight reuse register"),
 ]
 
 
@@ -273,7 +271,7 @@ def run(cfg):
     print("\n" + "=" * 78)
     print(f"Task 1 baseline: {len(written)} result file(s) written under "
           f"{ses.results.evaluation}")
-    print("Every file also carries `embedded_ecc` and the five reconstruction")
+    print("Every file also carries `embedded_ecc` and the reconstruction")
     print("placements as status=not_implemented, with no energy number.")
     print("=" * 78)
     return written
