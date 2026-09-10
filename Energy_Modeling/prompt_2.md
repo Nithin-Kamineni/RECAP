@@ -1,339 +1,338 @@
-You have done the whole sweep in a very wrong way in the previous sessions of results:
+# Weight-memory sweep: where does Recon beat Embedded?
 
-(1) THE TWO ARMS DID NOT SEE THE SAME READ/WRITE ENERGY, and this is the defect that
-invalidates the whole sweep. The extra capacity was expressed as `depth x N/K` on the
-weight levels (`ECC_WEIGHT_CAPACITY_SCALE`), so Accelergy costed the reconstruction
-arm's memory as a PHYSICALLY BIGGER array -- measured 1.18x to 1.46x more energy per
-access on these designs, for silicon the reconstruction arm does not have. The mapping
-optimiser then optimised against that inflated price, so it had a positive reason to
-LEAVE THE EXTRA ROOM UNUSED. Every "no improvement" result in the sweep was produced
-under a search that was biased against the hypothesis it was testing. There is an
-evaluator-side correction (`recon.capacity_dilation_correction()`) that re-prices the
-energy afterwards, but it CANNOT re-price the mapping, so the bias stands.
+*Rewritten 2026-09-10. Supersedes the previous version, whose `floor(W/q)` word-widening
+scheme and `x4` quarter-bit trick were both measured to be unimplementable — see WHAT
+CHANGED at the bottom.*
 
-(2) THE ECC ENERGY EVALUATOR WAS NEVER RUN. Only `hpc/map_capacity_sweep.sh` was run,
-which submits mapping jobs and deliberately no dependent evaluation. Every "saving"
-quoted was DRAM-term arithmetic computed inside `experiments/dilation.py`, not the
-embedded-vs-recon energy model. No R1-R4b bar, no placement, no reconstruction cost
-was ever evaluated on any of these mappings.
+## The question
 
-(3) TOO MANY THINGS MOVED AT ONCE. 5 architectures x up to 5 layers x up to 28
-capacities were swept together (196 jobs), which makes a trend unreadable. One
-architecture and one layer at a time is the right unit.
+For **Eyeriss V1**, one layer at a time: what on-chip weight-memory DEPTH makes
+reconstruction save the most energy against embedded ECC? Recon stores the same weights
+in fewer bits, so the same array holds more of them and refetches less from DRAM. Sweep
+the weight GLB and scratchpad depths down (×0.5, ×0.25, ×0.125 of the published values)
+and find where Recon's margin over Embedded is largest.
 
-(4) THE CAPACITIES SWEPT WENT FAR BELOW ANYTHING PHYSICAL -- down to x0.03125, a
-14-weight scratchpad. Below about x0.5 the mapper starts trading PE COUNT for
-capacity even under EDP (measured 168 -> 84 -> 96 -> 112 PEs on eyeriss v1), so the
-two arms stop being the same machine and nothing is attributable to capacity.
+**The output is a `depth:` per weight level, to be written into a new arch YAML** — this
+is a design-space search for Recon's optimal operating zone, not a characterisation of
+the published chip. Absolute energies are therefore expected to differ from Eyeriss V1's;
+what must stay exact is the Recon-vs-Embedded comparison at each depth.
 
-(5) ONE RESULT WAS A CROSS-FINGERPRINT COMPARISON. The reported "eyeriss v2 refetch
-14.00 -> 4.00" compared a stale mapper cache (`fp-3eb860ea2b2a`, solved before a
-config change) against a current one. The current cache already refetches 4.00
-undilated. Two `fp-<hash>` directories under one variant slug are two ARCHITECTURES.
+Three arms: **Baseline**, **Embedded**, **Recon**. Baseline and Embedded both store 8-bit
+weights, so **they share one hardware YAML and one mapping** — only the evaluator
+separates them. Recon is the only arm with a different `datawidth`. That means **2 mapper
+configs per (width, depth), not 3.**
 
-(6) THE VERDICT LOGIC ITSELF HAD A BUG that let four more false positives through: it
-labelled a pair a "capacity win" whenever DRAM reads fell, without requiring that the
-weights actually HELD on chip went UP. Fixed mid-session, but it means anything
-quoted before that fix must be re-derived.
+## The method: quantisation via `datawidth` — VERIFIED, do not re-derive
 
-(7) EVERY NUMBER WAS REPORTED FROM AN UNCONVERGED SEARCH. The whole sweep ran at
-`ECC_VICTORY=2000`, and raising it to 10000 REVERSES the headline: the one pair that
-looked like the best result in the study (weight-stationary shared, x0.5 -> x0.8077,
-recon 9.1 uJ better) becomes recon 5.4 uJ WORSE with 4x the refetch. So the sweep was
-measuring the search's failure to converge, not the architecture. See the CONVERGENCE
-GATE below -- this is the single most important thing to fix.
+Change `datawidth:` on weight-carrying levels. Leave `width:` and `depth:` alone.
+Timeloop computes `block_size = width / datawidth`, so more weights ride each access
+while the array geometry is unchanged.
 
-(8) 12 JOBS WERE SPENT ON A SEED-VARIANCE TEST THAT MEASURED NOTHING. `ECC_MAPPER_SEED`
-is in the cache fingerprint but reaches nothing -- `timeloop-mapper` v4 exposes no
-random seed, and env.sh says so in a comment that should have been read first. All
-three "seeds" produced byte-identical output.
+Verified in this repo, 2026-09-10, from `timeloop-mapper.accelergy.log:97`
+(`Calculated storage."width" as "width" = 16`): **CACTI receives `depth` and `width`
+only. `datawidth` never reaches the energy model.** Timeloop then bills
+`vector_access_energy / block_size` per weight. So halving `datawidth` at fixed geometry
+exactly halves per-weight energy and exactly doubles effective capacity, with identical
+per-access read/write/leak. This is the "same energies, more effective capacity"
+condition, and it holds exactly.
 
-First the mapping might at least be reasonably optimised for a single layer. Do this
-for a single arch first (We keep arch constant too). Your mapping currently had two
-arms (I guess this is approaches of Embedded 0.5 and Recon 0.5x(n/k)) that do not see
-the same read/write energy. But I need the same energies for both of them; if that is
-not possible, pretend the data in the Recon is quantised to 5-bit weights whereas
-Embedded will have full 8-bit weights (then you can use the same memory sizes). I will
-provide quantisation numbers for each of the weights based on the BCH configuration
-you get below.
+### HARD CONSTRAINT: `width` must be an exact multiple of `datawidth`
 
-I am trying to find certain reduced arch values of memories for each of the
-architectures. So I want you to sweep the hardware configs of memories of 0.5 of
-memory, 0.25 of memory, 0.125 of the current memory to find which values will perform
-good with more energy savings for Recon compared to the Embedded approach. To be exact
-about what "memory" means here: I am ONLY sweeping the DEPTH values of the ON-CHIP
-WEIGHT memories. Nothing else changes -- not the word width, not the DRAM, not the
-activation or partial-sum buffers, not any other attribute.
+`timeloop-mapper` aborts otherwise — measured, `width: 16, datawidth: 5`:
 
-For Recon, this is the quantisation of weights that is exactly being used. (Try to not
-round up the quant values; if you need to round the values then round down) but try to
-keep them the same for accurate study. (The read and write value for a single bit will
-be the same as the Embedded.) The MACs again will have the same 8-bit multiplication as
-we will quantise the values by that point (I don't think we need to bother about it now
-but just letting you know.)
+```
+timeloop-mapper: src/model/buffer.cpp:302: Assertion
+  `width % (word_bits * block_size) == 0' failed.
+ERROR: data storage width: 16  block_size: 1  word_bits: 5      exit=134, core dumped
+```
 
-    BCH(63,57) = 7.25 bit quantisation
-    BCH(63,51) = 6.5  bit quantisation
-    BCH(63,45) = 5.75 bit quantisation
-    BCH(63,39) = 5    bit quantisation
-    BCH(63,30) = 4    bit quantisation
+Note `block_size: 1` — **Timeloop does not attempt `floor(16/5)=3`. There is no floor
+path in the code.** Partially-filled words cannot be modelled. `archs.py:1147` pre-checks
+this so a bad YAML fails at validate time instead of aborting every layer.
 
-The only way our Recon framework works is by co-optimising the reduced representation
-of the same weights in the same memory in the mapping optimiser (currently the mapping
-optimiser is run in a wrong way where read energy and write energy are different per
-bit for the approaches of Embedded and Recon, which made the mapping optimiser sweep
-results show no improvement in the Recon approach over the Embedded approach). This
-way the mapping optimiser will find a valid mapping by taking advantage of Recon's
-ability to represent weights in less space than its counterpart Embedded ECC.
+## THE WIDTH TABLE — adopt these, do not sweep them
 
-Each of the tables must contain the following columns: name of memory hierarchy (GLB,
-or RF, or ScratchPad, etc.), amount of memory scaled times (0.5 times depth of memory, 0.25
-times depth of memory, 0.125 times depth of memory), refetch, average utilisation (this is for the number
-of weights stored in the memory itself), and a pseudo energy term (to calculate how
-much energy this cost in that particular memory hierarchy; I am assuming for Recon
-(less than 8-bit quantised weights) it would be a lot less than Embedded (8-bit
-quantised weights) because we get more amount of data storage in the same memory --
-only our effective memory is increasing, not the real memory, and we get less
-refetching of data due to this).
+One declared width per code, chosen so `width % q == 0` and all five widths sit within
+3% of each other. Both arms of a pair share the SAME `width` and `depth`; only
+`datawidth` differs.
 
-This will tell me what memory I should use for testing my framework to see Recon
-placements saving huge amounts of energy when compared to Embedded ECC (previous work).
-Based on these values I am going to change the yaml file values.
+| arm | K/N | q true = 8K/N | **q declared** | **declare width** | weights/word | eff. capacity | pJ/access (rd/wr) | pJ/weight | **saving measured** | ideal (8K/N) | residual |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Baseline / Embedded | 1.0000 | 8.000 | **8** | **96** | 12 | 1.0000× | 1.48668 / 2.37439 | 0.12389 | — | — | — |
+| BCH(63,57) | 0.9048 | 7.238 | **7** | **98** | 14 | 1.1667× | 1.57809 / 2.49938 | 0.11272 | 9.02% | 9.52% | −0.51 pp |
+| BCH(63,45) | 0.7143 | 5.714 | **6** | **96** | 16 | 1.3333× | 1.48668 / 2.37439 | 0.09292 | 25.00% | 28.57% | −3.57 pp |
+| BCH(63,39) | 0.6190 | 4.952 | **5** | **95** | 19 | 1.5833× | 1.47584 / 2.35736 | 0.07768 | 37.30% | 38.10% | −0.79 pp |
+| BCH(63,30) | 0.4762 | 3.810 | **4** | **96** | 24 | 2.0000× | 1.48668 / 2.37439 | 0.06195 | 50.00% | 52.38% | −2.38 pp |
 
-I want to run the sweep of weight memory configurations (memory of GLB, RF, SPAD,
-etc.) with the ARCH. Do this for a single layer that is most repeating in resnet18. Do
-this for a single ARCH (Eyeriss V1) for the start, as doing this for multiple archs is
-making it harder to understand the trend.
+Energies MEASURED 2026-09-10 (`weights_spad`, depth 37, 45 nm) — not modelled. Read them
+as the calibration of this table, not as results.
 
-Additional information:
+Four things this table settles:
 
-REPO AND HOW TO RUN
-- Repo: /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling on HiPerGator.
-  `module load apptainer`, then `bash hpc/tl.sh <cmd>`. Read CLAUDE.md first, then
-  FINDINGS.md section 7.8, then the last entries of progress.txt.
-- READ prompt_1.md FIRST. It documents the DRAM -> on-chip transfer cost problem, which
-  sets the size of every ECC percentage in this study and is unresolved. The DRAM model
-  is 512 pJ per 64-bit access = 8 pJ/bit, and `ECC_DRAM_IF_FRAC = 0.40` (an uncited
-  ASSUMPTION) means only 15.2% of DRAM weight energy is credited to reconstruction even
-  though 38.1% of the bits leave the bus. That is why a 38% traffic cut shows up as a
-  2% energy cut. Settle that before trusting any sweep headline.
-- `env.sh` is the only file to edit; every knob is `${VAR:=default}` so the environment
-  wins. `ECC_RECON_MODELING=1` is the DEFAULT and it HARD-ASSIGNS `ECC_ARCHS` from
-  `ECC_RECON_ARCHS` -- so setting `ECC_ARCHS` on the command line is silently ignored.
-  Use `ECC_RECON_ARCHS` to choose designs.
-- Keep `ECC_MAPPER_THREADS=18`; it is in the cache fingerprint.
-- `ECC_QOS=rewetz-b` gives ~90 concurrent jobs. A map job on one layer is 3-25 min.
-- Run the reporting tool as `bash hpc/tl.sh python3 -m eccenergy.experiments.dilation
-  --table`. Running it bare silently uses config.py's defaults (objective=energy,
-  victory=500) instead of env.sh's -- the table prints a banner if the objective is not
-  edp, but do not rely on noticing it.
+* **The three width-96 arms have byte-identical per-access energy** (1.48668 / 2.37439),
+  so for BCH(63,45) and BCH(63,30) the array is literally the same silicon as Embedded's.
+* **Benchmark against `8K/N`, not against the rounded integer `q`.** BCH(63,57) rounds
+  DOWN (7 vs 7.238), which on its own flatters Recon; its wider word (98 vs 96) offsets
+  that. Only the true code rate settles which way the net error runs.
+* **All four residuals are NEGATIVE — every arm understates Recon.** That is the safe
+  direction. State it; do not correct it.
+* BCH(63,57) is the weakest test (9.02% effect) and BCH(63,30) the strongest (50.00%).
 
-THE LAYER TO USE
-- The most repeated shape in resnet18 is `C64_M64_R3_S3_P56_Q56_ws1_hs1` (layer1.0.conv1,
-  layer1.0.conv2, layer1.1.conv1, layer1.1.conv2 -- four layers, 36,864 weights each).
-  On eyeriss v1 it refetches 16.0x, so it has plenty of headroom to remove.
-- `layer3.0.conv1` (294,912 weights, refetch 14.0x, 42.9% weight-buffer fill) is the
-  single best-conditioned layer if you want one with a nearly-full weight buffer.
-- Do NOT use `layer2.0.conv1` just because the old sessions did; it is not the best
-  test bed. Do not use `layer4.*` -- it already refetches 1.0x, so there is nothing to
-  remove.
+Quantisation is 8·K/N rounded to integer bits. Quarter-bit resolution (7.25 / 6.5 / 5.75)
+is **abandoned**: it needs `datawidth` in quarter-bit units, which forces `width` into the
+same units, which is the number CACTI prices. Measured inflation of the weight buffer:
+**6.69× at a 64-bit word, 11.43× at a 256-bit word.** There is no way to compensate —
+dividing the depth to fix the bits destroys the capacity being swept.
 
-HOW TO IMPLEMENT THE QUANTISATION APPROACH (this is the right fix, see below)
-- Change `datawidth:` on the weight-carrying levels ONLY. Leave `depth:` and `width:`
-  exactly as declared. Timeloop then computes `block_size = width / datawidth`, so more
-  weights fit per physical word while the array geometry -- and therefore the CACTI
-  per-access read/write/leak energy -- is unchanged. That is exactly the "same energies,
-  more effective capacity" condition being asked for.
-- FIRST THING TO VERIFY, before any sweep: map ONE shape at `datawidth: 5` and confirm
-  in `timeloop-mapper.ERT_summary.yaml` that the weight level's `read`/`write` energies
-  are IDENTICAL to the 8-bit run. If they move, this approach has the same defect as the
-  old one and everything downstream is invalid. This check is ~15 minutes and gates
-  everything.
-- ALL THREE APPROACHES MUST USE THE SAME HARDWARE YAML. Baseline, Embedded and Recon
-  are compared against each other, so they must declare the SAME `width:` and the SAME
-  `depth:` on every memory -- identical arrays, therefore identical read, write, static
-  and leakage energies per access. THE ONLY THING THAT MAY DIFFER BETWEEN ARMS IS
-  `datawidth:`, which changes how many weights fit in one physical word and nothing
-  else. If two arms ever differ in `width` or `depth`, the comparison is void: that is
-  exactly the defect (1) above. Add an explicit check that asserts it before evaluating.
-- FRACTIONAL BIT WIDTHS: USE THE SCALE-BY-4 TRICK. `datawidth` must be an integer, so
-  7.25 / 6.5 / 5.75 bits cannot be written directly. Express everything at 4x: multiply
-  the word `width` by 4, divide `depth` by 4 (total bits unchanged), and multiply EVERY
-  arm's `datawidth` by 4, so one unit = a quarter of a bit. `q` bits then becomes
-  `datawidth = 4q`: 8 -> 32, 7.25 -> 29, 6.5 -> 26, 5.75 -> 23, 5 -> 20, 4 -> 16.
-  NOTE the embedded arm's datawidth must ALSO be scaled, 8 -> 32. Leaving it at 8 would
-  give it four times the weights per word and silently break the comparison.
-  The exact width/depth/datawidth numbers to put in the YAML are in the table further
-  down ("TWO SEPARATE WIDENINGS"), because they also fold in the wider LOGICAL word --
-  do not derive them from the declared 16-bit scratchpad, which buys nothing for the
-  weaker codes.
+## THE ONLY SWEPT VARIABLE: `depth:` of the on-chip weight levels
 
-  WHY THE WORD WIDTH MATTERS AT ALL. A weight is stored in a physical word, and only a
-  WHOLE number of them fit: `floor(word_bits / bits_per_weight)`. On a NARROW word that
-  floor is brutal -- on a 16-bit word an 8-bit weight gives 2 per word and a 5.75-bit
-  weight ALSO gives 2, so a code that genuinely stores 28% fewer bits buys literally
-  nothing. On a WIDE word the same code lands between more integers and the packing
-  tracks the true ratio. So the word width decides whether reconstruction can express
-  its advantage at all; it is not a performance tweak.
+Explicitly NOT swept: `width`, `datawidth`, DRAM (`ECC_DRAM_DEPTH`), any level not
+holding Weights, bandwidths, `n_banks`, technology, PE counts, dataflow constraints.
 
-  EVERY NUMBER IN THE TABLES BELOW IS `floor(W / q)` = HOW MANY WEIGHTS FIT IN ONE
-  PHYSICAL WORD, where W is the logical word width in bits and q is the bits per weight.
-  Nothing else. The effective capacity ratio of an arm against the embedded arm is
-  simply its count divided by the `emb` count in the same row.
+Declared depths at these widths (total bits held ≈ the paper's):
 
-  TABLE A -- the memories AS DECLARED in the arch YAML today:
+| level | paper geometry | at width 96 | emb weights |
+|---|---|---|---|
+| `weights_spad` | 224 × 16b = 3,584 b | **depth 37** | 444 (paper 448) |
+| `filter_glb` | 1024 × 64b = 65,536 b | **depth 682** | 8,184 (paper 8,192) |
 
-      memory                word     emb   7.25b   6.5b   5.75b    5b     4b
-      ----------------------------------------------------------------------
-      weights_spad         16 bit      2      2       2       2      3      4
-      filter_glb / DRAM    64 bit      8      8       9      11     12     16
+### WHY: this sweep exists to pick the numbers for the new arch YAML
 
-  TABLE B -- the same memories with the LOGICAL WORD WIDENED, which is what to use.
-  Depth is divided by the same factor the word is multiplied by, so the total bits and
-  the embedded arm's weight capacity are UNCHANGED (448 and 8,192 weights):
+**The deliverable is not a trend, it is a set of `depth:` values.** The question is: at
+what on-chip weight-memory size does Recon's margin over Embedded PEAK? That depth range
+is the "optimal zone", and the depths at its centre are what get written into the new
+architecture YAML the experiments then run on. A sweep that ends in a chart and no
+recommended depth has not answered the question.
 
-      memory                word    depth   emb   7.25b   6.5b   5.75b    5b     4b
-      ---------------------------------------------------------------------------
-      weights_spad         64 bit      56     8      8       9      11     12     16
-      filter_glb          256 bit     256    32     35      39      44     51     64
+**×0.5, ×0.25 and ×0.125 are the points to REPORT** — they are the realistic design
+choices (half, quarter, eighth of the published memory) and the ones a YAML will quote.
 
-  WHAT THE TWO TABLES SAY, in one comparison. On the declared 16-bit scratchpad
-  (Table A) an 8-bit weight packs 2 per word and a 5.75-bit weight ALSO packs 2 per
-  word -- a code storing 28% fewer bits gains nothing, and the same is true at 6.5 and
-  7.25 bits. Widen that word to 64 bits (Table B) and the same three codes pack 11, 9
-  and 8 against the embedded 8, so the code rate finally shows up. Widen `filter_glb`
-  to 256 bits and even 7.25 bits pays (35 vs 32). This is NOT a rounding artifact --
-  it survives exact quarter-bit resolution -- it is simply what a narrow word does to
-  a floor division, and it is why the widened geometry is adopted rather than swept.
+**But they are not enough points to SEARCH with.** The window where Embedded cannot hold
+the tile and Recon can is exactly as wide, in depth, as the effective-capacity ratio. A
+factor-2 grid steps clean over a 1.17× or 1.33× window and reports "no effect" that is a
+grid artifact, not a result. So search on **√2 steps** (×1, ×0.71, ×0.5, ×0.35, ×0.25,
+×0.18, ×0.125) — that resolves BCH(63,30) (2.00×) and BCH(63,39) (1.58×) — and quote the
+factor-2 points out of it. BCH(63,45) (1.33×) and BCH(63,57) (1.17×) need ~×1.12 steps,
+about 20 depths, so do them only after the strong codes show something.
 
-  *** WORD WIDTH IS FIXED CONTEXT, NOT A SWEPT VARIABLE. ***
-  Adopt `weights_spad` = 64-bit word x depth 56 and `filter_glb` = 256-bit word x depth
-  256 as the STANDING geometry for all of Baseline, Embedded and Recon, and leave them
-  there. They are chosen because they let the code rate show up in the packing at all;
-  there is no need to sweep them and they must NOT be swept. Note the embedded arm gains
-  no capacity from this (448 and 8,192 weights either way) -- only the granularity
-  changes.
+### THE RESULTS TABLE — one row per (arm, scale, MEMORY LEVEL)
 
-  *** THE ONLY THING SWEPT IS THE `depth:` OF THE ON-CHIP WEIGHT MEMORIES. ***
-  x0.5, x0.25, x0.125 of the declared depth, and nothing else in the entire study:
+Save it to exactly this path:
 
-      level           x1     x0.5    x0.25   x0.125
-      weights_spad     56      28       14        7
-      filter_glb      256     128       64       32
+    results/tables/EyerissV1_mem_arch_sweep.csv
 
-  Explicitly NOT swept, at any point: the word `width`; the per-arm `datawidth`; the
-  DRAM (it is not on-chip -- its depth is set by `ECC_DRAM_DEPTH` and must not move);
-  any memory that does not hold Weights (ifmap/psum buffers stay exactly as declared);
-  bandwidths, banking, `n_banks`, technology node, PE counts or the dataflow
-  constraints. If a knob is not `depth:` on a weight-carrying on-chip level, it is
-  fixed context. One sentence to hold on to: WIDEN THE WORD ONCE, THEN SWEEP ONLY THE
-  DEPTH OF THE ON-CHIP WEIGHT MEMORIES.
+Required columns. The first five are the ones the design decision is read off; the rest
+are what make a row trustworthy:
 
-  TWO SEPARATE "WIDENINGS" ARE IN PLAY AND THEY COMPOSE -- do not confuse them:
-    (a) the DESIGN choice above: make the LOGICAL word hold more weights
-        (weights_spad 16 -> 64 bits, filter_glb 64 -> 256 bits);
-    (b) the x4 REPRESENTATION trick, which only exists so `datawidth` can be an integer
-        at quarter-bit resolution.
-  Apply (b) on top of (a). The numbers that actually go in the YAML, verified to
-  reproduce `floor(W_logical / q)` exactly for every code:
+| column | meaning |
+|---|---|
+| `memory` | the level's name AND kind — `filter_glb` (GLB) or `weights_spad` (scratchpad) |
+| `scale` | `×depth` applied to that level (×1, ×0.71, ×0.5, ×0.35, ×0.25, ×0.18, ×0.125) |
+| `refetch` | DRAM weight reads ÷ unique weights |
+| `weights_held` | weights actually resident — the UTILISATION, in weights not percent |
+| `level_pJ` | energy consumed by THIS memory level (approximate is fine) |
+| `arm` | `baseline` / `embedded` / `recon` |
+| `declared_depth`, `width`, `datawidth`, `weights_per_word` | the geometry that produced the row |
+| `room`, `fill_pct` | capacity in weights, and `weights_held / room` |
+| `dram_weight_reads`, `total_uJ` | the totals the margin is computed from |
+| `pes_used` | disqualifies the row if it moves between arms |
+| `recon_minus_embedded_pJ` | **the answer column** — the margin at this level and scale |
+| `verdict`, `fingerprint` | `capacity` is the only quotable verdict; `fp-<hash>` guards cross-arch reads |
 
-      level          DECLARE width  depth   datawidth per arm
-                                            emb  7.25b 6.5b 5.75b  5b   4b
-      weights_spad       256          56     32    29    26    23   20   16
-        -> weights/word:                      8     8     9    11   12   16
-      filter_glb        1024         256     32    29    26    23   20   16
-        -> weights/word:                     32    35    39    44   51   64
+**Two of these do not exist yet.** `dilation.py --table --csv` writes one row per
+(arch, layer, arm, scale) and packs every level into a single `levels` string
+(`_weight_level_rows`, line 284, carries only `level`/`capacity`/`residency`/`instances`),
+and it emits **no per-level energy at all** — only `total_pJ` for the whole run. So:
 
-  So `width` and `depth` are IDENTICAL on every arm (that is the fairness rule); only
-  the `datawidth` column changes. The declared width is 4x the logical word because of
-  (b); the logical capacity is unchanged (448 and 8,192 weights in the embedded arm).
-  The x0.5 / x0.25 / x0.125 sweep then scales ONLY the `depth` column
-  (56 -> 28 -> 14 -> 7, and 256 -> 128 -> 64 -> 32).
+1. **Reshape to one row per level** instead of the packed `levels` string.
+2. **Add `level_pJ`**: parse `Energy (total)` from that level's `Weights` block in
+   `timeloop-mapper.stats.txt` (it is already there — e.g. `weights_spad` reports
+   `Energy (total) : 46019432.15 pJ`). A parse, not a model.
 
-  ONE THING TO CHECK, not to assume: a wider word also makes each access COARSER
-  (Timeloop fetches a whole block), so a mapping whose tile does not fill the block can
-  waste bandwidth, and CACTI prices a wide shallow array differently from a narrow deep
-  one. Both arms share it so the COMPARISON stays fair, but confirm the widened geometry
-  does not make the absolute energy worse than the declared one before building on it.
-- ROUNDING DIRECTION MUST BE STATED. Rounding the bit width DOWN (5.75 -> 5) rounds the
-  CAPACITY UP and flatters reconstruction; rounding UP is conservative. With the
-  scale-by-4 trick no rounding is needed for these five codes, so prefer it and say so.
-- BEWARE DOUBLE-COUNTING. The existing recon model already scales reduced stages by
-  K/N (`recon.py`, `stream` packing). If the mapper is now ALSO pricing narrower
-  weights, applying both would count the same saving twice. Decide which layer of the
-  model owns the on-chip narrowing, and add a check that it is applied exactly once.
+`weights_held` is what proves the margin is capacity and not loop order; `pes_used` is
+what disqualifies a row; `level_pJ` is what tells you WHICH memory to shrink.
 
-WHAT IS ALREADY BUILT AND WORKS
-- `bash hpc/tl.sh python3 -m eccenergy.experiments.dilation --table` prints one row per
-  swept capacity per design per layer with: weights/PE, PEs used, MACs used/declared,
-  total weight room, WEIGHTS HELD, fill %, DRAM weight reads, refetch, total uJ, the
-  fullest non-weight buffer, a verdict, and the cache fingerprint. `--csv` writes it.
-- `weights held` is the column that decides whether anything happened. If DRAM reads
-  move while `held` does not RISE, it was not capacity.
-- The verdicts are: `capacity` (reads fell AND held rose AND PE count unchanged -- the
-  only one that may be quoted), `PERM?` (held identical -- a loop-order change), `ORDER?`
-  (held fell -- stored less and read less), `PE!=` (PE count moved -- not attributable),
-  `flat`. A fingerprint guard prints a warning when one variant slug has two solved
-  fingerprints.
-- `eccenergy/tests/test_dilation.py` -- 11 tests including two property tests over the
-  real mapper cache. Run it after any change to the above.
-- `ECC_WEIGHT_FACTOR_RELAX=1` drops the `factors:` pins on the weight-indexed dimensions
-  (M, C, R, S) of weight levels. It did not make any dilation pay, but at the SAME
-  capacity and SAME 168/168 PEs it cut eyeriss v1 `layer3.0.conv1` refetch 14.0 -> 2.0
-  and layer energy 417 -> 267 uJ. It is a DIFFERENT DATAFLOW (v1's `M=1` at the filter
-  spad IS row-stationary) so it must never be quoted as the published chip -- but it
-  shows the dataflow constraint, not the buffer size, is what costs DRAM weight traffic.
+### The two levels are swept TOGETHER by default — that is a limitation
 
-TWO THINGS THAT WILL BITE
-- THE MAPPER IS DETERMINISTIC BUT CHAOTIC IN THE ARCHITECTURE. Same arch + same settings
-  + same thread count gives byte-identical output. But changing a buffer depth by a few
-  entries sends `random_pruned` down a different path, reproducibly. Measured: 52 of 838
-  PE-matched capacity pairs (6%) had a LARGER buffer refetching MORE, which is impossible
-  under a real capacity mechanism. You cannot average this away with seeds. The only
-  lever is a stronger search -- raise `ECC_VICTORY` (2000 today) until the answer stops
-  moving with capacity, and CHECK THAT IT HAS before trusting a trend.
-- ***CONVERGENCE IS A GATE. DO NOT REPORT ANY SWEEP NUMBER UNTIL IT PASSES.***
-  The search at `ECC_VICTORY=2000` is NOT converged, and an unconverged mapper will
-  point the sweep in the wrong direction: you will read search failure as an
-  architectural result. Two measurements, both from this repo:
+`ECC_WEIGHT_CAPACITY_SCALE` rewrites `depth:` on **every** weight-carrying level at once,
+so one scale moves `weights_spad` and `filter_glb` together. That is fine for locating the
+zone, but it **cannot tell you which level bought it**, and the YAML needs a depth per
+level. Plan a second pass that varies them independently (hold one at ×1, sweep the
+other) on the two or three scales that looked best. FINDINGS 7.8 predicts `filter_glb`
+is the one that matters — confirm it, do not assume it.
 
-    * On eyeriss v1 `layer3.0.conv1` the mapper at declared capacity returned a mapping
-      24% WORSE IN ITS OWN EDP OBJECTIVE (143.5) than one it found on the SAME layer at
-      a different capacity (115.9). Every ECC saving in this study is 2-12%.
-    * MEASURED 2026-09-10, and it is the reason this whole prompt exists: raising
-      victory 2000 -> 10000 on weight-stationary (`scope=shared`, layer2.0.conv1)
-      REVERSED THE CONCLUSION.
+Also: `ECC_WEIGHT_CAPACITY_SCALE` **triggers `recon.capacity_dilation_correction()`**,
+which re-prices the level at the undilated geometry. That correction is WRONG here — a
+shallower array really IS a smaller array, and its cheaper access is a real saving, not an
+artifact to undo. Add a separate knob, or a flag that suppresses the correction.
 
-          scale       victory=2000        victory=10000
-          x0.5        rf=1.000  273.2uJ   rf=2.000  251.0uJ
-          x0.75       rf=4.000  280.4uJ   rf=8.000  254.2uJ
-          x0.8077     rf=1.000  264.1uJ   rf=8.000  256.4uJ
-          x1.2115     rf=1.000  276.7uJ   rf=2.000  261.5uJ
+## START HERE: BCH(63,30) on the declared geometry
 
-      At victory 2000 the recon arm (x0.8077) beat its embedded reference (x0.5) by
-      9.1 uJ and that looked like the best result in the study. At victory 10000 the
-      SAME pair reverses: recon is 5.4 uJ WORSE and refetches 4x more. Energy falls at
-      every point (a better search), but the ORDERING between the two arms flips.
+`width: 16, datawidth: 4` loads on Eyeriss V1's untouched `weights_spad` (exit 0,
+verified): 2 weights/word for Embedded, 4 for Recon, exactly 2.000×, correct CACTI
+pricing, zero residual, and the full `224 → 112 → 56 → 28` depth range. **No width change
+needed at all for this one code.**
 
-  THE GATE, run it before anything else and again whenever the architecture changes:
-    1. Pick the one layer and the one design. Map the embedded arm at victory
-       {2000, 10000, 50000, and higher if it is still moving}.
-    2. Plot total energy and refetch against victory. CONVERGED means the last two
-       points agree to within a margin you state, and that margin MUST be smaller than
-       the recon-vs-embedded effect you intend to claim. If the mapping still moves by
-       5% between victory settings, you cannot resolve a 2-12% ECC effect. Say so and
-       raise the budget rather than reporting the number.
-    3. Only then run the memory sweep, at the converged victory, for BOTH arms.
-    4. Re-check the gate at the smallest memory in the sweep as well as the largest --
-       a budget that converges on a big buffer may not on a small one.
-  Cost is not a reason to skip this: a single-layer map is 3-25 min at victory 2000, and
-  the whole gate is a handful of jobs. It is far cheaper than a wrong conclusion.
-  Jobs 41582123-30 are this test at {10000, 50000}; the 50000 half was still running at
-  the end of the session, so READ IT FIRST before trusting anything at victory 2000.
+It is also the only code that clears the integer-tile step FINDINGS 7.8 measured: 1.6154×
+capacity at 88.9% fill bought exactly nothing, because the tile could only grow in a 2×
+jump. Ratios 1.17, 1.33, 1.58 all sit below that step. **If 2.00× shows nothing, the
+weaker codes cannot.** Prove the mechanism here first — ~14 jobs.
 
-ALWAYS
-- `ECC_OPT_METRIC=edp` (env.sh's default). Never `energy` -- it serialises and trades PEs
-  for capacity, which is what withdrew FINDINGS 7.7.
-- Report `PEs used` on every row. It is what caught two of the false positives above.
-- Both arms of a pair must be mapped under the SAME treatment, so the comparison stays
-  fair even when neither arm is the published design.
+Falsifiable prediction to run first. On `layer3.0.conv1` the resident tile is 192 weights
+and Embedded holds `2 × depth`, so the tile stops fitting below depth 96 = ×0.4286. At
+**×0.25** (depth 56 → 112 weights) Embedded cannot hold it and a 2.0× Recon arm (224) can.
+So ×0.25 should show `weights held` RISING and refetch FALLING. If it does not, the
+hypothesis is in trouble — for three hours of compute instead of two hundred.
+
+## THE ARCH — Eyeriss V1 is now the `_wglb` file
+
+DECIDED 2026-09-10: `archs/eyeriss_like_wglb/arch_paper.yaml` is the correct Eyeriss V1
+and becomes the default; `archs/eyeriss_like/arch_paper.yaml` (which declares `!Nothing`
+where the published 8 kB filter GLB sits) is retired. **The old file has exactly one
+on-chip weight memory; the correct one has two** — `weights_spad` AND `filter_glb`.
+
+**Expect the effect at `filter_glb`, not `weights_spad`.** FINDINGS 7.8: refetch on
+Eyeriss V1 is set by the DRAM-level loop order over `P`/`Q`, and a weight tile cannot
+index `P` or `Q`, so a weight buffer INSIDE the PE array cannot absorb those loops however
+large — v1 measured flat to ×32 capacity at 1% fill. `filter_glb` sits above the array and
+can. Sweep both depths; report both.
+
+**The swap is not a file copy. Three things break:**
+
+1. `eyeriss_like_wglb` has **no entry** in `recon.py`'s `WEIGHT_PATHS` (line 375) or
+   `PLACEMENTS` (line 652). `weight_path()` refuses when a weight-carrying level goes
+   unclaimed, so `filter_glb` needs a new GLB `Stage` and a placement before anything
+   evaluates. Fail-loud, but real work.
+2. `config.py:193` `BRACKET_PAIRS` makes the two files each other's bracket. Collapsing
+   them to one design makes that self-referential — retire the pair.
+3. Every fingerprint changes, so **the whole `eyeriss_like` cache (64 variant dirs) goes
+   cold.** Budget a full re-map.
+
+## THE LAYER
+
+Use **`layer3.0.conv1`** = `C128_M256_R3_S3_P14_Q14_ws2_hs2` (294,912 weights). Verified
+from cache at declared capacity: **168/168 PEs**, `weights_spad` 192/448 = **42.9% fill**,
+**refetch 14.0**. Full PE occupancy means no `PE!=` confound at baseline.
+
+Do NOT use `C64_M64_R3_S3_P56_Q56_ws1_hs1` as primary despite it being the most repeated
+shape: verified at **96/168 PEs and 14.3% fill** (64 of 448 weights), so it carries the
+confound at baseline and the mapper does not want the room it already has. Do not use
+`layer4.*` — already refetches 1.0×.
+
+## CONVERGENCE IS A GATE — run it before quoting any number
+
+`ECC_VICTORY=4000` is the chosen budget. It is a choice, not a result: **the gate still
+has to pass at 4000.** Why this matters — measured, `simple_weight_stationary`,
+layer2.0.conv1:
+
+| scale | victory 2000 | victory 10000 |
+|---|---|---|
+| ×0.5 | rf 1.000, 273.2 µJ | rf 2.000, 251.0 µJ |
+| ×0.8077 | rf 1.000, 264.1 µJ | rf 8.000, 256.4 µJ |
+
+At 2000 the Recon arm beat its Embedded reference by 9.1 µJ — the best result in the
+study. At 10000 the SAME pair reverses: Recon 5.4 µJ WORSE, 4× the refetch. Energy falls
+everywhere (a better search) but the ORDERING between arms flips. The sweep was measuring
+the search, not the architecture.
+
+The gate: map the Embedded arm at victory {2000, 4000, 10000}; converged means the last
+two agree within a margin you STATE, and that margin must be smaller than the
+Recon-vs-Embedded effect you intend to claim. Re-check at the SMALLEST depth as well as
+the largest. Cost, measured: victory 10000 on one layer ran **1h13m–1h34m** wall at 18
+threads; victory 50000 ran **6h02m–8h09m** (jobs 41582127-30, all COMPLETED
+2026-09-10). So a 4-point gate at 50000 is a full day per arm — 4000 is the right
+call, but verify it, do not assume it.
+
+**The victory-50000 caches now EXIST** for weight-stationary layer2.0.conv1 at
+scales {0.5, 0.75, 0.8077, 1.2115} (`results/_raw/simple_weight_stationary/vic50000__*`).
+Read them before running anything new: they are the third point of the
+2000/10000/50000 curve and may settle the gate for free.
+
+**Do NOT buy speed by changing the search algorithm.** Measured 2026-09-10 (env.sh §2,
+WS layer2.0.conv1, victory 10000, 4 scales — best pJ/MAC, lower is better):
+
+| algorithm | best pJ/MAC across 4 scales | cost |
+|---|---|---|
+| `random_pruned` | **4.34 / 4.40 / 4.44 / 4.52** | 1.61 h/map |
+| `linear_pruned` | 6.17 / 6.53 / 6.56 / 6.89 | 0.12 h/map |
+| `hybrid` | 6.61 … 9.80 | — |
+
+`linear_pruned` is 13× cheaper and **42% worse**; `hybrid` at victory 10000 was worse
+than `random_pruned` at victory 2000. Keep `ECC_MAPPER_ALGORITHM=random_pruned` and buy
+convergence with `ECC_VICTORY` instead. `ECC_MAPPER_SEARCH_SIZE` is the alternative
+budget — 644,000 ≈ victory-10000 effort — and is the fairer knob for an A/B, because
+victory is ADAPTIVE (an improvement resets the counter, so the arm that keeps improving
+gets a bigger budget).
+
+## BEFORE ANY NUMBER IS QUOTED
+
+1. **DOUBLE-COUNTING — settle this before the first evaluation.** `recon.py`'s default
+   `stream` packing already scales every reduced stage by K/N. The mapper-side
+   `datawidth` now delivers that same on-chip saving inside the Timeloop number, with no
+   mapping change at all. Apply both and the on-chip saving is squared.
+   **The resolution is `ECC_RECON_PACKING=aligned`.** Its docstring (`recon.py:1378`)
+   already describes exactly this model — "each reduced weight occupies a whole number of
+   bits ... the access count, and the SRAM energy, do not move at all" — so `aligned`
+   leaves the on-chip narrowing entirely to the mapper, which is now where it belongs.
+   Two consequences to honour:
+   * **DRAM `datawidth` stays 8 on every arm.** `recon.py` owns the DRAM K/N scaling;
+     narrowing DRAM in the YAML too would double-count it there.
+   * `aligned` computes its own width as `ceil(8·K/N)`, which is 8 for BCH(63,57) and
+     disagrees with the declared `q=7`. Make the arch and the accounting agree, or the
+     check will not reconcile.
+   Add an assertion that the on-chip narrowing is applied exactly once.
+2. **Assert the fairness rule mechanically.** Both arms of a pair must declare the SAME
+   `width` and `depth` on every level. If they ever differ, the comparison is void.
+3. **Report `PEs used` on every row.** FINDINGS 7.8 measured 168 → 84 → 96 → 112 PEs on
+   Eyeriss V1 below ×0.5 under EDP: the mapper trades parallelism for capacity, and a pair
+   with mismatched PE counts is not attributable to capacity. Discard those pairs; do not
+   quote them beside clean ones.
+4. **Separate the two Recon terms in the table.** The `datawidth` packing discount applies
+   to every on-chip weight access regardless of mapping, so Recon wins monotonically at
+   every depth even with a byte-identical loop nest. Report the flat packing discount and
+   the differential-refetch term in SEPARATE columns, or the table looks like a win
+   everywhere and tells you nothing about which memory size matters.
+5. **`weights held` is the column that decides whether anything happened.** If DRAM reads
+   move while `held` does not RISE, it was not capacity.
+6. `ECC_OPT_METRIC=edp` always. Never `energy` — it serialises and trades PEs for
+   capacity, which is what withdrew FINDINGS 7.7.
+
+## HOW TO RUN
+
+* `module load apptainer`, then `bash hpc/tl.sh <cmd>`. Read CLAUDE.md, then FINDINGS.md
+  §7.8, then the last entries of progress.txt.
+* `env.sh` is the only file to edit; every knob is `${VAR:=default}`. `ECC_RECON_MODELING=1`
+  is the DEFAULT and HARD-ASSIGNS `ECC_ARCHS` from `ECC_RECON_ARCHS` — setting `ECC_ARCHS`
+  on the command line is silently ignored. Use `ECC_RECON_ARCHS`.
+* Keep `ECC_MAPPER_THREADS=18`; it is in the cache fingerprint.
+* `ECC_QOS=rewetz-b` gives ~90 concurrent jobs.
+* Report with:
+
+      bash hpc/tl.sh python3 -m eccenergy.experiments.dilation --table \
+           --csv results/tables/EyerissV1_mem_arch_sweep.csv
+
+  Running it bare (without `hpc/tl.sh`) silently uses `config.py` defaults
+  (objective=energy, victory=500) instead of env.sh's — the table prints a banner when
+  the objective is not `edp`, but do not rely on noticing it.
+* Run `eccenergy/tests/test_dilation.py` after any change to the reporting path.
+
+## WHAT CHANGED, and why the previous sweep proved nothing
+
+The previous sweep's eight defects, all still true and all still worth avoiding:
+the two arms saw DIFFERENT read/write energy (capacity expressed as `depth × N/K`, so
+Accelergy priced Recon's array 1.18–1.46× dearer and the optimiser had a reason to leave
+the room unused); the ECC evaluator was NEVER RUN (only mapping jobs, every "saving" was
+DRAM arithmetic from `dilation.py`); 5 archs × 5 layers × 28 capacities moved at once;
+capacities went to ×0.03125 where PE count moves; one headline compared two different
+fingerprints; the verdict logic called a win whenever DRAM reads fell without requiring
+`held` to rise; every number came from an unconverged search; and 12 jobs went on
+`ECC_MAPPER_SEED`, which is in the fingerprint but reaches nothing (`timeloop-mapper` v4
+exposes no seed — env.sh says so).
+
+Removed from this document in the 2026-09-10 rewrite: the `floor(W/q)` Table A / Table B
+word-widening scheme (Timeloop has no floor path — it aborts); the `x4` quarter-bit trick
+(inflates the buffer 6.69–11.43×); the `filter_glb` rows attributed to `eyeriss_like`
+(that level was only in `_wglb`); a stale block treating `ECC_DRAM_IF_FRAC = 0.40` as an
+unresolved blocker (`f_if` was REMOVED — see prompt_1.md and env.sh §4, DRAM is now
+40 pJ/bit with the whole term scaled by K/N); and the ×0.25/×0.125 grid that contradicted
+this document's own warning about PE trading below ×0.5.

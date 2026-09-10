@@ -74,39 +74,146 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #  gets its OWN mapper cache: changing one means a cold run, not a cheap re-run.
 
 # random | hybrid | exhaustive | linear_pruned | random_pruned
-# `hybrid` walks loop PERMUTATIONS around one index factorization, which is the
-# wrong locality on a mapspace of ~4e9 factorizations -- the factorization is
-# what sets DRAM traffic. random_pruned samples factorizations uniformly.
+# MEASURED 2026-09-10 (WS, layer2.0.conv1, victory 10000, 18 threads, 4 scales;
+# best pJ/MAC, lower is better -- see FINDINGS 7.8):
+#     random_pruned  4.34 4.40 4.44 4.52   1.61 h/map   <- KEEP THIS
+#     linear_pruned  6.17 6.53 6.56 6.89   0.12 h/map
+#     hybrid         6.61 .. 9.80          (still running when measured)
+# `hybrid` walks every pruned loop PERMUTATION around ONE index factorization
+# before moving to the next, and with 9.0e9 permutations available it barely
+# advances through FACTORIZATIONS at all -- it was worse at victory 10000 than
+# random_pruned is at victory 2000. `linear_pruned` walks the space in index
+# order and sticks in a biased prefix. random_pruned samples factorizations
+# uniformly and won on every arm.
+# TRAP: any systematic algorithm (linear_pruned, exhaustive) ALSO needs a huge
+# ECC_MAPPER_TIMEOUT -- see that knob.
 : "${ECC_MAPPER_ALGORITHM:=random_pruned}"
 
-# Hard cap on VALID mappings examined, split across the threads.
+# Hard cap on VALID mappings examined, PER THREAD (mapper-thread.cpp:403).
 # EMPTY = uncapped = converged = publishable.
-# 20000 = bounded development pass; its results carry a BOUNDED warning and must
-# not be quoted as an architecture ranking.
+# MEASURED throughput: 400,000 valid mappings per thread per hour at 18 threads,
+# so a cap converts directly to wall time:
+#     ECC_MAPPER_SEARCH_SIZE=276000  ~= victory 5000  effort (~0.69 h/map)
+#     ECC_MAPPER_SEARCH_SIZE=644000  ~= victory 10000 effort (~1.61 h/map)
+# WHY YOU MIGHT PREFER IT TO ECC_VICTORY FOR AN A/B ABLATION. victory is an
+# ADAPTIVE budget: every improvement RESETS the counter, so the arm that keeps
+# getting lucky is searched LONGER. Measured wall-time spread across four
+# capacity arms of the SAME layer:
+#     victory 2000       3.28x        victory 10000      1.57x
+#     search_size 20000  1.20x
+# Different arms receiving different search effort is confounded with the
+# hardware difference under test. search_size fixes the evaluation count, so
+# every arm gets identical effort and the runtime is predictable.
 # The missing colon is deliberate: an exported EMPTY value must stay empty.
 : "${ECC_MAPPER_SEARCH_SIZE=}"
 
 # The search abandons a thread after this many consecutive non-improving valid
-# mappings. Runtime scales roughly linearly with it. To CONFIRM convergence, run
-# at two values and check the totals do not move -- 500 then 1000, say.
-: "${ECC_VICTORY:=2000}"
+# mappings (mapper-thread.cpp:413). Timeloop's own default is 500.
+#
+# RUNTIME GROWS SUPER-LINEARLY AT LOW BUDGET AND SATURATES AT HIGH BUDGET.
+# A larger budget also finds MORE improvements, and every improvement resets
+# the non-improving counter -- so early on you pay for the extra samples AND
+# the restarts. Once improvements get rare the restarts stop and growth falls
+# below linear. MEASURED mean h/map over the four capacity arms:
+#     victory  2000 : 0.15 h/map     step  2000 ->  5000 : 4.6x for 2.5x budget
+#     victory  5000 : 0.69 h/map     step  5000 -> 10000 : 2.3x for 2x
+#     victory 10000 : 1.61 h/map     step 10000 -> 20000 : 1.7x for 2x
+#     victory 20000 : 2.77 h/map     step 20000 -> 50000 : 2.6x for 2.5x
+#     victory 50000 : 7.20 h/map
+# Do NOT extrapolate a single power law across that range: a fit to the
+# 2000 -> 10000 points (t ~ victory^1.47) predicts 17 h/map at victory 50000
+# and the measured value is 7.20 h. Growth is super-linear early and roughly
+# LINEAR past 10000.
+#
+# !! NOT CONVERGED AT ANY OF THESE. Measured max residual in total uJ, all
+#    five budgets x all four capacity arms:
+#        2000 ->  5000 = 11.48%      10000 -> 20000 = 19.53%
+#        5000 -> 10000 =  9.04%      20000 -> 50000 = 10.72%
+#    The MINIMUM residual anywhere in that chain is 9.04%.
+#    The residual is NOT shrinking with budget, and it is LARGER than the ECC
+#    effect the study claims (2-12%). Raising this knob cannot fix that: the
+#    mapspace for ONE layer is 7.4e10 index factorizations x 9.0e9 permutations.
+#    At a MEASURED 400,000 valid mappings per thread per hour, coverage of ONE
+#    thread's 4.12e9-factorization subspace is 0.0067% at victory 5000, 0.0156%
+#    at 10000 and 0.0700% at 50000 -- ignoring the permutation dimension
+#    entirely. Convergence needs a SMALLER MAPSPACE (constrain the loop nest in
+#    the design YAML), not a bigger budget. See FINDINGS 7.8.
+#
+# !! A TWO-POINT AGREEMENT TEST IS UNSOUND HERE. random_pruned is
+#    DETERMINISTIC (fixed thread count -> same sequence), so a larger budget
+#    walks the SAME sequence further. It therefore PLATEAUS for long stretches
+#    and then JUMPS. Measured on the x0.5 arm: victory 10000 and victory 20000
+#    return a BIT-IDENTICAL mapping (4.343 pJ/MAC) -- "the totals did not move",
+#    which the old advice in this file called converged -- and victory 50000
+#    then improves it 8.5% to 3.974. Two adjacent budgets agreeing proves
+#    nothing. Only a bound on the UNSEARCHED mapspace does.
+# 4000 is the DEVELOPMENT setting: ~4x cheaper than 10000 and no less converged.
+: "${ECC_VICTORY:=4000}"
 
 # ...scaled by loop-nest depth, because the candidate count grows
 # combinatorially with depth: a flat number searches a deep hierarchy less
 # thoroughly and then reports the shortfall as an architecture result.
 #   levels : double per level past 8 (Eyeriss v1's depth), capped at 8x
-#            -> 4000 on the 9-level designs
+#            -> 10000 on the 9-level designs
 #   none   : use ECC_VICTORY flat
+# INERT on 8-level designs (simple_weight_stationary, eyeriss_like): the
+# multiplier is 1.0x and the effective victory equals the nominal one. It only
+# bites on eyeriss_v2_like.
 : "${ECC_VICTORY_SCALING:=levels}"
 
 # Consecutive INVALID mappings before a thread abandons a region of the
-# mapspace. Timeloop's own default is 1000; 10000 grinds through infeasible
-# corners for no benefit, so lowering it is close to free speed.
+# mapspace. Timeloop's own default is 1000.
+#
+# ALGORITHM-DEPENDENT, and measured 2026-09-10:
+#  * under random_pruned it NEVER FIRES -- every thread of every run terminates
+#    by victory instead, so tuning this is a no-op that only invalidates caches.
+#  * under linear_pruned at 2000 it is FATAL: the linear walk starts where 100%
+#    of the first 36,000 mappings are infeasible (~44% fanout, ~56% capacity),
+#    so all 18 threads quit before finding ONE valid mapping and the job dies in
+#    10 s. A systematic search needs ECC_MAPPER_TIMEOUT=100000000.
+#
+# !! NEVER SET THIS TO 0. Timeloop's doc/mapper.md claims 0 disables the
+#    criterion; the implementation does the OPPOSITE. mapper-thread.cpp guards
+#    on the COUNTER, not the setting:
+#        if ((invalid_mapcnstr + invalid_eval) > 0 &&
+#            (invalid_mapcnstr + invalid_eval) >= timeout_)
+#    search_size_ and victory_condition_ both guard with `X_ > 0 &&`; this one
+#    does not, so timeout_=0 terminates on the FIRST invalid mapping. Measured:
+#    all 18 threads quit with "0 invalid mappings ...", job FAILED in 16 s.
 : "${ECC_MAPPER_TIMEOUT:=2000}"
 
 # Loop permutations tried per index factorization (Timeloop default 16).
 # Lowering it to 4 moves the search through FACTORIZATIONS ~4x faster.
+# !! DO NOT LOWER IT FOR THIS STUDY. FINDINGS 7.8 showed refetch is set by loop
+#    ORDER at the DRAM level -- C(4) Q(2) refetches 1.0x where Q(2) C(4)
+#    refetches 2.0x at an IDENTICAL factorization. Permutation is the axis the
+#    result turns on, so starving it biases the very thing being measured.
 : "${ECC_MAPPER_MAX_PERMUTATIONS:=16}"
+
+# ---- two mapper knobs this file does NOT expose ----------------------------
+# Both are emitted into every mapping's YAML at pytimeloop's defaults, because
+# nothing in eccenergy/ sets them. Verified in the emitted parsed-processed-
+# input.yaml of a real run:
+#
+#   max_temporal_loops_in_a_mapping: -1     (unlimited -- the criterion is OFF)
+#   filter_revisits:                 false
+#
+# `max_temporal_loops_in_a_mapping` IS enforced, for every algorithm
+# (mapper-thread.cpp:551-559, guarded `> 0`). It rejects any mapping with more
+# than N temporal loops, which is a DIRECT mapspace-shrinking lever and the one
+# knob that could make the convergence gate passable without editing a design
+# YAML. Wiring it up means touching config.py (fingerprint + slug) and
+# timeloop.py, which CLAUDE.md reserves -- ask before doing it.
+#
+# `filter_revisits` is DEAD CONFIG here: only hybrid.cpp and random.cpp read it.
+# random-pruned.cpp and linear-pruned.cpp contain ZERO references, so on the
+# configured algorithm it is emitted and then ignored. It would only matter if
+# ECC_MAPPER_ALGORITHM were switched to hybrid or random -- both measured worse.
+#
+# Also unset and worth knowing: `sync_interval` is null, and the sync is guarded
+# by `sync_interval_ > 0` (mapper-thread.cpp:489), so the 18 threads NEVER share
+# a best-so-far until the very end. The reported mapping is the min over 18
+# INDEPENDENT searches, each stopping against its own local best.
 
 # What the mapper minimises: energy | edp | delay | last_level_accesses
 # THIS IS AN ENERGY STUDY, so energy. EDP is not neutral between architectures:

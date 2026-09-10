@@ -5,6 +5,11 @@ Accelergy. The question: **if ECC parity does not have to be stored in DRAM, how
 much inference energy does that save, and does the answer depend on the
 accelerator?**
 
+**The live plan is `prompt_2.md`** (rewritten 2026-09-10: the weight-memory depth
+sweep, the per-code `datawidth` table, and Eyeriss v1 = `eyeriss_like_wglb`).
+Read it before starting work; where it and this file differ on what to do next,
+it wins.
+
 **No empirical claims in this file.** Numbers live in `FINDINGS.md`; the live
 caveat list is `bash run.sh diagnose`, computed from the architectures as they
 stand. A prose copy here went stale once and then contradicted the code.
@@ -109,6 +114,32 @@ parameters rather than forked. Every design named needs its own mapper cache at
 the current fingerprint; a missing one stops the run and says which.
 
 ## Task 4 — the mapping itself, not just the boundary
+
+> **DIRECTION CHANGED 2026-09-10 — read `prompt_2.md` before using this section.**
+> Everything below describes capacity dilation (`ECC_WEIGHT_CAPACITY_SCALE`),
+> which **answered negatively** (FINDINGS §7.7, §7.8): `weights held` never moved
+> over ranges up to 32×. The cause is arithmetic, not search — resident tiles are
+> integers, growing a level's share of `C` is a **2× step**, and N/K = 1.6154
+> delivers 117 weights/PE against the 128 needed.
+>
+> The replacement expresses the reduced representation as **`datawidth` on the
+> weight levels, at FIXED `width` and `depth`**. VERIFIED 2026-09-10: CACTI
+> receives `depth` and `width` only — `datawidth` never reaches the energy model
+> (`accelergy.log`: `Calculated storage."width" as "width"`) — and Timeloop bills
+> `vector_access_energy / block_size` per weight, `block_size = width/datawidth`.
+> So the reconstruction arm gets more effective capacity at **byte-identical**
+> per-access read/write/leak. That is the fairness condition dilation could never
+> meet, and it makes `capacity_dilation_correction()` unnecessary rather than
+> merely imperfect.
+>
+> **HARD CONSTRAINT: `width % datawidth == 0`, or `timeloop-mapper` aborts** —
+> `buffer.cpp:302`, `Assertion 'width % (word_bits * block_size) == 0' failed`,
+> measured. `block_size` defaults to 1 and is then checked, so there is **no
+> floor path**: a partially-filled word cannot be modelled at all.
+> `archs.py:1147` pre-checks it. Per-code widths are tabulated in prompt_2.md.
+>
+> The dilation machinery below is kept: it is still the right `depth:` sweep
+> axis, and §7.7/§7.8's guards against reading a sweep wrong all still apply.
 
 `RECON_OPTIMIZER=True` (with `ECC_PHASE=Post`) is Task 4 and is implemented
 since 2026-09-09. It keeps every bar and every boundary of Task 3 and changes
@@ -331,26 +362,22 @@ parse (a network's arrivals equal what the next stage takes in) on every result.
 
 **R4b IS REMOVED (2026-09-10)** — `retention_stage()`, `retention_model()`,
 `weight_loop_nest()`, `ReuseRegister` and the `ECC_RECON_REUSE_REG_*` knobs are
-all gone, and no boundary carries a per-PE register on any design. The
-measurement that settled it: consecutive weight reuse is **1 on 20 of 21**
-resnet18 layers, so a latch catches nothing (a cyclic walk is the worst case
-for any replacement policy — 0% hit rate, no partial credit); a register that
-DOES pay has to hold the whole inner tile, 16–384 weights, and
-`simple_weight_stationary`'s `pe_spad` holds exactly 384 — it would be a second
-scratchpad. Output- and input-stationary are worse still (they hold the psum or
-the activation in the PE, so weights stream past the MAC faster), and on
-`eyeriss_like` the PE-local boundaries are infeasible anyway. **R3 (reconstruct
-at the PE weight-storage INPUT) is the result**: +11.07 % vs embedded on
-`simple_weight_stationary`, +17.24 % on `eyeriss_like`, no extra state, no
-mapping constraint. `Recon overhead` stays as a plot category and is
-structurally zero. Do not reintroduce a retained-reconstruction boundary
-without first re-measuring `consecutive_run` on the target mapping. The
-rejected option is on the record in `01_…` §2.3 and `02_…` (REC-L5, §22).
+all gone; no boundary carries a per-PE register on any design. What settled it:
+consecutive weight reuse is **1 on 20 of 21** resnet18 layers, so a latch
+catches nothing, and a register that DOES pay would have to hold the whole inner
+tile (16–384 weights) — a second scratchpad, not a latch. **R3 (reconstruct at
+the PE weight-storage INPUT) is the result**: +11.07 % vs embedded on
+`simple_weight_stationary`, +17.24 % on `eyeriss_like`. `Recon overhead` stays a
+plot category and is structurally zero. **Do not reintroduce a
+retained-reconstruction boundary without first re-measuring `consecutive_run` on
+the target mapping** — that is the step the original audit skipped (FINDINGS
+§7.1, archived). Rejected option on the record in `01_…` §2.3 and `02_…`
+(REC-L5, §22).
 
-Historical note on the removed code, kept because the same trap exists for any
-future per-PE proposal: unscoped, `simple_weight_stationary`
-scratchpad tile is 192. Both eyeriss designs have exactly one storage stage, so
-the scoping is a no-op there and their numbers did not move.
+Scoping trap, live for any future per-PE proposal: a retention claim must be
+scoped to the storage stage it belongs to. Unscoped, `simple_weight_stationary`
+would credit its `weight_reg` with reuse that lives in its `pe_spad` (tile 192).
+Both eyeriss designs have one storage stage, so scoping is a no-op there.
 
 That is enforced, not advised. `validate_placement_space()` requires a
 placement's `reduced` set to be a **prefix** of the path's reducible stages in
@@ -435,12 +462,19 @@ reproducing it (its geometry fails two checks against the paper, and its on-chip
 weight capacity sets its DRAM refetch and therefore its ECC saving). Label it
 "Simba-like (reference design)"; there is no "Numba" architecture here.
 
-**Eyeriss v1 is a bracketing PAIR, not a number.** JSSC 2017 allocates 8 kB of
-the 108 kB GLB to filter weights: `eyeriss_like` does not model it,
-`eyeriss_like_wglb` does, and the files differ in exactly one block. Quote both
-as an upper/lower bound on DRAM weight traffic and hence on the ECC saving; a
-single number is a choice of bound. Same rule for `eyeriss_v2_like_wglb`, with
-the asymmetry that v2's extra weight level is *not* in its paper while v1's is.
+**Eyeriss v1 IS `eyeriss_like_wglb` (decided 2026-09-10).** JSSC 2017 publishes
+the 8 kB filter-weight allocation of the 108 kB GLB, so the file that models it
+is the design; `eyeriss_like`, which declares `!Nothing` in its place, is
+retired. **The v1 bracketing-pair doctrine is OVER** — `BRACKET_PAIRS` in
+`config.py` must be retired with it, or every manifest carries a caveat that is
+no longer true. Blocking work first: `eyeriss_like_wglb` has no entry in
+`recon.py`'s `WEIGHT_PATHS`/`PLACEMENTS`, and `weight_path()` refuses when a
+weight-carrying level goes unclaimed, so `filter_glb` needs a stage and a
+boundary. The swap colds every `eyeriss_like` cache. See prompt_2.md and
+FINDINGS §8.5.
+
+**The bracket rule still holds for v2**, with the asymmetry that
+`eyeriss_v2_like_wglb`'s extra weight level is *not* in its paper.
 
 Accumulator width is deliberately not standardized (v1 16b, v2 20b, Simba 24b,
 each cited) — forcing one would equalise the architectures. `ECC_ACC_BITS` does

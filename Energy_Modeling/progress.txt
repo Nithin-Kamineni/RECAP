@@ -934,3 +934,133 @@ CONFIGURATION  --  ONE env.sh, ONE COMMAND                ✅ DONE 2026-09-07
       depth /4, EVERY arm's datawidth x4 -- verified to reproduce floor(W/q) exactly for
       all five codes), the requirement that Baseline/Embedded/Recon share one hardware
       YAML differing ONLY in datawidth, and the convergence gate
+
+2026-09-10  THE CONVERGENCE GATE FAILS -- no affordable victory converges, and the
+            residual is BIGGER than the ECC effect. This is a MAPSPACE problem.
+      24 mapping jobs, WS scope=shared, resnet18 layer2.0.conv1, edp, 18 threads,
+      capacities {0.5, 0.75, 0.8077, 1.2115}. All completed; nothing was cancelled.
+❌    RUNTIME vs BUDGET (mean h/map over the four arms) and the uJ RESIDUAL:
+        victory | wall  | x0.5   | x0.75  | x0.8077 | x1.2115 | max residual
+          2000  | 0.15h | 220.87 | 228.08 | 211.74  | 224.35  |    --
+          5000  | 0.69h | 218.44 | 201.90 | 204.01  | 209.19  | 11.48%
+         10000  | 1.61h | 198.70 | 201.90 | 204.01  | 209.19  |  9.04%
+         20000  | 2.77h | 198.70 | 162.88 | 164.17  | 174.97  | 19.53%
+         50000  | 7.20h | 177.40 | 162.88 | 164.17  | 163.51  | 10.72%
+      THE MINIMUM RESIDUAL ANYWHERE IN THE CHAIN IS 9.04%. It does not shrink with
+      budget. The gate needs <2%; the ECC effect being claimed is 2-12%. The search
+      noise is LARGER than the signal, so NO ECC conclusion survives this
+      configuration at ANY of these budgets.
+❌    THE CONCLUSION INVERTS WITH BUDGET -- which arm shows a capacity win changes
+      IDENTITY:
+        victory  2000: x0.8077 flat +0.81%        | x1.2115 capacity  +6.99%
+        victory  5000: x0.8077 reads-rose -2.06%  | x1.2115 capacity +15.80%
+        victory 10000: x0.8077 reads-rose -7.01%  | x1.2115 capacity +15.80%
+        victory 20000: x0.8077 capacity  +3.28%   | x1.2115 flat      +1.10%
+        victory 50000: x0.8077 capacity +16.97%   | x1.2115 flat      +1.10%
+      At 10000 the win is x1.2115 at +15.80%; at 20000 that arm is FLAT and the win
+      has moved to x0.8077, whose own claimed effect then runs +3.28% -> +16.97%
+      between 20000 and 50000. The BUDGET, not the silicon, decides the answer.
+❌    A TWO-POINT AGREEMENT TEST IS UNSOUND, and env.sh used to recommend one
+      ("run at two values and check the totals do not move"). random_pruned is
+      DETERMINISTIC, so a bigger budget walks the SAME sequence further: it
+      PLATEAUS then JUMPS. Measured on x0.5, victory 10000 and 20000 return a
+      BIT-IDENTICAL 198.70 uJ -- "converged" by that test -- and 50000 then moves
+      it to 177.40 (10.7%). Only a bound on the UNSEARCHED mapspace proves
+      anything. That advice has been removed from env.sh and replaced.
+❌    RUNTIME SCALING IS NOT LINEAR AND NOT A SINGLE POWER LAW. Super-linear early,
+      ~linear past 10000: steps are 4.6x (2.5x budget), 2.3x (2x), 1.7x (2x),
+      2.5x (2.5x). A fit to the 2000->10000 points (t ~ victory^1.47) predicts
+      17 h/map at 50000; MEASURED 7.20 h. env.sh's "runtime scales roughly
+      linearly" was wrong in the other direction. Both are now corrected there.
+      NOTE the 8h-gate fallback did NOT trigger: victory 50000 completes in
+      6.03/7.08/7.57/8.14 h per arm, so it is expensive but PRACTICAL -- the
+      planned "50000 does not complete in 8h/map" result would have been FALSE.
+❌    WHY NO BUDGET CAN WORK. The mapper reports its own mapspace for this ONE
+      layer: IndexFactorization 74,095,560,000 x LoopPermutation 8,957,952,000
+      (~6.6e20). MEASURED throughput 400,000 valid mappings per thread per hour,
+      so coverage of ONE thread's 4.12e9-factorization subspace is 0.0067% at
+      victory 5000, 0.0156% at 10000 and 0.0700% at 50000 -- ignoring the
+      permutation dimension ENTIRELY. Single coverage of one thread's
+      factorizations needs ~1500x victory-50000.
+✅    ALGORITHMS COMPARED, victory 10000, same four arms (mean h/map, mean pJ/MAC):
+        random_pruned  1.61h  4.425   <- BEST on every arm; keep it
+        hybrid         2.22h  7.211   (+38% time, +63% energy)
+        linear_pruned  0.12h  6.539   (fast but stuck in a biased prefix)
+      env.sh's choice is VINDICATED and my initial guess that hybrid would suit
+      the permutation-sensitivity of 7.8 was WRONG. hybrid walks every pruned
+      permutation of ONE factorization before moving on, and with 9.0e9
+      permutations available it barely advances through FACTORIZATIONS at all.
+✅    search_size IS THE FAIRER BUDGET KNOB for an A/B ablation. Wall-time spread
+      across the four arms of the SAME layer:
+        victory 2000       3.28x
+        victory 10000      1.57x
+        victory 50000      1.35x
+        search_size 20000  1.13x   (180 194 205 200 s)
+      victory is an ADAPTIVE budget -- every improvement RESETS the counter, so
+      the arm that keeps getting lucky is searched LONGER. Unequal search effort
+      across arms is confounded with the hardware difference under test.
+      search_size fixes the evaluation count per thread. Conversions at the
+      measured 400k/thread/h: ss=276000 ~ victory 5000, ss=644000 ~ victory 10000.
+🐛    TIMELOOP BUG: `timeout: 0` does NOT disable the invalid-mapping criterion,
+      it makes it fire IMMEDIATELY. doc/mapper.md says "If this is set to 0,
+      invalid mappings are ignored". mapper-thread.cpp guards on the COUNTER, not
+      the setting:
+        if ((invalid_mappings_mapcnstr + invalid_mappings_eval) > 0 &&
+            (invalid_mappings_mapcnstr + invalid_mappings_eval) >= timeout_)
+      search_size_ and victory_condition_ both guard with `X_ > 0 &&`; this one
+      does not, so timeout_=0 terminates on the FIRST invalid mapping. Measured:
+      all 18 threads quit with "0 invalid mappings ...", job FAILED in 16 s.
+🐛    ECC_MAPPER_TIMEOUT IS ALGORITHM-DEPENDENT and fatal for systematic search.
+      Under random_pruned it NEVER fires -- every thread of every run terminates
+      by victory, so tuning it only invalidates caches. Under linear_pruned at the
+      default 2000 it fires immediately: the linear walk starts where 100% of the
+      first 36,000 mappings are INFEASIBLE (~44% fanout, ~56% capacity), so all 18
+      threads quit before finding ONE valid mapping and the job dies in 10 s.
+      linear_pruned needs ECC_MAPPER_TIMEOUT=100000000 to run at all.
+⚠️    THREADS NEVER SHARE A BEST-SO-FAR. sync_interval is unset and the sync is
+      guarded by `sync_interval_ > 0` (mapper-thread.cpp:489). The reported mapping
+      is the MIN OVER 18 INDEPENDENT searches, each stopping against its own local
+      best -- a high-variance estimator, and a candidate explanation for the
+      deterministic-but-chaotic sensitivity recorded 2026-09-09.
+⚠️    TWO KNOBS pytimeloop EXPOSES THAT env.sh DOES NOT. Verified in the emitted
+      parsed-processed-input.yaml of a real run:
+        max_temporal_loops_in_a_mapping: -1    (unlimited; criterion OFF)
+        filter_revisits:                 false
+      `max_temporal_loops_in_a_mapping` IS enforced for every algorithm
+      (mapper-thread.cpp:551-559, guarded `> 0`) and is a DIRECT mapspace-shrinking
+      lever -- the one knob that could make the gate passable without editing a
+      design YAML. `filter_revisits` is DEAD CONFIG here: only hybrid.cpp and
+      random.cpp read it; random-pruned.cpp and linear-pruned.cpp have ZERO
+      references. Wiring either up means touching config.py + timeloop.py, which
+      CLAUDE.md reserves -- NOT done.
+⚠️    COST-MODEL DRIFT CAUGHT. dilation now reports 198.70/201.90/204.01/209.19 uJ
+      at victory 10000 where 2026-09-09 recorded 251.0/254.2/256.4/261.5 -- a
+      CONSTANT -52.3 uJ from today's f_if removal. Refetch factors and fingerprints
+      are identical, so the MAPPINGS are unchanged; only the evaluator moved. A
+      residual computed across that change would be a cross-model comparison. Every
+      uJ above is re-read under the CURRENT model.
+➡️    RECOMMENDATION -- do NOT tune the budget, SHRINK THE MAPSPACE. The 7.4e10
+      factorizations come from 6 eligible temporal levels per dimension (C=462,
+      M=792, R=6, S=6, P=75, Q=75 options). Constraining the loop nest collapses
+      it, and exhaustive cost (factorizations x 16 permutations / 18 threads /
+      400k per thread-hour) becomes:
+        unconstrained (today)      7.41e10 IF -> 164,657 h/map   impossible
+        pin R,S to one level       2.06e9  IF ->   4,574 h/map   impossible
+        + P,Q across <=2 levels    1.32e7  IF ->      29 h/map   possible
+        + C,M across <=3 levels    3.63e4  IF ->    0.08 h/map   EXACT in 5 min
+      The last tier is EXACT and ~8x CHEAPER than victory-5000's 9-11%-wrong
+      answer. Run it with linear_pruned + ECC_MAPPER_TIMEOUT=100000000. A smaller
+      exactly-solved problem beats a larger approximately-solved one.
+✅    env.sh UPDATED (the only file changed): ECC_VICTORY 2000 -> 5000 per user
+      decision -- a development setting, ~2.3x cheaper than 10000 and no less
+      converged, NOT a publishable one. Everything else kept at its existing value
+      because the measurements endorsed it; what changed is the documentation,
+      including three factually wrong comments (linear runtime scaling, ~4e9
+      mapspace, and the unsound two-point convergence test).
+⚠️    CAVEAT: ONE design (weight-stationary), ONE layer, and the OLD depth-scaling
+      geometry. Convergence budget depends on MAPSPACE SIZE, so none of these
+      numbers transfer to Eyeriss v1 with the widened 256/1024-bit word geometry
+      the next phase uses. Treat them as an order-of-magnitude starting point and
+      RE-RUN the gate on the real configuration -- at the SMALLEST depth in the
+      sweep as well as the largest, since a budget that converges on a big buffer
+      may not on a small one.

@@ -4,10 +4,14 @@ The only place empirical claims about the current model live. Every number here
 says how it was produced. Whole-model unless a row says otherwise; two-layer
 development numbers validate the implementation and rank nothing.
 
-Full working detail — ablations, mutation-test tables, bring-up logs, superseded
-pre-NoC numbers — is archived in `legacy/FINDINGS_detail_2026-09-07.md`.
-Companions: `progress.txt`, `PROJECT_STATUS.md`. `legacy/FINDINGS.md` is
-pre-rewrite; do not quote it.
+**The live plan is `prompt_2.md`** (rewritten 2026-09-10). Where this file and
+that one differ on what to do NEXT, prompt_2.md wins; this file remains the
+record of what was MEASURED.
+
+Full working detail is archived in `legacy/FINDINGS_detail_2026-09-07.md` and
+`legacy/FINDINGS_detail_2026-09-10.md` (§7.1's R4b audit and §7.7's withdrawn
+first pass, both verbatim). Companions: `progress.txt`, `PROJECT_STATUS.md`.
+`legacy/FINDINGS.md` is pre-rewrite; do not quote it.
 
 ## Status
 
@@ -16,10 +20,11 @@ pre-rewrite; do not quote it.
 | 1 conventional ECC, external parity | ✅ whole model, 6 archs × 2 models, NoC costed |
 | 2 embedded ECC (DRAM effect only) | ✅ same 12 pairs, evaluation-only on Task 1 mappings |
 | 3 reconstruction placement | ✅ `eyeriss_v2_like` × resnet18 + mobilenet_v2, 5 boundaries |
-| 4 area / reconstruction-aware mapping | implemented; **196 EDP mappings, 5 designs, no clean capacity win — and the whole sweep ran at an UNCONVERGED search budget (§7.8), so its numbers are not quotable** — `weights held` is flat over ranges up to 32×, and four reported positives were artifacts (§7.8). The dataflow constraint, not the buffer size, is what costs DRAM weight traffic |
-| 5 placement study on other designs | not started; `eyeriss_v2_like_wglb` is refused until its GLB boundary exists |
-| convergence proof for the mapper search | ❌ **open, and it gates every ranking** (§2) |
-| the `_wglb` bracketing pair | ❌ unmeasured (§7) |
+| 4 reconstruction-aware mapping, by CAPACITY DILATION | ❌ **withdrawn.** 196 EDP mappings, 5 designs, no clean capacity win, and the whole sweep ran at an UNCONVERGED budget (§7.8) — not quotable. `weights held` flat to 32×; four reported positives were artifacts. Cause is arithmetic, not search: tiles are integers and the step is 2×, but N/K = 1.6154 (§7.8) |
+| 4′ same question, by `datawidth` | designed, unmeasured. VERIFIED that narrowing `datawidth` at fixed geometry gives more effective capacity at byte-identical per-access energy (§9.1). Plan and widths: `prompt_2.md` |
+| 5 placement study on other designs | not started; `eyeriss_v2_like_wglb` refused until its GLB boundary exists |
+| convergence proof for the mapper search | ❌ **open, and it gates every ranking** (§2). `ECC_VICTORY=4000` chosen 2026-09-10; gate not yet run at it |
+| Eyeriss v1 = `eyeriss_like_wglb` | DECIDED 2026-09-10, unmapped. Ends the v1 bracketing pair (§8.5); needs `WEIGHT_PATHS`/`PLACEMENTS` first |
 
 ## 1. The settings every number below was produced at
 
@@ -485,82 +490,27 @@ This paragraph used to describe a register holding *256 full-width weights,
 1.81× the baseline PE*, and that description is what made the whole result
 attackable — see §7.1.
 
-### 7.1 The R4b register audit — what it holds decides what it may be charged
+### 7.1 The R4b register audit — HISTORICAL, R4b removed 2026-09-10
 
-> **HISTORICAL, 2026-09-10: R4b is removed, so this audit no longer describes
-> anything the code does.** It is kept because its lesson generalises to any
-> future per-PE proposal: a register that serves the reads must remove them from
-> the level below, and one that only caches the regenerated bits must be read on
-> every delivery. The audit asked the right question and still got R4b wrong by
-> one step — it priced the register correctly but never checked whether the
-> mappings deliver any reuse for it to capture. They do not.
+> **This audit no longer describes anything the code does. Full text archived in
+> `legacy/FINDINGS_detail_2026-09-10.md`.**
 
-**Found 2026-09-08.** The model did two things that could not both be true:
+The lesson generalises to any future per-PE proposal, so it is worth the ten
+lines: a register that SERVES the reads must remove them from the level below,
+and one that only caches regenerated bits must be read on every delivery. The
+audit priced the register correctly and still got R4b wrong by one step — it
+never checked whether the mappings deliver any reuse for the register to
+capture. They do not: consecutive weight reuse is 1 on 20 of 21 resnet18 layers.
 
-1. `N_rec = fills` for R4b (2.78 M, not R4a's 230 M) **because** the register
-   retained what the encoder rebuilt and served 82.85 uses per reconstruction;
-2. the whole `weights_spad` term scaled by K/N — i.e. Timeloop's
-   **1,814,073,344** scalar reads, one per MAC, left intact, as if no register
-   were there.
+**Do not reintroduce a retained-reconstruction boundary without first
+re-measuring `consecutive_run` on the target mapping.**
 
-If the register serves 82.85 of every 82.85 uses, those uses do not read the
-scratchpad, and the K/N discount was being taken on traffic the same register
-had removed. That is not a rounding argument: **97.6% of the scratchpad's
-369.276 µJ is read energy** (604,691,115 word reads × 0.596239 pJ = 360.540 µJ
-against 8.735 µJ of fills; the design's own ERT reproduces Timeloop's total to
-0.000%). The old rule — "no operand-retention saving for anybody, because the
-same register would help a baseline PE too" — was a symmetric handicap papering
-over the gap, and it was load-bearing.
-
-**The fix: the register never needed to be full width.** Per `embedded.py`,
-`ParityOverwriteByTopWeightsEncode` overwrites the `n−k` lowest-significance
-bits of each 63-bit chunk of the weight bit stream with parity. On chip the
-reduced form keeps the `k` message bits; reconstruction regenerates those `n−k`
-bits and splices them back. So the register only has to cache the
-**complement** — `8 × (1 − K/N)` = 1.52 b/weight at BCH(63,51), 3.05 b at
-BCH(63,39) — not a whole weight. Then it *cannot* serve a read on its own, the
-scratchpad is still read once per MAC in reduced form, and the K/N discount on
-all 1.81 G reads is real rather than double-counted.
-
-`ECC_RECON_REUSE_REG_MODEL` makes all three accountings runnable
-(`recon.ReuseRegister`; R1–R4a have no register and do not move):
-
-| register model | R4b vs embedded | PE storage / weight | status |
-|---|---:|---:|---|
-| **`complement`** — holds the `n−k` regenerated bits, read in lockstep | **+1.297%** | **8.00 b (1.00×)** | **the default** |
-| `free` — writes charged, reads not, SPad reads intact | +1.362% | 14.48 b (1.81×) | pre-2026-09-08, inconsistent |
-| `full_width` — whole weights, serves the reads, priced at the ERT's cheapest per-PE register write (0.0328 pJ) | +6.131% | 14.48 b (1.81×) | the auditor's reading |
-| `full_width`, priced at `weights_spad`'s own read energy (0.1987 pJ/weight) | **−0.223%** | 14.48 b (1.81×) | the same reading, honestly priced |
-
-**Why `full_width` is not the answer even though it is internally consistent.**
-It reports what the same register gives a PE with **no ECC at all**
-(`what_the_same_register_gives_a_pe_with_no_ecc` in every result), and at
-0.0328 pJ that is +6.17% with reconstruction's own marginal value just +0.16% —
-which is the audit's conclusion, and it is an artifact of the price. A
-tile-sized register is 256 × 8 b = **2048 bits**; `weights_spad` is 96 × 24 b =
-**2304 bits**. They are the same array, so an access costs the same, and
-0.0328 pJ is the energy of `ifmap_spad`, a **192-bit** array — 10.7× smaller.
-Priced by its own size the register is worth **−0.11%**: nothing. You cannot
-beat a 288-entry register file by putting a 256-entry register file in front of
-it, because those 82.85 reads/fill are already served by the innermost level of
-the hierarchy — there is no untapped reuse for a second level to harvest. A free
-6% from a register nobody has built should have been checked, not concluded.
-
-Under `complement` the symmetry objection disappears rather than being managed:
-a baseline PE stores whole weights, has no missing bits, and there is nothing to
-hand it that would let it make the same saving. The register is genuinely an ECC
-component. `recon.py`'s `reuse_register_pj` docstring also used to call
-0.0328 pJ conservative "because a one-entry latch costs less than a 24-entry
-register file" — backwards, since R4b needs 16–256 entries. Corrected, and the
-sensitivity is now measured rather than asserted: pricing the complement
-register at `weights_spad`'s own access energy takes `complement` from +1.297%
-to **+0.900%** — a real dependence, but it never inverts the ordering, whereas
-the same repricing takes `full_width` from +6.13% to −0.22%.
-
-**Not modelled, and named rather than assumed away:** the splice. Weights
-straddle chunk boundaries (7 of 8 boundaries fall mid-weight, `embedded.py`), so
-serving a MAC read means a barrel shift and concat across a packed stream. Small
-next to a 0.596 pJ SRAM word access, not zero.
+One number from it did flip. Since the DRAM term stopped being split by `f_if`
+(2026-09-10, prompt_1.md), the claim that "most of what the full-width register
+buys is what the same register would buy a PE with no ECC" is **no longer true**:
+the register-alone saving is on-chip and unchanged at 466 µJ, while ECC's
+marginal DRAM component went 122 µJ → 1,526 µJ — a ratio 3.4× the other way. The
+test asserts the *separation* and reports the ratio rather than bounding it.
 
 ### Sensitivity — `vs embedded`, %, resnet18
 
@@ -1063,162 +1013,21 @@ on all 21 layers under both objectives. Its stationary register holds one
 weight and a rebuild needs nine. No mapping fixes that; only a wider register
 would, and the design declares `depth: 1`.
 
-### 7.7 Task 4 — capacity dilation: FIRST PASS WITHDRAWN, being re-run under EDP
+### 7.7 Task 4 first pass — WITHDRAWN 2026-09-09
 
-> **WITHDRAWN 2026-09-09, same day, before anything was quoted.** Everything
-> below was measured under `ECC_OPT_METRIC=energy`, and that objective
-> SERIALISES: it uses 4, 8 or 56 of Eyeriss v1's 168 PEs and 16 of weight
-> stationary's 256 depending on the capacity, because fewer active PEs is less
-> energy whatever it costs in latency. So the mappings being compared differ in
-> PE count by up to 14x while the capacity being tested differs by 17x, and the
-> capacity effect cannot be separated from the parallelism change. The
-> comparison is confounded and its conclusion does not stand.
->
-> `edp` is env.sh's default, is what `ReconSweep.png` and every Task 3 number
-> use, and penalises serialisation — so PE utilisation stays put and only the
-> capacity moves. The sweep was re-run under it and **§7.8 is the result** —
-> which withdrew two further positives of its own, for two different reasons. What survives from below
-> is the METHOD and the two arithmetic facts (the resident-weight shortfall and
-> the integer-tile step), not the measurements.
->
-> Also note `simple_weight_stationary` is not a sound test bed for this at all
-> until section 8's open defect is fixed: its mappings use 16 of 256 PEs
-> (6.25 %, meshX never used) on 11 of 12 shapes.
+> **Withdrawn the same day it was measured, before anything was quoted. Full
+> text archived in `legacy/FINDINGS_detail_2026-09-10.md`.**
 
-#### (superseded) DRAM weight traffic was flat in weight capacity over 13x, under the ENERGY objective
+Measured under `ECC_OPT_METRIC=energy`, which SERIALISES: it used 4, 8 or 56 of
+Eyeriss v1's 168 PEs depending on the capacity, because fewer active PEs is less
+energy whatever it costs in latency. The compared mappings differed in PE count
+by up to 14× while the capacity under test differed by 17×, so capacity and
+parallelism could not be separated.
 
-**The claim under test** (section 9 item 0, the user's framing of 2026-09-09).
-Under the reconstruction arm the on-chip weight representation is K/N = 0.619 of
-full width, so the same physical SRAM holds N/K = 1.6154x more weights. A larger
-weight tile should mean the reconstruction arm reloads weight tiles from DRAM
-fewer times, and a read it never issues removes the DRAM **array** energy as
-well as the interface energy — efficiency **1.0** per µJ against the
-`f_if x (1 - K/N)` = **0.152** a fixed mapping buys. Section 9 item 0 required
-this be measured before it was modelled.
-
-It was measured, and the right measurement is not the 1.6154x pair on its own.
-`ECC_WEIGHT_CAPACITY_SCALE` puts the room into the architecture the mapper
-actually sees, so the whole curve can be swept — and **DRAM weight traffic does
-not depend on weight capacity at all** over a 13x range. resnet18, energy
-objective, two layers, 128 mapping jobs:
-
-| weight capacity | `eyeriss_like` L2.0.c1 | `eyeriss_v2_like` L2.0.c1 | `simple_weight_stationary` L2.0.c1 | all three, L4.0.c2 |
-|---|---:|---:|---:|---:|
-| x0.125 | 589,824 | 294,912 | 73,728 | 2,359,296 |
-| x0.2019 | 589,824 | 294,912 | 73,728 | 2,359,296 |
-| x0.25 | **294,912** | 294,912 | 73,728 | 2,359,296 |
-| x0.4038 | **294,912** | 294,912 | 73,728 | 2,359,296 |
-| x0.5 | **294,912** | 294,912 | 73,728 | 2,359,296 |
-| x0.8077 | 589,824 | 294,912 | 73,728 | 2,359,296 |
-| x0.99 | 589,824 | 294,912 | 73,728 | 2,359,296 |
-| **x1.0 (declared)** | 589,824 | 294,912 | 73,728 | 2,359,296 |
-| **x1.6154 (= N/K)** | 589,824 | 294,912 | 73,728 | 2,359,296 |
-| x2.1 (= N/K at BCH(63,30)) | — | — | — | 2,359,296 |
-
-`eyeriss_v2_like` and `simple_weight_stationary` are **exactly flat at every
-capacity from x0.125 to x1.6154** — a 13x range, two layers, not one read
-different. `eyeriss_like` is two-valued, and the low value sits in the MIDDLE of
-the range (x0.25–x0.5) with x0.8077 and x1.6154 back at the high one. A quantity
-that is not monotone in capacity is not being set by capacity: that is the
-search landing in a different local optimum, worth exactly one factor-of-2 loop
-step. **A 1.6154x dilation cannot buy what 13x does not.**
-
-**The mechanism, read off the mappings.** A dilation enlarges the WEIGHT buffer.
-These mappings did not run out of weight room:
-
-| design | layer | fullest **weight** level | what is actually full |
-|---|---|---|---|
-| `eyeriss_like` | layer2.0.conv1 | `weights_spad` 21 % | `ifmap_spad` **100 %** |
-| `eyeriss_like` | layer4.0.conv2 | `weights_spad` 86 % | `ifmap_spad` **100 %** |
-| `eyeriss_v2_like` | layer2.0.conv1 | `weights_spad` 67 % | `ifmap_spad` **100 %** |
-| `simple_weight_stationary` | both | `operand_glb` 56 % | `output_activation_reg` **100 %** |
-| `eyeriss_like_wglb` | layer4.0.conv2 | `filter_glb` 75 % | `ifmap_spad` **100 %** |
-
-The single strongest row is `simple_weight_stationary`'s layer4.0.conv2 at
-x0.125, where `pe_spad` is at **100 %** — the weight buffer completely
-saturated, which is the one condition under which a dilation is supposed to
-pay. Enlarging it 48 -> 78 weights per PE cut **nothing**, because
-`output_activation_reg` is at 100 % too and it is the psum register that forces
-the tiling. A full weight buffer is not sufficient; it has to be the *only*
-full one.
-
-On `eyeriss_like`'s layer2.0.conv1 the refetch of 8 is `for Q in [0:2)` and
-`for P in [0:4)` sitting above the only weight-holding level, and at x1.0 vs
-x1.6154 the two loop nests are **byte-identical**. Those loops are there because
-the *input* path ran out of room. **This is the utilisation audit's own
-prediction, confirmed**: PROJECT_STATUS already recorded, the same day, that v1
-"refetches heavily **while holding capacity in reserve**", and that the full
-buffers hold activations and psums.
-
-**Three controls, so the flatness is not an artifact of how it was asked.**
-
-1. **The ERT bias removed.** Expressing the dilation as `depth x N/K` makes
-   Accelergy price a deeper array (1.18–1.46x per access here), giving an
-   energy-objective search a reason to avoid it. Under
-   `ECC_OPT_METRIC=last_level_accesses`, which minimises DRAM accesses and
-   ignores on-chip energy entirely, `eyeriss_like`'s weight spad comes back at
-   **1 % fill** (4 of 448) while `ifmap_glb` is at 78 %. Still flat.
-2. **A weight-only bracket widened.** `simple_weight_stationary`'s
-   `operand_glb` holds Inputs beside Weights, so `ECC_WEIGHT_CAPACITY_SCOPE=shared`
-   dilates it too — handing the mapper free INPUT capacity as well. At
-   x1.6154-shared its layer2.0.conv1 traffic **doubled**, 73,728 → 147,456.
-   More room, worse mapping: the same search variance, in the other direction.
-3. **Designs with a dedicated weight buffer.** `eyeriss_like_wglb`'s
-   `filter_glb` (8,192 weights, 75 % full) dilates to 13,232. Still flat.
-
-**The first-order model, and why it cannot hold.** `R_recon - 1 = (R_emb - 1) x K/N`
-assumes capacity is spendable continuously. Refetch is a product of **integer
-loop factors** — on layer2.0.conv1 it is exactly `Q(2) x P(4) = 8`, whose next
-value down is 4, needing **2x** the resident set. N/K = 1.6154 < 2, so a step is
-not even reachable at BCH(63,39), and BCH(63,30) is the only rate in the family
-that reaches N/K >= 2 (2.100).
-
-**That was tested, and it is NOT the limiter.** At x2.1 on `eyeriss_like`'s
-layer2.0.conv1 — capacity 448 -> 940 weights per PE, comfortably more than the
-factor of 2 a tile step needs — the refetch is still **8.000 -> 8.000**, zero
-reads cut, and the resident tile is still **96** weights. So the integer-tile
-argument is necessary but not sufficient: even a dilation big enough to cross a
-step cannot cross it while `ifmap_spad` is the level at 100 %. The wrong buffer
-is being enlarged, and no code rate fixes that.
-
-| code | K/N | N/K | can cross a factor-2 tile step? |
-|---|---:|---:|:--|
-| BCH(63,57) | 0.905 | 1.105 | no |
-| BCH(63,51) | 0.810 | 1.235 | no |
-| BCH(63,45) | 0.714 | 1.400 | no |
-| BCH(63,39) | 0.619 | 1.615 | no |
-| BCH(63,36) | 0.571 | 1.750 | no |
-| **BCH(63,30)** | **0.476** | **2.100** | **yes — and measured: still zero** |
-
-**What this does and does not say.** Task 3 stands unchanged and its savings are
-real (§7.5/§7.6). What is withdrawn is section 9 item 0's projected 13–26 %: the
-*capacity-dilation* mechanism does not operate on these five designs, because
-their mappings are not weight-capacity-limited. **The honest bound is that no
-capacity effect is resolvable above a search-variance floor of one factor-of-2
-loop step**, which is the same size as the effect being sought — so §2's open
-item ("prove the search converges") is now a precondition for Task 4, not a
-parallel concern.
-
-**29 comparisons, four designs, and every one reads zero** except a single
-negative (`eyeriss_like` x0.5, marked `<-NEG`, the dilated arm refetching 2x
-MORE) which is the same search variance in the other direction. The rows are
-`results/tables/dilation_energy.csv`; reproduce with `bash run.sh dilation`.
-
-**Every number here is a LOWER bound on three counts**, all recorded on the
-result files: the mapper optimised against an array priced 1.18–1.46x dearer per
-access; Timeloop derives the NoC hop length from that level's Accelergy area
-wherever `noc.yaml` pins no `tile_width_um`, so the wires into it lengthened too
-(0.17 pp, not corrected); and the search is stochastic, as the non-monotone
-column above shows directly.
-
-**The implementation is complete and correct**, which is what makes a flat
-result trustworthy rather than a bug: with `RECON_OPTIMIZER=True ECC_PHASE=Post`
-the reconstruction bars are re-derived from a second mapping, and where that
-mapping comes back byte-identical the run reproduces Task 3 **to the digit**
-(R1 6.31 %, R2 6.30 %, R3 6.96 %, R4a −7.57 %, R4b 12.86 % on the two-layer
-scope, in both). `test_an_identical_loop_nest_means_an_identical_dram_read_count`
-holds that property against every cached capacity pair. See CLAUDE.md for the
-three artifacts of expressing capacity as depth and what is done about each.
+**The lesson that survives, and it is now a standing rule:** never run a capacity
+comparison under `energy`. `edp` penalises serialisation and is env.sh's default.
+The sweep was re-run under it — §7.8 is that result, and it withdrew two further
+positives of its own for two more reasons.
 
 ### 7.8 Task 4 under EDP — the two positives were artifacts, and refetch is a loop-ORDER property
 
@@ -1678,28 +1487,35 @@ the one that would be misreported.
    cache the on-chip share was `219.718 / (4798.375 − 1433.441)` = **6.53%,
    inside the published band**. `baseline.py` (frozen) still reports the
    DRAM-inclusive share.
-3. *(superseded 2026-09-09 by §7.2: the DRAM term is now split by f_if and the interface share is credited.)* **The memory-controller-to-accelerator link is not modelled at all** and the
-   886 µJ DRAM term cannot be split to expose it: Accelergy's `CactiDRAM` is a
-   flat 8 pJ/bit LPDDR4 constant using only `(type, width)`, with no array/IO
-   decomposition to peel off, and Timeloop charges the DRAM↔chip network zero.
-   If it were separable, a 10/25/50% link fraction would lift the Task 3 ceiling
-   from 1.62% to 1.97/2.50/3.38%. **No boundary in this study would claim it
-   anyway** — R1–R4b all sit downstream; correcting at the memory controller is a
-   sixth boundary with a different partitioning assumption, and a constant offset
-   on every bar. Task 5 material.
+3. **The memory-controller-to-accelerator link is not modelled at all.** *(Note
+   2026-09-10: this entry previously carried a "superseded by §7.2, the DRAM term
+   is now split by `f_if`" caveat. That caveat is itself dead — `f_if` was REMOVED
+   2026-09-10 and the WHOLE DRAM term now scales by K/N. See prompt_1.md.)*
+   Accelergy's `CactiDRAM` is a flat per-bit LPDDR4 constant using only
+   `(type, width)`, with no array/IO decomposition to peel off, and Timeloop
+   charges the DRAM↔chip network zero, so the link cannot be exposed. **No
+   boundary in this study would claim it anyway** — correcting at the memory
+   controller is a different partitioning assumption and a constant offset on
+   every bar. Task 5 material.
 4. **The weight NoC is not under-counted in any way that matters.** Weight
    ingresses at the mesh equal the DRAM weight reads exactly (13,849,792 — the
    floor), with multicast factors of 1, 2 or 4 across the 12 shapes, so there is
    no scatter error; and the weight share of the NoC is 0.79% of the run, so
    scaling the whole NoC to the top of the published band moves the Task 3 ceiling
    only from 1.616% to 1.711%. The NoC is not why the placement figure looks flat.
-5. **No Eyeriss bracketing pair has been measured.** Neither `_wglb` design is in
-   any sweep, so every Eyeriss number above is one choice of bound, and
-   `eyeriss_v2_like_wglb` is the only way to measure a global-buffer boundary at
-   all (the GLB category is 8.19% of the run). Budget **2.5–4 h wall / 45–70
-   core-hours for resnet18 alone** — a lower bound, since it adds a storage level
-   and `levels` scaling raises the search budget with nest depth. It is a cold
-   run and needs an explicit go-ahead.
+5. **`eyeriss_like_wglb` is unmapped, and it is now the Eyeriss v1 baseline.**
+   DECIDED 2026-09-10 (prompt_2.md): the `_wglb` file is the correct Eyeriss v1 —
+   JSSC 2017 publishes the 8 kB filter GLB — and `eyeriss_like` (which declares
+   `!Nothing` in its place) is retired. **This ends the bracketing-pair doctrine
+   for v1**; `BRACKET_PAIRS` in `config.py` must be retired with it. Blocking:
+   `eyeriss_like_wglb` has NO entry in `recon.py`'s `WEIGHT_PATHS` or
+   `PLACEMENTS`, and `weight_path()` refuses when a weight-carrying level goes
+   unclaimed — so `filter_glb` needs a GLB `Stage` and a boundary before anything
+   evaluates. Every fingerprint changes, so the whole `eyeriss_like` cache
+   (64 variant dirs) goes cold. Budget **2.5–4 h wall / 45–70 core-hours for
+   resnet18 alone**, a lower bound since it adds a storage level and `levels`
+   scaling raises the search budget with nest depth. The asymmetry survives for
+   v2 only: `eyeriss_v2_like_wglb`'s extra weight level is NOT in its paper.
 6. **Register writes were free in every design** until 2026-09-08 (Aladdin
    `aladdin_register.csv`: write 0 pJ). Fixed in `regfile_decoded.yaml` /
    `register_rw.yaml` (§4.1); the size of the correction is unmeasured until the
@@ -1747,6 +1563,161 @@ the one that would be misreported.
     benchmark is MobileNet v1, where utilisation, not energy per access, is what
     v2 fixed.
 
+#### The convergence gate FAILS — no affordable budget converges, and the residual exceeds the effect
+
+**Measured 2026-09-10.** 24 mapping jobs, `simple_weight_stationary`,
+`layer2.0.conv1`, `scope=shared`, `ECC_OPT_METRIC=edp`, 18 threads, capacities
+{0.5, 0.75, 0.8077, 1.2115}. All completed; none was cancelled.
+
+> **Cost-model drift, caught before it corrupted the comparison.** `dilation`
+> now reports 198.70/201.90/204.01/209.19 µJ at victory 10000 where §7.8's
+> 2026-09-09 pass recorded 251.0/254.2/256.4/261.5 — a **constant −52.3 µJ**
+> from today's `f_if` removal. Refetch factors and fingerprints are identical,
+> so the *mappings* are unchanged and only the evaluator moved. Every µJ below
+> is re-read under the **current** model; mixing the two would repeat the
+> cross-fingerprint error this section already documents.
+
+| victory | wall/map | ×0.5 | ×0.75 | ×0.8077 | ×1.2115 | max residual |
+|---:|---:|---:|---:|---:|---:|---:|
+| 2 000 | 0.15 h | 220.87 | 228.08 | 211.74 | 224.35 | — |
+| 5 000 | 0.69 h | 218.44 | 201.90 | 204.01 | 209.19 | 11.48 % |
+| 10 000 | 1.61 h | 198.70 | 201.90 | 204.01 | 209.19 | 9.04 % |
+| 20 000 | 2.77 h | 198.70 | 162.88 | 164.17 | 174.97 | **19.53 %** |
+| 50 000 | 7.20 h | 177.40 | 162.88 | 164.17 | 163.51 | 10.72 % |
+
+**The minimum residual anywhere in that chain is 9.04 %, and it does not shrink
+with budget.** The gate requires < 2 %. The ECC effect this study claims is
+2–12 %. **The search noise is larger than the signal**, so no ECC conclusion
+survives at any of these budgets — the rule that "the residual must be smaller
+than the ECC effect being claimed" is not met, and cannot be met by spending
+more.
+
+#### The conclusion inverts with the budget
+
+Which arm shows a capacity win changes *identity*:
+
+| victory | ×0.8077 | ×1.2115 |
+|---:|---|---|
+| 2 000 | flat +0.81 % | **capacity +6.99 %** |
+| 5 000 | reads-rose −2.06 % | **capacity +15.80 %** |
+| 10 000 | reads-rose −7.01 % | **capacity +15.80 %** |
+| 20 000 | **capacity +3.28 %** | flat +1.10 % |
+| 50 000 | **capacity +16.97 %** | flat +1.10 % |
+
+At victory 10000 the win is ×1.2115 at +15.80 %; at 20000 that arm is *flat* and
+the win has moved to ×0.8077 — whose own claimed effect then runs +3.28 % →
++16.97 % between 20000 and 50000. **The search budget, not the silicon, decides
+the answer.**
+
+#### A two-point agreement test is unsound — and this file used to recommend one
+
+env.sh advised "run at two values and check the totals do not move".
+`random_pruned` is **deterministic** (fixed thread count ⇒ same sequence), so a
+larger budget walks the *same* sequence further: it **plateaus, then jumps**. On
+×0.5, victory 10000 and 20000 return a **bit-identical 198.70 µJ** — "converged"
+by that test — and 50000 then moves it to 177.40 (10.7 %). Only a bound on the
+**unsearched** mapspace proves anything. The advice has been removed from env.sh.
+
+#### Why no budget can work: it is a MAPSPACE problem
+
+The mapper reports its own mapspace for this one layer:
+
+```
+Mapspace Dimension [IndexFactorization] Size: 74,095,560,000
+Mapspace Dimension [LoopPermutation]   Size:  8,957,952,000     -> ~6.6e20
+```
+
+At a **measured 400,000 valid mappings per thread per hour**, coverage of *one*
+thread's 4.12e9-factorization subspace is 0.0067 % at victory 5000, 0.0156 % at
+10000 and **0.0700 % at 50000** — ignoring the permutation dimension entirely.
+Single coverage of one thread's factorizations needs ~1500× victory-50000.
+
+Runtime is **not** linear (env.sh's old claim) and **not** a single power law:
+super-linear early, roughly linear past 10000 — steps of 4.6×, 2.3×, 1.7×, 2.5×
+for budget steps of 2.5×, 2×, 2×, 2.5×. A fit to the 2000→10000 points
+(t ∝ victory^1.47) predicts 17 h/map at 50000; measured **7.20 h**. The planned
+"50000 does not complete in 8 h/map" fallback would therefore have been **false**
+— per-arm walls were 6.03/7.08/7.57/8.14 h, expensive but practical.
+
+#### Mapper knobs, measured rather than assumed
+
+| algorithm @ victory 10000 | mean wall/map | mean pJ/MAC |
+|---|---:|---:|
+| **`random_pruned`** | 1.61 h | **4.425** |
+| `hybrid` | 2.22 h | 7.211 |
+| `linear_pruned` (timeout 1e8) | 0.12 h | 6.539 |
+
+`random_pruned` wins on every arm; env.sh's choice is vindicated. `hybrid` walks
+every pruned permutation of *one* factorization before moving on, and with 9.0e9
+permutations available it barely advances through factorizations at all — so
+despite §7.8's finding that refetch is a loop-**order** property, the
+permutation-heavy algorithm is the wrong one. `linear_pruned` sticks in a biased
+prefix.
+
+**`search_size` is the fairer budget knob for an A/B ablation.** Wall-time spread
+across the four arms of the same layer: victory 2000 **3.28×**, victory 10000
+**1.57×**, victory 50000 **1.35×**, `search_size` 20000 **1.13×**. `victory` is
+an *adaptive* budget — every improvement resets the counter, so the arm that
+keeps getting lucky is searched **longer**, and unequal search effort is
+confounded with the hardware difference under test. At the measured throughput,
+`search_size=276000` ≈ victory 5000 and `search_size=644000` ≈ victory 10000.
+
+Two Timeloop defects worth recording:
+
+1. **`timeout: 0` does not disable the criterion — it makes it fire immediately.**
+   `doc/mapper.md` says invalid mappings are then "ignored"; `mapper-thread.cpp`
+   guards on the **counter**, not the setting:
+   ```cpp
+   if ((invalid_mappings_mapcnstr + invalid_mappings_eval) > 0 &&
+       (invalid_mappings_mapcnstr + invalid_mappings_eval) >= timeout_)
+   ```
+   `search_size_` and `victory_condition_` both guard with `X_ > 0 &&`; this one
+   does not. Measured: all 18 threads quit with "0 invalid mappings …", job
+   failed in 16 s.
+2. **`ECC_MAPPER_TIMEOUT` is algorithm-dependent.** Under `random_pruned` it
+   never fires (every thread terminates by victory). Under `linear_pruned` at the
+   default 2000 it is fatal: the linear walk begins where **100 % of the first
+   36,000 mappings are infeasible** (~44 % fanout, ~56 % capacity), so all 18
+   threads quit before finding one valid mapping and the job dies in 10 s.
+
+Also unset: `sync_interval` is null and the sync is guarded by
+`sync_interval_ > 0` (`mapper-thread.cpp:489`), so the 18 threads **never share a
+best-so-far**. The reported mapping is the min over 18 *independent* searches,
+each stopping against its own local best — a candidate explanation for the
+deterministic-but-chaotic sensitivity recorded 2026-09-09. And two knobs
+pytimeloop exposes that env.sh does not:
+`max_temporal_loops_in_a_mapping: -1` (enforced for every algorithm,
+`mapper-thread.cpp:551-559` — a direct mapspace lever) and
+`filter_revisits: false` (**dead config** here: only `hybrid.cpp` and
+`random.cpp` read it).
+
+#### What to do instead: shrink the mapspace, don't grow the budget
+
+The 7.4e10 factorizations come from 6 eligible temporal levels per dimension
+(C=462, M=792, R=6, S=6, P=75, Q=75 options). Constraining the loop nest
+collapses it; exhaustive cost is (factorizations × 16 permutations) / 18 threads
+/ 400 k per thread-hour:
+
+| constraint | factorizations | exhaustive h/map |
+|---|---:|---:|
+| unconstrained (today) | 7.41e10 | 164,657 |
+| pin R,S to one level | 2.06e9 | 4,574 |
+| + P,Q across ≤ 2 levels | 1.32e7 | 29 |
+| **+ C,M across ≤ 3 levels** | **3.63e4** | **0.08** |
+
+The last tier is **exact** and ~8× cheaper than victory-5000's 9–11 %-wrong
+answer — run it with `linear_pruned` and `ECC_MAPPER_TIMEOUT=100000000`. **A
+smaller exactly-solved problem beats a larger approximately-solved one for an
+ablation.** This is the only path that makes the gate passable.
+
+**Caveat.** One design (weight-stationary), one layer, and the old depth-scaling
+geometry. Convergence budget depends on mapspace size, so none of these numbers
+transfer to Eyeriss v1 with the widened 256/1024-bit word geometry the next phase
+uses. Treat them as an order-of-magnitude starting point and **re-run the gate on
+the real configuration — at the smallest depth in the sweep as well as the
+largest**, since a budget that converges on a big buffer may not on a small one.
+
+
 ### 8.x Resolving a mapper-cache path used to CREATE it — fixed in code, residue left on disk
 
 `paths.Results.mapper_cache()` ended with an unconditional
@@ -1772,64 +1743,53 @@ when the queue is idle, if the tidiness is wanted.
 
 ## 9. Next, in order
 
-0. ~~**Task 4's real mechanism: CAPACITY DILATION and DIFFERENTIAL REFETCH.**~~
-   **DONE AND ANSWERED NEGATIVELY — see §7.7 (2026-09-09).** The mechanism was
-   built (`ECC_WEIGHT_CAPACITY_SCALE`, `RECON_OPTIMIZER=True`) and the
-   assumption this item insisted be validated first was validated: it does not
-   hold on any of the five designs. The mapper returns a byte-identical loop
-   nest, because the weight buffer is not what these mappings run out of — the
-   activation path is. **The projected table below is withdrawn**; it is kept
-   only so §7.7 can be read against what it predicted. The original text
-   follows.
+**The live plan is `prompt_2.md`.** It supersedes this list wherever they differ;
+this section is the short form and the ordering constraint.
 
-   The user's framing, 2026-09-09, and it is not what §7.5/§7.6 measure. Under the
-   reconstruction arm the on-chip weight representation is K/N = 0.619 of full
-   width, so the same physical buffer holds **N/K = 1.615× more weights**
-   (`eyeriss_like` 75,264 → 121,580; `simple_weight_stationary` 164,096 →
-   265,078). A larger effective tile means the reconstruction arm **reloads
-   weight tiles from DRAM fewer times than the embedded reference**, and a read
-   it never issues removes the DRAM **array** energy as well as the interface
-   energy — saving efficiency **1.0 per µJ**, against the 0.152 that
-   `f_if × (1 − K/N)` buys under a fixed mapping. Task 3 cannot show this at
-   all: `RECON_OPTIMIZER=False` pins one mapping on every arm, so both arms
-   refetch identically by construction.
+0. ~~**Task 4 by capacity dilation** (`ECC_WEIGHT_CAPACITY_SCALE × N/K`)~~ —
+   **ANSWERED NEGATIVELY, §7.7 and §7.8.** `weights held` never moved over ranges
+   up to 32×, and the reason is arithmetic rather than search: the resident tile
+   is an integer, growing a level's share of `C` is a **2× step**, and N/K =
+   1.6154 delivers 117 weights/PE against the 128 needed. The withdrawn
+   projection table that used to sit here is archived in
+   `legacy/FINDINGS_detail_2026-09-10.md`; it was built on
+   `f_if × (1 − K/N) = 0.152`, and `f_if` no longer exists.
 
-   Consequence: **shrinking SRAM and reconstruction-aware mapping are
-   multiplicative, not independent.** Under the fixed mapping, smaller buffers
-   are flat to slightly negative (§7.6's efficiency argument). With a
-   reconstruction-aware mapping, refetch is what *creates* the differential.
-   First-order model, assuming excess refetch scales inversely with capacity so
-   `R_recon − 1 = (R_emb − 1) × K/N`, for R4b vs embedded:
+1. **The `datawidth` route, which replaces dilation.** VERIFIED 2026-09-10: CACTI
+   receives `depth` and `width` only — `datawidth` never reaches the energy model
+   (`accelergy.log`, `Calculated storage."width" as "width"`) — and Timeloop bills
+   `vector_access_energy / block_size` per weight. So narrowing `datawidth` at
+   FIXED geometry gives the reconstruction arm more effective capacity at
+   **byte-identical** per-access energy. That is the fairness condition dilation
+   could never meet. **Hard constraint: `width % datawidth == 0` or
+   `timeloop-mapper` aborts** (`buffer.cpp:302`, measured — there is no floor
+   path). Widths and codes are tabulated in prompt_2.md.
 
-   | embedded refetch | `eyeriss_like` | `simple_weight_stationary` |
-   |---|---:|---:|
-   | today (1.278 / 1.068) | 11.38 % → 13.32 % | 5.42 % → 5.68 % |
-   | 2.0 | → 17.85 % | → 9.75 % |
-   | 4.0 | → 25.77 % | → 16.20 % |
+2. **Prove the search converges** (§2). Still open and still gates every ranking.
+   Measured 2026-09-10: victory 10000 on ONE layer is 1h13m–1h34m wall at 18
+   threads; victory 50000 is **6h02m–8h09m** (jobs 41582127-30, COMPLETED).
+   `ECC_VICTORY=4000` is the chosen budget — the gate must be run AT 4000, not
+   assumed. **The victory-50000 caches exist and are unread**
+   (`results/_raw/simple_weight_stationary/vic50000__*`, 4 scales); they are the
+   third point of the 2000/10000/50000 curve.
 
-   §7.6's 15.2 % asymptote does **not** bind here — this one tends toward
-   47.5 %, because the array share is avoided rather than merely narrowed.
+3. **Register `eyeriss_like_wglb`** in `WEIGHT_PATHS` and `PLACEMENTS` (§8.5). It
+   is now the Eyeriss v1 baseline and nothing evaluates until `filter_glb` has a
+   stage and a boundary.
 
-   **Validate the assumption before building anything.** Real tiles are
-   integers, so 1.615× capacity may buy a whole extra tile on some layers and
-   nothing on others, and the whole table scales with that one number. It needs
-   no new modelling code: map each design twice, once at declared weight
-   capacity and once at capacity × N/K, and diff the per-layer DRAM weight
-   reads. Two mapping waves. Then implement Task 4 properly — and keep
-   `RECON_OPTIMIZER=True`'s refusal, so fixed-mapping numbers can never appear
-   under a heading claiming the mapping was optimised. Mind `G_rec`: a
-   PE-local boundary needs 9 co-resident weights and `eyeriss_like`'s binding
-   layer holds 20 today, so a shrink can re-break R4a/R4b.
+4. **Settle the double-counting** before the first evaluation. `recon.py`'s
+   default `stream` packing scales reduced stages by K/N; the mapper-side
+   `datawidth` now delivers that same on-chip saving inside the Timeloop number.
+   `ECC_RECON_PACKING=aligned` is the resolution — its docstring already
+   describes this model and moves no SRAM access count. DRAM `datawidth` stays 8
+   on every arm; `recon.py` keeps the DRAM K/N.
 
-1. **Prove the search converges** (§2). Nothing else is worth doing at scale
-   first, because every ranking depends on it.
-2. Fix defect 1 and check defect 2's denominator **in the same cold mapping
+5. Fix defect 1 and check defect 2's denominator **in the same cold mapping
    pass**, since both change the fingerprint. Re-run Tasks 1–3 from it.
-3. Map the `_wglb` pair (§8.5) — the Eyeriss bracket and the only global-buffer
-   boundary.
-4. Task 5: `WEIGHT_PATHS` + `PLACEMENTS` for the remaining designs, starting with
-   the GLB boundary that `eyeriss_v2_like_wglb` is refused for.
-5. Widen to the six unmapped models only once the above holds.
+
+6. Task 5: `WEIGHT_PATHS` + `PLACEMENTS` for the remaining designs.
+
+7. Widen to the six unmapped models only once the above holds.
 
 ## Reproducing any of it
 
