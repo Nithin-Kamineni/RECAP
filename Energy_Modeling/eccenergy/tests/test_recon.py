@@ -783,12 +783,19 @@ def test_the_dram_cost_knobs_are_validated_and_titled():
     assert c.dram_background_pj == 0.0 and c.dram_refresh_pj == 0.0
     assert "not modelled" in c.dram_static_note.lower()
 
-    # the title carries the decode site and the per-bit cost, so a figure
-    # cannot be quoted without them
-    t = _cfg().recon_title()
+    # the manifest's `title_caveats` carry the decode site and the per-bit
+    # cost, so a figure cannot be quoted without them; the heading itself is
+    # ONE line since 2026-09-11 and names the fixed point and the layer scope
+    c = _cfg()
+    assert "\n" not in c.recon_title(), c.recon_title()
+    t = "\n".join(c.recon_caveats())
     assert "DRAM die" in t, t
-    t = _cfg(ECC_RECON_DECODE_SITE="controller").recon_title()
+    t = "\n".join(_cfg(ECC_RECON_DECODE_SITE="controller").recon_caveats())
     assert "controller" in t.lower() and "pre-2026-09-09" in t, t
+    one = _cfg(ECC_LAYERS="layer3.0.conv1")
+    assert "layer3.0.conv1" in one.recon_title() and "\n" not in one.recon_title()
+    assert any("DEVELOPMENT RUN" in ln for ln in one.recon_caveats())
+    assert not any("DEVELOPMENT RUN" in ln for ln in c.recon_caveats())
 
 
 def test_the_dram_level_is_claimed_exactly_once_in_total():
@@ -2121,6 +2128,471 @@ def test_an_identical_loop_nest_means_an_identical_dram_read_count():
                     "hpc/map_capacity_sweep.sh")
     print(f"        ({identical}/{checked} shapes over {pairs} capacity pair(s) "
           f"came back byte-identical)", end="")
+
+
+# ---------------------------------------------------------------------------
+#  prompt_6 -- ERT arms (phase 3)
+# ---------------------------------------------------------------------------
+#: What prompt_6 3.3's DERIVED rule yields on every registered design. A new
+#: architecture cannot silently get zero arms or the wrong ones: add it here.
+#: Note simple_weight_stationary: THREE arms, not the two Appendix B guesses --
+#: `weight_reg` is a storage stage below `pe_spad`, so `pe_spad` reads
+#: (recon4) are not the innermost level's reads and the mapping CAN move them.
+_EXPECTED_ERT_ARMS = {
+    "eyeriss_like_wglb": ("recon2", "recon4"),
+    "eyeriss_like": ("recon3",),
+    "eyeriss_v2_like": ("recon3",),
+    "eyeriss_v2_like_wglb": ("recon3",),
+    "simple_weight_stationary": ("recon2", "recon3", "recon4"),
+}
+
+
+def test_the_ert_injectable_predicate_on_every_registered_design():
+    """prompt_6 3.3, on every design in `recon.PLACEMENTS`: the derived set,
+    and the stated reason for every excluded bar."""
+    from eccenergy import recon
+    assert set(_EXPECTED_ERT_ARMS) == set(recon.PLACEMENTS), (
+        f"a design was registered without an expectation here: "
+        f"{set(recon.PLACEMENTS) ^ set(_EXPECTED_ERT_ARMS)}")
+    for arch, want in _EXPECTED_ERT_ARMS.items():
+        got = tuple(p.key for p in recon.ert_arms(arch))
+        assert got == want, f"{arch}: ERT arms {got} != {want}"
+        stages = recon.stages_for(arch)
+        for p in recon.placements_for(arch):
+            ok, why = recon.ert_injectable(p, stages)
+            assert ok == (p.key in want), (arch, p.key, why)
+            if not ok:
+                assert any(w in why for w in ("dram stage", "network stage",
+                                              "innermost weight level")), why
+    # Eyeriss v1: recon2 is filter_glb + reads -> read, recon4 is weights_spad
+    # + fills -> write, and BOTH narrow only filter_glb (the weights stop AT
+    # the boundary; weights_spad stays 8 on recon4).
+    r2 = recon.ert_arm_spec("eyeriss_like_wglb", "recon2")
+    r4 = recon.ert_arm_spec("eyeriss_like_wglb", "recon4")
+    assert (r2["level"], r2["counter"], r2["action"]) == ("filter_glb", "reads", "read"), r2
+    assert (r4["level"], r4["counter"], r4["action"]) == ("weights_spad", "fills", "write"), r4
+    assert r2["narrow_levels"] == ("filter_glb",), r2["narrow_levels"]
+    assert r4["narrow_levels"] == ("filter_glb",), r4["narrow_levels"]
+    # not an arm: a clear refusal naming the reason, never a silent None
+    for key in ("recon1", "recon3", "recon5"):
+        try:
+            recon.ert_arm_spec("eyeriss_like_wglb", key)
+        except ValueError as e:
+            assert "not an ERT arm" in str(e), e
+        else:
+            raise AssertionError(f"{key} was accepted as an ERT arm")
+    try:
+        recon.ert_arm_spec("eyeriss_like_wglb", "recon9")
+    except KeyError:
+        pass
+    else:
+        raise AssertionError("an unknown key was accepted")
+
+
+def test_the_predicate_is_derived_not_keyed_on_the_name():
+    """MUTATIONS: the same key with a different record flips the verdict, so
+    nothing can be reading `key == "recon2"`."""
+    import dataclasses
+    from eccenergy import recon
+    stages = recon.stages_for("eyeriss_like_wglb")
+    r2 = recon.placement_by_key("eyeriss_like_wglb", "recon2")
+    assert recon.ert_injectable(r2, stages)[0]
+    # a storage stage charged on a NETWORK counter names no ERT action
+    assert not recon.ert_injectable(dataclasses.replace(r2, site_counter="deliveries"), stages)[0]
+    # the same boundary sited on the network stage is billed by noc.yaml
+    assert not recon.ert_injectable(dataclasses.replace(r2, site_stage="array_multicast"), stages)[0]
+    # moved to the innermost level's READS it is mapping-invariant ...
+    assert not recon.ert_injectable(dataclasses.replace(
+        r2, site_stage="weights_spad", site_counter="reads"), stages)[0]
+    # ... but the innermost level's FILLS are fine (that IS recon4)
+    assert recon.ert_injectable(dataclasses.replace(
+        r2, site_stage="weights_spad", site_counter="fills"), stages)[0]
+    # and a stage that is not on the path at all
+    assert not recon.ert_injectable(dataclasses.replace(r2, site_stage="nowhere"), stages)[0]
+
+
+def test_the_ert_deltas_reproduce_prompt_6_table_5_1():
+    """`delta = E_w x block_size` on the access action, `idle_per_cycle` on
+    leak, E_w = incremental / weights_per_codeword. At BCH(63,30) over 8-bit
+    weights: E_w = 1.3786 / 7.875 = 0.175060; filter_glb (64/4 = 16 per word)
+    2.80096; weights_spad (16/8 = 2) 0.350120; leak 2.8310811. The table in the
+    plan is the CHECK; these are recomputed from the DC numbers."""
+    from eccenergy import recon
+    gran = recon.Granularity(63, 30, 8, "weight")
+    assert abs(gran.weights_per_codeword - 7.875) < 1e-12
+    d16 = recon.ert_deltas(1.3786, 2.8310811, gran, 16)
+    d2 = recon.ert_deltas(1.3786, 2.8310811, gran, 2)
+    assert abs(d16["e_w_pj"] - 0.175060) < 1e-6, d16["e_w_pj"]
+    assert abs(d16["access_delta_pj"] - 2.80096) < 1e-5, d16["access_delta_pj"]
+    assert abs(d2["access_delta_pj"] - 0.350120) < 1e-6, d2["access_delta_pj"]
+    assert d16["leak_delta_pj"] == d2["leak_delta_pj"] == 2.8310811
+    assert d16["access_delta_pj"] / d2["access_delta_pj"] == 8.0
+    # codeword charging: every access rebuilds a whole codeword, E_w = incremental
+    dc = recon.ert_deltas(1.3786, 2.8310811, recon.Granularity(63, 30, 8, "codeword"), 16)
+    assert abs(dc["e_w_pj"] - 1.3786) < 1e-12 and abs(dc["access_delta_pj"] - 1.3786 * 16) < 1e-9
+    # BREAKAGE: a block size of 0 or None is undefined, never a silent 0 pJ
+    for bad in (0, None):
+        try:
+            recon.ert_deltas(1.3786, 2.8310811, gran, bad)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"block_size={bad!r} was accepted")
+
+
+# ---------------------------------------------------------------------------
+#  prompt_6 RULE 1 -- one owner per narrow stop, decided by measured Word bits
+# ---------------------------------------------------------------------------
+def test_storage_scale_bypasses_a_level_the_mapper_already_narrowed():
+    """RULE 1 on `Packing`: Word bits == q -> the mapper owns it, scale 1.0;
+    Word bits == weight_bits -> the evaluator narrows as before; anything else
+    -> STOP. No `word_bits` keeps the pre-prompt_6 reading."""
+    from eccenergy.recon import Packing
+    for mode in ("aligned", "stream"):
+        p = Packing(mode, 8, 30, 63)          # q = round(8*30/63) = 4
+        assert p.declared_q == 4
+        legacy = p.storage_scale(64)
+        assert legacy < 1.0, (mode, legacy)  # both modes narrow a 64-bit word at q=4
+        assert p.storage_scale(64, word_bits=8) == legacy
+        assert p.storage_scale(64, word_bits=None) == legacy
+        assert p.storage_scale(64, word_bits=4) == 1.0, "the mapper narrowed it; applying Packing squares the saving"
+        assert p.storage_scale(16, word_bits=4) == 1.0
+        assert p.narrowing_owner(4) == "mapper" and p.narrowing_owner(8) == "evaluator"
+        assert p.narrowing_owner(None) == "evaluator"
+        for bad in (5, 7, 16):
+            try:
+                p.narrowing_owner(bad)
+            except ValueError as e:
+                assert "disagree" in str(e), e
+            else:
+                raise AssertionError(f"Word bits {bad} was given an owner at q=4")
+    # at a code where q equals the weight width there is nothing to narrow, and
+    # Word bits 8 is the evaluator's stop, not the mapper's
+    p8 = Packing("aligned", 8, 57, 63)        # q = 7; a plan at 8 is 8-bit
+    assert p8.narrowing_owner(8) == "evaluator" and p8.narrowing_owner(7) == "mapper"
+
+
+def test_the_narrowing_site_audit_fails_on_both_live_and_on_nobody_live():
+    """The per-stop audit row, fed the scale the evaluator ACTUALLY applied.
+    BREAKAGES: a q-bit plan with a scale != 1 applied (both live) and an 8-bit
+    plan with x1.0 applied on a stop the placement narrows (nobody live)."""
+    from eccenergy.recon import Packing
+    p = Packing("aligned", 8, 30, 63)
+    ok_m = p.narrowing_site(4, 1.0)
+    assert ok_m["ok"] and ok_m["owner"] == "mapper" and not ok_m["evaluator_live"], ok_m
+    ok_e = p.narrowing_site(8, 0.5)
+    assert ok_e["ok"] and ok_e["owner"] == "evaluator" and not ok_e["mapper_live"], ok_e
+    both = p.narrowing_site(4, 0.5)
+    assert not both["ok"] and both["owner"] == "BOTH" and "SQUARED" in both["problem"], both
+    nobody = p.narrowing_site(8, 1.0)
+    assert not nobody["ok"] and nobody["owner"] == "NOBODY" and "NOBODY" in nobody["problem"], nobody
+
+
+def _stats_with_word_bits(word_bits):
+    """The synthetic stats with the scratchpad declared at `word_bits`."""
+    old = ("        Word bits                       : 8\n"
+           "        Block size                      : 3\n")
+    assert _STATS.count(old) == 1, "the spad block moved"
+    return _STATS.replace(old, f"        Word bits                       : {word_bits}\n"
+                               f"        Block size                      : 3\n")
+
+
+def test_a_q_bit_plan_is_narrowed_by_the_mapper_and_an_odd_one_is_refused():
+    """RULE 1 end to end on `evaluate_placement`: at BCH(63,30) (q = 4) the
+    recon4 bar on Eyeriss v2 stores reduced weights in the spad. On an 8-bit
+    plan the evaluator narrows the spad (scale < 1, owner evaluator); on a
+    plan whose spad prints Word bits 4 the mapper already did, so the spad
+    saving is ZERO and the owner is the mapper -- the same bar, same energies,
+    read from two different plans. Word bits 5 stops the run."""
+    from eccenergy import recon as reconmod
+    cfg = _cfg(ECC_CONST_K="30", ECC_RECON_PACKING="aligned")
+    gran = reconmod.Granularity(63, 30, 8, "weight")
+    packing = reconmod.Packing("aligned", 8, 30, 63)
+    placement = reconmod.placement_by_key("eyeriss_v2_like", "recon4", cfg)
+    assert "weight_spad" in placement.reduced
+    base_w = {"DRAM": _DRAM_W, "Local (spads/RF)": 800.0, "NoC": 150.0}
+    base = {"DRAM": _DRAM_W, "Local (spads/RF)": 1000.0, "NoC": 150.0, "Compute": 9000.0}
+    out = {}
+    for wb in (8, 4):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = pathlib.Path(tmp) / "C8_M8"; d.mkdir()
+            _write_lf(d / "timeloop-mapper.stats.txt", _stats_with_word_bits(wb))
+            _write_lf(d / "timeloop-mapper.map.txt", _MAP)
+            layer = _Layer()
+            wp = reconmod.weight_path(cfg, "eyeriss_v2_like", "resnet18", [layer],
+                                      {layer.shape_name: d / "timeloop-mapper.stats.txt"})
+            assert wp.stage("weight_spad").word_bits == wb
+            res = reconmod.evaluate_placement(cfg, "eyeriss_v2_like", placement, wp,
+                                              base_w, base, 1.0, gran, packing)
+            assert res.status == "evaluated", res.reason
+            out[wb] = res
+    rows8 = {r["stage"]: r for r in out[8].detail["weight_path_stages"]}
+    rows4 = {r["stage"]: r for r in out[4].detail["weight_path_stages"]}
+    # 8-bit plan: aligned packing at q=4 halves a 24-bit word (3 -> 6 per word)
+    assert math.isclose(rows8["weight_spad"]["scale"], 0.5), rows8["weight_spad"]["scale"]
+    assert rows8["weight_spad"]["energy_saved_pJ"] > 0
+    # q-bit plan: the mapper already narrowed it, the evaluator applies 1.0
+    assert rows4["weight_spad"]["scale"] == 1.0 and rows4["weight_spad"]["energy_saved_pJ"] == 0.0
+    own8 = {r["stage"]: r for r in out[8].detail["narrowing_ownership"]["stops"]}
+    own4 = {r["stage"]: r for r in out[4].detail["narrowing_ownership"]["stops"]}
+    assert own8["weight_spad"]["owner"] == "evaluator" and own8["weight_spad"]["measured_word_bits"] == 8
+    assert own4["weight_spad"]["owner"] == "mapper" and own4["weight_spad"]["measured_word_bits"] == 4
+    assert all(r["ok"] for r in list(own8.values()) + list(own4.values()))
+    # the network stops are the evaluator's on both plans: narrowing a storage
+    # level does not narrow the network (FINDINGS 3.2), and they are not
+    # storage stops so they carry no ownership row
+    assert set(own8) == set(own4) == {"weight_spad"}
+    assert rows8["inter_cluster_mesh"]["scale"] == rows4["inter_cluster_mesh"]["scale"] < 1.0
+    # BREAKAGE: Word bits 5 is neither 8 nor q -- the arch and the code disagree
+    with tempfile.TemporaryDirectory() as tmp:
+        d = pathlib.Path(tmp) / "C8_M8"; d.mkdir()
+        _write_lf(d / "timeloop-mapper.stats.txt", _stats_with_word_bits(5))
+        _write_lf(d / "timeloop-mapper.map.txt", _MAP)
+        layer = _Layer()
+        wp = reconmod.weight_path(cfg, "eyeriss_v2_like", "resnet18", [layer],
+                                  {layer.shape_name: d / "timeloop-mapper.stats.txt"})
+        try:
+            reconmod.evaluate_placement(cfg, "eyeriss_v2_like", placement, wp,
+                                        base_w, base, 1.0, gran, packing)
+        except ValueError as e:
+            assert "disagree" in str(e) and "recon4" in str(e), e
+        else:
+            raise AssertionError("a Word bits 5 plan was evaluated at q=4")
+
+
+def test_a_narrow_stop_nobody_narrows_is_refused():
+    """RULE 1's second failure mode: at BCH(63,57) `aligned` packing has q = 7,
+    and a 24-bit word holds floor(24/7) = 3 values -- the same 3 it held at 8
+    bits -- so on an 8-bit plan NOBODY narrows the spad although recon4 says it
+    carries narrow weights. That used to pass with a note; it is a stop now."""
+    from eccenergy import recon as reconmod
+    cfg = _cfg(ECC_CONST_K="57", ECC_RECON_PACKING="aligned")
+    gran = reconmod.Granularity(63, 57, 8, "weight")
+    packing = reconmod.Packing("aligned", 8, 57, 63)
+    assert packing.storage_scale(24, word_bits=8) == 1.0
+    placement = reconmod.placement_by_key("eyeriss_v2_like", "recon4", cfg)
+    with tempfile.TemporaryDirectory() as tmp:
+        stats = _write_cache(tmp)
+        layer = _Layer()
+        wp = reconmod.weight_path(cfg, "eyeriss_v2_like", "resnet18", [layer],
+                                  {layer.shape_name: stats})
+        try:
+            reconmod.evaluate_placement(cfg, "eyeriss_v2_like", placement, wp,
+                                        {"DRAM": _DRAM_W, "Local (spads/RF)": 800.0},
+                                        {"DRAM": _DRAM_W, "Local (spads/RF)": 1000.0},
+                                        1.0, gran, packing)
+        except ValueError as e:
+            assert "NOBODY" in str(e), e
+        else:
+            raise AssertionError("a narrow stop narrowed by nobody was accepted")
+        # `stream` packing DOES narrow it (x K/N), so the same bar evaluates
+        res = reconmod.evaluate_placement(cfg, "eyeriss_v2_like", placement, wp,
+                                          {"DRAM": _DRAM_W, "Local (spads/RF)": 800.0},
+                                          {"DRAM": _DRAM_W, "Local (spads/RF)": 1000.0},
+                                          1.0, gran, reconmod.Packing("stream", 8, 57, 63))
+        assert res.status == "evaluated"
+        assert res.detail["narrowing_ownership"]["stops"][0]["owner"] == "evaluator"
+
+
+# ---------------------------------------------------------------------------
+#  prompt_6 RULE 3 -- incremental per event, idle per cycle per engine
+# ---------------------------------------------------------------------------
+def _stats_with_cycles(cycles):
+    old = "Operational Intensity Stats\n---------------------------\n"
+    assert _STATS.count(old) == 1
+    return _STATS.replace(old, f"Summary Stats\n-------------\nCycles: {cycles}\n\n" + old)
+
+
+def test_the_idle_term_is_per_cycle_per_engine_with_engines_derived_per_placement():
+    """E_recon = incremental x events + idle x cycles x N_engines. Engines come
+    from the site stage of the bar's own plan: 1 at DRAM, fanout x instances
+    at a network, the UTILIZED instance count at a storage level, per layer
+    (the spad in the synthetic plan declares 192 and utilises 4 -- Timeloop
+    power-gates each unused instance and bills `leak` x utilized x cycles,
+    buffer.cpp FinalizeBufferEnergy, so 4 engines leak; the 192 are reported
+    beside them). Until 2026-09-11 this charged the DECLARED 192; the
+    ResNet18 full-model eval (job 41740440) caught the disagreement with
+    Timeloop on every shape that does not fill the array."""
+    from eccenergy import recon as reconmod
+    cfg = _cfg(ECC_CONST_K="51")
+    gran = reconmod.Granularity(63, 51, 8, "weight")
+    packing = reconmod.Packing("stream", 8, 51, 63)
+    base_w = {"DRAM": _DRAM_W, "Local (spads/RF)": 800.0, "NoC": 150.0}
+    base = {"DRAM": _DRAM_W, "Local (spads/RF)": 1000.0, "NoC": 150.0, "Compute": 9000.0}
+    inc, idle, cycles = 1.8995, 2.2301273, 4000
+    with tempfile.TemporaryDirectory() as tmp:
+        d = pathlib.Path(tmp) / "C8_M8"; d.mkdir()
+        _write_lf(d / "timeloop-mapper.stats.txt", _stats_with_cycles(cycles))
+        _write_lf(d / "timeloop-mapper.map.txt", _MAP)
+        layer = _Layer(count=1)
+        wp = reconmod.weight_path(cfg, "eyeriss_v2_like", "resnet18", [layer],
+                                  {layer.shape_name: d / "timeloop-mapper.stats.txt"})
+        assert wp.cycles == cycles, wp.cycles
+        assert wp.stage("weight_spad").declared_instances == 192
+        assert wp.stage("weight_spad").instances == 4
+        want_engines = {"recon1": 1,
+                        "recon2": round(wp.stage("inter_cluster_mesh").fanout
+                                        * wp.stage("inter_cluster_mesh").instances),
+                        "recon3": 4, "recon4": 4}
+        for key, n_eng in want_engines.items():
+            pl = reconmod.placement_by_key("eyeriss_v2_like", key, cfg)
+            res = reconmod.evaluate_placement(cfg, "eyeriss_v2_like", pl, wp, base_w, base,
+                                              inc, gran, packing, recon_idle_pj=idle)
+            assert res.status == "evaluated", (key, res.reason)
+            c = res.detail["reconstruction_counts"]
+            assert c["engines"] == n_eng, (key, c["engines"], c["engines_rule"])
+            assert c["cycles"] == cycles
+            assert math.isclose(c["engine_cycles"], n_eng * cycles)
+            if key in ("recon3", "recon4"):
+                assert c["engines_declared"] == 192 and c["engines_utilized_max"] == 4
+                assert "UTILIZED" in c["engines_rule"], c["engines_rule"]
+            assert math.isclose(c["reconstruction_energy_incremental_pJ"],
+                                c["reconstruction_events_codewords"] * inc)
+            assert math.isclose(c["reconstruction_energy_idle_pJ"], idle * cycles * n_eng)
+            assert math.isclose(c["reconstruction_energy_pJ"],
+                                c["reconstruction_energy_incremental_pJ"]
+                                + c["reconstruction_energy_idle_pJ"])
+            assert math.isclose(res.components["Reconstruction"], c["reconstruction_energy_pJ"])
+        # the network boundary's engines: fanout 4 x 1 instance in the synthetic mesh
+        assert want_engines["recon2"] == 4, want_engines
+        # an explicit `cycles` (another plan's, RULE 4) overrides the path's own
+        pl = reconmod.placement_by_key("eyeriss_v2_like", "recon3", cfg)
+        res = reconmod.evaluate_placement(cfg, "eyeriss_v2_like", pl, wp, base_w, base,
+                                          inc, gran, packing, recon_idle_pj=idle, cycles=1)
+        assert math.isclose(res.detail["reconstruction_counts"]["reconstruction_energy_idle_pJ"],
+                            idle * 1 * 4)
+        # BREAKAGE: charging the DECLARED count is not what Timeloop bills
+        assert not math.isclose(res.detail["reconstruction_counts"]["reconstruction_energy_idle_pJ"],
+                                idle * 1 * 192)
+        # no idle term: the old behaviour, exactly
+        res0 = reconmod.evaluate_placement(cfg, "eyeriss_v2_like", pl, wp, base_w, base,
+                                           inc, gran, packing)
+        assert res0.detail["reconstruction_counts"]["reconstruction_energy_idle_pJ"] == 0.0
+    # BREAKAGE: an idle term on a plan with no `Cycles:` line is refused
+    with tempfile.TemporaryDirectory() as tmp:
+        stats = _write_cache(tmp)
+        layer = _Layer()
+        wp = reconmod.weight_path(cfg, "eyeriss_v2_like", "resnet18", [layer],
+                                  {layer.shape_name: stats})
+        assert wp.cycles == 0.0
+        pl = reconmod.placement_by_key("eyeriss_v2_like", "recon3", cfg)
+        try:
+            reconmod.evaluate_placement(cfg, "eyeriss_v2_like", pl, wp, base_w, base,
+                                        inc, gran, packing, recon_idle_pj=idle)
+        except ValueError as e:
+            assert "cycle" in str(e), e
+        else:
+            raise AssertionError("idle was charged with no cycle count")
+
+
+# ---------------------------------------------------------------------------
+#  prompt_6 RULE 4 -- the attribution split is a MOVE, not an addition
+# ---------------------------------------------------------------------------
+def test_the_ert_split_moves_exactly_what_the_evaluator_charges():
+    """prompt_6 5.3: on an ERT arm the level's Timeloop energy already holds
+    scalar_accesses x E_w (access) and idle x instances x cycles (leak). The
+    split reads those two amounts off the bar's OWN counts on the action that
+    was bumped, and they must equal what `evaluate_placement` charges as the
+    incremental and idle terms -- so moving them out and charging them is a
+    split, not a double count. Uses recon4's spec (weights_spad fills) on a
+    synthetic plan whose spad declares 192 instances, utilises 4 and fills 40
+    weights; the leak side is idle x UTILIZED x cycles, as Timeloop bills it."""
+    try:
+        from eccenergy.experiments import recon as exp
+    except Exception as exc:                       # pragma: no cover
+        raise _Skip(f"experiments.recon unavailable: {exc}")
+    from eccenergy import recon as reconmod
+    cfg = _cfg(ECC_CONST_K="30", ECC_RECON_PACKING="aligned")
+    gran = reconmod.Granularity(63, 30, 8, "weight")
+    inc, idle, cycles = 1.3786, 2.8310811, 5000
+    bump = {"placement": "recon3", "level": "weights_spad", "counter": "fills",
+            "action": "write", "e_w_pj": inc * gran.codewords(1.0),
+            "access_delta_pj": inc * gran.codewords(1.0) * 3, "leak_delta_pj": idle,
+            "narrow_levels": []}
+    with tempfile.TemporaryDirectory() as tmp:
+        d = pathlib.Path(tmp) / "C8_M8"; d.mkdir()
+        _write_lf(d / "timeloop-mapper.stats.txt", _stats_with_cycles(cycles))
+        _write_lf(d / "timeloop-mapper.map.txt", _MAP)
+        layer = _Layer()
+        wp = reconmod.weight_path(cfg, "eyeriss_v2_like", "resnet18", [layer],
+                                  {layer.shape_name: d / "timeloop-mapper.stats.txt"})
+        st = wp.stage("weight_spad")
+        split = exp.ert_split(bump, st, wp.cycles)
+        assert split["scalar_accesses"] == st.fills == 40.0
+        assert split["engines"] == 4 and split["cycles"] == cycles
+        assert split["engines_declared"] == 192 and split["engines_utilized_max"] == 4
+        assert math.isclose(split["access_toll_pJ"], 40.0 * inc / gran.weights_per_codeword)
+        assert math.isclose(split["leak_toll_pJ"], idle * 4 * cycles)
+        assert math.isclose(split["total_toll_pJ"], split["access_toll_pJ"] + split["leak_toll_pJ"])
+        # the evaluator's two terms on the same plan, same placement (v2 recon3
+        # is weight_spad + fills), are the same two numbers
+        pl = reconmod.placement_by_key("eyeriss_v2_like", "recon3", cfg)
+        packing = reconmod.Packing("aligned", 8, 30, 63)
+        res = reconmod.evaluate_placement(cfg, "eyeriss_v2_like", pl, wp,
+                                          {"DRAM": _DRAM_W, "Local (spads/RF)": 800.0, "NoC": 150.0},
+                                          {"DRAM": _DRAM_W, "Local (spads/RF)": 1000.0, "NoC": 150.0,
+                                           "Compute": 9000.0},
+                                          inc, gran, packing, recon_idle_pj=idle)
+        c = res.detail["reconstruction_counts"]
+        assert exp._close(c["reconstruction_energy_incremental_pJ"], split["access_toll_pJ"])
+        assert exp._close(c["reconstruction_energy_idle_pJ"], split["leak_toll_pJ"])
+        # BREAKAGE: the wrong counter (a blended or level-total figure) does not reconcile
+        wrong = exp.ert_split(dict(bump, counter="reads"), st, wp.cycles)
+        assert not exp._close(wrong["access_toll_pJ"], c["reconstruction_energy_incremental_pJ"])
+    # the ERT arms of every design are what the per-bar lookup keys on
+    assert [p.key for p in reconmod.ert_arms("eyeriss_like_wglb")] == ["recon2", "recon4"]
+
+
+def test_idle_engines_are_timeloops_utilized_instances_on_the_real_cache():
+    """2026-09-11, the ResNet18 full-model eval (job 41740440): recon4's leak
+    multiplier came back 98 on conv1, 112 on the stride-2 1x1 layers and 16 on
+    fc against 168 declared scratchpads. Timeloop bills leakage as
+    leak x cycles x leaks_per_cycle with leaks_per_cycle = the UTILIZED
+    instances when each instance is power-gated on its own (buffer.cpp
+    2119-2127, 2376). So on the real recon4 cache entry for conv1 the leakage
+    delta against the reference entry must equal idle x 98 x cycles, the
+    stage's engine_cycles must be 98 x cycles, and the DECLARED 168 must NOT
+    reconcile. Skips when the two cache entries are not on disk."""
+    from eccenergy import recon as reconmod
+    base = pathlib.Path(reconmod.__file__).resolve().parents[1] / "ecc_energy_study" / "outputs" / "eyeriss_like_wglb"
+    slug = "multimodel__vic4000__vicx__alg-linear_pruned__to100000000__noc__paper"
+    shape = "C3_M64_R7_S7_P112_Q112_ws2_hs2"
+    ref = base / f"{slug}__mcons__wrelax" / "fp-3cd00eb16801" / shape / "timeloop-mapper.stats.txt"
+    arm = (base / f"{slug}__wdw4-filter_glb__mcons__wrelax__ert-recon4-weights_spad-write"
+           / "fp-91ce4687a22f" / shape / "timeloop-mapper.stats.txt")
+    if not (ref.is_file() and arm.is_file()):
+        raise _Skip("the recon4 / reference cache entries for conv1 are not on disk")
+    import re
+    def leak_util_cycles(path):
+        t = path.read_text()
+        ws = re.search(r"=== weights_spad ===(.*?)\n=== ", t, re.S).group(1)
+        return (float(re.search(r"Leakage energy \(total\)\s*:\s*([\d.]+)", ws).group(1)),
+                int(re.search(r"Utilized instances \(max\)\s*:\s*(\d+)", ws).group(1)),
+                int(re.search(r"\nCycles:\s*(\d+)", t).group(1)))
+    leak_a, util_a, cyc_a = leak_util_cycles(arm)
+    leak_r, util_r, cyc_r = leak_util_cycles(ref)
+    assert util_a == util_r == 98 and cyc_a == cyc_r, (util_a, util_r, cyc_a, cyc_r)
+    idle = 2.8310811
+    mult = (leak_a - leak_r) / (idle * cyc_a)
+    assert math.isclose(mult, 98.0, rel_tol=1e-6), mult          # Timeloop's own multiplier
+    assert not math.isclose(mult, 168.0, rel_tol=1e-2)            # BREAKAGE: the declared count
+    cfg = _cfg(ECC_CONST_ARCH="eyeriss_like_wglb", ECC_SWEEP_ARCHS="eyeriss_like_wglb",
+               ECC_CONST_K="30", ECC_RECON_PACKING="aligned")
+    layer = _Layer(name="conv1", shape_name=shape, weights=9408)
+    wp = reconmod.weight_path(cfg, "eyeriss_like_wglb", "resnet18", [layer], {shape: arm})
+    st = wp.stage("weights_spad") if hasattr(wp, "stage") else wp.stages["weights_spad"]
+    assert st.declared_instances == 168 and st.instances == 98, (st.declared_instances, st.instances)
+    assert math.isclose(st.engine_cycles, 98 * cyc_a), st.engine_cycles
+    try:
+        from eccenergy.experiments import recon as exp
+    except Exception as exc:                       # pragma: no cover
+        raise _Skip(f"experiments.recon unavailable: {exc}")
+    bump = {"placement": "recon4", "level": "weights_spad", "counter": "fills",
+            "action": "write", "e_w_pj": 0.17506, "access_delta_pj": 0.35012,
+            "leak_delta_pj": idle, "narrow_levels": ["filter_glb"]}
+    split = exp.ert_split(bump, st, wp.cycles)
+    assert math.isclose(split["leak_toll_pJ"], leak_a - leak_r, rel_tol=1e-6), (split["leak_toll_pJ"], leak_a - leak_r)
+    assert split["engines"] == 98 and split["engines_declared"] == 168
 
 
 def main():

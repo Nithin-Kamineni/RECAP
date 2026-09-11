@@ -9,6 +9,7 @@ mapping.
 from __future__ import annotations
 
 import contextlib
+import copy
 import glob
 import hashlib
 import json
@@ -19,11 +20,28 @@ import shutil
 import subprocess
 import time
 
+import yaml
+
 from .paths import (ARCH_COMPONENTS, DESIGNS_DIR, EX_REPO, EXERCISES_URL,
                     PROB_DIR, WORK)
 
 #: Name of the sidecar written beside every mapping this code produces.
 MAPPING_SIDECAR = "mapping.json"
+
+#: prompt_6: the supplied energy table of an ERT arm, under the names Timeloop
+#: itself uses. With a supplied table Timeloop writes neither, and timeloopfe's
+#: post-run parser then raises on the missing ART after a SUCCESSFUL search
+#: (FINDINGS 3.5); pre-writing them under these names is what keeps a mapped
+#: shape from being counted as failed, and the cache entry then stores exactly
+#: the table the mapper saw.
+ERT_NAME = "timeloop-mapper.ERT.yaml"
+ART_NAME = "timeloop-mapper.ART.yaml"
+#: Per-arm tables, once per (architecture, arm, fingerprint), beside the
+#: shape entries of that arm's cache directory.
+ERT_DIR = "_ert"
+ERT_RECORD = "ert_bump.json"
+ERT_FOUND = "Found Accelergy ERT"
+ERT_GENERATED = "Generate Accelergy ERT"
 
 PROBLEM_TEMPLATE = """problem:
   version: 0.4
@@ -238,6 +256,303 @@ def design_inputs(arch_yaml, problem_yaml):
                str(problem_yaml)])
 
 
+# ----------------------------------------------------- prompt_6: ERT tables
+def ert_level_of(table_name):
+    """`system_top_level.filter_glb[1..1]` -> `filter_glb` (timeloopfe's rule)."""
+    return re.sub(r"\[\d+\.\.\d+\]", "", table_name).split(".")[-1]
+
+
+def ert_prices(doc):
+    """`{(level, action): pJ}` for every row of an ERT document."""
+    return {(ert_level_of(t["name"]), a["name"]): float(a["energy"])
+            for t in doc["ERT"]["tables"] for a in t["actions"]}
+
+
+def art_areas(doc):
+    return {ert_level_of(t["name"]): float(t["area"]) for t in doc["ART"]["tables"]}
+
+
+def patched_ert(doc, changes):
+    """Copy `doc` with `changes` = {(level, action): ("set"|"add", pJ)} applied.
+
+    `arguments:` is emptied on every action: timeloopfe's `Ert` node declares no
+    argument keys (the DRAM rows carry two), and Timeloop reads only `name` and
+    `energy`. A change that matches nothing is an error, never a silent no-op.
+    """
+    out = copy.deepcopy(doc)
+    pending = dict(changes)
+    for t in out["ERT"]["tables"]:
+        level = ert_level_of(t["name"])
+        for a in t["actions"]:
+            a["arguments"] = {}
+            key = (level, a["name"])
+            if key in pending:
+                how, val = pending.pop(key)
+                a["energy"] = float(val) if how == "set" else float(a["energy"]) + float(val)
+    if pending:
+        raise ValueError(f"no ERT row for {sorted(pending)}; the table has "
+                         f"{sorted(set(ert_prices(doc)))}")
+    return out
+
+
+def write_yaml(path, doc):
+    """LF, atomic: a concurrent reader sees the old file or the new one."""
+    path = pathlib.Path(path)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    with open(tmp, "w", newline="\n") as fh:
+        yaml.safe_dump(doc, fh, sort_keys=False)
+    os.replace(tmp, path)
+    return path
+
+
+def ert_changes(bump):
+    """The two rows an arm patches, as `patched_ert` takes them (prompt_6 5.1)."""
+    return {(bump["level"], bump["action"]): ("add", bump["access_delta_pj"]),
+            (bump["level"], "leak"): ("add", bump["leak_delta_pj"])}
+
+
+#: Tolerance for "the same delta": RULE 4.4.5 asks for 1e-9 of the intended value.
+ERT_TOL = 1e-9
+
+
+def _close(a, b, tol=ERT_TOL):
+    if a is None or b is None:
+        return False
+    return abs(float(a) - float(b)) <= tol * max(1.0, abs(float(b)))
+
+
+def same_bump(a, b):
+    """Do two bump records describe one toll? Identity fields exactly, deltas to ERT_TOL."""
+    if a is None or b is None:
+        return a is None and b is None
+    return (a.get("placement") == b.get("placement") and a.get("level") == b.get("level")
+            and a.get("action") == b.get("action")
+            and _close(a.get("access_delta_pj"), b.get("access_delta_pj"))
+            and _close(a.get("leak_delta_pj"), b.get("leak_delta_pj")))
+
+
+class ErtMismatch(SystemExit):
+    """A cache entry's ERT is not the one the bar asking for it expects."""
+
+
+def describe_bump(bump):
+    if bump is None:
+        return "reference (no ERT bump)"
+    return (f"{bump['placement']}: {bump['level']}.{bump['action']} "
+            f"+= {bump['access_delta_pj']:.9g} pJ, {bump['level']}.leak "
+            f"+= {bump['leak_delta_pj']:.9g} pJ/instance/cycle")
+
+
+class ErtTables:
+    """The supplied ERT/ART of ONE ERT arm, generated once and reused per shape.
+
+    Lives at `<out_root>/_ert/`, i.e. beside the shape entries of the arm's own
+    cache directory (own slug, own fingerprint -- RULE 4.4.5). Holds:
+
+        base.ERT.yaml / base.ART.yaml   Accelergy's own table for THIS arm's
+                                        patched arch (deterministic, FINDINGS
+                                        3.5, so it needs no cache entry to exist)
+        timeloop-mapper.ERT.yaml        the base with the arm's two rows bumped
+        timeloop-mapper.ART.yaml        the base ART, unchanged
+        ert_bump.json                   the bump, the base and patched prices of
+                                        the bumped rows, tool versions
+
+    `ensure()` generates under a `ShapeLock`, so concurrent jobs of one arm
+    build it once; a set already on disk is reused only if its record matches
+    the requested bump.
+    """
+
+    def __init__(self, cfg, arch, arch_yaml, out_root, bump):
+        if bump is None:
+            raise ValueError("ErtTables is for an ERT arm; the reference arm has none")
+        self.cfg, self.arch, self.arch_yaml, self.bump = cfg, arch, arch_yaml, bump
+        self.dir = pathlib.Path(out_root) / ERT_DIR
+        self.ert = self.dir / ERT_NAME
+        self.art = self.dir / ART_NAME
+        self.base_ert = self.dir / "base.ERT.yaml"
+        self.base_art = self.dir / "base.ART.yaml"
+        self.record_path = self.dir / ERT_RECORD
+        self.record = None
+
+    # ------------------------------------------------------------ validity
+    def _load(self):
+        """The record on disk if it describes THIS bump and the files agree."""
+        for f in (self.ert, self.art, self.base_ert, self.base_art, self.record_path):
+            if not f.exists():
+                return None
+        try:
+            rec = json.loads(self.record_path.read_text())
+            if not same_bump(rec.get("bump"), self.bump):
+                return None
+            prices = ert_prices(yaml.safe_load(self.ert.read_text()))
+            for action, want in rec["patched_pj"].items():
+                if not _close(prices.get((self.bump["level"], action)), want):
+                    return None
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+        return rec
+
+    def ensure(self, layer):
+        """Generate the tables if they are not already on disk for this bump."""
+        self.record = self._load()
+        if self.record is not None:
+            return self
+        lock = ShapeLock(self.dir)
+        lock.acquire(shape=f"{self.arch} ERT tables ({self.bump['placement']})")
+        try:
+            self.record = self._load()
+            if self.record is None:
+                self._generate(layer)
+        finally:
+            lock.release()
+        return self
+
+    def _generate(self, layer):
+        """Accelergy on THIS arm's patched arch, then the two bumped rows."""
+        self.dir.mkdir(parents=True, exist_ok=True)
+        scratch = self.dir / f"accelergy.{os.getpid()}"
+        scratch.mkdir(parents=True, exist_ok=True)
+        tl = load_timeloopfe()
+        spec = tl.Specification.from_yaml_files(
+            *design_inputs(self.arch_yaml, problem_path(layer)))
+        with open(scratch / "accelergy_console.log", "w") as logf, \
+                contextlib.redirect_stdout(logf), contextlib.redirect_stderr(logf):
+            tl.call_accelergy_verbose(spec, output_dir=str(scratch),
+                                      log_to=str(scratch / "accelergy.log"))
+        erts = sorted(p for p in scratch.glob("*ERT.yaml") if "summary" not in p.name)
+        arts = sorted(p for p in scratch.glob("*ART.yaml") if "summary" not in p.name)
+        if not erts or not arts:
+            raise SystemExit(f"ErtTables: accelergy wrote no ERT/ART under {scratch}; "
+                             f"see {scratch / 'accelergy_console.log'}")
+        base_ert = yaml.safe_load(erts[0].read_text())
+        base_art = yaml.safe_load(arts[0].read_text())
+        prices = ert_prices(base_ert)
+        level = self.bump["level"]
+        for action in (self.bump["action"], "leak"):
+            if (level, action) not in prices:
+                raise SystemExit(f"ErtTables: the generated ERT has no row "
+                                 f"{level}.{action}; it has "
+                                 f"{sorted(k for k in prices if k[0] == level)}")
+        patched = patched_ert(base_ert, ert_changes(self.bump))
+        pprices = ert_prices(patched)
+        record = {
+            "bump": self.bump,
+            "base_pj": {a: prices[(level, a)] for a in (self.bump["action"], "leak")},
+            "patched_pj": {a: pprices[(level, a)] for a in (self.bump["action"], "leak")},
+            "arch_yaml": str(self.arch_yaml),
+            "tool_versions": tool_versions(),
+            "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+        write_yaml(self.base_ert, patched_ert(base_ert, {}))
+        write_yaml(self.base_art, base_art)
+        write_yaml(self.ert, patched)
+        write_yaml(self.art, base_art)
+        tmp = self.record_path.with_name(f".{ERT_RECORD}.{os.getpid()}.tmp")
+        with open(tmp, "w", newline="\n") as fh:
+            fh.write(json.dumps(record, indent=1, default=str))
+        os.replace(tmp, self.record_path)
+        shutil.rmtree(scratch, ignore_errors=True)
+        self.record = record
+        print(f"      [ert] {self.arch}: {describe_bump(self.bump)}  "
+              f"(base {level}.{self.bump['action']} {record['base_pj'][self.bump['action']]:g} "
+              f"-> {record['patched_pj'][self.bump['action']]:g} pJ, leak "
+              f"{record['base_pj']['leak']:g} -> {record['patched_pj']['leak']:g})",
+              flush=True)
+
+    # --------------------------------------------------------------- use
+    def stage(self, out_dir):
+        """Pre-write the two tables into a shape's output directory."""
+        out_dir = pathlib.Path(out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(self.ert, out_dir / ERT_NAME)
+        shutil.copyfile(self.art, out_dir / ART_NAME)
+
+    def inputs(self):
+        """The two extra YAMLs `design_inputs()` is followed by."""
+        return [str(self.ert), str(self.art)]
+
+    def sidecar_record(self):
+        """What a mapping sidecar records about its ERT (RULE 4.4.5)."""
+        rec = self.record or {}
+        return {"bump": self.bump, "base_pj": rec.get("base_pj"),
+                "patched_pj": rec.get("patched_pj")}
+
+
+def read_back_ert(out_dir, bump, base_prices=None, tol=ERT_TOL):
+    """RULE 4.4.5, defence 3: re-open the ERT stored beside a cache entry and
+    assert it is the one the bar asking for it expects.
+
+    `bump` is the requesting bar's `archs.ert_bump()` (None for a reference bar).
+    Checks, and raises `ErtMismatch` naming both sides on the first failure:
+
+    * the sidecar's recorded bump has the same placement, level and action, and
+      each delta is within `tol` of the intended value;
+    * the stored table's bumped rows equal the recorded base price plus the
+      intended delta, to `tol`;
+    * with `base_prices` (the un-bumped table, e.g. the reference entry's ERT),
+      the recorded base equals it on the bumped rows and every other row is
+      untouched.
+
+    Returns a dict describing what was verified.
+    """
+    out_dir = pathlib.Path(out_dir)
+    side = out_dir / MAPPING_SIDECAR
+    if not side.exists():
+        raise ErtMismatch(f"read_back_ert: {out_dir} has no {MAPPING_SIDECAR}")
+    rec = json.loads(side.read_text()).get("ert_bump")
+    if bump is None:
+        if rec is not None:
+            raise ErtMismatch(
+                f"read_back_ert: {out_dir} was mapped as an ERT arm "
+                f"({describe_bump(rec.get('bump'))}) but the reference arm asked for it")
+        return {"arm": "reference", "verified": ["no ERT bump recorded"]}
+    if rec is None or rec.get("bump") is None:
+        raise ErtMismatch(
+            f"read_back_ert: {out_dir} records no ERT bump, but "
+            f"{describe_bump(bump)} asked for it")
+    got = rec["bump"]
+    if not same_bump(got, bump):
+        raise ErtMismatch(
+            f"read_back_ert: {out_dir} was mapped as\n    {describe_bump(got)}\n"
+            f"  but the bar asking for it is\n    {describe_bump(bump)}")
+    ert_path = out_dir / ERT_NAME
+    if not ert_path.exists():
+        raise ErtMismatch(f"read_back_ert: {ert_path} is missing")
+    prices = ert_prices(yaml.safe_load(ert_path.read_text()))
+    level = bump["level"]
+    verified = []
+    for action, delta in ((bump["action"], bump["access_delta_pj"]),
+                          ("leak", bump["leak_delta_pj"])):
+        stored = prices.get((level, action))
+        base = (rec.get("base_pj") or {}).get(action)
+        if stored is None or base is None:
+            raise ErtMismatch(f"read_back_ert: {out_dir}: no stored/base price for "
+                              f"{level}.{action} (stored {stored}, base {base})")
+        if not _close(stored - base, delta, tol):
+            raise ErtMismatch(
+                f"read_back_ert: {out_dir}: {level}.{action} stored {stored!r} - base "
+                f"{base!r} = {stored - base!r}, but {describe_bump(bump)} intends "
+                f"{delta!r} (tolerance {tol:g})")
+        if base_prices is not None and not _close(base, base_prices.get((level, action)), tol):
+            raise ErtMismatch(
+                f"read_back_ert: {out_dir}: recorded base {level}.{action} = {base!r} "
+                f"but the un-bumped table says {base_prices.get((level, action))!r}")
+        verified.append(f"{level}.{action}: {base:g} + {delta:.9g} = {stored:g}")
+    if base_prices is not None:
+        bumped = {(level, bump["action"]), (level, "leak")}
+        for key, want in base_prices.items():
+            if key in bumped:
+                continue
+            if not _close(prices.get(key), want, tol):
+                raise ErtMismatch(
+                    f"read_back_ert: {out_dir}: {key[0]}.{key[1]} = {prices.get(key)!r} "
+                    f"differs from the un-bumped table's {want!r}; only "
+                    f"{level}.{bump['action']} and {level}.leak may move")
+        verified.append(f"{len(base_prices) - len(bumped)} other rows untouched")
+    return {"arm": bump["placement"], "level": level, "action": bump["action"],
+            "verified": verified}
+
+
 class ShapeLock:
     """One mapper-cache entry, one writer: an atomic-mkdir lock beside out_dir.
 
@@ -336,11 +651,16 @@ class Mapper:
     """
 
     def __init__(self, cfg, arch, arch_yaml, out_root, levels=None,
-                 fingerprint=None, legacy_root=None):
+                 fingerprint=None, legacy_root=None, ert_bump=None):
         self.cfg = cfg
         self.arch = arch
         self.arch_yaml = arch_yaml
         self.out_root = pathlib.Path(out_root)
+        #: prompt_6: the ERT toll this arm maps under (`archs.ert_bump`), or
+        #: None for the reference arm. Recorded in every sidecar, required
+        #: to match on every cache hit, read back after every fresh map.
+        self.ert_bump = ert_bump
+        self._ert_tables = None
         # Mapper effort is per architecture: a deeper loop nest needs more of
         # it to be searched as thoroughly. See Config.victory_for().
         self.levels = levels
@@ -385,7 +705,15 @@ class Mapper:
             "tool_versions": tool_versions(),
             "stats": str(out_dir / "timeloop-mapper.stats.txt"),
             "source": source,
+            "ert_bump": self._ert_record(),
         }
+
+    def _ert_record(self):
+        if self.ert_bump is None:
+            return None
+        if self._ert_tables is not None:
+            return self._ert_tables.sidecar_record()
+        return {"bump": self.ert_bump, "base_pj": None, "patched_pj": None}
 
     def _accept_cached(self, out_dir, layer):
         """Decide whether an existing cache entry may be reused, and say why not.
@@ -410,6 +738,12 @@ class Mapper:
             return None, (f"sidecar fingerprint {rec.get('arch_fingerprint')} != "
                           f"{self.fingerprint}: the architecture or the mapper "
                           f"settings changed since this mapping was computed")
+        # prompt_6 RULE 4.4.5: the toll is in the fingerprint, but say it in
+        # words too -- a wrong pick here leaves no other trace.
+        theirs = (rec.get("ert_bump") or {}).get("bump")
+        if not same_bump(theirs, self.ert_bump):
+            return None, (f"sidecar ERT bump is {describe_bump(theirs)} but this "
+                          f"arm is {describe_bump(self.ert_bump)}")
         return stats, "cached"
 
     def stats_for(self, layer):
@@ -489,8 +823,18 @@ class Mapper:
               f"(victory {self.victory}, {threads} threads) ...", flush=True)
         t0 = time.time()
         tl = load_timeloopfe()
-        spec = tl.Specification.from_yaml_files(
-            *design_inputs(self.arch_yaml, problem_path(layer)))
+        inputs = design_inputs(self.arch_yaml, problem_path(layer))
+        if self.ert_bump is not None:
+            # prompt_6: the arm's table, generated once per (arch, arm,
+            # fingerprint), pre-written under Timeloop's own names (FINDINGS
+            # 3.5 fact 1) and handed to timeloopfe as two extra inputs.
+            if self._ert_tables is None:
+                self._ert_tables = ErtTables(self.cfg, self.arch, self.arch_yaml,
+                                             self.out_root, self.ert_bump)
+            self._ert_tables.ensure(layer)
+            self._ert_tables.stage(out_dir)
+            inputs = inputs + self._ert_tables.inputs()
+        spec = tl.Specification.from_yaml_files(*inputs)
         spec.mapper.num_threads = threads
         spec.mapper.victory_condition = self.victory
         spec.mapper.timeout = self.cfg.mapper_timeout
@@ -542,6 +886,22 @@ class Mapper:
             record["map_seconds"] = round(dt, 3)
             with open(out_dir / MAPPING_SIDECAR, "w", newline="\n") as fh:
                 fh.write(json.dumps(record, indent=1, default=str))
+            if self.ert_bump is not None:
+                # The table must have been USED (not regenerated) and must
+                # still be the one staged: RULE 4.4.5's read-back, on the
+                # entry that was just written.
+                log = (out_dir / "mapper_console.log").read_text(errors="replace")
+                if ERT_FOUND not in log or ERT_GENERATED in log:
+                    self.n_mapped -= 1
+                    self._fail(layer, out_dir, f"Timeloop did not take the '{ERT_FOUND}' "
+                               f"branch; the supplied ERT was not used")
+                    return None
+                try:
+                    read_back_ert(out_dir, self.ert_bump)
+                except ErtMismatch as exc:
+                    self.n_mapped -= 1
+                    self._fail(layer, out_dir, str(exc))
+                    return None
             self.mappings[layer.shape_name] = dict(record, cached=False)
             print(f"        {dt:7.1f}s   (this architecture: {self.n_mapped} mapped, "
                   f"{self.map_seconds / 60:.1f} min so far)", flush=True)
@@ -615,9 +975,76 @@ class Mapper:
 
 
 # ------------------------------------------------------------- stats  parsing
+def parse_cycles(stats_path):
+    """The run's `Cycles:` from the stats summary, or None if absent.
+
+    prompt_6 RULE 3: the encoder's idle term is `idle_per_cycle x cycles x
+    engines`, so every record that is billed needs the cycle count of ITS
+    OWN plan. Recorded into `Raw.cycles` by `energy.gather`.
+    """
+    m = re.search(r"^Cycles:\s*(\d+)", pathlib.Path(stats_path).read_text(), re.M)
+    return int(m.group(1)) if m else None
+
+
 def _grab(pattern, text):
     m = re.search(pattern, text)
     return float(m.group(1)) if m else None
+
+
+def _grab_as(pattern, text, cast=float):
+    m = re.search(pattern, text)
+    return cast(m.group(1)) if m else None
+
+
+def parse_levels(stats_path):
+    """Per-level view of one stats file, for the prompt_6 guards:
+
+        {level: {instances, block_size, word_bits, leakage_pJ, gating, source,
+                 ds: {Weights|Inputs|Outputs|Compute: {reads, fills, updates,
+                      energy_pJ}}}}, summary {energy_uJ, cycles, utilization}
+
+    Per-instance counts, as Timeloop prints them. `source` is the `Vector
+    access energy source` (ERT when a supplied table was billed). Written for
+    `experiments/ert_probe` (phase 1) and used by `experiments/recon`'s
+    per-arm checks (RULE 2's `updates == 0`, RULE 3's leak multiplier, the
+    attribution split, PEs used, DRAM word bits).
+    """
+    text = pathlib.Path(stats_path).read_text()
+    main, _networks = _split_networks(text)
+    main = main.split("Operational Intensity Stats")[0]
+    chunks = re.split(r"===\s*(.+?)\s*===", main)[1:]
+    levels = {}
+    for level, body in zip(chunks[0::2], chunks[1::2]):
+        rec = dict(
+            instances=_grab_as(r"Instances\s*:\s*(\d+)", body, int),
+            block_size=_grab_as(r"Block size\s*:\s*(\d+)", body, int),
+            word_bits=_grab_as(r"Word bits\s*:\s*(\d+)", body, int),
+            leakage_pJ=_grab_as(r"Leakage energy \(total\)\s*:\s*([\d.eE+-]+)\s*pJ", body),
+            gating=_grab_as(r"Instances sharing power gating\s*:\s*([\d.eE+-]+)", body),
+            source=_grab_as(r"Vector access energy source\s*:\s*(\S+)", body, str),
+            utilized_instances=_grab_as(r"Utilized instances(?: \(max\))?\s*:\s*(\d+)", body, int),
+            cycles=_grab_as(r"Cycles\s*:\s*(\d+)", body, int),
+            ds={})
+        parts = re.split(r"\n\s+(Weights|Inputs|Outputs)\s*:\s*\n", body)
+        if len(parts) > 1:
+            for ds, sec in zip(parts[1::2], parts[2::2]):
+                rec["ds"][ds] = dict(
+                    reads=_grab_as(r"Scalar reads \(per-instance\)\s*:\s*([\d.eE+-]+)", sec),
+                    fills=_grab_as(r"Scalar fills \(per-instance\)\s*:\s*([\d.eE+-]+)", sec),
+                    updates=_grab_as(r"Scalar updates \(per-instance\)\s*:\s*([\d.eE+-]+)", sec),
+                    utilized_instances=_grab_as(
+                        r"Utilized instances \(max\)\s*:\s*(\d+)", sec, int),
+                    energy_pJ=_grab_as(r"Energy \(total\)\s*:\s*([\d.eE+-]+)\s*pJ", sec))
+        else:
+            e = _grab_as(r"Energy \(total\)\s*:\s*([\d.eE+-]+)\s*pJ", body)
+            if e is not None:
+                rec["ds"]["Compute"] = dict(reads=None, fills=None, updates=None,
+                                            utilized_instances=None, energy_pJ=e)
+        levels[level] = rec
+    summary = dict(energy_uJ=_grab_as(r"\nEnergy:\s*([\d.eE+-]+)\s*uJ", text),
+                   cycles=_grab_as(r"\nCycles:\s*(\d+)", text, int),
+                   utilization=_grab_as(r"\nUtilization:\s*([\d.eE+-]+)%", text))
+    return levels, summary
 
 
 def parse_stats(stats_path, layer_label, scale=1.0):
@@ -640,6 +1067,10 @@ def parse_stats(stats_path, layer_label, scale=1.0):
     chunks = re.split(r"===\s*(.+?)\s*===", levels_text)[1:]
     for level, body in zip(chunks[0::2], chunks[1::2]):
         inst = _grab(r"Instances\s*:\s*(\d+)", body)
+        # prompt_6 RULE 1: the level's declared word, as the mapper saw it.
+        # `Word bits == q` on a Weights level says the MAPPER narrowed it.
+        word_bits = _grab(r"Word bits\s*:\s*(\d+)", body)
+        block_size = _grab(r"Block size\s*:\s*(\d+)", body)
         parts = re.split(r"\n\s+(Weights|Inputs|Outputs)\s*:\s*\n", body)
         if len(parts) > 1:
             for ds, sec in zip(parts[1::2], parts[2::2]):
@@ -650,6 +1081,8 @@ def parse_stats(stats_path, layer_label, scale=1.0):
                 rows.append(dict(
                     layer=layer_label, level=level, dataspace=ds,
                     instances=inst,
+                    word_bits=None if word_bits is None else int(word_bits),
+                    block_size=None if block_size is None else int(block_size),
                     reads=None if reads is None else reads * scale,
                     writes=((fills or 0.0) + (updates or 0.0)) * scale,
                     energy_pJ=None if energy is None else energy * scale))

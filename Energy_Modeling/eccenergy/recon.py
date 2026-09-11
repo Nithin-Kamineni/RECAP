@@ -162,7 +162,7 @@ import pathlib
 import re
 from dataclasses import dataclass, field, replace
 
-from . import embedded
+from . import code_widths, embedded
 
 
 # ===========================================================================
@@ -866,6 +866,122 @@ def placement_by_key(arch, key, cfg=None):
     return None
 
 
+# ===========================================================================
+#  prompt_6 -- which placements get their own mapping (ERT arms)
+# ===========================================================================
+#: The ERT access action a placement's `site_counter` names. A weight arriving
+#: at a level is a `write` (Timeloop counts it as a fill), a weight leaving it
+#: is a `read`. Network counters name no component action: a delivery is
+#: billed through `noc.yaml` (prompt_6 3.3).
+ERT_ACTION_OF_COUNTER = {"reads": "read", "fills": "write"}
+
+
+def ert_injectable(placement, stages):
+    """prompt_6 3.3: is this boundary's encoder cost an ERT action the mapper
+    can trade against? `(ok, why)`, DERIVED from the Placement record -- never
+    `if key == "recon2"`.
+
+    Three conditions, all required:
+
+    1. the site stage is a STORAGE stage. DRAM is not a chip action the
+       encoder attaches to, and a network delivery is billed by `noc.yaml`.
+    2. the site counter is `reads` or `fills`, naming exactly one ERT action.
+    3. it is not the innermost weight level's `reads`: that count equals the
+       MAC count, which no mapping can move, so a constant added to every
+       mapping cannot move the argmax.
+    """
+    by_key = {s.key: s for s in stages}
+    site = by_key.get(placement.site_stage)
+    if site is None:
+        return False, f"site stage {placement.site_stage!r} is not on the weight path"
+    if site.kind != "storage":
+        return False, (f"{site.key} is a {site.kind} stage, not a chip storage "
+                       f"action" + (" (the count lives in noc.yaml)"
+                                     if site.kind == "network" else ""))
+    action = ERT_ACTION_OF_COUNTER.get(placement.site_counter)
+    if action is None:
+        return False, f"counter {placement.site_counter!r} names no ERT action"
+    storage = [s for s in stages if s.kind == "storage"]
+    if site is storage[-1] and placement.site_counter == "reads":
+        return False, (f"{site.key} is the innermost weight level and its reads "
+                       f"equal the MAC count, which no mapping can move")
+    return True, f"{site.key} + {placement.site_counter} -> ERT {action}"
+
+
+def ert_arms(arch, cfg=None):
+    """The placements of `arch` that get their own mapping, in path order.
+
+    Zero is legal (the figure is then Task 3's with the idle term added); the
+    code must work at 0, 1 or 2+. On Eyeriss v1 with the filter GLB this is
+    `recon2` (filter_glb reads) and `recon4` (weights_spad fills).
+    """
+    stages = stages_for(arch, cfg)
+    return tuple(p for p in placements_for(arch, cfg) if ert_injectable(p, stages)[0])
+
+
+def ert_arm_spec(arch, key, cfg=None):
+    """What ONE ERT arm declares, from its Placement (prompt_6 5.2, RULE 2).
+
+    Returns a dict:
+
+        placement       the Placement record
+        level           the Timeloop level the encoder's action is on (the
+                        site stage's first prefix, e.g. `filter_glb`)
+        counter         `reads` | `fills` -- the count the split must use
+        action          `read` | `write`  -- the ERT row that is bumped
+        narrow_levels   the storage levels in `placement.reduced`, i.e. the
+                        levels that get `datawidth: q`. The narrow weights stop
+                        AT the boundary, so for recon2 AND recon4 on Eyeriss v1
+                        this is (`filter_glb`,) and `weights_spad` stays at 8.
+
+    Raises `KeyError` for an unknown key and `ValueError` for a placement that
+    is not ERT-injectable, naming the reason.
+    """
+    p = placement_by_key(arch, key, cfg)
+    if p is None:
+        raise KeyError(f"{arch} has no placement {key!r}; it has "
+                       f"{', '.join(q.key for q in placements_for(arch, cfg))}")
+    stages = stages_for(arch, cfg)
+    ok, why = ert_injectable(p, stages)
+    if not ok:
+        raise ValueError(f"{arch}/{key} is not an ERT arm: {why}. The ERT arms of "
+                         f"{arch} are {', '.join(a.key for a in ert_arms(arch, cfg)) or 'none'}")
+    by_key = {s.key: s for s in stages}
+    site = by_key[p.site_stage]
+    narrow = tuple(by_key[k].prefixes[0] for k in p.reduced
+                   if by_key[k].kind == "storage")
+    return {"placement": p, "key": p.key, "level": site.prefixes[0],
+            "counter": p.site_counter, "action": ERT_ACTION_OF_COUNTER[p.site_counter],
+            "narrow_levels": narrow}
+
+
+def ert_deltas(incremental_pj, idle_pj, gran, block_size):
+    """prompt_6 5.1 -- the two ERT deltas of one arm, from the DC numbers.
+
+        access action   delta = E_w x block_size     E_w = incremental / weights per codeword
+        leak action     delta = idle_per_cycle       Timeloop multiplies by instances x cycles
+
+    `block_size = width / datawidth` is read off THAT level in THAT arm's
+    patched arch by the caller; `gran.codewords(1.0)` is the codeword events
+    one weight causes under the configured charging mode, so E_w is
+    `incremental / weights_per_codeword` under `weight` charging and the
+    whole incremental under `codeword` charging -- the same rule
+    `evaluate_placement` charges by, so the split in 5.3 reconciles.
+    Nothing here is hardcoded: at BCH(63,30) E_w = 1.3786 / 7.875 = 0.175060.
+    """
+    if block_size is None or int(block_size) < 1:
+        raise ValueError(f"block_size must be a positive integer, got {block_size!r}")
+    e_w = float(incremental_pj) * gran.codewords(1.0)
+    return {"e_w_pj": e_w,
+            "access_delta_pj": e_w * int(block_size),
+            "leak_delta_pj": float(idle_pj),
+            "block_size": int(block_size),
+            "incremental_pj_per_codeword": float(incremental_pj),
+            "idle_pj_per_cycle": float(idle_pj),
+            "weights_per_codeword": gran.weights_per_codeword,
+            "charging": gran.mode}
+
+
 
 
 def validate_placement_space(arch, cfg=None):
@@ -1023,7 +1139,21 @@ class StageStats:
     fanout: float = 1.0           # weight-only fanout of the network
     utilized_capacity: float = 0.0   # storage: weights resident per instance
     block_bits: int = 0              # storage: block size x word bits
-    instances: float = 0.0
+    word_bits: int = 0               # storage: MEASURED `Word bits` of the level
+                                     # (prompt_6 RULE 1: q -> the mapper narrowed
+                                     # it; weight_bits -> the evaluator does)
+    instances: float = 0.0           # utilized instances (max over layers)
+    declared_instances: float = 0.0  # storage: the level's declared `Instances`
+                                     # (the engines that EXIST)
+    engine_cycles: float = 0.0       # RULE 3's idle denominator, summed over
+                                     # layers: engines that LEAK x that layer's
+                                     # cycles. Storage: UTILIZED instances --
+                                     # Timeloop power-gates each unused instance
+                                     # (`Instances sharing power gating: 1`) and
+                                     # bills leak x utilized x cycles
+                                     # (buffer.cpp FinalizeBufferEnergy, verified
+                                     # 2026-09-11 on 43 shapes); dram: 1;
+                                     # network: fanout x instances.
     level_share: float = 1.0      # dram: this stage's share of the Timeloop level
 
     def counter(self, name):
@@ -1051,7 +1181,10 @@ class StageStats:
             "network_fanout": self.fanout,
             "weights_resident_per_instance": self.utilized_capacity,
             "physical_word_bits": self.block_bits,
+            "measured_word_bits": self.word_bits,
             "instances": self.instances,
+            "declared_instances": self.declared_instances,
+            "engine_cycles": self.engine_cycles,
             "share_of_the_timeloop_level": self.level_share,
         }
 
@@ -1066,6 +1199,7 @@ class LayerWeightPath:
     stages: dict
     unclaimed: list                 # weight-carrying levels no stage claimed
     stats_path: str
+    cycles: float = 0.0             # this plan's `Cycles:` x repeat count (RULE 3)
 
     def total_weight_energy(self):
         return sum(s.energy_pJ for s in self.stages.values())
@@ -1183,6 +1317,7 @@ def read_weight_path(cfg, arch, layer, stats_path):
     stage_defs = stages_for(arch, cfg)
     stages = {s.key: StageStats(s.key, s.kind) for s in stage_defs}
     unclaimed = []
+    util_by_stage = {}          # storage stage -> max utilized instances (this layer)
 
     # ---- storage and arithmetic levels -------------------------------------
     from .timeloop import _split_networks       # one definition of the split
@@ -1209,7 +1344,9 @@ def read_weight_path(cfg, arch, layer, stats_path):
         cap = _grab(r"Utilized capacity\s*:\s*(\d+)", wblock, int)
         word = _grab(r"Word bits\s*:\s*(\d+)", body, int) or cfg.weight_bits
         blk = _grab(r"Block size\s*:\s*(\d+)", body, int) or 1
+        declared = _grab(r"Instances\s*:\s*(\d+)", body.split("STATS")[0], int) or util
         for stage in claimants:
+            util_by_stage[stage.key] = max(util_by_stage.get(stage.key, 0), util)
             # ENERGY is the stage's share of the level (1.0 -- one claimant
             # per level since the f_if split was removed); the ACCESS COUNTS
             # are not scaled (R1 counts its reconstructions off dram's reads).
@@ -1222,10 +1359,12 @@ def read_weight_path(cfg, arch, layer, stats_path):
             st.reads += reads
             st.fills += fills
             st.instances = max(st.instances, util)
+            st.declared_instances = max(st.declared_instances, declared)
             if cap is not None:
                 st.utilized_capacity = (cap if st.utilized_capacity == 0
                                         else min(st.utilized_capacity, cap))
             st.block_bits = max(st.block_bits, word * blk)
+            st.word_bits = max(st.word_bits, word)
 
     # ---- networks ----------------------------------------------------------
     for nblock in re.split(r"\nNetwork \d+\n-+\n", "\n" + networks_text)[1:]:
@@ -1289,10 +1428,31 @@ def read_weight_path(cfg, arch, layer, stats_path):
                             _grab(r"Word bits\s*:\s*(\d+)", specs, int) or cfg.weight_bits)
 
     apply_dram_pj_per_bit(stages, cfg)
+    cycles = _grab(r"\nCycles:\s*(\d+)", text, int)
+    # RULE 3's idle denominator, PER LAYER: the engines that leak in this
+    # layer's plan x this layer's cycles. A storage site's engines are the
+    # UTILIZED instances of its level, because that is what Timeloop bills
+    # `leak` on (each unused instance is power-gated: buffer.cpp
+    # leaks_per_cycle = max utilized instances when `Instances sharing power
+    # gating` is 1, FinalizeBufferEnergy = leak x cycles x leaks_per_cycle).
+    # Summing per layer is what a full model needs -- conv1 uses 98 PEs, fc
+    # 16, a 3x3 layer 168 -- and it is what reconciles to 1e-6 against the
+    # stats' leakage delta on an ERT arm.
+    for st in stages.values():
+        if st.energy_pJ <= 0:
+            continue
+        if st.kind == "dram":
+            engines = 1.0
+        elif st.kind == "network":
+            engines = max(1.0, float(round(float(st.fanout) * float(st.instances or 1))))
+        else:
+            engines = float(util_by_stage.get(st.key, st.instances) or 1)
+        st.engine_cycles = engines * float(cycles or 0) * scale
     return LayerWeightPath(
         layer=getattr(layer, "name", "?"), shape=getattr(layer, "shape_name", "?"),
         weights=int(getattr(layer, "weights", 0)), scale=scale, stages=stages,
-        unclaimed=unclaimed, stats_path=str(stats_path))
+        unclaimed=unclaimed, stats_path=str(stats_path),
+        cycles=(cycles * scale) if cycles is not None else 0.0)
 
 
 @dataclass
@@ -1315,6 +1475,10 @@ class ModelWeightPath:
     #: `dram_if_frac` when the array/interface split was removed 2026-09-09.
     dram_pj_per_bit: float = 0.0
     dram_cost_note: str = ""
+    #: prompt_6 RULE 3: the summed `Cycles:` of every mapped layer (x repeat
+    #: count), read off THESE stats -- the idle term's denominator for a bar
+    #: billed from this plan.
+    cycles: float = 0.0
 
     def stage(self, key):
         return self.stages.get(key)
@@ -1459,7 +1623,10 @@ def weight_path(cfg, arch, model, layers, stats_paths):
             agg.multicast = max(agg.multicast, st.multicast)
             agg.fanout = max(agg.fanout, st.fanout)
             agg.instances = max(agg.instances, st.instances)
+            agg.declared_instances = max(agg.declared_instances, st.declared_instances)
+            agg.engine_cycles += st.engine_cycles
             agg.block_bits = max(agg.block_bits, st.block_bits)
+            agg.word_bits = max(agg.word_bits, st.word_bits)
             agg.level_share = st.level_share
             if st.utilized_capacity:
                 agg.utilized_capacity = (st.utilized_capacity
@@ -1471,6 +1638,7 @@ def weight_path(cfg, arch, model, layers, stats_paths):
             "layer": lp.layer, "shape": lp.shape, "weights": lp.weights,
             "repeat_count": lp.scale,
             "weight_energy_pJ": lp.total_weight_energy(),
+            "cycles": lp.cycles,
             "stages": {k: st.to_dict() for k, st in lp.stages.items()
                        if st.energy_pJ > 0},
         })
@@ -1483,7 +1651,8 @@ def weight_path(cfg, arch, model, layers, stats_paths):
                            unclaimed=unclaimed, stats_dir=stats_dir,
                            stage_defs=stage_defs, decode_site=decode_site(cfg),
                            dram_pj_per_bit=float(getattr(cfg, 'dram_pj_per_bit', None) or 0.0),
-                           dram_cost_note=getattr(cfg, 'dram_cost_note', ''))
+                           dram_cost_note=getattr(cfg, 'dram_cost_note', ''),
+                           cycles=sum(lp.cycles for lp in layer_paths))
 
 
 
@@ -1538,11 +1707,81 @@ class Packing:
         return (block_bits / bits) if self.mode == "stream" \
             else float(max(1, math.floor(block_bits / bits)))
 
-    def storage_scale(self, block_bits):
-        """Access-count-and-energy scale for a storage stage."""
+    @property
+    def declared_q(self):
+        """The mapper's reduced datawidth, `q = round(weight_bits x K/N)` --
+        what `archs._set_weight_datawidth` writes and what a q-bit plan's
+        stats print as `Word bits`."""
+        return code_widths.declared_datawidth(self.n, self.k, self.weight_bits)
+
+    def narrowing_owner(self, word_bits):
+        """prompt_6 RULE 1: who narrows a storage stop, decided by MEASUREMENT.
+
+            Word bits == q            ->  "mapper"    (the plan already narrowed it;
+                                                      the evaluator applies 1.0)
+            Word bits == weight_bits  ->  "evaluator" (an 8-bit plan; Packing applies)
+            anything else             ->  STOP: the arch and the code disagree.
+
+        `None` (no stats to measure from) keeps the pre-prompt_6 reading, the
+        evaluator. Ownership is a property of the BAR's own plan, never a
+        run-wide switch -- there is no ECC_RECON_NARROW_AT knob.
+        """
+        if word_bits in (None, 0):
+            return "evaluator"
+        wb = int(word_bits)
+        if wb == self.weight_bits:
+            return "evaluator"
+        if wb == self.declared_q:
+            return "mapper"
+        raise ValueError(
+            f"a weight level reports Word bits {wb}, which is neither the weight "
+            f"width {self.weight_bits} nor q = round({self.weight_bits} x {self.k}/"
+            f"{self.n}) = {self.declared_q}: the arch and the code disagree, and "
+            f"no owner can be assigned to its narrowing (prompt_6 RULE 1)")
+
+    def storage_scale(self, block_bits, word_bits=None):
+        """Access-count-and-energy scale for a storage stage.
+
+        `word_bits` is the level's MEASURED `Word bits` from the bar's own
+        stats (RULE 1). When the mapper already narrowed the level the scale
+        is exactly 1.0 -- applying Packing on top would square the saving.
+        """
+        if self.narrowing_owner(word_bits) == "mapper":
+            return 1.0
         full = self._per_word(block_bits, self.weight_bits)
         red = self._per_word(block_bits, self.reduced_bits_per_weight)
         return full / red if red > 0 else 1.0
+
+    def narrowing_site(self, word_bits, applied_scale):
+        """One narrow stop's audit row: which sites are LIVE, given the scale
+        the evaluator actually applied. Exactly one must be.
+
+        both live  -> the saving is SQUARED (`problem`)
+        none live  -> a stop the placement says carries narrow weights is
+                      narrowed by nobody -- silently zero (`problem`)
+        """
+        owner = self.narrowing_owner(word_bits)
+        mapper_live = owner == "mapper"
+        evaluator_live = abs(float(applied_scale) - 1.0) > 1e-12
+        row = {"measured_word_bits": None if word_bits is None else int(word_bits),
+               "q": self.declared_q, "weight_bits": self.weight_bits,
+               "mapper_live": mapper_live, "evaluator_live": evaluator_live,
+               "applied_scale": float(applied_scale),
+               "owner": ("mapper" if mapper_live and not evaluator_live else
+                         "evaluator" if evaluator_live and not mapper_live else
+                         "BOTH" if mapper_live and evaluator_live else "NOBODY"),
+               "ok": mapper_live != evaluator_live}
+        if mapper_live and evaluator_live:
+            row["problem"] = (f"THE ON-CHIP NARROWING IS APPLIED TWICE and the saving is "
+                              f"SQUARED: the plan already stores Word bits {word_bits} "
+                              f"AND the evaluator applied x{applied_scale:.4f}")
+        elif not mapper_live and not evaluator_live:
+            row["problem"] = (f"NOBODY narrows this stop: the plan stores Word bits "
+                              f"{word_bits} (not q = {self.declared_q}) and "
+                              f"{self.mode} packing applied x1.0000, so a stop the "
+                              f"placement says carries narrow weights is silently at "
+                              f"full width")
+        return row
 
     def weights_per_word(self, block_bits, reduced=True):
         """How many weights one physical word of `block_bits` carries.
@@ -1593,6 +1832,13 @@ class Packing:
 # ===========================================================================
 def onchip_narrowing_audit(cfg):
     """Where the K/N on-chip weight narrowing is applied, and how many times.
+
+    CONFIGURATION-LEVEL ESTIMATE. Since prompt_6 phase 4 the placement study
+    decides ownership per BAR per STAGE from measured `Word bits`
+    (`Packing.narrowing_owner`, `narrowing_audit_for_bar`, called inside
+    `evaluate_placement`), which is the authority; this function keeps the
+    coarse pre-check `dilation --levels` prints. FINDINGS 6.3 records why the
+    name-based `evaluator_narrows` below is not a measurement.
 
     THE DOUBLE-COUNTING THIS EXISTS TO STOP. There are now two places that can
     narrow an on-chip weight:
@@ -1706,6 +1952,20 @@ def capacity_dilation_scale(cfg):
     # reference scale to, so the derived capacity has ONE spelling and
     # therefore one cache directory. See the comment there.
     return round(cfg.weight_capacity_scale * cfg.code_n / cfg.code_k, 4)
+
+
+def capacity_target(cfg):
+    """prompt_6 6: the weight room a re-planned arm must show, `(factor, q)`.
+
+    The reduced representation is `datawidth: q` with `q = round(weight_bits x
+    K/N)` a WHOLE number of bits, so the room actually delivered is
+    `weight_bits / q` -- 2.000 at BCH(63,30), 1.333 at BCH(63,51) -- and NEVER
+    N/K (2.100, 1.235). Checking against N/K refused two codes outright and
+    passed the other four by luck (within the 5 % slack); this target is exact
+    for every code, so the slack goes back to catching real faults.
+    """
+    q = code_widths.declared_datawidth(cfg.code_n, cfg.code_k, cfg.weight_bits)
+    return cfg.weight_bits / q, q
 
 
 def capacity_dilation_correction(ref_stats_dir, dil_stats_dir, prefixes):
@@ -2059,6 +2319,83 @@ def feasibility(placement, arch, wpath, gran):
     return ok, detail
 
 
+def narrowing_audit_for_bar(placement, wpath, packing, stage_defs):
+    """prompt_6 RULE 1, once per BAR per STAGE: for every storage stop the
+    placement says carries narrow weights, who narrows it -- from the bar's
+    OWN measured `Word bits` and the scale the evaluator would apply.
+
+    Returns `(ok, rows)`; a row with `problem` set names a stop narrowed twice
+    or by nobody. `evaluate_placement` calls this and refuses on `not ok`.
+    """
+    rows = []
+    for stage in stage_defs:
+        if stage.kind != "storage" or stage.key not in placement.reduced:
+            continue
+        st = wpath.stages.get(stage.key)
+        if st is None or st.energy_pJ <= 0:
+            continue
+        try:
+            scale = packing.storage_scale(st.block_bits, st.word_bits)
+            row = packing.narrowing_site(st.word_bits, scale)
+        except ValueError as exc:            # Word bits neither q nor weight_bits
+            row = {"measured_word_bits": st.word_bits, "q": packing.declared_q,
+                   "weight_bits": packing.weight_bits, "owner": "UNDEFINED",
+                   "mapper_live": None, "evaluator_live": None,
+                   "applied_scale": None, "ok": False, "problem": str(exc)}
+        rows.append(dict(row, stage=stage.key, levels=list(st.levels),
+                         physical_word_bits=st.block_bits))
+    return all(r["ok"] for r in rows), rows
+
+
+def engine_cycles_for(placement, wpath, stage_defs, cycles=None):
+    """prompt_6 RULE 3's idle denominator for one bar: engine-cycles, i.e.
+    sum over the plan's layers of (engines that leak x that layer's cycles).
+    Returns `(engine_cycles, effective_engines, rule)`.
+
+        dram site      1 engine at the chip ingress                x cycles
+        network site   fanout x network instances = the destinations
+                       the network delivers to (14 at Eyeriss v1's
+                       column edge)                                x cycles
+        storage site   the level's UTILIZED instances, PER LAYER: Timeloop
+                       power-gates each unused instance (`Instances sharing
+                       power gating: 1`) and bills `leak` x utilized x cycles
+                       (buffer.cpp FinalizeBufferEnergy; verified 2026-09-11
+                       on 43 shapes, multiplier == utilized every time). An
+                       encoder sits in its PE and is gated with it. The
+                       declared count (168) is reported beside it.
+
+    `cycles` is the run length the caller bills from (RULE 4: another plan's
+    cycles override the path's own); the storage engine-cycles are rescaled
+    to it so `idle x engine_cycles` and `idle x cycles x engines` agree.
+    """
+    by_key = {s.key: s for s in stage_defs}
+    site = by_key[placement.site_stage]
+    st = wpath.stages[placement.site_stage]
+    own = float(getattr(wpath, "cycles", 0.0) or 0.0)
+    cyc = float(cycles) if cycles is not None else own
+    if site.kind == "dram":
+        return 1.0 * cyc, 1.0, "one engine at the chip ingress"
+    if site.kind == "network":
+        n = max(1, int(round(float(st.fanout) * float(st.instances or 1))))
+        return n * cyc, float(n), (f"one engine per destination of the network: fanout "
+                                   f"{st.fanout:g} x {st.instances:g} network instance(s)")
+    ec = float(st.engine_cycles or 0.0)
+    if own and cyc != own:
+        ec *= cyc / own
+    eff = (ec / cyc) if cyc else float(st.declared_instances or st.instances or 1)
+    return ec, eff, (f"one engine per UTILIZED instance of {'+'.join(st.levels) or site.key}, "
+                     f"per layer (Timeloop power-gates unused instances and bills leak x "
+                     f"utilized x cycles); declared {st.declared_instances:g}, utilized "
+                     f"max {st.instances:g}, cycle-weighted mean {eff:.2f}")
+
+
+def engines_for(placement, wpath, stage_defs, cycles=None):
+    """`(effective engines, rule)` -- the cycle-weighted mean of the engines
+    that leak; see `engine_cycles_for`. 1 / 14 / <= 168 on Eyeriss v1."""
+    _ec, eff, rule = engine_cycles_for(placement, wpath, stage_defs, cycles)
+    return eff, rule
+
+
 # ===========================================================================
 #  evaluating one placement
 # ===========================================================================
@@ -2073,8 +2410,19 @@ class PlacementResult:
 
 
 def evaluate_placement(cfg, arch, placement, wpath, base_w_by_cat, base_by_cat,
-                       recon_pj, gran, packing, decode_pj=0.0):
+                       recon_pj, gran, packing, decode_pj=0.0, recon_idle_pj=0.0,
+                       cycles=None):
     """Cost one boundary. Fixed mapping: every access count is Timeloop's.
+
+    prompt_6 RULE 3: `recon_pj` is the INCREMENTAL term (pJ per codeword
+    event) and `recon_idle_pj` the idle term (pJ per cycle per engine);
+    `cycles` is the run length of the plan this bar is billed from (None =
+    `wpath.cycles`). The encoder energy is
+
+        E_recon = incremental x events + idle x cycles x N_engines
+
+    with N_engines derived per placement by `engines_for` (1 / 14 / 168 on
+    Eyeriss v1). An idle term without a cycle count is refused, never zero.
 
     `base_by_cat` / `base_w_by_cat` are the plotted-category totals and their
     weight share, from the SAME `Raw` record the baseline and embedded arms use.
@@ -2092,6 +2440,14 @@ def evaluate_placement(cfg, arch, placement, wpath, base_w_by_cat, base_by_cat,
     if not ok:
         return PlacementResult(placement, "unsupported", {}, 0.0,
                                {"feasibility": feas}, feas["reason"])
+    # prompt_6 RULE 1: exactly one owner per narrow storage stop, decided per
+    # bar from ITS plan's measured Word bits. A hard stop either way it fails.
+    narrow_ok, narrowing = narrowing_audit_for_bar(placement, wpath, packing, stage_defs)
+    if not narrow_ok:
+        bad = [r for r in narrowing if not r["ok"]]
+        raise ValueError(
+            f"{arch}/{placement.key}: " + "; ".join(
+                f"{r['stage']} ({'+'.join(r['levels'])}): {r['problem']}" for r in bad))
 
     # ---- 1. what the reduced representation saves, stage by stage -----------
     saved_by_cat = {}
@@ -2119,7 +2475,9 @@ def evaluate_placement(cfg, arch, placement, wpath, base_w_by_cat, base_by_cat,
             after = st.wire_pJ * ws + st.switch_pJ * ss
             scale = after / st.energy_pJ if st.energy_pJ else 1.0
         else:
-            scale = packing.storage_scale(st.block_bits)
+            # RULE 1: the owner of this stop's narrowing is decided by the
+            # bar's own measured Word bits -- 1.0 when the plan is q-bit.
+            scale = packing.storage_scale(st.block_bits, st.word_bits)
             after = st.energy_pJ * scale
         saved = st.energy_pJ - after
         saved_by_cat[cat] = saved_by_cat.get(cat, 0.0) + saved
@@ -2131,7 +2489,18 @@ def evaluate_placement(cfg, arch, placement, wpath, base_w_by_cat, base_by_cat,
     st_site = wpath.stages[placement.site_stage]
     accesses = st_site.counter(placement.site_counter)
     n_cw = gran.codewords(accesses)
-    recon_energy = n_cw * recon_pj
+    e_incremental = n_cw * recon_pj
+    if cycles is None:
+        cycles = float(getattr(wpath, "cycles", 0.0) or 0.0)
+    engine_cycles, engines, engines_rule = engine_cycles_for(
+        placement, wpath, stage_defs, cycles)
+    if recon_idle_pj and not cycles:
+        raise ValueError(
+            f"{arch}/{placement.key}: the idle term is {recon_idle_pj:g} pJ per cycle "
+            f"per engine but the plan carries no cycle count (RULE 3: refusing to "
+            f"charge it as zero; the stats file has no `Cycles:` line)")
+    e_idle = float(recon_idle_pj or 0.0) * engine_cycles
+    recon_energy = e_incremental + e_idle
 
     # No reconstruction boundary carries a reuse register any more (R4b was
     # removed 2026-09-10: consecutive weight reuse is 1 on 20 of 21 resnet18
@@ -2161,6 +2530,12 @@ def evaluate_placement(cfg, arch, placement, wpath, base_w_by_cat, base_by_cat,
                 },
         },
         "feasibility": feas,
+        "narrowing_ownership": {
+            "rule": ("prompt_6 RULE 1: per storage stop carrying narrow weights, "
+                     "the owner is decided by this bar's own measured Word bits -- "
+                     "q means the mapper narrowed it (evaluator x1.0), weight_bits "
+                     "means the evaluator does; exactly one site is live"),
+            "stops": narrowing},
         "reduced_representation": packing.to_dict(),
         "reconstruction_granularity": gran.to_dict(),
         "reconstruction_counts": {
@@ -2189,6 +2564,22 @@ def evaluate_placement(cfg, arch, placement, wpath, base_w_by_cat, base_by_cat,
                 if st_site.ingresses > 0 else 1.0),
             "reconstruction_events_codewords": n_cw,
             "pJ_per_codeword": recon_pj,
+            "incremental_pJ_per_codeword": recon_pj,
+            "idle_pJ_per_cycle_per_engine": float(recon_idle_pj or 0.0),
+            "engines": engines,                 # cycle-weighted mean of the engines that leak
+            "engines_declared": float(st_site.declared_instances or 0.0),
+            "engines_utilized_max": float(st_site.instances or 0.0),
+            "engine_cycles": engine_cycles,     # sum over layers: engines x cycles
+            "engines_rule": engines_rule,
+            "cycles": float(cycles or 0.0),
+            "reconstruction_energy_incremental_pJ": e_incremental,
+            "reconstruction_energy_idle_pJ": e_idle,
+            "rule": ("prompt_6 RULE 3: incremental x events + idle_per_cycle x "
+                     "engine_cycles, engine_cycles = sum over layers of (engines "
+                     "that leak x cycles); a storage site's engines are the "
+                     "UTILIZED instances, as Timeloop bills leak (power-gated "
+                     "per instance); the two terms have different denominators "
+                     "and are never added per codeword"),
             "reconstruction_energy_pJ": recon_energy,
             # R4b and its reuse register were removed on 2026-09-10; no
             # boundary carries per-PE buffering, so this is structurally zero.

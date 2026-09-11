@@ -11,6 +11,41 @@ no tables, no pasted output. Anything worth keeping longer than a week belongs
 in FINDINGS.md; anything that says what to do next belongs in the live plan.
 
 
+2026-09-11  PROMPT_6 PHASE 1 -- THE ERT HOOK IS PROVEN
+------------------------------------------------------
+Built eccenergy/experiments/ert_probe.py (plus paths.ert_probe_dir, its
+scratch directory outside the mapper cache) and ran it under sbatch. Five
+Timeloop invocations, each against a number predicted from the cached
+reference stats: Accelergy regenerates the identical table; a supplied
+ERT+ART is honoured by timeloop-model on the fixed reference mapping and by
+timeloop-mapper through timeloopfe, the production path; bumping
+filter_glb.read and the two levels' leak moved exactly the predicted level
+energies and leakage totals and nothing else; the leak multiplier is the
+instance count. FINDINGS 3.5 has the numbers. Test suites unchanged (the one
+pre-existing test_noc failure aside).
+
+Two things learned that phase 3 must build in: pre-write the supplied
+ERT/ART under timeloop-mapper.ERT.yaml / .ART.yaml or timeloopfe's parser
+raises after a successful search and Mapper counts the shape as failed;
+and timeloop-model must be given a fixed mapping WITHOUT
+architecture_constraints. Also found: env.sh's own defaults were random_pruned /
+timeout 2000 with no mcons/wrelax, so every mapper job so far carried
+prompt_3's four exports by hand.
+
+RESOLVED THE SAME DAY, on request: env.sh section 2 and section 5 now default
+to prompt_3's values -- ECC_MAPSPACE_CONSTRAIN=1, ECC_WEIGHT_FACTOR_RELAX=1,
+ECC_MAPPER_ALGORITHM=linear_pruned, ECC_MAPPER_TIMEOUT=100000000 -- so a bare
+`run.sh` lands on the exhaustive constrained search (0.00% residual, ~1 min
+per map) instead of the hours-long unconstrained one. Verified: the bare
+dry-run resolves to the mcons__wrelax slug at fingerprint 3cd00eb16801, the
+reference entry already on disk, so nothing went cold. The comments beside
+each knob keep the unconstrained-regime measurements and say when to set the
+old values back (a design with no MAPSPACE_FREE_LEVELS entry).
+
+NEXT: phase 2 -- levels=() on archs._set_weight_datawidth and the matching
+config field; empty tuple must reproduce today's YAML byte for byte.
+
+
 2026-09-11  DOC CLEANUP, AND THE LIVE PLAN MOVES TO prompt_6
 ------------------------------------------------------------
 The live plan is now prompt_6.md: reconstruction-aware mapping, putting the
@@ -45,6 +80,380 @@ actually reaches Timeloop (map one shape with an absurd filter_glb.read, confirm
 stats.txt moves; repeat for leak). ~60 s, and everything else depends on it.
 
 
+2026-09-11  PROMPT_6 PHASE 2 -- PER-LEVEL DATAWIDTH
+---------------------------------------------------
+archs._set_weight_datawidth(text, bits, levels=(), ...) mirrors
+_scale_weight_depth: empty = every weight level, a name no weight level has
+is a ValueError. config.weight_datawidth_levels (ECC_WEIGHT_DATAWIDTH_LEVELS,
+env.sh section 5 directly below ECC_WEIGHT_DATAWIDTH) feeds _patched_text,
+the fingerprint keep-list, and the slug in both config.global_variant_parts
+and archs.effective_variant as `wdw4-filter_glb`, the same spelling
+`wdepth<scale>-<levels>` already uses.
+
+VERIFIED: reference fp 3cd00eb16801 and the wdw4 fp 7b80cd0c9e2a are
+unchanged and both still on disk, so no cache went cold; the filter_glb-only
+arm resolves to its own slug and fp 6712e962fb1c (cold, as it must be).
+patched_weight_geometry at datawidth 4 / levels=(filter_glb,) reports
+filter_glb 4b (16 w/word), weights_spad 8b (2 w/word), DRAM 8b. Three tests
+added to test_dilation.py (empty tuple byte-identical; filter_glb only; typo
+and DRAM refused); test_code_widths' positional callers moved to keywords.
+All suites pass, test_noc's declared-pitches failure aside (pre-existing).
+
+NEXT: phase 3 -- ERT in the variant slug and the fingerprint, patched ERT/ART
+written beside the arch and pre-written into the output directory, sidecar
+records the bump, read-back assertion.
+
+
+2026-09-11  PROMPT_6 PHASE 3 -- CACHE IDENTITY OF THE ERT ARMS
+--------------------------------------------------------------
+The ERT arm is now a first-class configuration. ECC_RECON_ERT_ARM (env.sh
+section 4, beside RECON_OPTIMIZER; `reference` or a placement key) resolves in
+config.__post_init__ into weight_datawidth = q and weight_datawidth_levels =
+the storage levels of the placement's reduced set -- so recon2 and recon4 both
+narrow filter_glb only and leave weights_spad at 8, exactly as prompt_6 5.2
+says. ECC_RECON_ERT_AWARE is refused without RECON_OPTIMIZER=True + Post.
+
+DERIVED, NOT SPELLED (prompt_6 3.3): recon.ert_injectable(placement, stages)
+and recon.ert_arms(arch). Eyeriss v1 -> recon2 (filter_glb reads -> ERT
+read), recon4 (weights_spad fills -> ERT write); recon1 dram, recon3 network,
+recon5 innermost reads all refused with the reason. eyeriss_like / v2 /
+v2_wglb -> one arm each (recon3). simple_weight_stationary -> THREE arms
+(recon2, recon3, recon4), not the two Appendix B guessed: weight_reg is a
+storage stage below pe_spad, so pe_spad reads are not the innermost level's.
+Out of scope; recorded so it is not re-discovered.
+
+THE DELTA (prompt_6 5.1) is recomputed at run time by archs.ert_bump():
+recon.ert_deltas(inc, idle, Granularity, block_size) with block_size read off
+the arm's own patched YAML and the two DC terms from the new
+ecc.load_recon_terms(). At BCH(63,30): E_w 0.175060, recon2 filter_glb.read
++2.800965 (x16), recon4 weights_spad.write +0.350121 (x2), leak +2.8310811 on
+both -- prompt_6's table to the printed digit.
+
+THREE DEFENCES (RULE 4.4.5), all in: (1) slug `ert-recon2-filter_glb-read` /
+`ert-recon4-weights_spad-write` appended in BOTH config.global_variant_parts
+and archs.effective_variant; (2) archs.arch_fingerprint hashes
+{placement, level, action deltas at full precision} only when an arm is set,
+so every reference fingerprint on disk is unchanged (3cd00eb16801 verified);
+(3) timeloop.read_back_ert(out_dir, bump) re-opens the stored ERT and the
+sidecar and refuses a wrong arm, a reference request on an ERT entry, a delta
+off by more than 1e-9 relative, or a tampered table, naming both sides.
+Mapper._accept_cached also refuses a hit whose sidecar bump differs.
+
+MEASURED: recon2 and recon4 produce byte-identical patched YAML and land at
+fp 5f46b2b186e5 and fp 91ce4687a22f in differently named directories.
+
+THE PRODUCTION HOOK (timeloop.ErtTables): once per (arch, arm, fingerprint),
+under <cache>/_ert/, Accelergy generates the base ERT/ART from the arm's own
+patched arch (FINDINGS 3.5: deterministic, no cache entry needed), the two
+rows are bumped, and both tables are pre-written into every shape's output
+directory under timeloop-mapper.ERT.yaml/.ART.yaml and handed to timeloopfe
+as two extra inputs. After the map the console must say "Found Accelergy
+ERT" and read_back_ert must pass, or the shape is counted failed. The probe's
+table helpers moved into timeloop.py; ert_probe --plan still passes.
+
+Tests: test_recon.py +3 (predicate on every registered design with the
+expected set per design, derivation mutations, delta arithmetic incl. codeword
+charging and block_size 0); test_dilation.py +4 (wrong-sibling guard,
+recomputed bump, read-back with five breakages, patching the real cached ERT
+moves exactly two rows). All suites pass, test_noc aside.
+
+NEXT: phase 4 -- RULE 1 ownership by measured Word bits.
+
+
+2026-09-11  PROMPT_6 PHASE 4 -- RULE 1: ONE OWNER PER NARROW STOP, MEASURED
+---------------------------------------------------------------------------
+Ownership is decided per BAR per STAGE from the bar's own stats, never by a
+switch. recon.StageStats gained `word_bits` (the level's printed `Word
+bits`); Packing.narrowing_owner(word_bits) returns `mapper` at q, `evaluator`
+at weight_bits, and raises on anything else ("the arch and the code
+disagree"); Packing.storage_scale(block_bits, word_bits) returns exactly 1.0
+when the mapper narrowed the level; Packing.narrowing_site(word_bits,
+applied_scale) is the audit row -- BOTH live (squared) and NOBODY live (a
+narrow stop silently at full width) are both problems. narrowing_audit_for_bar
+runs inside evaluate_placement for every storage stop in the placement's
+reduced set and is a hard stop; the rows are recorded on the result
+(`narrowing_ownership`) and printed per bar by experiments/recon._report_narrowing.
+The old config-level onchip_narrowing_audit(cfg) is kept for dilation's
+level table and marked superseded; evaluate() no longer calls it.
+
+THE FOURTH SITE: ecc.build_stacks' recon column now leaves alone the weight
+energy of any level row whose measured Word bits == q
+(ecc.mapper_narrowed_weight_energy); timeloop.parse_stats records
+`word_bits`/`block_size` per storage row, energy.gather carries `word_bits`
+into Raw.levels, and energy.load_raw re-gathers a raw record that predates
+the field instead of assuming it is 8-bit. VERIFIED: the reference record
+re-gathered (9 weight rows measured, all 8) and the three stack totals are
+bit-identical before and after (baseline 761,101,573.37 / embedded
+483,853,573.37 / recon 479,691,420.18 pJ) -- Task 1 and 2 did not move.
+
+Behaviour change, as prompt_6 RULE 1 asks: `aligned` packing on an 8-bit
+plan at a code where floor(W/q) == floor(W/8) (e.g. BCH(63,57) on a 24-bit
+word) used to pass with a note and is now REFUSED for a bar whose placement
+says that stop carries narrow weights. BCH(63,30) is unaffected (q = 4
+halves both published words).
+
+Tests: test_recon.py +4 (bypass/owner/STOP on Packing; the site audit's two
+failure modes; evaluate_placement on a synthetic plan at Word bits 8 vs 4 vs
+5 -- same bar, evaluator then mapper then refused; the nobody-live refusal
+at K=57 and its `stream` counter-example). test_dilation.py +1 (build_stacks
+fourth site: 8-bit scaled, q-bit left alone, legacy row = 8-bit, 5 refused,
+network row ignored; baseline/embedded columns never move). All suites pass,
+test_noc aside.
+
+ALSO TODAY: the two ERT arms were MAPPED for real under sbatch (jobs
+41735535 recon2, 41735536 recon4; 49 s and 40 s) through the phase 3 hook:
+ErtTables generated base tables from each arm's patched arch, the console
+took the "Found Accelergy ERT" branch, the stats price filter_glb.read at
+5.56 pJ (= 2.75566 + 2.80097, source ERT) and weights_spad.write at
+0.59375, and read_back_ert passed on both entries. OBSERVATION, not a
+result: both arms' loop nests are BYTE-IDENTICAL to the reference
+(fp 3cd00eb16801) at 344,064 cycles. Under prompt_3's constrained family
+only filter_glb is narrowed for these arms (weights_spad stays 8-bit), and
+C is not free at filter_glb, so the freed GLB room cannot change the
+DRAM-level chunking; the toll then adds energy without moving the argmax
+(Timeloop totals 231.56 -> 232.46 uJ recon2, 395.44 uJ recon4, the latter
+being 168 encoders' idle for the whole run). Phase 9 reports this per arm
+(prompt_6 10, item 11); nothing is quoted before the gate.
+
+NEXT: phase 5 -- RULE 3: load_recon_energy returns incremental and idle
+separately, build_stacks charges idle per cycle per engine from the Raw
+record (refusing without cycles), ECC_RECON_INCLUDE_IDLE retired, the DC
+tables in env.sh; re-run baseline --eval and diff Task 1/2; regenerate the
+three sweep figures.
+
+
+2026-09-11  PROMPT_6 PHASE 5 -- RULE 3: TWO TERMS, TWO DENOMINATORS
+-------------------------------------------------------------------
+ecc.load_recon_energy(cfg, k) returns (incremental pJ/codeword, idle
+pJ/cycle/engine, provenance); nothing adds them any more. ECC_RECON_PJ
+overrides the incremental term only. ECC_RECON_INCLUDE_IDLE is RETIRED
+(field, env knob, export). The two DC tables live in env.sh section 6 as
+`declare -A ECC_RECON_INCREMENTAL_PJ` / `ECC_RECON_IDLE_PJ`, flattened by
+section 10 into ECC_RECON_*_PJ_LIST and read by config._table into
+cfg.recon_incremental_table / recon_idle_table; the Python copy in ecc.py is
+gone. Lookup: the JSON on (n,k), then the env.sh tables, then the fallback
+constants with a warning.
+
+CYCLES ARE RECORDED. timeloop.parse_cycles reads `Cycles:`; energy.gather
+puts per-layer and total cycles (x repeat count) into Raw.cycles and
+Raw.per_layer; energy.load_raw re-gathers a record without them;
+recon.read_weight_path / weight_path carry `cycles` on LayerWeightPath and
+ModelWeightPath. StageStats gained `declared_instances` (the SPECS
+`Instances`), because the engines that EXIST burn idle -- 168 scratchpads,
+not the utilized count -- which is also how Timeloop bills `leak`.
+
+CHARGED: ecc.build_stacks(..., recon_idle_pj=None, recon_engines=1):
+Reconstruction = codewords x incremental + idle x cycles x 1; the sweep's
+recon arm counts codewords from DRAM reads, i.e. it reconstructs at the chip
+ingress, one engine (stated in the manifest). A Raw without cycles is
+REFUSED, never charged zero. recon.evaluate_placement(..., recon_idle_pj,
+cycles): E_recon = incremental x events + idle x cycles x N_engines with
+N_engines from recon.engines_for -- 1 at DRAM, fanout x instances at a
+network (14 at the column edge), declared instances at a storage level
+(168 at the spad, 1 at the GLB); recorded per bar
+(incremental_pJ / idle_pJ / engines / engines_rule / cycles) and printed as
+two more columns of the console table.
+
+VERIFIED on the reference record (re-gathered: cycles 344,064): baseline
+761,101,573.37 and embedded 483,853,573.37 pJ are bit-identical to before
+(Task 1 and 2 did not move); recon moved 479,691,420.18 -> 480,387,186.67
+because Reconstruction went 413,828.49 -> 1,109,594.98 pJ =
+98,304 codewords x 1.3786 + 2.8310811 x 344,064 x 1, to the printed digit.
+
+THE THREE SWEEP FIGURES, regenerated from cache under the new model (their
+manifests now carry recon_pj 1.8995 and idle 2.2301273 at K=51):
+  BCHsweep.png            REDRAWN -- but eyeriss_v2_like holds only 4 of
+                          resnet18's 21 shapes at its current fingerprint
+                          (72127b928d10; the rest sit under an older
+                          sibling), so it is a 4-layer figure. Not a model
+                          total; the manifest's per_layer says so.
+  ArchitectureSweep.png   REDRAWN -- eyeriss_like and
+                          simple_weight_stationary 21/21 shapes, v2 4/21,
+                          simple_output/input_stationary and simba_like 0
+                          (no cache at their current fingerprints),
+                          mobilenet_v2 nothing (FINDINGS 6.1). Forced onto
+                          the plain stem with ECC_STEM=ArchitectureSweep
+                          (env.sh's ECC_PANEL_MODELS default puts `__panels`
+                          in the name otherwise).
+  ModelSweep.png          NOT regenerated: eyeriss_like has no cache at its
+                          current fingerprint under the ss20000 slug. The
+                          2026-09-06 file stays on disk and is WRONG under
+                          RULE 3; treat as stale until re-mapped.
+None of these is in prompt_6's scope (the unconstrained random_pruned
+regime, FINDINGS 2.2); re-mapping them is hours and is not done here.
+
+Tests: test_baseline_dram +2 (the split at every K incl. the env.sh tables
+and the override; build_stacks' idle term, lookup by K, refusal without
+cycles), test_recon +1 (per-placement engines and the idle term on a
+synthetic plan; explicit `cycles`; refusal), test_noc's staleness test knows
+cycles; the tuple arity moved in test_baseline_dram, whose REAL_RECORD now
+points at the current fingerprint (the old one can never carry cycles). All
+suites pass, test_noc's declared-pitches failure aside.
+
+NEXT: phase 6 -- RULE 4: ert_aware_view() beside dilated_view(), per-bar
+plan lookup in evaluate(), guards per arm, read-back per entry, updates == 0,
+the two attribution splits reconciled to 1e-6, per-arm nest verdicts.
+
+
+2026-09-11  PROMPT_6 PHASE 6 -- RULE 4: ONE PLAN PER BAR
+--------------------------------------------------------
+experiments/recon.py: ert_aware_view(cfg, ses, arch, model, cats, ref_raw,
+ref_paths, placement) beside dilated_view(). It builds a Session on the arm's
+own Config (recon_ert_arm = key), loads the arm's Raw and weight path, and
+STOPS -- never falls back to the reference -- on: cache missing (prints the
+launcher command and the expected path); shapes differing from the
+reference; a stored ERT that is not this bar's (read_back_ert against the
+reference entry's un-bumped table, every shape); Scalar updates != 0 for
+Weights at the patched level (RULE 2); a leak multiplier that is not the
+declared instance count (RULE 3); PEs used differing from the reference
+(10.9); DRAM Word bits != 8 (RULE 1); a bumped level that also holds another
+dataspace; a vector-access energy source that is not ERT; the narrowed
+level's Effective size not 8/q x the reference (prompt_6 6); or an
+attribution split that does not reconcile to 1e-6 (5.3). The loop-nest
+verdict is per arm, per shape, never averaged.
+
+evaluate() replaces the single p_* set with a per-bar lookup: an ERT bar
+is billed from its own view (bill, weight bill, weight path, raw, cycles,
+DRAM reads for its decode count); under ECC_RECON_ERT_AWARE=1 the other
+bars sit on the REFERENCE plan (the depth dilation is not used -- it is
+withdrawn); with the knob off everything is Task 4 / Task 3 as before.
+Result file: experiment `task4_reconstruction_aware_mapping_ert`, per-bar
+mapping ids, and on each ERT bar the bump, fingerprint, cache slug, nest
+verdict, split, capacity and per-shape guard rows. ert_checks() records
+prompt_6 10's checklist as builder checks, one per arm. panel_for marks ERT
+bars with an "own mapping (ERT)" line; a warning names the two regimes on
+the figure; run() prints the per-arm verdicts. stats_paths_for passes the
+arm's bump to the Mapper (its entries carry the toll and were refused
+without it).
+
+THE SPLIT, learned by running it: the ACCESS toll is inside the level's
+per-dataspace `Energy (total)` and is MOVED out of its category into
+Reconstruction; the LEAK toll is NOT in the bill at all -- Timeloop prints
+leakage as a separate per-level line outside the per-dataspace energies and
+energy.parse_stats aggregates only those (tens of pJ on the reference, so
+nobody had noticed) -- so it is verified against the stats' leakage delta
+and CHARGED by the evaluator. Subtracting it too drove filter_glb negative
+and recon2/recon4 came back "unsupported"; ert_split's docstring and the
+result's `leak_in_bill: false` record the fact.
+
+VERIFIED on the two arm caches with `ECC_RECON_ERT_AWARE=1 bash hpc/tl.sh
+bash run.sh recon --eval`: every guard passed on both arms; both splits
+reconcile stats-side vs evaluator to 1e-6 and reproduce prompt_6 4.3.2's
+predicted access/idle amounts; ownership rows read recon2/recon4 filter_glb
+"Word bits 4 -> mapper", recon3/recon5 "Word bits 8 -> evaluator" (RULE 1
+end to end); both nests IDENTICAL to the reference (reported per arm); the
+figure ReconSweep_optimiser__layers1__layer3_0_conv1.png was drawn (the
+`__layers1` suffix goes in phase 8). NO BAR TOTAL IS QUOTED HERE: the gate
+(phase 9) has not run under the new model.
+
+Tests: test_recon +1 (ert_split equals the evaluator's two terms on a
+synthetic plan; the wrong counter does not reconcile). All suites pass,
+test_noc's declared-pitches failure aside.
+
+NEXT: phase 7 -- capacity target N/K -> 8/q in dilated_view and its test.
+
+
+2026-09-11  PROMPT_6 PHASE 7 -- CAPACITY TARGET N/K -> 8/q
+----------------------------------------------------------
+recon.capacity_target(cfg) -> (weight_bits / q, q) with q = round(8K/N).
+dilated_view's refusal and task4_checks' capacity check compare the
+delivered Effective-size ratio against it (the message quotes q and says N/K
+is the ideal, not the whole-bit room); ert_aware_view already did (phase 6).
+test_dilation +1: at all six codes the target is 8/q (1.143 / 1.333 / 1.333
+/ 1.600 / 1.600 / 2.000), a delivered 8/q passes its own target, and the old
+N/K target would still refuse exactly K=51 and K=36. All suites pass,
+test_noc's declared-pitches failure aside.
+
+NEXT: phase 8 -- hpc/map_ert_arms.sh, ECC_RECON_ERT_ARM (done in phase 3),
+ECC_RECON_LAYER, env.sh section 10 keeps the optimiser stem under a layer
+scope.
+
+
+2026-09-11  PROMPT_6 PHASE 8 -- THE PARALLEL LAUNCHER
+-----------------------------------------------------
+hpc/map_ert_arms.sh (new; a copy of map_by_shape.sh with the fan-out changed
+from architectures to ARMS): derives `reference` + recon.ert_arms() inside
+the container, resolves the layer scope, submits one sbatch per (arm x
+shape) with --array=0-0 and --export ECC_RECON_LAYER=<layer>
+ECC_RECON_ERT_ARM=<arm> ECC_TASKFILE=<snapshot>, then ONE dependent eval
+(afterok all, ECC_RECON_ERT_AWARE=1 forced, ECC_RECON_ERT_ARM=reference,
+same layer scope). --no-eval, --progress (solved shapes per arm at the
+current fingerprint) and --dry-run. Dry-run on the study point: 3 jobs
+(reference, recon2, recon4 x layer3.0.conv1) + 1 eval; --progress shows
+all three arms solved=1.
+
+env.sh: ECC_RECON_LAYER (section 4, directly below ECC_RECON_MODEL; default
+layer3.0.conv1; `all`/`full` = every layer, because an exported empty string
+is unset to `:=`) SEEDS ECC_LAYERS in section 10 under ECC_RECON_MODELING=1
+-- so under the placement study ECC_LAYERS on the command line does nothing,
+like the other hard assignments; the launcher passes the layer as
+ECC_RECON_LAYER. Section 10 now keeps ECC_STEM=${ECC_RECON_STEM}_optimiser on
+a layer-scoped run (prompt_6 9): the figure lands on
+results/figures/ReconSweep_optimiser.png, the scope in the manifest and
+title; the fixed-mapping ReconSweep keeps its layer suffix. config gained
+`recon_layer` (recorded), and Config.stem's comment names the exception.
+test_dilation +1 sources env.sh through a subprocess: default -> one layer,
+a name -> that layer, `all` -> every layer, ECC_LAYERS overwritten, and the
+two stems. All suites pass, test_noc's declared-pitches failure aside.
+
+GATE (prompt_6 8.4), `dilation --gate` on the reference arm, layer3.0.conv1,
+depth x1, victory 2000 / 4000 / 10000: total 179.22 uJ at every budget,
+residual 0.00 % -- PASS (the x0.125 depth rows of the depth sweep's own
+ladder are not cached and are not part of this study).
+
+NEXT: phase 9 -- `bash hpc/map_ert_arms.sh` submitted (3 map jobs, all cache
+hits, and the dependent ERT-aware eval); then the section-10 checklist and
+FINDINGS.
+
+
+2026-09-11  PROMPT_6 PHASE 9 -- RUN AND EVALUATE
+------------------------------------------------
+`bash hpc/map_ert_arms.sh`: jobs 41736521/22/23 (reference, recon2, recon4 x
+layer3.0.conv1; all raw-cache hits, 7 s each) and the dependent ERT-aware
+eval 41736524 (34 s). Output: results/figures/ReconSweep_optimiser.png with
+its manifest and table, and the result JSON
+.../layers1__layer3_0_conv1/.../20260911T124603Z__23f43883.json with all 40
+checks passing -- prompt_6 section 10, every item: gate PASS at 0.00 %
+residual (2000/4000/10000); exactly one narrowing owner per stop, measured
+(recon2/recon4 GLB -> mapper at Word bits 4, recon3/recon5 -> evaluator at
+8); Scalar updates 0 at both patched levels; both splits reconcile to 1e-6;
+every stored ERT read back against the reference table; capacity x2.0000 =
+8/q at q=4; recon2 on reads/read, recon4 on fills/write, engines printed;
+leak multiplier 1 and 168 = the engine counts; 168/168 PEs on every arm; DRAM
+Word bits 8 on every arm; per-arm nest verdicts (both IDENTICAL, stated
+separately). Per-bar mapping ids differ (a8de944a / 6922b6f2 / 3faa4501), so
+the result file cannot claim one plan for all bars.
+
+THE RESULT (FINDINGS 2.9): the encoder toll moved neither arm's loop nest
+under prompt_3's constrained family -- the arms narrow filter_glb only and C
+is not free there, so the doubled GLB room cannot change the DRAM chunking;
+the ERT-aware figure is Task 3's with RULE 3's idle term. Idle decides the
+ranking: 168 engines x 344,064 cycles x 2.831 pJ = 163.6 uJ (33.8 % of the
+embedded run), so R4/R5a cost more than embedded; R3 (14 engines) keeps
+7.5 %; R1/R2 (1 engine) keep 10.0 %, which is the DRAM K/N saving (49.4 uJ)
+minus ~1 uJ of encoder. RULE 1 reconciles across owners (GLB 24.503 uJ
+either way).
+
+Fixed on the way: config.recon_title said "FIXED MAPPING" on every placement
+figure, Task 4's included; it now names the regime (ERT-AWARE with the arms
+listed / Task 4 / fixed). Figure redrawn after the fix. FINDINGS: banner
+rewritten (RULE 3 in force, placement study regenerated, sweeps partial),
+status table, new 2.9 and 3.6. CLAUDE.md: banner and prompt_6 mechanics.
+
+FLAG -- an edit I did not make: env.sh was modified at 08:54:23 (after my
+last edit to it) changing `: "${ECC_DRAM_PJ_PER_BIT:=40}"` to 20 and
+`: "${ECC_BASELINE_DRAM_PJ_PER_BIT:=70}"` to 40, while the comments beside
+them still say 40 and 70 are the defaults. Left in place. A bare
+`run.sh recon --eval` now prices DRAM at 20/40 and gives R1/R2 +7.9/+8.0 %,
+R3 +3.9 %, R4/R5a -45.9/-48.4 % vs embedded (FINDINGS 2.9 records this as
+the price sensitivity). The figure on disk, its manifest, the result JSON
+and FINDINGS 2.9 are all at 40/70: the final redraw passed those two
+values explicitly on the command line. Decide which price is the study's
+and make env.sh's comments and default agree.
+
+STATE: prompt_6 phases 1-9 complete. Nothing committed to git (not asked).
+
+
 OPEN, CARRIED FORWARD
 ---------------------
 * eyeriss_v2_like_wglb does not validate: its weight_glb stage has no boundary.
@@ -53,3 +462,162 @@ OPEN, CARRIED FORWARD
   at BCH(63,57) and BCH(63,51) only. FINDINGS section 6 defect 4.
 * mobilenet_v2, efficientnet_b0, convnext_tiny and xception hold mapper entries
   under pre-fix shape names and are cold.
+
+
+2026-09-11  DRAM PRICE RESOLVED, ONE-LINE HEADING, HAND-OFF FOR LAYER4.1.CONV2 / ALL
+-----------------------------------------------------------------------------------
+FLAG RESOLVED (the 08:54 env.sh edit). The values on disk -- ECC_DRAM_PJ_PER_BIT=20,
+ECC_BASELINE_DRAM_PJ_PER_BIT=40 -- are ADOPTED as the study's prices: the edit
+was the owner's own, 20 is a cited candidate (Horowitz ISSCC 2014, the same
+45 nm table ECC_MAC_PJ_OVERRIDE=0.23 is read from, so both denominators share
+one source), and 40 beside 20 is x2.0 for the array that also stores the
+parity. Made to agree: env.sh comments (20 THE DEFAULT since 2026-09-11 and 40
+the 2026-09-09..11 default; 40 THE DEFAULT for the baseline and 70 the
+2026-09-10..11 default; the "8/20 pJ/bit" line), provenance.yaml
+dram_access_energy (value 20, set_on 2026-09-11, Horowitz THE ADOPTED SOURCE,
+FReaC/Gebhart the sensitivity row), baseline_dram.py's docstring,
+experiments/baseline.py's comment, experiments/recon.py's docstring and
+DRAM_TERM_NOTE (which no longer hard-codes a number), FINDINGS section 1
+(denominators), the status table, 2.4b and 2.9. config.dram_cost_note already
+labelled 20 with its citation, so no code moved for the price. The 40/70
+figure, pdf, table and manifest are kept as
+results/{figures,tables,manifests}/ReconSweep_optimiser__dram40_70__2026-09-11.*
+(their result file is .../20260911T125827Z__23f43883.json). If the 08:54 edit
+was NOT meant, revert the two `:=` lines and their comments together and redraw.
+
+HEADING CUT TO ONE LINE. config.recon_title() / recon_panel_title() return one
+line -- design, model and layer scope (recon_scope()), title_suffix without the
+MAC line, mapping_regime_tag() -- and take no mac_ert_pj. The six lines they
+carried are config.recon_caveats(mac_ert_pj): the regime line with its arms,
+the three lines of dram_model_line() (decoder site + price with citation,
+static DRAM terms, encoder site), the MAC line with "the denominator of every
+percentage", and the DEVELOPMENT RUN line on a scoped run.
+experiments/recon.run() writes them to the manifest as `title_caveats` beside
+`title`; on a multi-design figure PANEL_NOTE (the "each panel is one design's
+OWN weight path" rule that stacked_panels used to append to the heading) is
+appended to the list and panel_note=None is passed. draw_panel and stacked.py
+untouched. test_mac_override and test_recon assert the one-line heading and
+read the MAC / decode-site text from recon_caveats; a scoped config must name
+its layer in the heading and carry DEVELOPMENT RUN in the caveats. CLAUDE.md:
+one bullet under "Working on this code".
+
+REDRAWN from cache on the login node (no Timeloop):
+  ECC_RECON_ERT_AWARE=1 ECC_RECON_ERT_ARM=reference bash hpc/tl.sh bash run.sh recon --eval
+-> results/figures/ReconSweep_optimiser.png is 7187 px wide (was 13964); the
+manifest carries `title` + 6 `title_caveats`; result
+.../layers1__layer3_0_conv1/.../20260911T132930Z__70efc0c7.json, 40/40 checks
+pass. At 20/40: baseline 483.854 uJ, embedded 299.022, R1 275.331 (+7.92 %),
+R2 275.201 (+7.97 %), R3 287.493 (+3.86 %), R4 436.208 (-45.88 %), R5a 443.700
+(-48.38 %); DRAM saved 24.716 uJ on every bar (K/N of 47.186); idle 163.64 uJ
+= 54.7 % of the embedded run. Encoder terms, cycles, ownership and nest
+verdicts identical to the 40/70 run. FINDINGS 2.9 re-tabulated; 40/70 is its
+sensitivity row. Tests: all nine suites pass except test_noc's pre-existing
+test_declared_pitches_match_the_cached_art. `run.sh validate` PASS.
+
+NOT RUN, handed to the user as asked. The cache at the current fingerprints
+holds ONE shape per arm (layer3.0.conv1); resnet18 has 12 distinct shapes.
+Every knob is an env.sh default -- only the scope travels on the command line:
+  (2) layer4.1.conv2: 3 cold maps (reference, recon2, recon4) + 1 dependent eval
+      module load apptainer
+      ECC_RECON_LAYER=layer4.1.conv2 bash hpc/map_ert_arms.sh
+      the gate (3 maps at victory 2000/4000/10000, depth x1; --no-per-level or
+      the launcher also queues 24 depth-sweep jobs):
+      ECC_RECON_LAYER=layer4.1.conv2 ECC_DEPTH_SWEEP_GATE_SCALES=1.0 \
+          bash hpc/map_depth_sweep.sh --gate-only --no-per-level
+      then, once those have finished (reads caches only):
+      ECC_RECON_LAYER=layer4.1.conv2 ECC_DEPTH_SWEEP_GATE_SCALES=1.0 \
+          bash hpc/tl.sh python3 -m eccenergy.experiments.dilation --gate
+  (3) all: 36 maps (3 arms x 12 shapes, 33 cold) + 1 dependent eval
+      ECC_RECON_LAYER=all bash hpc/map_ert_arms.sh
+      The gate is one layer by doctrine (map_depth_sweep.sh, prompt_6 8.4);
+      layer3.0.conv1's PASS stands, or gate the quoted layer as in (2).
+  Both evals overwrite results/figures/ReconSweep_optimiser.png with its
+  manifest and table (the stem is fixed under RECON_OPTIMIZER=True): copy the
+  one-layer set out first, or point ECC_RESULTS_DIR elsewhere.
+
+STATE: nothing committed to git (not asked).
+
+
+2026-09-11  FULL-MODEL STUDY ON TWO NETWORKS: THE TWO GUARDS, AND A FILE REBUILT
+--------------------------------------------------------------------------------
+Jobs 41740440 (resnet18, ECC_RECON_LAYER=all) and 41742775 (mobilenet_v2) died in
+the ERT-aware eval. Both guards were wrong about Timeloop, not the mappings:
+
+* LEAK MULTIPLIER. Timeloop bills leakage as leak x total_cycles x leaks_per_cycle
+  with leaks_per_cycle = the UTILIZED instances when each instance has its own
+  power gate (buffer.cpp 2119-2127, 2376). Verified on all 43 cached shapes:
+  recon4's weights_spad multiplier == utilized every time (168 full array, 112
+  stride-2 1x1, 98 conv1, 16 fc, 42/21/18 depthwise). The guard compared to the
+  declared 168, true only on layer3.0.conv1. FIX (eccenergy/recon.py):
+  StageStats.engine_cycles = sum over layers of (engines that leak x that
+  layer's cycles) -- 1 at DRAM, fanout x instances at a network, UTILIZED
+  instances at a storage level; engine_cycles_for()/engines_for() derive from
+  it; evaluate_placement charges idle x engine_cycles and reports engines
+  (cycle-weighted mean), engines_declared, engines_utilized_max. ert_split uses
+  the same engine_cycles, so both owners agree per bar. The guard now judges
+  the multiplier in pJ against Timeloop's 0.01 pJ print precision and, when the
+  arm and the reference use different PEs on a shape, rescales the reference's
+  base leakage by the utilization ratio as well as the cycle ratio (the G576
+  depthwise layer: 126 vs 42 PEs, which read as 41.99996 otherwise).
+* PEs USED. 7 of 43 shapes differ between an ERT arm's own plan and the
+  reference; every recon2 case is lower energy AND lower EDP (doubled GLB room
+  changes the DRAM chunking; C576_M160: 3840 weights in the GLB instead of 720,
+  outputs read from DRAM 0 times instead of 54,880). The reference itself fills
+  the array on 16/43 shapes. REPORTED, not refused: per-shape rows (both PE
+  counts, both cycle counts, Timeloop EDP ratio, nest identity) printed as a
+  [note], recorded as ert_<arm>_pes_used_vs_reference_reported_per_shape, and
+  appended to the manifest's title_caveats; table columns
+  idle_engines_cycle_weighted / idle_engines_declared /
+  pe_shapes_differing_from_reference. Timeloop's `type: utilization` mapspace
+  constraint (constraints.cpp 887-898, uber.cpp 830) was considered and NOT
+  used: cold caches, meaningless on 16-63-PE layers, removes EDP-optimal points.
+  PE!= still suppresses Task 4's capacity verdict.
+* DRAM-CREDIT CHECK on an ERT bar now uses the arm's OWN DRAM bill (RULE 4) and
+  records the activation-traffic difference; it assumed the reference's bill
+  and failed on mobilenet_v2 recon2, whose own nest moves 198 uJ less
+  activation DRAM.
+* STEM PER MODEL: env.sh section 10 names the optimiser figure
+  ReconSweep_optimiser__<model> (and ReconSweep__<model> for a whole-model
+  fixed-mapping run); the second network's eval had overwritten the first's
+  figure. CLAUDE.md, prompt_6 9, map_ert_arms.sh, config.py comment and the
+  test_dilation stem test follow; that test now reads env.sh's own defaults
+  (the owner set ECC_RECON_MODEL=mobilenet_v2 / ECC_RECON_LAYER=all today).
+* prompt_6 10 items 8 and 9 reworded; RULE 3 4.3.1 gains the verified rule;
+  CLAUDE.md RULE 3 bullet updated. Tests: the two engines/split tests moved to
+  utilized (4 of 192 in the synthetic plan, with the declared count as the
+  BREAKAGE case); new test_idle_engines_are_timeloops_utilized_instances_on_
+  the_real_cache reconciles the recon4 conv1 cache entry's leakage delta to
+  idle x 98 x cycles and refuses 168.
+
+INCIDENT. A scripted edit opened eccenergy/experiments/recon.py for writing
+with an invalid `newline` argument; Python truncates the file BEFORE it
+validates that argument, so the file was left empty, with ~650 uncommitted
+lines of prompt_6 work (phases 4-9) in it. Nothing else was lost. REBUILT by
+replay: git HEAD (3a770cc) as the base, then every recorded edit in order --
+session 06f8383e's eight scripted edits (its scratchpad still held
+phase6_edit.py + phase6_block.py) and this session's four -- each old-string
+asserted unique, and the intermediate states checked byte-for-byte against
+the `sed` dumps stored as tool results in the transcripts (10 checkpoints,
+all identical). Final file 2261 lines; all suites pass; both evals reproduce.
+Lesson written to memory: write through a temp file + os.replace, never
+open("w") on a tracked file; keep a scratchpad copy before scripted edits.
+
+RESULTS (FINDINGS 2.10; ECC_RECON_MODEL=<m> ECC_RECON_LAYER=all
+ECC_RECON_ERT_AWARE=1 ECC_RECON_ERT_ARM=reference bash hpc/tl.sh bash run.sh
+recon --eval, evaluation only, all 129 mapper entries cache hits):
+  resnet18 (12 shapes): baseline 19,494.5 uJ, embedded 11,741.7, R1 10,701.9
+  (+8.86 %), R2 10,696.3 (+8.90 %), R3 11,099.7 (+5.47 %), R4 15,728.9
+  (-33.96 %), R5a 15,958.5 (-35.91 %); DRAM saved 1,074.2 uJ every bar; both
+  ERT nests identical on 12/12; idle engines 159.32 of 168 cycle-weighted;
+  40/40 checks. -> results/figures/ReconSweep_optimiser__resnet18.png
+  mobilenet_v2 (31 shapes): baseline 12,154.4, embedded 6,582.0, R1 6,276.1
+  (+4.65 %), R2 6,003.9 (+8.78 %; nest differs 22/31, PEs 3/31, DRAM 515.5
+  below embedded = 317.3 credit + 198.2 activation), R3 6,410.6 (+2.60 %);
+  R4/R5a unsupported (G_rec: 3 / 15 pairs under 9 resident weights); recon4's
+  own plan passes every guard (PEs differ 5/31, idle 911.5 uJ at 85.10
+  engines); 37/37 checks. -> ReconSweep_optimiser__mobilenet_v2.png
+  The one-layer figure from this morning stays at ReconSweep_optimiser.png.
+
+STATE: nothing committed to git (not asked). Suites: test_recon, test_dilation,
+test_mac_override, test_baseline_dram, test_embedded, test_results_store pass;
+test_noc's declared-pitches failure is pre-existing.

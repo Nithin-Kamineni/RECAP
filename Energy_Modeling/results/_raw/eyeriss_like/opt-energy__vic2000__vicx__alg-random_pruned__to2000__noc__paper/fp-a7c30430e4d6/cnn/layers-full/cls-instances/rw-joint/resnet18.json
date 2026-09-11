@@ -47,7 +47,8 @@
    "mapping_cached": true,
    "total_energy_pJ": 318796620.82088,
    "dram_weight_reads": 9408.0,
-   "dram_weight_energy_pJ": 602112.0
+   "dram_weight_energy_pJ": 602112.0,
+   "cycles": 8429568
   },
   {
    "layer": "layer1.0.conv1",
@@ -61,7 +62,8 @@
    "mapping_cached": true,
    "total_energy_pJ": 284214403.98696,
    "dram_weight_reads": 294912.0,
-   "dram_weight_energy_pJ": 18874368.0
+   "dram_weight_energy_pJ": 18874368.0,
+   "cycles": 9633792
   },
   {
    "layer": "layer1.0.conv2",
@@ -75,7 +77,8 @@
    "mapping_cached": true,
    "total_energy_pJ": 284214403.98696,
    "dram_weight_reads": 294912.0,
-   "dram_weight_energy_pJ": 18874368.0
+   "dram_weight_energy_pJ": 18874368.0,
+   "cycles": 9633792
   },
   {
    "layer": "layer1.1.conv1",
@@ -89,7 +92,8 @@
    "mapping_cached": true,
    "total_energy_pJ": 284214403.98696,
    "dram_weight_reads": 294912.0,
-   "dram_weight_energy_pJ": 18874368.0
+   "dram_weight_energy_pJ": 18874368.0,
+   "cycles": 9633792
   },
   {
    "layer": "layer1.1.conv2",
@@ -103,7 +107,8 @@
    "mapping_cached": true,
    "total_energy_pJ": 284214403.98696,
    "dram_weight_reads": 294912.0,
-   "dram_weight_energy_pJ": 18874368.0
+   "dram_weight_energy_pJ": 18874368.0,
+   "cycles": 9633792
   },
   {
    "layer": "layer2.0.conv1",
@@ -117,7 +122,8 @@
    "mapping_cached": true,
    "total_energy_pJ": 207276759.80223998,
    "dram_weight_reads": 589824.0,
-   "dram_weight_energy_pJ": 37748736.0
+   "dram_weight_energy_pJ": 37748736.0,
+   "cycles": 1032192
   },
   {
    "layer": "layer2.0.conv2",
@@ -131,7 +137,8 @@
    "mapping_cached": true,
    "total_energy_pJ": 321226132.15479994,
    "dram_weight_reads": 589824.0,
-   "dram_weight_energy_pJ": 37748736.0
+   "dram_weight_energy_pJ": 37748736.0,
+   "cycles": 7225344
   },
   {
    "layer": "layer2.0.downsample.0",
@@ -145,7 +152,8 @@
    "mapping_cached": true,
    "total_energy_pJ": 34549976.13912,
    "dram_weight_reads": 57344.0,
-   "dram_weight_energy_pJ": 3670016.0
+   "dram_weight_energy_pJ": 3670016.0,
+   "cycles": 802816
   },
   {
    "layer": "layer2.1.conv1",
@@ -159,7 +167,8 @@
    "mapping_cached": true,
    "total_energy_pJ": 321226132.15479994,
    "dram_weight_reads": 589824.0,
-   "dram_weight_energy_pJ": 37748736.0
+   "dram_weight_energy_pJ": 37748736.0,
+   "cycles": 7225344
   },
   {
    "layer": "layer2.1.conv2",
@@ -173,7 +182,8 @@
    "mapping_cached": true,
    "total_energy_pJ": 321226132.15479994,
    "dram_weight_reads": 589824.0,
-   "dram_weight_energy_pJ": 37748736.0
+   "dram_weight_energy_pJ": 37748736.0,
+   "cycles": 7225344
   },
   {
    "layer": "layer3.0.conv1",
@@ -187,7 +197,8 @@
    "mapping_cached": true,
    "total_energy_pJ": 208751486.68016,
    "dram_weight_reads": 589824.0,
-   "dram_weight_energy_pJ": 37748736.0
+   "dram_weight_energy_pJ": 37748736.0,
+   "cycles": 903168
   },
   {
    "layer": "layer3.0.conv2",
@@ -201,7 +212,8 @@
    "mapping_cached": true,
    "total_energy_pJ": 315329893.00824,
    "dram_weight_reads": 589824.0,
-   "dram_weight_energy_pJ": 37748736.0
+   "dram_weight_energy_pJ": 37748736.0,
+   "cycles": 1032192
   },
   {
    "layer": "layer3.0.downsample.0",
@@ -215,7 +227,8 @@
    "mapping_cached": true,
    "total_energy_pJ": 29147305.317039996,
    "dram_weight_reads": 65536.0,
-   "dram_weight_energy_pJ": 4194304.0
+   "dram_weight_energy_pJ": 4194304.0,
+   "cycles": 114688
   },
   {
    "layer": "layer3.1.conv1",
@@ -229,7 +242,8 @@
    "mapping_cached": true,
    "total_energy_pJ": 315329893.00824,
    "dram_weight_reads": 589824.0,
-   "dram_weight_energy_pJ": 37748736.0
+   "dram_weight_energy_pJ": 37748736.0,
+   "cycles": 1032192
   },
   {
    "layer": "layer3.1.conv2",
@@ -243,7 +257,8 @@
    "mapping_cached": true,
    "total_energy_pJ": 315329893.00824,
    "dram_weight_reads": 589824.0,
-   "dram_weight_energy_pJ": 37748736.0
+   "dram_weight_energy_pJ": 37748736.0,
+   "cycles": 1032192
   },
   {
    "layer": "layer4.0.conv1",
@@ -257,7 +272,8 @@
    "mapping_cached": true,
    "total_energy_pJ": 208477576.09263998,
    "dram_weight_reads": 1179648.0,
-   "dram_weight_energy_pJ": 75497472.0
+   "dram_weight_energy_pJ": 75497472.0,
+   "cycles": 3612672
   },
   {
    "layer": "layer4.0.conv2",
@@ -271,7 +287,8 @@
    "mapping_cached": true,
    "total_energy_pJ": 380209025.8128,
    "dram_weight_reads": 2359296.0,
-   "dram_weight_energy_pJ": 150994944.0
+   "dram_weight_energy_pJ": 150994944.0,
+   "cycles": 2408448
   },
   {
    "layer": "layer4.0.downsample.0",
@@ -285,7 +302,8 @@
    "mapping_cached": true,
    "total_energy_pJ": 26901217.59992,
    "dram_weight_reads": 131072.0,
-   "dram_weight_energy_pJ": 8388608.0
+   "dram_weight_energy_pJ": 8388608.0,
+   "cycles": 200704
   },
   {
    "layer": "layer4.1.conv1",
@@ -299,7 +317,8 @@
    "mapping_cached": true,
    "total_energy_pJ": 380209025.8128,
    "dram_weight_reads": 2359296.0,
-   "dram_weight_energy_pJ": 150994944.0
+   "dram_weight_energy_pJ": 150994944.0,
+   "cycles": 2408448
   },
   {
    "layer": "layer4.1.conv2",
@@ -313,7 +332,8 @@
    "mapping_cached": true,
    "total_energy_pJ": 380209025.8128,
    "dram_weight_reads": 2359296.0,
-   "dram_weight_energy_pJ": 150994944.0
+   "dram_weight_energy_pJ": 150994944.0,
+   "cycles": 2408448
   },
   {
    "layer": "fc",
@@ -327,7 +347,8 @@
    "mapping_cached": true,
    "total_energy_pJ": 35134651.34,
    "dram_weight_reads": 512000.0,
-   "dram_weight_energy_pJ": 32768000.0
+   "dram_weight_energy_pJ": 32768000.0,
+   "cycles": 512000
   }
  ],
  "levels": [
@@ -336,6 +357,7 @@
    "dataspace": "Inputs",
    "category": "DRAM",
    "instances": 1,
+   "word_bits": 8,
    "energy_pJ": 216701952.0,
    "reads": 3385964.0,
    "writes": 0.0
@@ -345,6 +367,7 @@
    "dataspace": "Outputs",
    "category": "DRAM",
    "instances": 1,
+   "word_bits": 8,
    "energy_pJ": 242514432.0,
    "reads": 652288.0,
    "writes": 3137000.0
@@ -354,6 +377,7 @@
    "dataspace": "Weights",
    "category": "DRAM",
    "instances": 1,
+   "word_bits": 8,
    "energy_pJ": 955592704.0,
    "reads": 14931136.0,
    "writes": 0.0
@@ -363,6 +387,7 @@
    "dataspace": "Inputs",
    "category": "NoC",
    "instances": null,
+   "word_bits": null,
    "energy_pJ": 108680467.7,
    "reads": 69275648.0,
    "writes": 0.0
@@ -372,6 +397,7 @@
    "dataspace": "Outputs",
    "category": "NoC",
    "instances": null,
+   "word_bits": null,
    "energy_pJ": 15397137.43,
    "reads": 10186728.0,
    "writes": 0.0
@@ -381,6 +407,7 @@
    "dataspace": "Weights",
    "category": "NoC",
    "instances": null,
+   "word_bits": null,
    "energy_pJ": 24382835.6,
    "reads": 14931136.0,
    "writes": 0.0
@@ -390,6 +417,7 @@
    "dataspace": "Outputs",
    "category": "NoC",
    "instances": null,
+   "word_bits": null,
    "energy_pJ": 6074275.450879999,
    "reads": 0.0,
    "writes": 0.0
@@ -399,6 +427,7 @@
    "dataspace": "Inputs",
    "category": "NoC",
    "instances": null,
+   "word_bits": null,
    "energy_pJ": 151400374.34,
    "reads": 56000000.0,
    "writes": 0.0
@@ -408,6 +437,7 @@
    "dataspace": "Outputs",
    "category": "NoC",
    "instances": null,
+   "word_bits": null,
    "energy_pJ": 16040485.49,
    "reads": 4382440.0,
    "writes": 0.0
@@ -417,6 +447,7 @@
    "dataspace": "Weights",
    "category": "NoC",
    "instances": null,
+   "word_bits": null,
    "energy_pJ": 33738079.84,
    "reads": 6649024.0,
    "writes": 0.0
@@ -426,6 +457,7 @@
    "dataspace": "Outputs",
    "category": "NoC",
    "instances": null,
+   "word_bits": null,
    "energy_pJ": 6717796.70016,
    "reads": 0.0,
    "writes": 0.0
@@ -435,6 +467,7 @@
    "dataspace": "Outputs",
    "category": "NoC",
    "instances": null,
+   "word_bits": null,
    "energy_pJ": 20732739.25632,
    "reads": 35587328.0,
    "writes": 0.0
@@ -444,6 +477,7 @@
    "dataspace": "Inputs",
    "category": "Global buffer",
    "instances": 1,
+   "word_bits": 8,
    "energy_pJ": 211192021.78,
    "reads": 69275648.0,
    "writes": 3385964.0
@@ -453,6 +487,7 @@
    "dataspace": "Inputs",
    "category": "Local (spads/RF)",
    "instances": 168,
+   "word_bits": 8,
    "energy_pJ": 52618527.08,
    "reads": 88893440.0,
    "writes": 9220608.0
@@ -462,6 +497,7 @@
    "dataspace": "Compute",
    "category": "Compute",
    "instances": 168,
+   "word_bits": null,
    "energy_pJ": 2059970985.8,
    "reads": 0.0,
    "writes": 0.0
@@ -471,6 +507,7 @@
    "dataspace": "Outputs",
    "category": "Global buffer",
    "instances": 1,
+   "word_bits": 16,
    "energy_pJ": 92273811.64,
    "reads": 7702016.0,
    "writes": 10839016.0
@@ -480,6 +517,7 @@
    "dataspace": "Outputs",
    "category": "Local (spads/RF)",
    "instances": 168,
+   "word_bits": 16,
    "energy_pJ": 313144595.34,
    "reads": 84679000.0,
    "writes": 88772928.0
@@ -489,6 +527,7 @@
    "dataspace": "Weights",
    "category": "Local (spads/RF)",
    "instances": 168,
+   "word_bits": 8,
    "energy_pJ": 729015141.22,
    "reads": 86140928.0,
    "writes": 1156416.0
@@ -501,5 +540,6 @@
   "noc_scale": 1.0,
   "outputs_word_bits": 16,
   "reduction_hops": 1.0
- }
+ },
+ "cycles": 86140928
 }

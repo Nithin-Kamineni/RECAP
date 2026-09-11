@@ -24,9 +24,14 @@ SKIPPED = []
 
 #: The cached raw record every property test below is measured on. Pure
 #: Timeloop output at Accelergy's own 8 pJ/bit; the overrides are applied here.
+#: The reference entry's raw record at the CURRENT fingerprint (3cd00eb16801,
+#: the prompt_3 constrained mapspace on the 2026-09-10 geometry). It carries
+#: `cycles` and per-level `word_bits` since prompt_6 phases 4-5; an older
+#: fingerprint's record would be refused by build_stacks (no cycles) and is a
+#: different architecture besides.
 REAL_RECORD = pathlib.Path(
     "results/_raw/eyeriss_like_wglb/vic4000__vicx__alg-linear_pruned__to100000000"
-    "__noc__paper__mcons__wrelax/fp-48347c8b8194/cnn/layers1__layer3_0_conv1"
+    "__noc__paper__mcons__wrelax/fp-3cd00eb16801/cnn/layers1__layer3_0_conv1"
     "/cls-instances/rw-joint/resnet18.json")
 
 
@@ -210,12 +215,85 @@ def test_4b_recon_and_embedded_totals_do_not_move_at_all():
     from eccenergy.ecc import build_stacks, load_recon_energy
     cfg_a = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT="70")
     cfg_b = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT=None)
-    recon_pj, _ = load_recon_energy(cfg_a)
-    a = build_stacks(cfg_a, raw_a, recon_pj)
-    b = build_stacks(cfg_b, raw_b, recon_pj)
+    recon_pj, recon_idle, _ = load_recon_energy(cfg_a)      # RULE 3: two terms
+    a = build_stacks(cfg_a, raw_a, recon_pj, recon_idle_pj=recon_idle)
+    b = build_stacks(cfg_b, raw_b, recon_pj, recon_idle_pj=recon_idle)
     for arm in ("embedded", "recon"):
         assert a[arm].to_dict() == b[arm].to_dict(), arm
     assert float(a["baseline"].sum()) > float(b["baseline"].sum())
+
+
+# ------------------------------------------------ 4c. prompt_6 RULE 3
+def test_4c_load_recon_energy_returns_incremental_and_idle_separately():
+    """prompt_6 RULE 3: `incremental_per_codeword` and `idle_per_cycle` are two
+    quantities with two denominators. `load_recon_energy` returns them apart;
+    nothing adds them. At BCH(63,30) they are 1.3786 pJ/codeword and
+    2.8310811 pJ/cycle/engine; the old combined 4.2096811 must appear nowhere."""
+    from eccenergy.ecc import load_recon_energy, load_recon_terms, recon_pj_for_k
+    cfg = _cfg(ECC_CONST_K="30")
+    inc, idle, prov = load_recon_energy(cfg)
+    assert abs(inc - 1.3786) < 1e-12 and abs(idle - 2.8310811) < 1e-12, (inc, idle)
+    assert "incremental" in prov and "idle" in prov, prov
+    assert recon_pj_for_k(cfg, 30) == inc
+    assert load_recon_terms(cfg, 30)[:2] == (inc, idle)
+    # every code in the table, from the JSON; and the env.sh tables agree with it
+    for k, want_inc, want_idle in ((57, 1.6574, 1.9359672), (51, 1.8995, 2.2301273),
+                                   (45, 1.6383, 2.4120856), (39, 1.4561, 2.7891299),
+                                   (36, 1.5082, 2.8358254), (30, 1.3786, 2.8310811)):
+        i, d, _ = load_recon_energy(cfg, k)
+        assert abs(i - want_inc) < 1e-12 and abs(d - want_idle) < 1e-12, (k, i, d)
+        if cfg.recon_incremental_table:        # env.sh sourced: the tables are there
+            from eccenergy.ecc import _env_table_entry
+            ti, _ = _env_table_entry(cfg.recon_incremental_table, 63, k)
+            td, _ = _env_table_entry(cfg.recon_idle_table, 63, k)
+            assert ti == want_inc and td == want_idle, (k, ti, td)
+    # ECC_RECON_PJ overrides the INCREMENTAL term only
+    over = _cfg(ECC_CONST_K="30", ECC_RECON_PJ="9.0")
+    i, d, prov = load_recon_energy(over)
+    assert i == 9.0 and abs(d - 2.8310811) < 1e-12 and "override" in prov, (i, d, prov)
+    # the retired knob is gone
+    assert not hasattr(cfg, "recon_include_idle")
+
+
+def test_4d_build_stacks_charges_idle_per_cycle_and_refuses_without_cycles():
+    """RULE 3 in the sweep's recon column:
+    Reconstruction = codewords x incremental + idle x cycles x 1 engine."""
+    try:
+        import pandas as pd
+    except ImportError as exc:
+        raise _Skip(f"pandas not available on this python: {exc}")
+    from eccenergy.ecc import build_stacks
+    from eccenergy.energy import Raw, plot_cats
+    cfg = _cfg(ECC_CONST_K="30")
+    cats = plot_cats(cfg)
+    zero = pd.Series({c: 0.0 for c in cats}).reindex(cats)
+    base = zero.copy(); base["DRAM"] = 1000.0
+    from eccenergy import parity
+    # build_stacks counts codewords with WHOLE weights per codeword
+    # (parity.CodeGeometry: floor(30/8) = 3 at BCH(63,30)), not 63/8
+    per_cw = parity.CodeGeometry(63, 30, 8).validate().weights_per_codeword
+    assert per_cw == 3, per_cw
+    reads = 3000.0                                  # 1000 codewords of 3 weights
+    raw = Raw(base, base.copy(), zero, 1000.0, reads, 1, 0, 3000, per_layer=[],
+              levels=[], cycles=10_000)
+    st = build_stacks(cfg, raw, 1.3786, recon_idle_pj=2.8310811)
+    want = 1000.0 * 1.3786 + 2.8310811 * 10_000 * 1
+    assert abs(float(st.loc["Reconstruction", "recon"]) - want) < 1e-6, (
+        float(st.loc["Reconstruction", "recon"]), want)
+    # the idle term is looked up for the K when not given
+    st2 = build_stacks(cfg, raw, 1.3786)
+    assert abs(float(st2.loc["Reconstruction", "recon"]) - want) < 1e-6
+    # BREAKAGE: no cycles on the record -> refused, never charged as zero
+    stale = Raw(base, base.copy(), zero, 1000.0, reads, 1, 0, 3000, per_layer=[], levels=[])
+    try:
+        build_stacks(cfg, stale, 1.3786, recon_idle_pj=2.8310811)
+    except ValueError as e:
+        assert "cycle" in str(e), e
+    else:
+        raise AssertionError("an idle term was charged on a record with no cycles")
+    # ...but a run with no idle term (0.0) needs no cycles
+    st3 = build_stacks(cfg, stale, 1.3786, recon_idle_pj=0.0)
+    assert abs(float(st3.loc["Reconstruction", "recon"]) - 1000.0 * 1.3786) < 1e-6
 
 
 # ------------------------------------------------ 5. nothing on chip moved

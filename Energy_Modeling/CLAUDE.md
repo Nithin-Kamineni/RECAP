@@ -9,14 +9,16 @@ accelerator?**
 encoder's energy into the mapper's objective via the ERT. Read it before starting
 work; where it and this file differ on what to do next, it wins. It also carries
 `prompt_3.md`'s constrained mapspace, which every mapper job now runs under.
+Phase-by-phase status lives in `progress.txt`, not here.
 
 **No empirical claims in this file.** Numbers live in `FINDINGS.md`; the live
 caveat list is `bash run.sh diagnose`, computed from the architectures as they
 stand. A prose copy here went stale once and then contradicted the code.
 
-⚠ **Every reconstruction energy number in the project is pending regeneration.**
-prompt_6 RULE 3 separates the encoder's per-codeword and per-cycle terms, which
-were previously added together. See FINDINGS.md's banner.
+**prompt_6 phases 1–9 are DONE (2026-09-11).** The placement study's numbers in
+FINDINGS §2.9 were produced under RULE 3 (two encoder terms, two denominators)
+from `bash hpc/map_ert_arms.sh`. The three sweep figures were regenerated only as
+far as their caches reach (FINDINGS §6.1); `ModelSweep.png` is stale on disk.
 
 `legacy/` is pre-rewrite and describes nothing current, except the dated
 `FINDINGS_detail_*`, `progress_*` and `PROJECT_STATUS_*` snapshots, which are the
@@ -32,6 +34,15 @@ commented; do not restate it here.**
 
 Every value is written `${VAR:=default}`, so **the environment wins over the
 file** and a one-off never needs an edit.
+
+**Since 2026-09-11 the defaults ARE prompt_3's constrained search**
+(`ECC_MAPSPACE_CONSTRAIN=1`, `ECC_WEIGHT_FACTOR_RELAX=1`, `linear_pruned`,
+timeout 100000000): a bare `run.sh` is the exhaustive constrained mapspace and
+nothing needs exporting. Only a design with an `archs.MAPSPACE_FREE_LEVELS` entry
+is constrained (today `eyeriss_like_wglb`). To map any other design, either write
+its free-set first (prompt_3, "Porting it") or set `ECC_MAPPER_ALGORITHM=random_pruned
+ECC_MAPPER_TIMEOUT=2000` back -- a systematic walk of an unconstrained space is the
+wrong regime (FINDINGS §2.2).
 
     bash hpc/run_all.sh          # THE command: map array -> dependent eval+plot
     bash hpc/run_all.sh --map-only | --eval-only | --replot | --local
@@ -79,9 +90,13 @@ sweep is all-CNN or all-transformer — mixing families is a config error.
 
 **`ECC_RECON_MODELING=1`** (env.sh §4) is not a fourth sweep: its axis is WHERE on
 the weight path the reconstruction boundary sits. **§4 hard-assigns `ECC_ARCHS`,
-`ECC_MODELS`, `ECC_CODE_N` and `ECC_KS` with a bare `=`**, so setting those names
-on the command line does nothing and does it silently — use the `ECC_RECON_*`
-spellings. `ECC_RECON_ARCHS` is ONE PANEL PER NAME; each panel keeps its own x
+`ECC_MODELS`, `ECC_CODE_N`, `ECC_KS` and (since 2026-09-11) `ECC_LAYERS` with a
+bare `=`**, so setting those names on the command line does nothing and does it
+silently — use the `ECC_RECON_*` spellings (`ECC_RECON_LAYER=<name>` or `all`).
+Under `RECON_OPTIMIZER=True` the figure is always
+`results/figures/ReconSweep_optimiser__<model>.png`, even on a one-layer run; the
+scope is in the manifest and the title, the model in the name (since 2026-09-11,
+so two networks never overwrite each other). `ECC_RECON_ARCHS` is ONE PANEL PER NAME; each panel keeps its own x
 axis and its own two reference bars, so a percentage on one panel says nothing
 about the other.
 
@@ -274,6 +289,48 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   --eval` and diff: Task 1 and 2 totals must not move.
 - **Never** read `os.environ` outside `config.py`, and never resolve a path outside
   `paths.py`.
+- **Handing Timeloop an energy table** (prompt_6): pass `ERT:` and `ART:` YAMLs
+  beside `design_inputs()`, and pre-write them into the output directory as
+  `timeloop-mapper.ERT.yaml` / `.ART.yaml` first -- with a supplied table Timeloop
+  writes neither, timeloopfe's parser then raises after a successful search, and
+  `Mapper` counts the shape failed. `timeloop.ErtTables` is the production hook
+  (base table from Accelergy once per arm under `<cache>/_ert/`, two rows bumped,
+  staged per shape, read back after the map); `python3 -m
+  eccenergy.experiments.ert_probe` is the proof (FINDINGS §3.5) and writes under
+  `paths.ert_probe_dir()`, never the mapper cache.
+- **An ERT arm is a configuration, not a design.** `ECC_RECON_ERT_ARM=<placement
+  key>` (set per job by `hpc/map_ert_arms.sh`) resolves in `config.py` into
+  `datawidth: q` on the storage levels of that placement's `reduced` set and an
+  ERT bump derived by `archs.ert_bump()`; which placements qualify is DERIVED
+  (`recon.ert_arms()`: storage site, `reads`/`fills` counter, not the innermost
+  level's reads) -- never `if key == "recon2"`. The arm is in the cache slug
+  (`ert-recon2-filter_glb-read`) AND the fingerprint, and every entry's stored
+  ERT is read back before a number is used: two arms with byte-identical YAML
+  must never share a directory. `ECC_RECON_ERT_AWARE=1` (needs
+  `RECON_OPTIMIZER=True`, `ECC_PHASE=Post`) bills each ERT bar from ITS OWN plan
+  and the other boundaries from the reference plan; the toll Timeloop billed
+  inside the level is MOVED into `Reconstruction`. Timeloop prints leakage
+  outside the per-dataspace energies and the raw record never held it, so only
+  the access toll is in the bill; the idle term is verified against the stats'
+  leakage and charged by the evaluator.
+- **Who narrows an on-chip stop is MEASURED, per bar per stage** (prompt_6 RULE
+  1): `Word bits == q` in that bar's own stats means the mapper did (evaluator
+  applies 1.0), `== weight_bits` means the evaluator does, anything else stops.
+  Two live sites or none on a narrow stop are both hard refusals. The same
+  measured guard sits in `build_stacks()`'s recon column.
+- **Reconstruction is two terms on two denominators** (RULE 3): `incremental x
+  events + idle_per_cycle x cycles x N_engines`; `load_recon_energy()` returns
+  them separately and nothing adds them. Cycles come from the billed plan's own
+  record (`Raw.cycles`, re-gathered if absent, never charged zero); the idle
+  denominator is `StageStats.engine_cycles` = sum over layers of (engines that
+  leak x that layer's cycles): 1 at DRAM, fanout x instances at a network, and
+  at a storage level the UTILIZED instances of that layer's plan -- Timeloop
+  power-gates each unused instance and bills `leak x utilized x cycles`
+  (`buffer.cpp FinalizeBufferEnergy`, verified 2026-09-11 on 43 shapes of two
+  models; the declared count is reported beside it). A PE count that differs
+  between an ERT arm's own plan and the reference is REPORTED per shape (both
+  counts, cycles, Timeloop EDP ratio; manifest `title_caveats`), never refused.
+  The DC tables live in env.sh §6.
 - **Adding an architecture**: `archs/<name>/arch.yaml` (plus `arch_paper.yaml` with
   each number cited), the name in `KNOWN_ARCHS` and `ARCH_LABELS` in `config.py`,
   entries in `standard.yaml` and `provenance.yaml`, then `bash run.sh validate` and
@@ -292,6 +349,14 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
 - **Changing how a bar looks**: `draw_panel()` in `plots/stacked.py` is the only
   place a bar is drawn, so every figure moves together. Add a parameter to it
   rather than a second routine.
+- **The placement figure's heading is ONE line** (`Config.recon_title` /
+  `recon_panel_title`, since 2026-09-11): design, model and layer scope, weight
+  width, code, regime tag. Everything it used to say below that -- regime with
+  its arms, DRAM model and price, static DRAM terms, encoder site, MAC
+  denominator, development-run warning, the multi-panel rule -- is
+  `Config.recon_caveats()` and lands in the manifest beside the figure as
+  `title_caveats` (with `title`). A new caveat goes THERE, never as a line on
+  the figure.
 - **Line endings**: the shell scripts run inside a Linux container and a CRLF makes
   bash die on `set -o pipefail` with a mangled message. `.gitattributes` forces LF;
   `bash tools-fix-eol.sh` repairs anything that slips through. **Always emit LF.**
@@ -304,8 +369,9 @@ carry the rest.
     env.sh              THE knob file        run.sh    one stage, no knobs
     prompt_6.md         THE LIVE PLAN        FINDINGS.md   what was learned
     hpc/                run_all.sh, map.sbatch, tl.sh (apptainer wrapper),
-                        map_by_shape.sh, map_capacity_sweep.sh, map_depth_sweep.sh,
-                        summary.py, HIPERGATOR.md
+                        map_by_shape.sh, map_ert_arms.sh (prompt_6: one job per
+                        arm x shape, one dependent eval), map_capacity_sweep.sh,
+                        map_depth_sweep.sh, summary.py, HIPERGATOR.md
     eccenergy/          config.py (the ONLY reader of os.environ), paths.py (the
                         ONLY resolver of paths), workloads.py, timeloop.py (the
                         only module needing the container), energy.py, ecc.py,

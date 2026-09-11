@@ -183,10 +183,11 @@ def test_the_real_yaml_accepts_every_code_under_the_table():
             if w is not None:
                 t = archs._set_weight_width(t, w, 4, "exclusive", arch, quiet=True)
             # must NOT raise -- this is the bug the module exists to remove
-            archs._set_weight_datawidth(t, q, "exclusive", arch, quiet=True)
-            # and the 8-bit arm on the SAME width must not raise either
-            archs._set_weight_datawidth(t, cfg.weight_bits, "exclusive", arch,
+            archs._set_weight_datawidth(t, q, scope="exclusive", arch=arch,
                                         quiet=True)
+            # and the 8-bit arm on the SAME width must not raise either
+            archs._set_weight_datawidth(t, cfg.weight_bits, scope="exclusive",
+                                        arch=arch, quiet=True)
 
 
 def test_without_the_table_the_real_yaml_still_aborts():
@@ -198,7 +199,7 @@ def test_without_the_table_the_real_yaml_still_aborts():
             q = code_widths.declared_datawidth(63, k)
             expect_raises(
                 lambda t=text, q=q, a=arch: archs._set_weight_datawidth(
-                    t, q, "exclusive", a, quiet=True),
+                    t, q, scope="exclusive", arch=a, quiet=True),
                 f"{arch}: q={q} should abort on the published widths")
 
 

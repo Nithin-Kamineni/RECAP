@@ -378,6 +378,15 @@ gating`, and on one archived `simba_like` level the leakage total corresponded t
 than the printed 64 instances. Read the multiplier off a real run of *this* design, confirm
 it equals the engine count you intend, and state it on the result.
 
+**Verified 2026-09-11 (43 shapes, resnet18 + mobilenet_v2): the multiplier is the UTILIZED
+instance count, not the declared one.** `buffer.cpp` sets `leaks_per_cycle` to the max
+utilized instances when each instance has its own power gate (lines 2119–2127) and bills
+`leak × total_cycles × leaks_per_cycle` (line 2376): 168 on a layer that fills the array,
+98 on conv1, 16 on fc. So `N_engines` at a storage site is the utilized instances per layer,
+summed as `engine_cycles = Σ_layers utilized × cycles`; the encoder in an unused PE is
+power-gated with its scratchpad, exactly as every arm's own leakage already assumes. The
+table above holds for `layer3.0.conv1` because it uses 168/168 PEs.
+
 **Interaction to note, not to correct:** `ECC_OPT_METRIC=edp` already multiplies energy by
 cycles, and the leak term is energy that grows with cycles. Both are legitimate; the
 effective weight on latency simply rises. Say so beside the result.
@@ -822,9 +831,10 @@ before quoting any bar. It does not need repeating per ERT arm.
 
 ## §9 — The figure
 
-**Output path, fixed:**
+**Output path, fixed per model** (the `__<model>` suffix since 2026-09-11, when the
+study ran on resnet18 AND mobilenet_v2 and the second eval overwrote the first's figure):
 
-    results/figures/ReconSweep_optimiser.png
+    results/figures/ReconSweep_optimiser__<model>.png
 
 Bars: `baseline`, `embedded`, then every key in `ECC_RECON_PLACEMENTS[eyeriss_like_wglb]` —
 `recon1 recon2 recon3 recon4 recon5`. **Mark which bars came from their own mapping**
@@ -859,10 +869,22 @@ blocker.
 6. The capacity check compares against `8/q` and states `q` (§6).
 7. `recon2` is charged on `reads`/`read`, `recon4` on `fills`/`write`. Print the counter, the
    action and the engine count on every row.
-8. The leak multiplier equals the intended engine count on this design, verified against a
-   real run, and is printed.
-9. PEs used is identical across all arms — 168/168. A mismatch is not attributable to the
-   encoder (FINDINGS 7.8: 168 -> 84 -> 96 -> 112 under `energy`).
+8. The leak multiplier equals the **utilized** instance count of the site level on every
+   shape, and is printed with the declared count beside it. Verified 2026-09-11 on 43 shapes
+   of two models: Timeloop bills `leak × cycles × leaks_per_cycle`, and with each instance
+   power-gated on its own (`Instances sharing power gating: 1`) `leaks_per_cycle` is the
+   utilized count (`buffer.cpp` 2119–2127, 2376). RULE 3's `N_engines` at a storage site is
+   therefore the utilized instances **per layer** (`engine_cycles = Σ utilized × cycles`), the
+   same convention every arm's own scratchpad leakage already follows. The declared 168 held
+   on `layer3.0.conv1` only because that layer fills the array.
+9. PEs used per shape is **reported** against the reference plan (both counts, both cycle
+   counts, Timeloop's EDP ratio), printed and carried into the manifest's `title_caveats`; it
+   is not a refusal. On a full model the arm's own EDP-optimal plan may legitimately use fewer
+   PEs where the doubled GLB room changes the DRAM chunking (2026-09-11, mobilenet_v2: 3 of 31
+   shapes on `recon2`, each at lower energy and lower EDP than the reference plan), and the
+   reference itself fills the array on fewer than two thirds of the shapes. The 168/168 rule
+   this item used to state came from the one array-filling study layer; `PE!=` still
+   suppresses Task 4's *capacity* verdict (FINDINGS 7.8), which is a different claim.
 10. DRAM `datawidth` is 8 on every arm.
 11. Per ERT arm: if that arm's loop nest is byte-identical to the reference, say the ERT
     changed nothing **for that arm**. Do not average the verdicts.

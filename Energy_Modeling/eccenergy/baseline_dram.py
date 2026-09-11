@@ -1,6 +1,7 @@
 """The conventional-ECC baseline's DRAM cost: a PRICE, not extra traffic.
 
-    ECC_BASELINE_DRAM_PJ_PER_BIT=70      # env.sh section 4, beside the 40
+    ECC_BASELINE_DRAM_PJ_PER_BIT=40      # env.sh section 4, beside ECC_DRAM_PJ_PER_BIT=20
+                                         # (since 2026-09-11; 70 beside 40 before)
 
 WHAT CHANGED, AND WHY (2026-09-10)
 ----------------------------------
@@ -16,13 +17,14 @@ cost this architecture pays.
 What the baseline DOES pay is a dearer bit. Its array holds the parity beside
 the weights (6,193,152 stored bits against 2,359,296 of payload on
 `layer3.0.conv1`), and it does the indexing work the embedded and reconstruction
-arms do not. Both are priced by one constant: 70 pJ/bit against 40. Embedded and
+arms do not. Both are priced by one constant: 40 pJ/bit against 20 since
+2026-09-11 (70 against 40 from 2026-09-10 to 2026-09-11, x1.75). Embedded and
 reconstruction share one array size and one price; reconstruction is the only
 arm whose TRAFFIC scales, by K/N, and `recon.py` owns that.
 
-    baseline   same reads, 8 bits/weight, 70 pJ/bit  -> DRAM x 1.75
-    embedded   same reads, 8 bits/weight, 40 pJ/bit  -> reference
-    recon      same reads, 8 x K/N bits/weight, 40   -> DRAM weight x K/N
+    baseline   same reads, 8 bits/weight, 40 pJ/bit  -> DRAM x 2.0
+    embedded   same reads, 8 bits/weight, 20 pJ/bit  -> reference
+    recon      same reads, 8 x K/N bits/weight, 20   -> DRAM weight x K/N
 
 E_background and E_refresh grow with the array too. They are 0 and unmodelled
 (`ECC_DRAM_BACKGROUND_PJ`, `ECC_DRAM_REFRESH_PJ`), so this is the whole of the
@@ -45,7 +47,7 @@ every ECC percentage.
 
 `parity.py` and `ecc.external_parity()` are NOT touched by any of this. The
 baseline's parity accounting is frozen and still runs on every result -- it is
-now the SIZE evidence the 70 pJ/bit is priced against, and its hand check still
+now the SIZE evidence the baseline's pJ/bit is priced against, and its hand check still
 has to pass. Only the place where its number enters the total moved.
 
 THE LEGACY PATH

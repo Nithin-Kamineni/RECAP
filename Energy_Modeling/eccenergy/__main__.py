@@ -118,12 +118,14 @@ def main(argv=None):
     from .experiments import (baseline, diagnose, dilation, embedded, panels, recon, sweep,
                               validate)
 
-    recon_pj, provenance = load_recon_energy(cfg)
+    recon_inc, recon_idle, provenance = load_recon_energy(cfg)
     if cfg.sweep == "bch" and cfg.recon_pj_override is None:
-        # one number per swept K, so the banner cannot imply the held K's
+        # one pair per swept K, so the banner cannot imply the held K's
         # datapath was used for the whole sweep
-        provenance = "  ".join(f"K{k}={recon_pj_for_k(cfg, k):.4f}" for k in cfg.sweep_ks)
-    print(banner(cfg, recon_pj, provenance))
+        provenance = "  ".join(
+            f"K{k}=inc {recon_pj_for_k(cfg, k):.4f}/idle {load_recon_energy(cfg, k)[1]:.4f}"
+            for k in cfg.sweep_ks)
+    print(banner(cfg, (recon_inc, recon_idle), provenance))
 
     if args.dry_run:
         print("\n--dry-run: configuration is valid; nothing executed.")

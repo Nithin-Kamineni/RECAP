@@ -839,9 +839,20 @@ def _set_weight_width(text, spad_width, glb_mult, scope="exclusive", arch="?",
     return "".join(out)
 
 
-def _set_weight_datawidth(text, bits, scope="exclusive", arch="?", quiet=False):
+def _set_weight_datawidth(text, bits, levels=(), scope="exclusive", arch="?",
+                          quiet=False):
     """PROMPT_2: express the reduced representation as `datawidth:` on the
     on-chip weight levels, at FIXED `width:` and `depth:`.
+
+    `levels` restricts the rewrite to the named weight levels (prompt_6
+    phase 2, mirroring `_scale_weight_depth`). Empty means every
+    weight-carrying level -- byte-for-byte what this did before the
+    parameter existed, so no cached fingerprint moves. An ERT arm names only
+    the storage levels in its placement's `reduced` set: the narrow weights
+    stop AT the boundary, so `recon2`/`recon4` narrow `filter_glb` and leave
+    `weights_spad` at 8. A name that matches no weight level is an error,
+    not a silent no-op -- a typo would quietly narrow every level and file
+    the result as a per-boundary architecture.
 
     WHY THIS AND NOT `_scale_weight_capacity`. Verified in this repo
     2026-09-10 from `timeloop-mapper.accelergy.log:97` (`Calculated
@@ -869,11 +880,17 @@ def _set_weight_datawidth(text, bits, scope="exclusive", arch="?", quiet=False):
     holding Weights beside another dataspace unless `scope=shared`, and a
     declared `depth: 1` latch.
     """
-    out, touched, skipped, bad = [], [], [], []
+    want = set(levels or ())
+    out, touched, skipped, bad, seen = [], [], [], [], set()
     for part, name, is_weight, why_not in _weight_level_parts(text, scope):
         if not is_weight:
             if why_not:
                 skipped.append(why_not)
+            out.append(part)
+            continue
+        seen.add(name)
+        if want and name not in want:
+            skipped.append(f"{name} (not in ECC_WEIGHT_DATAWIDTH_LEVELS)")
             out.append(part)
             continue
         width = re.search(r"\bwidth:\s*(\d+)", part)
@@ -895,6 +912,14 @@ def _set_weight_datawidth(text, bits, scope="exclusive", arch="?", quiet=False):
                        if width else f"{name} {dw.group(1)}->{bits}b")
         out.append(re.sub(r"\bdatawidth:\s*\d+", f"datawidth: {bits}", part,
                           count=1))
+    unknown = want - seen
+    if unknown:
+        raise ValueError(
+            f"ECC_WEIGHT_DATAWIDTH_LEVELS names {', '.join(sorted(unknown))}, "
+            f"which {arch} has no weight-carrying level called. It has: "
+            f"{', '.join(sorted(seen)) or 'none'}. Refusing rather than "
+            f"narrowing every level and reporting it as a per-boundary "
+            f"architecture.")
     if bad:
         raise ValueError(
             f"ECC_WEIGHT_DATAWIDTH={bits} on {arch}: " + "; ".join(bad) + ".\n"
@@ -1376,6 +1401,7 @@ def _patched_text(arch, cfg, apply_per_arch=True, quiet=False):
                                    cfg.weight_capacity_scope, arch, quiet)
     if apply_per_arch and getattr(cfg, "weight_datawidth", None) is not None:
         text = _set_weight_datawidth(text, cfg.weight_datawidth,
+                                     getattr(cfg, "weight_datawidth_levels", ()),
                                      cfg.weight_capacity_scope, arch, quiet)
     if apply_per_arch and cfg.weight_factor_relax:
         text = _relax_weight_factors(text, arch, quiet)
@@ -1391,6 +1417,63 @@ def _patched_text(arch, cfg, apply_per_arch=True, quiet=False):
     # is a study-wide treatment, not a per-architecture no-op candidate.
     text = _inject_noc(text, arch, cfg)
     return text
+
+
+# ------------------------------------------------------ prompt_6: the ERT arm
+def ert_bump(arch, cfg):
+    """The ERT delta this configuration's arm applies, or None for the reference.
+
+    prompt_6 5.1, recomputed at run time -- the table in the plan is the check,
+    not the source:
+
+        access action   delta = E_w x block_size    block_size = width / datawidth,
+                                                    read off THAT level in THIS
+                                                    arm's patched arch
+        leak            delta = idle_per_cycle      Timeloop x instances x cycles
+
+    The level, counter and action come from the Placement (`recon.ert_arm_spec`),
+    the two DC terms from `ecc.load_recon_terms`, E_w from `recon.ert_deltas`.
+    The result is what `arch_fingerprint()` hashes (RULE 4.4.5, defence 2),
+    what `timeloop.ErtTables` patches into the base table, and what the
+    read-back assertion compares a cache entry against.
+    """
+    arm = cfg.ert_arm() if hasattr(cfg, "ert_arm") else None
+    if arm is None:
+        return None
+    geo = patched_weight_geometry(arch, cfg)
+    level = arm["level"]
+    if level not in geo:
+        raise ValueError(f"ERT arm {arm['key']}: {arch} has no weight-carrying "
+                         f"level {level!r} in its patched YAML; it has "
+                         f"{', '.join(geo) or 'none'}")
+    g = geo[level]
+    if not g["width"] or not g["datawidth"] or g["width"] % g["datawidth"]:
+        raise ValueError(f"ERT arm {arm['key']}: {level} declares width {g['width']} "
+                         f"and datawidth {g['datawidth']}; block_size is undefined")
+    block_size = g["width"] // g["datawidth"]
+    from . import ecc as _ecc            # lazily: ecc needs pandas, the reference arm does not
+    from . import recon as _recon
+    inc, idle, prov = _ecc.load_recon_terms(cfg)
+    gran = _recon.Granularity(cfg.code_n, cfg.code_k, cfg.weight_bits,
+                              cfg.recon_granularity)
+    d = _recon.ert_deltas(inc, idle, gran, block_size)
+    d.update(placement=arm["key"], level=level, counter=arm["counter"],
+             action=arm["action"], narrow_levels=list(arm["narrow_levels"]),
+             level_width=g["width"], level_datawidth=g["datawidth"],
+             code=f"BCH({cfg.code_n},{cfg.code_k})", dc_provenance=prov)
+    return d
+
+
+def ert_hash_view(bump):
+    """The part of an ERT bump that identifies the ARCHITECTURE the mapper sees:
+    level, every patched action and its delta at full precision. Two arms
+    differing only in the toll must hash differently; two spellings of the
+    same toll must not."""
+    if bump is None:
+        return None
+    return {"placement": bump["placement"], "level": bump["level"],
+            "actions": {bump["action"]: bump["access_delta_pj"],
+                        "leak": bump["leak_delta_pj"]}}
 
 
 # --------------------------------------------------------------- fingerprints
@@ -1419,7 +1502,7 @@ def arch_fingerprint(arch, cfg, mapper_settings=None):
         "technology": cfg.force_technology or load_standard()["study"]["technology"],
         "global_cycle_seconds": cfg.global_cycle_seconds,
     }
-    blob = json.dumps({
+    blob = {
         "arch": arch,
         "arch_yaml": text,
         "globals": globals_view,
@@ -1431,7 +1514,14 @@ def arch_fingerprint(arch, cfg, mapper_settings=None):
         # and nothing would otherwise have told the cache.
         "components": components_digest(),
         "workload_shape_template_version": 1,
-    }, sort_keys=True)
+    }
+    # prompt_6 RULE 4.4.5, defence 2: an ERT arm's toll is part of what the
+    # mapper optimises against. Only added when there IS one, so every
+    # reference fingerprint on disk is unchanged.
+    bump = ert_bump(arch, cfg)
+    if bump is not None:
+        blob["ert"] = ert_hash_view(bump)
+    blob = json.dumps(blob, sort_keys=True)
     return hashlib.sha1(blob.encode("utf-8")).hexdigest()[:12]
 
 
@@ -1515,10 +1605,15 @@ def effective_variant(arch, cfg):
                                      cfg.weight_depth_levels,
                                      cfg.weight_capacity_scope, arch, quiet=True) \
             if getattr(cfg, "weight_depth_scale", 1.0) != 1.0 else base
-        if _set_weight_datawidth(base_d, cfg.weight_datawidth,
+        dw_levels = tuple(getattr(cfg, "weight_datawidth_levels", ()) or ())
+        if _set_weight_datawidth(base_d, cfg.weight_datawidth, dw_levels,
                                  cfg.weight_capacity_scope, arch,
                                  quiet=True) != base_d:
-            parts.append(f"wdw{cfg.weight_datawidth}")
+            # Same spelling as `wdepth<scale>-<levels>`: an arm narrowing
+            # only `filter_glb` is a different architecture from one
+            # narrowing every weight level, and the directory name says so.
+            parts.append(f"wdw{cfg.weight_datawidth}"
+                         + ("-" + "+".join(dw_levels) if dw_levels else ""))
     if getattr(cfg, "mapspace_constrain", False) and arch in MAPSPACE_FREE_LEVELS:
         # A constrained loop nest is a different MAPSPACE and a different
         # DATAFLOW, so it is a different architecture to the mapper and gets
@@ -1535,6 +1630,10 @@ def effective_variant(arch, cfg):
         base = arch_source(arch, cfg).read_text()
         if _relax_weight_factors(base, arch, quiet=True) != base:
             parts.append("wrelax")
+    arm = cfg.ert_arm() if hasattr(cfg, "ert_arm") else None
+    if arm is not None:
+        # prompt_6 RULE 4.4.5, defence 1. Never a no-op: the toll is the arm.
+        parts.append(cfg.ert_slug(arm))
     return "stock" if not parts else "__".join(parts)
 
 

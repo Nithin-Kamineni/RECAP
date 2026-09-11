@@ -12,7 +12,7 @@ import json
 import pandas as pd
 
 from . import noc_post
-from .timeloop import classify, parse_stats
+from .timeloop import classify, parse_cycles, parse_stats
 
 #: Categories that come from Timeloop.
 #: "NoC" is the interconnect between levels -- wire, router and ingress energy
@@ -98,11 +98,16 @@ class Raw:
 
     __slots__ = ("base", "base_w", "base_i", "e_dram_w", "dram_w_reads",
                  "layers_ok", "layers_skipped", "weights", "per_layer", "levels",
-                 "noc_post", "mac", "dram")
+                 "noc_post", "mac", "dram", "cycles")
 
     def __init__(self, base, base_w, base_i, e_dram_w, dram_w_reads,
                  layers_ok, layers_skipped, weights, per_layer=None, levels=None,
-                 noc_post=None, mac=None):
+                 noc_post=None, mac=None, cycles=None):
+        #: prompt_6 RULE 3: total cycles of the mapped layers (x repeat
+        #: count), the denominator of the encoder's idle term. None on a
+        #: record older than the field; `build_stacks` refuses to charge idle
+        #: on one and `load_raw` re-gathers it from the mapper cache.
+        self.cycles = cycles
         self.base = base
         self.base_w = base_w
         self.base_i = base_i
@@ -151,6 +156,7 @@ class Raw:
             "per_layer": self.per_layer,
             "levels": self.levels,
             "noc_post": self.noc_post,
+            "cycles": self.cycles,
         }
 
     @classmethod
@@ -174,7 +180,7 @@ class Raw:
                    d["e_dram_w"], d["dram_w_reads"],
                    d.get("layers_ok", 0), d.get("layers_skipped", 0),
                    d.get("weights", 0), d.get("per_layer", []), d.get("levels", []),
-                   d.get("noc_post"))
+                   d.get("noc_post"), cycles=d.get("cycles"))
 
 
 def mac_count(raw):
@@ -277,7 +283,7 @@ def apply_dram_override(raw, cfg, verbose=True):
               float(raw.e_dram_w) * ratio, raw.dram_w_reads,
               raw.layers_ok, raw.layers_skipped, raw.weights,
               per_layer=per_layer, levels=levels,
-              noc_post=raw.noc_post, mac=raw.mac)
+              noc_post=raw.noc_post, mac=raw.mac, cycles=raw.cycles)
     out.dram = info
     if verbose:
         print(f"  [DRAM OVERRIDE] DRAM rescaled {ert:.4g} -> {tgt:g} pJ/bit "
@@ -355,7 +361,7 @@ def apply_mac_override(raw, cfg, verbose=True):
     out = Raw(scaled(raw.base), scaled(raw.base_w), scaled(raw.base_i),
               raw.e_dram_w, raw.dram_w_reads, raw.layers_ok, raw.layers_skipped,
               raw.weights, per_layer=per_layer, levels=levels,
-              noc_post=raw.noc_post, mac=info)
+              noc_post=raw.noc_post, mac=info, cycles=raw.cycles)
     if verbose:
         print(f"  [MAC OVERRIDE] Compute rescaled to {macs:,.0f} MACs x "
               f"{cfg.mac_pj_override:g} pJ = {compute * ratio / 1e6:,.3f} uJ "
@@ -378,6 +384,8 @@ def gather(cfg, mapper, model, layers, verbose=True):
     """
     rows, n_ok, n_skip = [], 0, 0
     per_layer = []
+    cycles_total = 0
+    cycles_known = True
     for i, layer in enumerate(layers):
         stats = mapper.stats_for(layer)
         if stats is None:
@@ -388,6 +396,13 @@ def gather(cfg, mapper, model, layers, verbose=True):
                               "status": "unmapped", "weights": layer.weights})
             continue
         layer_rows = parse_stats(stats, layer.name, scale=layer.count)
+        # prompt_6 RULE 3: this plan's cycles, x repeat count, so the idle
+        # term can be charged for the run this record describes.
+        cyc = parse_cycles(stats)
+        if cyc is None:
+            cycles_known = False
+        else:
+            cycles_total += cyc * layer.count
         # Spatial reductions and the psum word width: counted by Timeloop,
         # costed here (noc_post.py). Added per layer so the per-layer totals
         # below and the category totals agree.
@@ -417,6 +432,7 @@ def gather(cfg, mapper, model, layers, verbose=True):
                                   if not dw.empty else 0.0),
             "dram_weight_energy_pJ": (float(dw.energy_pJ.sum())
                                       if not dw.empty else 0.0),
+            "cycles": None if cyc is None else cyc * layer.count,
         })
 
     if verbose:
@@ -437,11 +453,17 @@ def gather(cfg, mapper, model, layers, verbose=True):
     # Per-(level, dataspace) totals: what the storage spec calls the access
     # counts and per-component breakdown. Summed across layers, because that is
     # the granularity a mapping is shared at.
+    if "word_bits" not in df.columns:
+        df["word_bits"] = None
     lv = (df.groupby(["level", "dataspace", "category"], as_index=False)
             .agg(energy_pJ=("energy_pJ", "sum"), reads=("reads", "sum"),
-                 writes=("writes", "sum"), instances=("instances", "max")))
+                 writes=("writes", "sum"), instances=("instances", "max"),
+                 word_bits=("word_bits", "max")))
     levels = [{"level": r.level, "dataspace": r.dataspace, "category": r.category,
                "instances": (None if pd.isna(r.instances) else int(r.instances)),
+               # prompt_6 RULE 1: the measured word, so an evaluator can tell a
+               # q-bit plan from an 8-bit one without re-opening the stats
+               "word_bits": (None if pd.isna(r.word_bits) else int(r.word_bits)),
                "energy_pJ": float(r.energy_pJ),
                "reads": (None if pd.isna(r.reads) else float(r.reads)),
                "writes": (None if pd.isna(r.writes) else float(r.writes))}
@@ -457,6 +479,7 @@ def gather(cfg, mapper, model, layers, verbose=True):
         weights=sum(l.weights for l in layers),
         per_layer=per_layer, levels=levels,
         noc_post=noc_post.stamp(mapper.arch, cfg),
+        cycles=cycles_total if cycles_known else None,
     )
 
 
@@ -496,6 +519,24 @@ def load_raw(results, cfg, arch, model, variant=None, fingerprint=None,
     # `unmapped` layers and must not be served as a hit once those shapes exist:
     # it would draw a one-layer figure labelled as the whole model (2026-09-09,
     # eval 41479689). Re-gathering from the mapper cache costs seconds.
+    # prompt_6 RULE 1 needs each Weights storage row's measured `Word bits`;
+    # a record aggregated before the field existed cannot say whether the
+    # mapper narrowed a level, so it is re-gathered from the mapper cache
+    # (seconds) rather than trusted to be 8-bit.
+    unmeasured = [r.get("level") for r in blob.get("levels", [])
+                  if r.get("dataspace") == "Weights" and r.get("category") != "DRAM"
+                  and not str(r.get("level", "")).startswith("NoC")
+                  and "word_bits" not in r]
+    if unmeasured and not cfg.replot_only:
+        print(f"  [stale] {arch}/{model}: raw record predates Word bits recording "
+              f"(prompt_6 RULE 1; e.g. {unmeasured[0]}) -> re-gathering from the "
+              f"mapper cache")
+        return None
+    if blob.get("cycles") is None and not cfg.replot_only:
+        print(f"  [stale] {arch}/{model}: raw record predates cycle recording "
+              f"(prompt_6 RULE 3: the idle term is per cycle) -> re-gathering from "
+              f"the mapper cache")
+        return None
     unmapped = [lp.get("layer") for lp in blob.get("per_layer", [])
                 if lp.get("status") == "unmapped"]
     if unmapped and not cfg.replot_only:

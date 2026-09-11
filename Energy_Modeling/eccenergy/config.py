@@ -85,6 +85,22 @@ def _of(name):
     return None if raw == "" else _f(name, 0.0)
 
 
+def _table(name):
+    """`key=value;key=value` -> `{key: float(value)}` (env.sh section 10's
+    flattening of a `declare -A` table, which bash cannot export)."""
+    out = {}
+    for entry in os.environ.get(name, "").split(";"):
+        entry = entry.strip()
+        if not entry:
+            continue
+        key, _, val = entry.partition("=")
+        try:
+            out[key.strip()] = float(val)
+        except ValueError:
+            raise ConfigError(f"{name}: entry {entry!r} is not `key=number`") from None
+    return out
+
+
 def _list(name, default="", sep=None):
     """Space- or comma-separated list; anything after '#' is a comment.
 
@@ -300,7 +316,13 @@ class Config:
 
     # ---- reconstruction datapath (Design Compiler numbers) -----------------
     recon_json: str
-    recon_include_idle: bool
+    #: prompt_6 RULE 3: the two Design Compiler tables from env.sh section 6
+    #: (flattened by section 10), `{configuration id: pJ}` -- incremental per
+    #: codeword, idle per cycle per engine. Read by `ecc.load_recon_terms`
+    #: when the JSON has no entry for the (N,K) in play. ECC_RECON_INCLUDE_IDLE
+    #: is retired: the two terms are never added, each has its own denominator.
+    recon_incremental_table: dict
+    recon_idle_table: dict
     recon_pj_override: Optional[float]
     recon_incremental_fallback_pj: float
     recon_idle_fallback_pj: float
@@ -329,6 +351,28 @@ class Config:
     #: `destination` | `source` -- see RECON_ENCODER_SITES and
     #: `recon.ENCODER_SITES`. Only network boundaries depend on it.
     recon_encoder_site: str
+    # ---- prompt_6: reconstruction-aware mapping ----------------------------
+    #: ECC_RECON_ERT_AWARE (prompt_6 8.1): the ERT arms get their own mapping,
+    #: solved with the encoder's energy in the objective, and the figure marks
+    #: which bars came from one. Requires RECON_OPTIMIZER=True and
+    #: ECC_PHASE=Post; anything else is refused in `__post_init__`.
+    recon_ert_aware: bool
+    #: ECC_RECON_ERT_ARM (prompt_6 8.3): WHICH arm one mapper job is solving --
+    #: `reference` (also the empty string), or the key of an ERT-injectable
+    #: placement of the single configured architecture (`recon2`, `recon4`
+    #: on Eyeriss v1). Set by the launcher in `--export`, not by hand.
+    #: `__post_init__` resolves a placement key into `weight_datawidth = q`
+    #: and `weight_datawidth_levels` = the storage levels in its `reduced`
+    #: set, so everything downstream (patched YAML, slug, fingerprint) keys
+    #: on fields that already exist; `archs.ert_bump()` derives the ERT
+    #: delta from it. Read it through `ert_arm()`.
+    recon_ert_arm: str
+    #: ECC_RECON_LAYER (prompt_6 8.2): the placement study's layer scope --
+    #: one layer name, or `all`/empty for the whole model. env.sh section 10
+    #: seeds ECC_LAYERS from it whenever ECC_RECON_MODELING=1, so `layers` is
+    #: already the resolved scope; this field records the spelling for the
+    #: manifest. The launcher (hpc/map_ert_arms.sh) sets it per job.
+    recon_layer: str
     #: ECC_DRAM_PJ_PER_BIT: pJ per bit of DYNAMIC DRAM access. Rescales the
     #: whole DRAM category evaluator-side (energy.apply_dram_override), exactly
     #: as mac_pj_override rescales Compute. None = leave Accelergy's own
@@ -453,6 +497,14 @@ class Config:
     #: zone but cannot say which level bought it. Naming levels here is the
     #: second pass -- hold one at x1 and sweep the other.
     weight_depth_levels: tuple
+    #: Which weight levels `weight_datawidth` may rewrite (prompt_6 phase 2).
+    #: Empty = every weight-carrying level, which is what every run before
+    #: 2026-09-11 did and what keeps their fingerprints. An ERT arm names
+    #: exactly the storage levels in its placement's `reduced` set, because
+    #: the narrow weights stop AT the boundary: `recon2` and `recon4` both
+    #: narrow `filter_glb` and leave `weights_spad` at 8. A name no weight
+    #: level has is refused by `archs._set_weight_datawidth`.
+    weight_datawidth_levels: tuple
     #: PROMPT_2's convergence gate, read by `dilation --gate` and submitted by
     #: `hpc/map_depth_sweep.sh`. The budgets the EMBEDDED arm is mapped at, and
     #: the depths the gate is re-checked at -- the largest AND the smallest,
@@ -856,6 +908,47 @@ class Config:
             if fmt not in ("png", "pdf", "svg"):
                 raise ConfigError(f"ECC_FORMATS: unsupported format {fmt!r}")
 
+        # ---- prompt_6: reconstruction-aware mapping ----------------------
+        if self.recon_ert_aware and not (self.recon_optimizer and self.phase == "Post"):
+            raise ConfigError(
+                f"ECC_RECON_ERT_AWARE=1 puts the encoder's energy into the mapper's "
+                f"objective, so the ERT arms are RE-MAPPED: that is Task 4 extended, "
+                f"and it needs RECON_OPTIMIZER=True and ECC_PHASE=Post (got "
+                f"RECON_OPTIMIZER={self.recon_optimizer}, ECC_PHASE={self.phase}).")
+        if self.recon_ert_arm in ("", "reference"):
+            self.recon_ert_arm = "reference"
+        else:
+            # A placement key. The arm IS a datawidth configuration plus an ERT
+            # bump, so resolve the datawidth half here and let every consumer
+            # of `weight_datawidth` / `weight_datawidth_levels` see it.
+            if len(self.archs) != 1:
+                raise ConfigError(
+                    f"ECC_RECON_ERT_ARM={self.recon_ert_arm!r} names the arm of ONE "
+                    f"mapper job on ONE architecture; this configuration has "
+                    f"{len(self.archs)}: {', '.join(self.archs)}")
+            from . import recon as _recon      # recon imports nothing of ours but embedded
+            try:
+                spec = _recon.ert_arm_spec(self.archs[0], self.recon_ert_arm, self)
+            except (KeyError, ValueError) as exc:
+                raise ConfigError(f"ECC_RECON_ERT_ARM={self.recon_ert_arm!r}: {exc}") from None
+            q = code_widths.declared_datawidth(self.code_n, self.code_k)
+            if self.weight_datawidth is not None and self.weight_datawidth != q:
+                raise ConfigError(
+                    f"ECC_RECON_ERT_ARM={self.recon_ert_arm} declares datawidth q = "
+                    f"round({self.weight_bits}*{self.code_k}/{self.code_n}) = {q}, but "
+                    f"ECC_WEIGHT_DATAWIDTH={self.weight_datawidth}. Leave it EMPTY: the arm "
+                    f"sets it.")
+            if (self.weight_datawidth_levels
+                    and tuple(self.weight_datawidth_levels) != tuple(spec["narrow_levels"])):
+                raise ConfigError(
+                    f"ECC_RECON_ERT_ARM={self.recon_ert_arm} narrows "
+                    f"{'+'.join(spec['narrow_levels'])} (the storage levels in its "
+                    f"placement's reduced set), but ECC_WEIGHT_DATAWIDTH_LEVELS="
+                    f"{'+'.join(self.weight_datawidth_levels)}. Leave it EMPTY: the arm "
+                    f"sets it.")
+            self.weight_datawidth = q
+            self.weight_datawidth_levels = tuple(spec["narrow_levels"])
+
         unknown = [a for a in self.archs if a not in KNOWN_ARCHS]
         if unknown:
             print(f"[config] note: looked up in example_designs/ as-is: {', '.join(unknown)}")
@@ -977,6 +1070,11 @@ class Config:
             # other, and only the manifest beside the figure records which
             # is on disk. Do not set it by hand for a run with ECC_LAYERS --
             # that is exactly the case the layer suffix exists to protect.
+            # ONE sanctioned exception (prompt_6 9): env.sh section 10 keeps
+            # `ReconSweep_optimiser__<model>` fixed on a layer-scoped run,
+            # because that study IS one layer; the scope is in the manifest and
+            # the title. The model suffix (2026-09-11) is what keeps two
+            # networks' figures apart.
             return self.stem_override
         if self.experiment == "diagnose":
             return "diagnose"
@@ -1179,7 +1277,9 @@ class Config:
             # mapper -- more values per word, so a different block size and a
             # different mapspace. The two arms of a prompt_2 pair are exactly
             # this and nothing else.
-            parts.append(f"wdw{self.weight_datawidth}")
+            parts.append(f"wdw{self.weight_datawidth}"
+                         + ("-" + "+".join(self.weight_datawidth_levels)
+                            if self.weight_datawidth_levels else ""))
         if self.mapspace_constrain:
             # A constrained loop nest is a different MAPSPACE and a different
             # DATAFLOW. MUST stay in step with `archs.effective_variant()`:
@@ -1193,7 +1293,29 @@ class Config:
             # A relaxed dataflow constraint is a different MAPSPACE, so it is a
             # different architecture to the mapper and gets its own cache.
             parts.append("wrelax")
+        arm = self.ert_arm()
+        if arm is not None:
+            # prompt_6 RULE 4.4.5, defence 1: recon2 and recon4 declare
+            # byte-identical YAML and differ ONLY in the ERT, so without this
+            # both would occupy one directory and the second map would
+            # overwrite or skip the first. Legible in `ls`. MUST stay in step
+            # with `archs.effective_variant()`.
+            parts.append(self.ert_slug(arm))
         return parts
+
+    def ert_arm(self):
+        """The ERT arm this configuration maps -- `recon.ert_arm_spec()`'s
+        record -- or None for the reference arm (prompt_6 8.3)."""
+        key = getattr(self, "recon_ert_arm", "reference")
+        if key in ("", "reference", None):
+            return None
+        from . import recon as _recon
+        return _recon.ert_arm_spec(self.archs[0], key, self)
+
+    @staticmethod
+    def ert_slug(arm):
+        """`ert-<placement key>-<level>-<action>`, the cache-directory part."""
+        return f"ert-{arm['key']}-{arm['level']}-{arm['action']}"
 
     @property
     def arch_variant_slug(self):
@@ -1310,49 +1432,95 @@ class Config:
         return [k.lower() for e in entries
                 for k in e.replace(",", " ").split()]
 
-    def recon_panel_title(self, mac_ert_pj=None):
-        """Title for a placement figure with one panel PER ARCHITECTURE.
+    def mapping_regime_line(self):
+        """WHICH MAPPING REGIME the placement bars come from -- the claim a reader
+        has to be able to check on the figure (prompt_6 9 names the arms)."""
+        if getattr(self, "recon_ert_aware", False):
+            try:
+                from . import recon as _recon
+                arms = sorted({p.key for a in self.archs for p in _recon.ert_arms(a, self)})
+            except Exception:                    # the title must never kill a run
+                arms = []
+            return (f"ERT-AWARE MAPPING: {', '.join(arms) or 'no boundary'} from their OWN "
+                    f"mapping (encoder toll in the ERT, datawidth q on the levels the "
+                    f"boundary narrows); the other boundaries fixed on the reference plan")
+        if self.recon_optimizer:
+            return ("RECONSTRUCTION-AWARE MAPPING (Task 4: the reconstruction bars come "
+                    "from a second mapping solved with more weight room)")
+        return "FIXED MAPPING (evaluator only, the mapper was not re-run)"
+
+    def mapping_regime_tag(self):
+        """The regime in a few words, for the ONE-LINE heading. The full
+        statement, arms and all, is `mapping_regime_line()`, which travels in
+        the manifest beside the figure (`recon_caveats`)."""
+        if getattr(self, "recon_ert_aware", False):
+            return "ERT-aware mapping"
+        if self.recon_optimizer:
+            return "reconstruction-aware mapping (Task 4)"
+        return "fixed mapping"
+
+    def recon_scope(self):
+        """`resnet18`, or `resnet18  ·  layer3.0.conv1` on a layer-scoped run.
+
+        The optimiser figure has ONE path whatever the scope (env.sh section 10,
+        prompt_6 9), so the scope has to be on the pixels: a picture gets
+        separated from its manifest the moment it is dropped into a slide.
+        """
+        if self.layers:
+            return f"{self.models[0]}  ·  {', '.join(self.layers)}"
+        return self.models[0]
+
+    def recon_caveats(self, mac_ert_pj=None):
+        """What the placement heading said below its first line until
+        2026-09-11, one string per line, for the manifest (`title_caveats`).
+
+        Seven lines of heading made the figure two and a half times the width
+        of its axes, and nobody reads a caveat set as a title. The heading is
+        now `recon_title()`'s one line and these are RECORDED instead of drawn
+        -- every one names a denominator or a regime that decides what the bars
+        mean, so none may be dropped. `mac_ert_pj` is the per-MAC energy the
+        raw record read off the ERT, so the MAC line can state the number the
+        denominator rests on.
+        """
+        lines = [f"Reconstruction-boundary placement  ·  {self.mapping_regime_line()}"]
+        lines += self.dram_model_line().split("\n")
+        lines.append(f"{self.mac_line(mac_ert_pj)}  ·  the MAC cost is the "
+                     f"denominator of every percentage on this figure")
+        if self.layers:
+            lines.append(f"DEVELOPMENT RUN — {self.layer_scope} only: "
+                         f"{', '.join(self.layers)}  (not a full-model result)")
+        return lines
+
+    def recon_panel_title(self):
+        """ONE line for a placement figure with one panel PER ARCHITECTURE.
 
         The architecture is per-panel here, so unlike `recon_title()` it is not
         in the shared heading -- each panel's own heading names its design. What
-        stays shared is everything the study holds fixed across the panels: the
-        model, the code geometry, the DRAM model and the MAC denominator.
+        stays shared is what the study holds fixed across the panels: the model
+        (and layer scope), the code geometry and the mapping regime. The DRAM
+        model and the MAC denominator are `recon_caveats()`, in the manifest.
         """
-        head = (f"{self.models[0]}  ·  {self.title_suffix(include_mac=False)}"
-                f"  ·  {len(self.archs)} accelerators, one panel each")
-        title = (f"{head}\nReconstruction-boundary placement  ·  FIXED MAPPING "
-                 f"(evaluator only, the mapper was not re-run)"
-                 f"\n{self.dram_model_line()}\n{self.mac_line(mac_ert_pj)}"
-                 f"  ·  the MAC cost is the denominator of every percentage on "
-                 f"this figure")
-        if self.layers:
-            title += (f"\nDEVELOPMENT RUN — {self.layer_scope} only: "
-                      f"{', '.join(self.layers)}  (not a full-model result)")
-        return title
+        return (f"{self.recon_scope()}  ·  {self.title_suffix(include_mac=False)}"
+                f"  ·  {len(self.archs)} accelerators, one panel each"
+                f"  ·  {self.mapping_regime_tag()}")
 
-    def recon_title(self, mac_ert_pj=None):
-        """Title for the placement figure: the point, then what varies.
-
-        `mac_ert_pj` is the per-MAC energy the raw record read off the ERT, so
-        the MAC line can state the number the denominator rests on.
+    def recon_title(self):
+        """ONE line for the placement figure: the fixed point, then the regime.
 
         Every axis of the study is HELD here except the one that is not an axis
         of the three sweeps at all -- where the reconstruction boundary sits --
-        so the heading names the fixed point in full and says the mapping is
-        fixed, which is the claim a reader has to be able to check.
+        so the heading names the fixed point (design, model and layer scope,
+        weight width, code) and the mapping regime, which is the claim a reader
+        has to be able to check. Everything the heading carried below that
+        until 2026-09-11 is `recon_caveats()`, in the manifest beside the figure.
+
+        `title_suffix()` already carries BCH(N,K) whenever the sweep is not the
+        BCH one, and a heading that says it twice reads like two settings.
         """
-        # `title_suffix()` already carries BCH(N,K) whenever the sweep is not
-        # the BCH one, and a heading that says it twice reads like two settings.
-        head = (f"{self.arch_label(self.archs[0]).replace(chr(10), ' ')}"
-                f"  ·  {self.models[0]}  ·  {self.title_suffix(include_mac=False)}")
-        title = (f"{head}\nReconstruction-boundary placement  ·  FIXED MAPPING "
-                 f"(evaluator only, the mapper was not re-run)"
-                 f"\n{self.dram_model_line()}\n{self.mac_line(mac_ert_pj)}"
-                 f"  ·  the MAC cost is the denominator of every percentage on this figure")
-        if self.layers:
-            title += (f"\nDEVELOPMENT RUN — {self.layer_scope} only: "
-                      f"{', '.join(self.layers)}  (not a full-model result)")
-        return title
+        return (f"{self.arch_label(self.archs[0]).replace(chr(10), ' ')}"
+                f"  ·  {self.recon_scope()}"
+                f"  ·  {self.title_suffix(include_mac=False)}"
+                f"  ·  {self.mapping_regime_tag()}")
 
     @property
     def dram_cost_note(self):
@@ -1477,7 +1645,8 @@ class Config:
                 "force_datawidth", "weight_capacity_scale",
                 "weight_capacity_scope", "weight_factor_relax",
                 "mapspace_constrain",
-                "weight_datawidth", "weight_depth_scale", "weight_depth_levels",
+                "weight_datawidth", "weight_datawidth_levels", "recon_ert_arm",
+                "weight_depth_scale", "weight_depth_levels",
                 "weight_width", "weight_width_glb_mult",
                 "dram_depth", "global_cycle_seconds",
                 "noc_enabled", "noc_wire_pj_per_bit_mm", "noc_router_pj",
@@ -1517,7 +1686,8 @@ def load_config():
         recon_charges_decode=_b("ECC_RECON_CHARGES_DECODE", True),
 
         recon_json=_s("ECC_RECON_JSON", "data/dc/BCH_N63_results.json"),
-        recon_include_idle=_b("ECC_RECON_INCLUDE_IDLE", True),
+        recon_incremental_table=_table("ECC_RECON_INCREMENTAL_PJ_LIST"),
+        recon_idle_table=_table("ECC_RECON_IDLE_PJ_LIST"),
         recon_pj_override=_of("ECC_RECON_PJ"),
         recon_incremental_fallback_pj=_f("ECC_RECON_INCREMENTAL_FALLBACK_PJ", 1.8995),
         recon_idle_fallback_pj=_f("ECC_RECON_IDLE_FALLBACK_PJ", 2.2301273),
@@ -1534,6 +1704,9 @@ def load_config():
         recon_placement_charges_decode=_b("ECC_RECON_PLACEMENT_CHARGES_DECODE", True),
         recon_decode_site=_s("ECC_RECON_DECODE_SITE", "ondie").lower(),
         recon_encoder_site=_s("ECC_RECON_ENCODER_SITE", "destination").lower(),
+        recon_ert_aware=_b("ECC_RECON_ERT_AWARE", False),
+        recon_ert_arm=_s("ECC_RECON_ERT_ARM").strip().lower(),
+        recon_layer=_s("ECC_RECON_LAYER").strip(),
         dram_pj_per_bit=_of("ECC_DRAM_PJ_PER_BIT"),
         baseline_dram_pj_per_bit=_of("ECC_BASELINE_DRAM_PJ_PER_BIT"),
         dram_background_pj=_f("ECC_DRAM_BACKGROUND_PJ", 0.0),
@@ -1566,6 +1739,7 @@ def load_config():
         weight_depth_scale=round(_f("ECC_WEIGHT_DEPTH_SCALE", 1.0), 4),
         weight_depth_levels=tuple(_list("ECC_WEIGHT_DEPTH_LEVELS")),
         weight_datawidth=_oi("ECC_WEIGHT_DATAWIDTH"),
+        weight_datawidth_levels=tuple(_list("ECC_WEIGHT_DATAWIDTH_LEVELS")),
         mapspace_constrain=_b("ECC_MAPSPACE_CONSTRAIN", False),
         # ECC_WEIGHT_WIDTH takes a number, EMPTY, or the word `auto`.
         # `auto` is resolved from the code by `__post_init__` (THE WIDTH
@@ -1621,7 +1795,29 @@ def load_config():
     )
 
 
-def banner(cfg, recon_pj, recon_provenance):
+def _ert_arm_row(cfg):
+    """One banner line naming the ERT arm this job maps (prompt_6 8.3)."""
+    if cfg.recon_ert_arm == "reference":
+        return "reference (no ERT toll; the published 8-bit chip)"
+    try:
+        from . import archs as _archs
+        b = _archs.ert_bump(cfg.archs[0], cfg)
+        return (f"{b['placement']}: {b['level']}.{b['action']} += "
+                f"{b['access_delta_pj']:.6f} pJ (E_w {b['e_w_pj']:.6f} x block_size "
+                f"{b['block_size']}), {b['level']}.leak += {b['leak_delta_pj']:.7f} "
+                f"pJ/instance/cycle; datawidth {cfg.weight_datawidth} on "
+                f"{'+'.join(cfg.weight_datawidth_levels)}")
+    except Exception as exc:                 # the banner must never kill a run
+        return f"{cfg.recon_ert_arm} (bump unavailable: {exc})"
+
+
+def banner(cfg, recon_terms, recon_provenance):
+    """`recon_terms` is `(incremental pJ/codeword, idle pJ/cycle/engine)` --
+    prompt_6 RULE 3's two denominators -- or the old single float."""
+    if isinstance(recon_terms, (tuple, list)):
+        recon_inc, recon_idle = recon_terms
+    else:
+        recon_inc, recon_idle = recon_terms, None
     w = 78
     # The placement study's axis is not one of the three sweeps -- saying
     # "sweep=arch" there would name the axis it HOLDS.
@@ -1680,7 +1876,10 @@ def banner(cfg, recon_pj, recon_provenance):
             ("weights / codeword", f"{cfg.weights_per_codeword:.4f}"),
             ("DRAM weight traffic", cfg.baseline_dram_line),
             ("recon on-chip scale", f"{cfg.sram_scale:.4f} (weights only)"),
-            ("reconstruction", f"{recon_pj:.7f} pJ per codeword"),
+            ("reconstruction", f"{recon_inc:.7f} pJ per codeword (incremental)"
+                               + (f" + {recon_idle:.7f} pJ per cycle per engine (idle; "
+                                  f"RULE 3: separate denominators, never added)"
+                                  if recon_idle is not None else "")),
             ("recon provenance", recon_provenance),
         ]
     if cfg.experiment == "recon":
@@ -1711,6 +1910,11 @@ def banner(cfg, recon_pj, recon_provenance):
               if cfg.recon_optimizer else
               "NOT re-run (RECON_OPTIMIZER=False) -- Task 4 is where the "
               "mapping becomes aware of the reduced width")),
+            ("ERT-aware mapping",
+             ("ON (prompt_6): the ERT-injectable boundaries are re-mapped with "
+              "the encoder toll in the objective; the figure marks them"
+              if cfg.recon_ert_aware else "off (ECC_RECON_ERT_AWARE=0)")),
+            ("ERT arm", _ert_arm_row(cfg)),
         ]
     rows += [
         ("parity accounting", f"grouping={cfg.parity_grouping}, "

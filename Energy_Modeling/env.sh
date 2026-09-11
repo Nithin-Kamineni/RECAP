@@ -90,7 +90,7 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # random | hybrid | exhaustive | linear_pruned | random_pruned
 # MEASURED 2026-09-10 (WS, layer2.0.conv1, victory 10000, 18 threads, 4 scales;
 # best pJ/MAC, lower is better -- see FINDINGS 7.8):
-#     random_pruned  4.34 4.40 4.44 4.52   1.61 h/map   <- KEEP THIS
+#     random_pruned  4.34 4.40 4.44 4.52   1.61 h/map   <- best UNCONSTRAINED
 #     linear_pruned  6.17 6.53 6.56 6.89   0.12 h/map
 #     hybrid         6.61 .. 9.80          (still running when measured)
 # `hybrid` walks every pruned loop PERMUTATION around ONE index factorization
@@ -101,7 +101,17 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # uniformly and won on every arm.
 # TRAP: any systematic algorithm (linear_pruned, exhaustive) ALSO needs a huge
 # ECC_MAPPER_TIMEOUT -- see that knob.
-: "${ECC_MAPPER_ALGORITHM:=random_pruned}"
+#
+# THE CHOICE IS REGIME-DEPENDENT (FINDINGS 2.2), and the table above is the
+# UNCONSTRAINED regime. Under ECC_MAPSPACE_CONSTRAIN=1 the space is ~9.5e4
+# factorizations and a systematic walk COMPLETES: linear_pruned is then exact
+# (0.00% residual across victory 2000/4000/10000, 35 s - 1 min per map), while
+# random_pruned merely samples it. Constrained is the default since 2026-09-11
+# (prompt_3's "one command", which every prompt_5/prompt_6 job ran with as
+# exports), so linear_pruned is the default with it. Running a design with no
+# MAPSPACE_FREE_LEVELS entry -- i.e. unconstrained -- set random_pruned and
+# ECC_MAPPER_TIMEOUT=2000 back; do not carry one regime's choice into the other.
+: "${ECC_MAPPER_ALGORITHM:=linear_pruned}"
 
 # Hard cap on VALID mappings examined, PER THREAD (mapper-thread.cpp:403).
 # EMPTY = uncapped = converged = publishable.
@@ -194,7 +204,11 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #    search_size_ and victory_condition_ both guard with `X_ > 0 &&`; this one
 #    does not, so timeout_=0 terminates on the FIRST invalid mapping. Measured:
 #    all 18 threads quit with "0 invalid mappings ...", job FAILED in 16 s.
-: "${ECC_MAPPER_TIMEOUT:=2000}"
+#
+# 100000000 IS THE DEFAULT since 2026-09-11 because the default algorithm is
+# linear_pruned (above), which dies at 2000. 2000 was the random_pruned-era
+# default, under which the criterion never fires anyway.
+: "${ECC_MAPPER_TIMEOUT:=100000000}"
 
 # Loop permutations tried per index factorization (Timeloop default 16).
 # Lowering it to 4 moves the search through FACTORIZATIONS ~4x faster.
@@ -325,7 +339,7 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #   Pre   the mapping is ECC-unaware; the ECC effect is applied when evaluating
 #         (Tasks 1-3). Task 1 is Pre by construction.
 #   Post  the mapping itself was optimised for the reduced weight width (Task 4+)
-: "${ECC_PHASE:=Pre}"
+: "${ECC_PHASE:=Post}"
 
 
 # =============================================================================
@@ -382,6 +396,26 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # that reads the config dies on it, including --dry-run.
 : "${RECON_OPTIMIZER:=True}"
 
+# prompt_6 -- RECONSTRUCTION-AWARE MAPPING. 1 puts the encoder's energy into
+# the mapper's objective: every ERT-injectable boundary (derived from the
+# placement record, prompt_6 3.3 -- recon2 and recon4 on Eyeriss v1) gets
+# its OWN mapping, solved with its encoder toll in the ERT (`read` or
+# `write` on the site level, `leak` for the idle term), and the figure marks
+# which bars came from one. Requires RECON_OPTIMIZER=True and ECC_PHASE=Post;
+# config.py refuses anything else. 0 = Task 4 as before.
+: "${ECC_RECON_ERT_AWARE:=0}"
+
+# WHICH ARM ONE MAPPER JOB SOLVES -- set by hpc/map_ert_arms.sh in --export,
+# not by hand. `reference` (or EMPTY) is the published 8-bit chip with no
+# toll; a placement key (recon2, recon4) is that boundary's chip: config.py
+# resolves it into ECC_WEIGHT_DATAWIDTH=q on the storage levels in the
+# placement's reduced set (filter_glb only, on Eyeriss v1 -- the narrow
+# weights stop AT the boundary) and archs.ert_bump() derives the ERT delta
+# (E_w x block_size on the access action, idle_per_cycle on leak). The arm is
+# in the cache slug (`ert-recon2-filter_glb-read`) AND the fingerprint, so
+# two arms with byte-identical YAML never share a directory (RULE 4.4.5).
+: "${ECC_RECON_ERT_ARM:=}"
+
 # The single point the placement study is run at. These REPLACE section 3's
 # lists when ECC_RECON_MODELING=1, so change the point here, not there.
 # ONE PANEL PER NAME, top panel first, each from section 3's list. Every design
@@ -403,7 +437,18 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #            bash hpc/run_all.sh --eval-only
 #    though `eyeriss_like`'s caches are cold after the 2026-09-10 swap.
 #    Unset, this falls back to ECC_RECON_ARCH, the old one-architecture knob.
-: "${ECC_RECON_MODEL:=resnet18}"          # ONE model
+: "${ECC_RECON_MODEL:=mobilenet_v2}"          # ONE model
+# ONE LAYER of that model, or every layer of it (prompt_6 8.2). A single-layer
+# run is what makes an ERT-aware sweep affordable: (1 + ERT arms) jobs
+# instead of that many times the layer count. It SEEDS ECC_LAYERS in section
+# 10 whenever ECC_RECON_MODELING=1, so under the placement study set THIS
+# name, not ECC_LAYERS. Empty here = the whole model; on the command line
+# spell the whole model `ECC_RECON_LAYER=all` (an exported empty string is
+# indistinguishable from unset to `:=` and would take this default).
+# layer3.0.conv1 = C128_M256_R3_S3_P14_Q14_ws2_hs2, 294,912 weights, 168/168
+# PEs, refetch 1.000, 344,064 cycles: full PE occupancy, no `PE !=` confound.
+# : "${ECC_RECON_LAYER:=layer3.0.conv1}"
+: "${ECC_RECON_LAYER:=all}"
 : "${ECC_RECON_CODE_N:=63}"               # ONE code geometry
 : "${ECC_RECON_K:=30}"                      # 54 51 45 39 36 30   # ONE code rate, from section 3's list
                                           # 30 is prompt_2's code -- see section 3.
@@ -609,12 +654,19 @@ declare -A ECC_RECON_PLACEMENTS=(
 # ECC_MAC_PJ_OVERRIDE does for Compute. EMPTY = leave Accelergy's 8 pJ/bit alone.
 #   8   Accelergy CactiDRAM LPDDR4 as modelled -- the pre-2026-09-09 value, and
 #       far below every measured figure in the literature.
-#   20  Horowitz, ISSCC 2014 ("Computing's Energy Problem"): 32b DRAM read =
-#       640 pJ -> 20 pJ/bit = 1.28 nJ / 64b.
-#   40  THE DEFAULT since 2026-09-09. Within the 28-45 pJ/bit band reported by
-#       FReaC Cache (MICRO 2020) and Gebhart et al. (MICRO 2012); 2.56 nJ / 64b.
+#   20  THE DEFAULT since 2026-09-11. Horowitz, ISSCC 2014 ("Computing's Energy
+#       Problem"): 32b DRAM read = 640 pJ -> 20 pJ/bit = 1.28 nJ / 64b. The
+#       same 45 nm table ECC_MAC_PJ_OVERRIDE=0.23 (section 5) is read from, so
+#       the two denominators of every percentage share one source. The value
+#       was set on disk 2026-09-11 08:54 while the comment still named 40;
+#       adopted as the study's price, and the comments, provenance.yaml and
+#       FINDINGS 2.9 made to agree the same day.
+#   40  The default from 2026-09-09 to 2026-09-11. Within the 28-45 pJ/bit band
+#       reported by FReaC Cache (MICRO 2020) and Gebhart et al. (MICRO 2012);
+#       2.56 nJ / 64b. FINDINGS 2.9 keeps the 40/70 numbers as the price
+#       sensitivity row; every DRAM percentage scales linearly with this knob.
 #       archs/_shared/provenance.yaml `dram_access_energy` records the sources.
-: "${ECC_DRAM_PJ_PER_BIT:=40}"
+: "${ECC_DRAM_PJ_PER_BIT:=20}"
 
 # THE BASELINE'S OWN pJ PER BIT. The conventional-ECC baseline stores the BCH
 # parity BESIDE the weights, so its DRAM array is bigger (6,193,152 stored bits
@@ -630,15 +682,20 @@ declare -A ECC_RECON_PLACEMENTS=(
 # the datapath: all three arms drive the same 8 bits per weight off the die, and
 # reconstruction is the only arm whose traffic scales (x K/N). E_background and
 # E_refresh grow with the bigger array too and are still 0 below.
-#   70    THE DEFAULT since 2026-09-10: bigger array + baseline-only indexing.
+#   40    THE DEFAULT since 2026-09-11: x2.0 over the 20 pJ/bit the embedded and
+#         reconstruction arms pay, for the bigger array + baseline-only
+#         indexing. Set beside ECC_DRAM_PJ_PER_BIT=20 above; move the two
+#         together.
+#   70    The default from 2026-09-10 to 2026-09-11, beside 40 (x1.75).
+#         FINDINGS 2.9 keeps the 40/70 numbers as the price sensitivity row.
 #   EMPTY the pre-2026-09-10 model -- baseline priced at ECC_DRAM_PJ_PER_BIT and
 #         charged the external-parity TRAFFIC as a separate component. Keeps the
 #         old numbers reproducible for the diff.
-: "${ECC_BASELINE_DRAM_PJ_PER_BIT:=70}"
+: "${ECC_BASELINE_DRAM_PJ_PER_BIT:=40}"
 
 # The other two terms of E_total(DRAM) = E_dynamic + E_background + E_refresh.
 # BOTH ARE DELIBERATELY 0 FOR NOW (2026-09-09): the study's question is on-chip
-# energy, and the 8/40 pJ/bit constant above is the DYNAMIC term only. Modelling
+# energy, and the 8/20 pJ/bit constant above is the DYNAMIC term only. Modelling
 # them is a TODO (prompt_1.md) and is NOT neutral to the result -- reconstruction
 # holds fewer weight bits in DRAM, so the embedded arm should save background and
 # refresh energy too, which this study currently gives it no credit for. Units:
@@ -756,7 +813,12 @@ declare -A ECC_RECON_PLACEMENTS=(
 # It also WIDENS the mapspace, so at the same ECC_VICTORY the search has
 # strictly more to explore: a relaxed run that comes back worse is evidence
 # about the SEARCH, not about the dataflow.
-: "${ECC_WEIGHT_FACTOR_RELAX:=0}"
+# =1 IS THE DEFAULT since 2026-09-11: prompt_3's second lever, run together with
+# ECC_MAPSPACE_CONSTRAIN=1 below (they compose; see there). Every prompt_5 and
+# prompt_6 mapping already on disk was made with both exported, so the default
+# changes no slug and no fingerprint -- the `mcons__wrelax` caches stay warm.
+# 0 restores the published dataflow's pins.
+: "${ECC_WEIGHT_FACTOR_RELAX:=1}"
 
 # TASK 4 LEVER 3 -- MAKE THE SEARCH EXHAUSTIVE INSTEAD OF MAKING IT LONGER.
 # Measured 2026-09-10 (FINDINGS 7.9): on Eyeriss v1 layer3.0.conv1 the
@@ -793,7 +855,18 @@ declare -A ECC_RECON_PLACEMENTS=(
 # it is NOT the chip JSSC 2017 describes and `source: published` does not
 # licence its name -- the same rule ECC_WEIGHT_FACTOR_RELAX carries.
 # A design with no MAPSPACE_FREE_LEVELS entry is NOT constrained and says so.
-: "${ECC_MAPSPACE_CONSTRAIN:=0}"
+#
+# =1 IS THE DEFAULT since 2026-09-11. This is prompt_3's constrained mapspace,
+# the setting every prompt_5/prompt_6 mapper job runs under and the ONLY one
+# whose convergence gate passes: 0.00% residual across victory 2000/4000/10000
+# at ~1 min per map, against a 9-44% residual and hours per map unconstrained
+# (FINDINGS 2.2). The four knobs prompt_3 exports together are now all
+# defaults: this one, ECC_WEIGHT_FACTOR_RELAX=1, ECC_MAPPER_ALGORITHM=
+# linear_pruned and ECC_MAPPER_TIMEOUT=100000000. Today only eyeriss_like_wglb
+# has a free-set, so on any other design this is a no-op -- and that design is
+# then searched UNCONSTRAINED with a systematic algorithm, which is the wrong
+# regime (see ECC_MAPPER_ALGORITHM). 0 restores the unconstrained search.
+: "${ECC_MAPSPACE_CONSTRAIN:=1}"
 
 # ---- PROMPT_2: THE ON-CHIP QUANTISATION, AND THE DEPTH SWEEP ---------------
 # These two replace ECC_WEIGHT_CAPACITY_SCALE as the Task 4 mechanism. The
@@ -830,6 +903,17 @@ declare -A ECC_RECON_PLACEMENTS=(
 # DRAM IS NEVER REWRITTEN. recon.py owns the DRAM K/N scaling; narrowing DRAM
 # here as well would double-count it there.
 : "${ECC_WEIGHT_DATAWIDTH:=}"
+
+# Restrict the datawidth rewrite to named weight levels (prompt_6 phase 2).
+# EMPTY = every weight-carrying level, which is what every run before
+# 2026-09-11 did, so their caches keep their fingerprints. An ERT arm sets
+# it to the storage levels in its placement's `reduced` set, because the
+# narrow weights stop AT the boundary: recon2 and recon4 both narrow
+# `filter_glb` only and leave `weights_spad` at 8. Slug: `wdw4-filter_glb`.
+# A name no weight level has is an ERROR, not a silent no-op. The launcher
+# derives it per arm (ECC_RECON_ERT_ARM); set it by hand only for a diff.
+#   : "${ECC_WEIGHT_DATAWIDTH_LEVELS:=filter_glb}"
+: "${ECC_WEIGHT_DATAWIDTH_LEVELS:=}"
 
 # PROMPT_2'S WIDTH TABLE -- the declared physical word width, when the code's
 # q does not divide the published one. EMPTY keeps each design's published
@@ -1033,8 +1117,26 @@ declare -A ECC_RECON_PLACEMENTS=(
 # The synthesis run is matched on (N,K), so a K sweep and a fixed-K run read the
 # same table and neither can be costed at the wrong code's datapath.
 : "${ECC_RECON_JSON:=data/dc/BCH_N63_results.json}"
-: "${ECC_RECON_INCLUDE_IDLE:=1}"     # 1 -> incremental + idle; 0 -> incremental
-: "${ECC_RECON_PJ:=}"                # set to bypass the JSON entirely
+# prompt_6 RULE 3: the datapath has TWO terms on TWO denominators --
+# incremental per codeword EVENT, idle per CYCLE per ENGINE:
+#     E_recon = incremental x events + idle_per_cycle x cycles x N_engines
+# ECC_RECON_INCLUDE_IDLE, which ADDED a per-codeword number to a per-cycle
+# one, is RETIRED: idle is always charged, on its own denominator, with the
+# cycle count of the plan that is being billed (build_stacks: the sweep's
+# recon arm reconstructs at the chip ingress, one engine; the placement
+# study: 1 / 14 / 168 engines derived from the site stage). The two tables
+# below are the DC numbers the JSON holds, keyed by configuration; they are
+# read when the JSON has no entry for the (N,K) in play, BEFORE the fallback
+# constants. Bash cannot export an associative array, so section 10 flattens
+# them into ECC_RECON_INCREMENTAL_PJ_LIST / ECC_RECON_IDLE_PJ_LIST.
+declare -A ECC_RECON_INCREMENTAL_PJ=(   # pJ per codeword
+    [BCH_63_57_t1]=1.6574   [BCH_63_51_t2]=1.8995   [BCH_63_45_t3]=1.6383
+    [BCH_63_39_t4]=1.4561   [BCH_63_36_t5]=1.5082   [BCH_63_30_t6]=1.3786 )
+declare -A ECC_RECON_IDLE_PJ=(          # pJ per CYCLE per ENGINE
+    [BCH_63_57_t1]=1.9359672  [BCH_63_51_t2]=2.2301273  [BCH_63_45_t3]=2.4120856
+    [BCH_63_39_t4]=2.7891299  [BCH_63_36_t5]=2.8358254  [BCH_63_30_t6]=2.8310811 )
+: "${ECC_RECON_PJ:=}"                # overrides the INCREMENTAL term only (pJ per
+                                     # codeword); idle has no override
 # Used ONLY when the JSON has no entry for the (N,K) in play -- the BCH(63,51)
 # numbers, so a missing entry degrades to a plausible cost instead of crashing.
 # If you see these in a result's provenance, the table is missing a code.
@@ -1196,6 +1298,12 @@ if [ "${ECC_RECON_MODELING}" = "1" ]; then
     ECC_MODELS="${ECC_RECON_MODEL}"
     ECC_CODE_N="${ECC_RECON_CODE_N}"
     ECC_KS="${ECC_RECON_K}"
+    # prompt_6 8.2: the placement study's layer scope is ECC_RECON_LAYER --
+    # `all`/`full` (or an empty default above) means every layer of the model.
+    case "${ECC_RECON_LAYER}" in
+        all|ALL|full|FULL|"") ECC_LAYERS="" ;;
+        *)                    ECC_LAYERS="${ECC_RECON_LAYER}" ;;
+    esac
     ECC_EXPERIMENT="recon"
     ECC_PANEL_MODELS=""
     # Which boundaries to draw, per architecture. A bash associative array
@@ -1218,20 +1326,42 @@ if [ "${ECC_RECON_MODELING}" = "1" ]; then
     # fixed-mapping ReconSweep.png and must never overwrite it. Same rule as
     # the three sweeps: the stem comes from the configuration alone.
     _ecc_stem="${ECC_RECON_STEM}"
+    _ecc_opt=0
     case "${ECC_RECON_OPTIMIZER}" in
-        [Tt]rue|1|[Yy]es) _ecc_stem="${ECC_RECON_STEM}_optimiser" ;;
+        [Tt]rue|1|[Yy]es) _ecc_stem="${ECC_RECON_STEM}_optimiser"; _ecc_opt=1 ;;
     esac
-    if [ -z "${ECC_LAYERS}" ]; then
-        ECC_STEM="${_ecc_stem}"
+    if [ -z "${ECC_LAYERS}" ] || [ "${_ecc_opt}" = "1" ]; then
+        # prompt_6 9: the optimiser figure has ONE path PER MODEL,
+        # results/figures/ReconSweep_optimiser__<model>.png, EVEN on a
+        # layer-scoped run (the study is one layer by design); the layer scope
+        # lands in the manifest and the figure title instead of the filename,
+        # and an existing file at that path is overwritten on purpose. The
+        # model suffix is there since 2026-09-11, when the study ran on two
+        # networks: the stem comes from the configuration, and the model IS
+        # configuration -- without it the second model's eval overwrote the
+        # first's figure. The fixed-mapping ReconSweep keeps the layer suffix
+        # on a scoped run and takes the same model suffix on a whole-model one.
+        ECC_STEM="${_ecc_stem}__${ECC_RECON_MODEL}"
     else
         ECC_STEM=""
     fi
-    unset _ecc_stem
+    unset _ecc_stem _ecc_opt
     # `recon` is the only evaluation this study writes: it holds Task 1's and
     # Task 2's bars itself, from Task 1's and Task 2's own functions.
     ECC_EVAL_EXPERIMENTS="recon"
 fi
 : "${ECC_RECON_PLACEMENT_LIST:=}"
+
+# prompt_6 RULE 3: the two DC tables of section 6, flattened into `key=pJ;`
+# scalars because bash cannot export a `declare -A` (config._table reads them).
+ECC_RECON_INCREMENTAL_PJ_LIST=""
+for _k in "${!ECC_RECON_INCREMENTAL_PJ[@]}"; do
+    ECC_RECON_INCREMENTAL_PJ_LIST="${ECC_RECON_INCREMENTAL_PJ_LIST}${_k}=${ECC_RECON_INCREMENTAL_PJ[${_k}]};"
+done
+ECC_RECON_IDLE_PJ_LIST=""
+for _k in "${!ECC_RECON_IDLE_PJ[@]}"; do
+    ECC_RECON_IDLE_PJ_LIST="${ECC_RECON_IDLE_PJ_LIST}${_k}=${ECC_RECON_IDLE_PJ[${_k}]};"
+done
 
 : "${ECC_SWEEP_ARCHS:=${ECC_ARCHS}}"
 : "${ECC_SWEEP_MODELS:=${ECC_MODELS}}"
@@ -1287,9 +1417,11 @@ export ECC_PROJECT_ROOT ECC_SIF ECC_TASKFILE ECC_USE_CONTAINER ECC_PYTHON \
        ECC_MAPPER_MAX_PERMUTATIONS ECC_MAPPER_SEED ECC_OPT_METRIC \
        ECC_RERUN_OPTIMISER ECC_ARCHS ECC_MODELS ECC_KS ECC_CODE_N \
        ECC_APPROACHES ECC_SWEEP ECC_EVAL_EXPERIMENTS ECC_PHASE ECC_LAYERS \
-       ECC_RECON_MODELING ECC_RECON_ARCH ECC_RECON_ARCHS ECC_RECON_MODEL ECC_RECON_CODE_N \
+       ECC_RECON_MODELING ECC_RECON_ARCH ECC_RECON_ARCHS ECC_RECON_MODEL ECC_RECON_LAYER \
+       ECC_RECON_CODE_N \
        ECC_RECON_K ECC_RECON_STEM ECC_RECON_PLACEMENT_LIST \
-       ECC_RECON_OPTIMIZER RECON_OPTIMIZER ECC_RECON_PACKING \
+       ECC_RECON_OPTIMIZER RECON_OPTIMIZER ECC_RECON_ERT_AWARE ECC_RECON_ERT_ARM \
+       ECC_RECON_PACKING \
        ECC_RECON_ENCODER_GRANULARITY \
        ECC_RECON_ONCHIP_FRACTION ECC_RECON_PLACEMENT_CHARGES_DECODE \
        ECC_RECON_DECODE_SITE ECC_RECON_ENCODER_SITE \
@@ -1299,7 +1431,8 @@ export ECC_PROJECT_ROOT ECC_SIF ECC_TASKFILE ECC_USE_CONTAINER ECC_PYTHON \
        ECC_FORCE_DATAWIDTH ECC_FORCE_TECHNOLOGY ECC_DRAM_DEPTH ECC_MAC_PJ_OVERRIDE \
        ECC_WEIGHT_CAPACITY_SCALE ECC_WEIGHT_CAPACITY_SCOPE \
        ECC_WEIGHT_FACTOR_RELAX ECC_MAPSPACE_CONSTRAIN \
-       ECC_WEIGHT_DATAWIDTH ECC_WEIGHT_DEPTH_SCALE ECC_WEIGHT_DEPTH_LEVELS \
+       ECC_WEIGHT_DATAWIDTH ECC_WEIGHT_DATAWIDTH_LEVELS \
+       ECC_WEIGHT_DEPTH_SCALE ECC_WEIGHT_DEPTH_LEVELS \
        ECC_WEIGHT_WIDTH ECC_WEIGHT_WIDTH_GLB_MULT \
        ECC_DEPTH_SWEEP_SCALES ECC_DEPTH_SWEEP_RECON_DW \
        ECC_DEPTH_SWEEP_GATE_VICTORIES ECC_DEPTH_SWEEP_GATE_SCALES \
@@ -1307,7 +1440,7 @@ export ECC_PROJECT_ROOT ECC_SIF ECC_TASKFILE ECC_USE_CONTAINER ECC_PYTHON \
        ECC_NOC_ROUTER_PJ ECC_NOC_PE_LATCH_PJ ECC_NOC_SCALE \
        ECC_PARITY_GROUPING ECC_PARITY_CHARGE_PADDING ECC_EMB_WEIGHTS_PER_CW \
        ECC_DECODE ECC_DECODE_PJ_BASE ECC_DECODE_PJ_EMB ECC_RECON_CHARGES_DECODE \
-       ECC_RECON_JSON ECC_RECON_INCLUDE_IDLE ECC_RECON_PJ \
+       ECC_RECON_JSON ECC_RECON_PJ ECC_RECON_INCREMENTAL_PJ_LIST ECC_RECON_IDLE_PJ_LIST \
        ECC_WEAK ECC_WEAK_N ECC_WEAK_K ECC_BASELINE_INFLATES_ONCHIP \
        ECC_SPLIT_READ_WRITE ECC_CLASSIFY \
        ECC_ACCOUNT ECC_QOS ECC_PARTITION ECC_MAP_CPUS ECC_MAP_MEM ECC_MAP_TIME \

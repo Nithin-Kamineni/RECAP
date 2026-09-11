@@ -231,13 +231,16 @@ def test_the_knob_is_validated_cited_labelled_and_not_in_the_fingerprint():
     assert "Horowitz" in short and "ISSCC 2014" in long_, (short, long_)
     assert "UNCITED" in _cfg(ECC_MAC_PJ_OVERRIDE="0.5").mac_citation()[0]
     assert "ERT" in base.mac_citation()[0]
-    # ...and every figure title says so, on both the sweep and the placement figure
+    # ...and the sweep figure's title says so
     assert "MAC" not in base.title_suffix()
     assert "MAC 0.23 pJ/op" in over.title_suffix() and "Horowitz" in over.title_suffix()
-    t = over.recon_title(mac_ert_pj=1.16877)
+    # The placement figure's heading is ONE line since 2026-09-11 and does not
+    # carry it; the MAC line is in the manifest's `title_caveats`, said once.
+    assert "\n" not in over.recon_title() and "MAC" not in over.recon_title()
+    t = "\n".join(over.recon_caveats(mac_ert_pj=1.16877))
     assert "MAC 0.23 pJ/op" in t and "ERT was 1.1688" in t, t
     assert t.count("MAC 0.23") == 1, t                     # said once, not twice
-    t0 = base.recon_title(mac_ert_pj=1.16877)
+    t0 = "\n".join(base.recon_caveats(mac_ert_pj=1.16877))
     assert "MAC 1.1688 pJ/op (Accelergy ERT" in t0, t0
 
 

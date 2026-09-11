@@ -678,6 +678,453 @@ def test_a_single_named_level_moves_only_that_level():
         "bought the margin")
 
 
+def test_datawidth_levels_empty_reproduces_the_unfiltered_rewrite_byte_for_byte():
+    """prompt_6 phase 2: `levels=()` must be exactly today's behaviour.
+
+    Every `wdw4` cache on disk was solved without the parameter. If an empty
+    tuple changed one byte of the patched YAML, every one of them would go
+    cold and the reference/`wdw4` pair the study reads would silently move.
+    The property: filtering to the FULL set of weight levels, or to none,
+    gives the same text, and neither differs from the unfiltered call.
+    """
+    try:
+        from eccenergy import archs
+    except Exception as exc:                       # pragma: no cover
+        raise _Skip(f"archs unavailable: {exc}")
+    text = archs.arch_source(_P2_ARCH, _p2_cfgs()[0]).read_text()
+    plain = archs._set_weight_datawidth(text, 4, scope="exclusive",
+                                        arch=_P2_ARCH, quiet=True)
+    empty = archs._set_weight_datawidth(text, 4, (), "exclusive", _P2_ARCH,
+                                        quiet=True)
+    both = archs._set_weight_datawidth(text, 4, ("filter_glb", "weights_spad"),
+                                       "exclusive", _P2_ARCH, quiet=True)
+    assert plain == empty, "levels=() changed the patched YAML"
+    assert plain == both, "naming every weight level differs from naming none"
+    assert plain != text, "the rewrite did nothing at all"
+    assert plain.count("datawidth: 4") == 2, plain.count("datawidth: 4")
+
+
+def test_naming_filter_glb_narrows_filter_glb_and_leaves_the_spad_at_eight():
+    """The phase 2 acceptance criterion, on the patched geometry the mapper
+    will see: `filter_glb` at 4, `weights_spad` still at 8, DRAM still at 8.
+    That is what a `recon2`/`recon4` arm declares (prompt_6 5.2)."""
+    try:
+        from eccenergy import archs
+    except Exception as exc:                       # pragma: no cover
+        raise _Skip(f"archs unavailable: {exc}")
+    import dataclasses
+    _, emb, rec = _p2_cfgs()
+    glb_only = dataclasses.replace(rec, weight_datawidth_levels=("filter_glb",))
+    geo = archs.patched_weight_geometry(_P2_ARCH, glb_only)
+    assert geo["filter_glb"]["datawidth"] == 4, geo["filter_glb"]
+    assert geo["weights_spad"]["datawidth"] == 8, geo["weights_spad"]
+    assert geo["filter_glb"]["weights_per_word"] == 16, geo["filter_glb"]
+    assert geo["weights_spad"]["weights_per_word"] == 2, geo["weights_spad"]
+    text = archs._patched_text(_P2_ARCH, glb_only, quiet=True)
+    dram = [p for p in text.split("\n- !") if "class: DRAM" in p or "name: DRAM" in p]
+    assert dram and all("datawidth: 8" in p for p in dram), "DRAM moved"
+    # and the slug says which level, so the two arms never share a directory
+    v_all = archs.effective_variant(_P2_ARCH, rec)
+    v_glb = archs.effective_variant(_P2_ARCH, glb_only)
+    assert "wdw4-filter_glb" in v_glb and "wdw4-filter_glb" not in v_all, (v_all, v_glb)
+    assert archs.arch_fingerprint(_P2_ARCH, rec) != archs.arch_fingerprint(_P2_ARCH, glb_only)
+    # the embedded arm is untouched by the field: no datawidth, nothing to filter
+    emb_glb = dataclasses.replace(emb, weight_datawidth_levels=("filter_glb",))
+    assert archs.arch_fingerprint(_P2_ARCH, emb) == archs.arch_fingerprint(_P2_ARCH, emb_glb)
+
+
+def test_a_misspelt_datawidth_level_is_refused():
+    """Same rule as ECC_WEIGHT_DEPTH_LEVELS: a typo must not silently narrow
+    every level and file the result as a per-boundary architecture."""
+    try:
+        from eccenergy import archs
+    except Exception as exc:                       # pragma: no cover
+        raise _Skip(f"archs unavailable: {exc}")
+    import dataclasses
+    _, _, rec = _p2_cfgs()
+    bad = dataclasses.replace(rec, weight_datawidth_levels=("filter_gbl",))
+    try:
+        archs.patched_weight_geometry(_P2_ARCH, bad)
+    except ValueError as e:
+        assert "filter_gbl" in str(e) and "no weight-carrying level" in str(e), e
+    else:
+        raise AssertionError("a misspelt weight level was accepted and would "
+                             "have narrowed every level instead")
+    # DRAM is not a weight level the filter can name either
+    bad2 = dataclasses.replace(rec, weight_datawidth_levels=("DRAM",))
+    try:
+        archs.patched_weight_geometry(_P2_ARCH, bad2)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("naming DRAM was accepted")
+
+
+def _ert_cfgs():
+    """`(reference, recon2, recon4)` configurations on Eyeriss v1 at BCH(63,30)."""
+    import dataclasses
+    cfg, _, _ = _p2_cfgs()
+    return (cfg, dataclasses.replace(cfg, recon_ert_arm="recon2"),
+            dataclasses.replace(cfg, recon_ert_arm="recon4"))
+
+
+def test_the_wrong_sibling_guard_two_arms_identical_yaml_different_fingerprints():
+    """prompt_6 RULE 4.4.5, defences 1 and 2. recon2 and recon4 declare
+    BYTE-IDENTICAL architecture YAML (datawidth 4 on filter_glb, 8 on
+    weights_spad) and differ only in the ERT toll. They must land in
+    differently NAMED directories and at different fingerprints; the reference
+    arm, which has no toll, must hash exactly as it did before the ERT existed.
+    """
+    try:
+        from eccenergy import archs
+    except Exception as exc:                       # pragma: no cover
+        raise _Skip(f"archs unavailable: {exc}")
+    from eccenergy import paths as pathsmod
+    ref, r2, r4 = _ert_cfgs()
+    # the arm resolved its own datawidth half
+    assert (r2.weight_datawidth, r2.weight_datawidth_levels) == (4, ("filter_glb",)), r2
+    assert (r4.weight_datawidth, r4.weight_datawidth_levels) == (4, ("filter_glb",)), r4
+    t2 = archs._patched_text(_P2_ARCH, r2, quiet=True)
+    t4 = archs._patched_text(_P2_ARCH, r4, quiet=True)
+    assert t2 == t4, "the two arms are supposed to differ ONLY in the ERT"
+    v2, v4 = archs.effective_variant(_P2_ARCH, r2), archs.effective_variant(_P2_ARCH, r4)
+    f2, f4 = archs.arch_fingerprint(_P2_ARCH, r2), archs.arch_fingerprint(_P2_ARCH, r4)
+    assert v2 != v4 and "ert-recon2-filter_glb-read" in v2 and "ert-recon4-weights_spad-write" in v4, (v2, v4)
+    assert f2 != f4, f"identical YAML, different ERT, SAME fingerprint {f2}"
+    d2 = pathsmod.Results(r2).mapper_cache(_P2_ARCH, v2, f2, create=False)
+    d4 = pathsmod.Results(r4).mapper_cache(_P2_ARCH, v4, f4, create=False)
+    assert d2 != d4 and d2.parent != d4.parent, (d2, d4)
+    # the slug the config computes and the slug archs computes agree
+    assert r2.arch_variant_slug == v2 and r4.arch_variant_slug == v4
+    # the reference has no toll and no `ert` part anywhere
+    assert archs.ert_bump(_P2_ARCH, ref) is None
+    assert "ert-" not in archs.effective_variant(_P2_ARCH, ref)
+    assert archs.arch_fingerprint(_P2_ARCH, ref) not in (f2, f4)
+    # BREAKAGE: the same toll spelled twice is ONE architecture
+    import dataclasses
+    again = dataclasses.replace(ref, recon_ert_arm="recon2")
+    assert archs.arch_fingerprint(_P2_ARCH, again) == f2
+    # and the fingerprint tracks the DELTA itself: codeword charging makes
+    # E_w the whole incremental figure, so the toll moves on IDENTICAL YAML
+    other = dataclasses.replace(ref, recon_granularity="codeword", recon_ert_arm="recon2")
+    assert archs._patched_text(_P2_ARCH, other, quiet=True) == t2
+    assert archs.effective_variant(_P2_ARCH, other) == v2
+    assert archs.arch_fingerprint(_P2_ARCH, other) != f2, "the delta is not in the hash"
+
+
+def test_the_ert_bump_is_recomputed_from_the_patched_arch_and_the_dc_table():
+    """prompt_6 5.1's table, recomputed: recon2 bumps filter_glb.read by
+    E_w x 16 = 2.80096 pJ, recon4 bumps weights_spad.write by E_w x 2 =
+    0.350120 pJ, both bump leak by 2.8310811 pJ/instance/cycle."""
+    try:
+        from eccenergy import archs
+    except Exception as exc:                       # pragma: no cover
+        raise _Skip(f"archs unavailable: {exc}")
+    _, r2, r4 = _ert_cfgs()
+    b2, b4 = archs.ert_bump(_P2_ARCH, r2), archs.ert_bump(_P2_ARCH, r4)
+    assert (b2["level"], b2["action"], b2["counter"], b2["block_size"]) == ("filter_glb", "read", "reads", 16), b2
+    assert (b4["level"], b4["action"], b4["counter"], b4["block_size"]) == ("weights_spad", "write", "fills", 2), b4
+    assert abs(b2["access_delta_pj"] - 2.80096) < 1e-5, b2["access_delta_pj"]
+    assert abs(b4["access_delta_pj"] - 0.350120) < 1e-6, b4["access_delta_pj"]
+    assert b2["leak_delta_pj"] == b4["leak_delta_pj"] == 2.8310811
+    assert abs(b2["e_w_pj"] - 0.175060) < 1e-6 and b2["e_w_pj"] == b4["e_w_pj"]
+    assert b2["narrow_levels"] == b4["narrow_levels"] == ["filter_glb"]
+    assert (b2["level_width"], b2["level_datawidth"]) == (64, 4)
+    assert (b4["level_width"], b4["level_datawidth"]) == (16, 8), "weights_spad must stay 8-bit on recon4"
+
+
+def _fake_ert_entry(tmp, bump, base_pj=None, tamper=0.0):
+    """A cache entry as `timeloop.Mapper` writes one for an ERT arm: sidecar
+    with the bump record, and the stored (patched) ERT beside it."""
+    import json
+    from eccenergy import timeloop as tl
+    base_pj = base_pj or {"read": 2.75566, "write": 4.29165, "update": 4.2, "leak": 0.00010256}
+    d = pathlib.Path(tmp) / "C128_M256_R3_S3_P14_Q14_ws2_hs2"
+    d.mkdir(parents=True, exist_ok=True)
+    level = bump["level"]
+    doc = {"ERT": {"version": "0.4", "tables": [
+        {"name": f"system_top_level.{level}[1..1]",
+         "actions": [{"name": a, "arguments": {}, "energy": e} for a, e in base_pj.items()]},
+        {"name": "system_top_level.ifmap_glb[1..1]",
+         "actions": [{"name": "read", "arguments": {}, "energy": 23.4862},
+                     {"name": "leak", "arguments": {}, "energy": 0.00136375}]}]}}
+    patched = tl.patched_ert(doc, tl.ert_changes(bump))
+    if tamper:
+        for t in patched["ERT"]["tables"]:
+            for a in t["actions"]:
+                if tl.ert_level_of(t["name"]) == level and a["name"] == bump["action"]:
+                    a["energy"] += tamper
+    tl.write_yaml(d / tl.ERT_NAME, patched)
+    prices = tl.ert_prices(patched)
+    side = {"arch_fingerprint": "deadbeef", "ert_bump": {
+        "bump": bump,
+        "base_pj": {bump["action"]: base_pj[bump["action"]], "leak": base_pj["leak"]},
+        "patched_pj": {bump["action"]: prices[(level, bump["action"])],
+                       "leak": prices[(level, "leak")]}}}
+    (d / tl.MAPPING_SIDECAR).write_text(json.dumps(side))
+    return d, tl.ert_prices(doc)
+
+
+def test_the_read_back_assertion_accepts_its_own_arm_and_stops_on_a_wrong_one():
+    """prompt_6 RULE 4.4.5, defence 3: a cache entry whose ERT does not match
+    the bar asking for it STOPS THE RUN and names both."""
+    try:
+        from eccenergy import archs
+    except Exception as exc:                       # pragma: no cover
+        raise _Skip(f"archs unavailable: {exc}")
+    from eccenergy import timeloop as tl
+    _, r2, r4 = _ert_cfgs()
+    b2, b4 = archs.ert_bump(_P2_ARCH, r2), archs.ert_bump(_P2_ARCH, r4)
+    with tempfile.TemporaryDirectory() as tmp:
+        d, base = _fake_ert_entry(tmp, b2)
+        got = tl.read_back_ert(d, b2)
+        assert got["arm"] == "recon2" and any("filter_glb.read" in v for v in got["verified"]), got
+        # with the un-bumped table the untouched rows are checked too
+        got = tl.read_back_ert(d, b2, base_prices=base)
+        assert any("other rows untouched" in v for v in got["verified"]), got
+        # BREAKAGE 1: recon4 asks for recon2's entry
+        try:
+            tl.read_back_ert(d, b4)
+        except tl.ErtMismatch as e:
+            assert "recon2" in str(e) and "recon4" in str(e), e
+        else:
+            raise AssertionError("recon4 read recon2's entry without complaint")
+        # BREAKAGE 2: the reference bar asks for an ERT entry
+        try:
+            tl.read_back_ert(d, None)
+        except tl.ErtMismatch as e:
+            assert "reference" in str(e), e
+        else:
+            raise AssertionError("the reference read an ERT entry without complaint")
+        # BREAKAGE 3: the same arm, but the delta drifted by more than 1e-9
+        import dataclasses
+        drift = dict(b2, access_delta_pj=b2["access_delta_pj"] * (1 + 1e-6))
+        try:
+            tl.read_back_ert(d, drift)
+        except tl.ErtMismatch as e:
+            assert "recon2" in str(e), e
+        else:
+            raise AssertionError("a 1e-6 relative delta drift was accepted")
+        # BREAKAGE 4: an entry with no ERT record at all
+        d2 = pathlib.Path(tmp) / "plain"; d2.mkdir()
+        import json
+        (d2 / tl.MAPPING_SIDECAR).write_text(json.dumps({"arch_fingerprint": "x"}))
+        assert tl.read_back_ert(d2, None)["arm"] == "reference"
+        try:
+            tl.read_back_ert(d2, b2)
+        except tl.ErtMismatch:
+            pass
+        else:
+            raise AssertionError("an un-bumped entry was accepted for recon2")
+    with tempfile.TemporaryDirectory() as tmp:
+        # BREAKAGE 5: the stored table was overwritten after the sidecar was written
+        d, _ = _fake_ert_entry(tmp, b2, tamper=1e-6)
+        try:
+            tl.read_back_ert(d, b2)
+        except tl.ErtMismatch as e:
+            assert "filter_glb.read" in str(e), e
+        else:
+            raise AssertionError("a tampered stored ERT was accepted")
+    # `same_bump` is what `Mapper._accept_cached` uses
+    assert tl.same_bump(b2, dict(b2)) and not tl.same_bump(b2, b4)
+    assert tl.same_bump(None, None) and not tl.same_bump(None, b2)
+
+
+def test_patching_the_real_cached_ert_moves_only_the_two_rows():
+    """On the reference entry's own Accelergy table (if it is on disk): the
+    recon2 patch changes filter_glb.read and filter_glb.leak by exactly the
+    bump and nothing else; a row that does not exist is refused."""
+    try:
+        from eccenergy import archs
+    except Exception as exc:                       # pragma: no cover
+        raise _Skip(f"archs unavailable: {exc}")
+    import yaml
+    from eccenergy import paths as pathsmod, timeloop as tl
+    ref, r2, _ = _ert_cfgs()
+    cache = pathsmod.Results(ref).mapper_cache(
+        _P2_ARCH, archs.effective_variant(_P2_ARCH, ref),
+        archs.arch_fingerprint(_P2_ARCH, ref), create=False)
+    erts = sorted(cache.glob(f"*/{tl.ERT_NAME}"))
+    if not erts:
+        raise _Skip("no reference cache entry with an ERT on disk")
+    doc = yaml.safe_load(erts[0].read_text())
+    b2 = archs.ert_bump(_P2_ARCH, r2)
+    base, got = tl.ert_prices(doc), tl.ert_prices(tl.patched_ert(doc, tl.ert_changes(b2)))
+    assert set(base) == set(got)
+    moved = {k for k in base if abs(got[k] - base[k]) > 1e-12}
+    assert moved == {("filter_glb", "read"), ("filter_glb", "leak")}, moved
+    assert abs((got[("filter_glb", "read")] - base[("filter_glb", "read")]) - b2["access_delta_pj"]) < 1e-9
+    assert abs((got[("filter_glb", "leak")] - base[("filter_glb", "leak")]) - b2["leak_delta_pj"]) < 1e-9
+    # the real table prices filter_glb.read at 2.75566 (prompt_6 5.1), so the
+    # arm roughly doubles it
+    assert 1.9 < got[("filter_glb", "read")] / base[("filter_glb", "read")] < 2.1
+    try:
+        tl.patched_ert(doc, {("filter_glb", "no_such_action"): ("add", 1.0)})
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a change matching no row was silently dropped")
+
+
+def test_build_stacks_does_not_narrow_a_level_the_mapper_already_narrowed():
+    """prompt_6 RULE 1, the FOURTH site: `build_stacks()`'s recon column scales
+    on-chip weight energy by K/N. Fed a q-bit plan's `Raw` (a level row at
+    Word bits == q) it must leave that level's weight energy alone; an 8-bit
+    row is scaled as before; a row at neither width stops; a row with no
+    measurement (an older record, or a network row) is the evaluator's."""
+    try:
+        import pandas as pd
+        from eccenergy import ecc
+        from eccenergy.energy import Raw
+    except Exception as exc:                       # pragma: no cover
+        raise _Skip(f"pandas/ecc unavailable: {exc}")
+    cfg, _, _ = _p2_cfgs()                          # BCH(63,30): q = 4, K/N = 30/63
+    from eccenergy.energy import plot_cats
+    cats = plot_cats(cfg)
+    glb, spad = "Global buffer", "Local (spads/RF)"
+    assert glb in cats and spad in cats, cats
+    base = pd.Series({c: 0.0 for c in cats}); base_w = base.copy(); base_i = base.copy()
+    base[glb], base_w[glb] = 1000.0, 600.0          # 600 of weight energy in the GLB
+    base[spad], base_w[spad] = 500.0, 200.0
+    base["DRAM"], base_w["DRAM"] = 4000.0, 4000.0
+    base["Compute"] = 9000.0
+
+    def raw_with(levels):
+        r = Raw(base.copy(), base_w.copy(), base_i.copy(), 4000.0, 1000.0, 1, 0, 1000,
+                per_layer=[], levels=levels, cycles=1000)
+        return r
+
+    def recon_col(levels):
+        # idle 0 here: this test is about the on-chip categories (RULE 1);
+        # the Reconstruction row (RULE 3) has its own test in test_baseline_dram
+        return ecc.build_stacks(cfg, raw_with(levels), 1.0, recon_idle_pj=0.0)["recon"]
+
+    kn = 30 / 63
+    # 8-bit plan: both on-chip weight shares scale by K/N
+    eight = recon_col([{"level": "filter_glb", "dataspace": "Weights", "category": glb,
+                        "word_bits": 8, "energy_pJ": 600.0},
+                       {"level": "weights_spad", "dataspace": "Weights", "category": spad,
+                        "word_bits": 8, "energy_pJ": 200.0}])
+    assert abs(eight[glb] - (400.0 + 600.0 * kn)) < 1e-9, eight[glb]
+    assert abs(eight[spad] - (300.0 + 200.0 * kn)) < 1e-9, eight[spad]
+    # no measurement at all (a record older than the field): identical to 8-bit
+    legacy = recon_col([{"level": "filter_glb", "dataspace": "Weights", "category": glb,
+                         "energy_pJ": 600.0}])
+    assert abs(legacy[glb] - eight[glb]) < 1e-9 and abs(legacy[spad] - eight[spad]) < 1e-9
+    # q-bit plan on the GLB only (an ERT arm): the GLB's weight energy is left
+    # as Timeloop billed it, the spad (still 8-bit) is scaled
+    q_glb = recon_col([{"level": "filter_glb", "dataspace": "Weights", "category": glb,
+                        "word_bits": 4, "energy_pJ": 600.0},
+                       {"level": "weights_spad", "dataspace": "Weights", "category": spad,
+                        "word_bits": 8, "energy_pJ": 200.0}])
+    assert abs(q_glb[glb] - 1000.0) < 1e-9, q_glb[glb]
+    assert abs(q_glb[spad] - eight[spad]) < 1e-9
+    # the other columns never move: the baseline and embedded arms are 8-bit by
+    # construction and do not read the level rows
+    df8 = ecc.build_stacks(cfg, raw_with([]), 1.0, recon_idle_pj=0.0)
+    dfq = ecc.build_stacks(cfg, raw_with([{"level": "filter_glb", "dataspace": "Weights",
+                                            "category": glb, "word_bits": 4,
+                                            "energy_pJ": 600.0}]), 1.0, recon_idle_pj=0.0)
+    for col in ("baseline", "embedded"):
+        assert (df8[col] - dfq[col]).abs().max() < 1e-9, col
+    # BREAKAGE: Word bits 5 is neither 8 nor q
+    try:
+        recon_col([{"level": "filter_glb", "dataspace": "Weights", "category": glb,
+                    "word_bits": 5, "energy_pJ": 600.0}])
+    except ValueError as e:
+        assert "disagree" in str(e), e
+    else:
+        raise AssertionError("a Word bits 5 level was scaled without complaint")
+    # a network row carries no Word bits and is never the mapper's
+    noc = recon_col([{"level": "NoC: filter_glb <==> PE_column", "dataspace": "Weights",
+                      "category": "NoC", "word_bits": None, "energy_pJ": 50.0}])
+    assert abs(noc[glb] - eight[glb]) < 1e-9
+
+
+def test_the_capacity_target_is_8_over_q_and_every_code_passes_its_own():
+    """prompt_6 6, the table: a quantised weight is a whole number of bits, so
+    the room a re-planned arm delivers is weight_bits/q, never N/K. Against N/K
+    two codes (K=51, K=36) could not run at all and the other four passed by
+    luck; against 8/q every code passes exactly. Each mutation checks that the
+    old target would still refuse the two."""
+    try:
+        from eccenergy import recon
+    except Exception as exc:                       # pragma: no cover
+        raise _Skip(f"recon unavailable: {exc}")
+    import dataclasses
+    cfg, _, _ = _p2_cfgs()
+    table = {57: (7, 1.143), 51: (6, 1.333), 45: (6, 1.333), 39: (5, 1.600),
+             36: (5, 1.600), 30: (4, 2.000)}
+    for k, (q_want, room) in table.items():
+        c = dataclasses.replace(cfg, const_k=k)
+        want, q = recon.capacity_target(c)
+        assert q == q_want, (k, q, q_want)
+        assert abs(want - room) < 5e-4, (k, want, room)
+        # what the arm really delivers, 8/q exactly, passes ITS target...
+        delivered = 8.0 / q
+        assert abs(delivered - want) <= 0.05 * want, k
+        # ...and would have been refused against N/K at K=51 and K=36
+        nk = 63 / k
+        off = abs(delivered - nk) > 0.05 * nk
+        assert off == (k in (51, 36)), (k, delivered, nk)
+    # BREAKAGE: the ideal rate is not the target -- at BCH(63,30) N/K = 2.1
+    want, q = recon.capacity_target(cfg)
+    assert q == 4 and want == 2.0 and abs(63 / 30 - want) > 0.05
+
+
+def test_ecc_recon_layer_seeds_the_scope_and_the_optimiser_stem_stays_fixed():
+    """prompt_6 8.2 / 9, on env.sh itself: under ECC_RECON_MODELING=1 the layer
+    scope is ECC_RECON_LAYER -- a name selects that layer, `all` selects every
+    layer -- and the optimiser stem is `ReconSweep_optimiser__<model>` either
+    way (per model since 2026-09-11), while the fixed-mapping study keeps its
+    layer suffix on a scoped run."""
+    import subprocess
+    from eccenergy.paths import ROOT
+    env_sh = pathlib.Path(ROOT) / "env.sh"
+    if not env_sh.is_file():
+        raise _Skip("env.sh not found")
+
+    def resolve(**env):
+        import os
+        e = {k: v for k, v in os.environ.items() if not k.startswith("ECC_") and k != "RECON_OPTIMIZER"}
+        e.update(env)
+        out = subprocess.run(
+            ["bash", "-c", "source ./env.sh >/dev/null 2>&1; "
+                           "printf '%s|%s|%s|%s' \"$ECC_LAYERS\" \"$ECC_STEM\" \"$ECC_RECON_MODEL\" \"$ECC_RECON_LAYER\""],
+            cwd=str(ROOT), env=e, capture_output=True, text=True, check=True).stdout
+        layers, stem, model, rlayer = out.split("|")
+        return layers, stem, model, rlayer
+
+    # env.sh's OWN default point, whatever it is today: the scope follows
+    # ECC_RECON_LAYER and the stem names the model
+    layers, stem, model, rlayer = resolve(ECC_RECON_MODELING="1")
+    assert model and stem == f"ReconSweep_optimiser__{model}", (stem, model)
+    if rlayer.lower() in ("", "all", "full"):
+        assert layers == "", (layers, rlayer)
+    else:
+        assert layers == rlayer, (layers, rlayer)
+    layers, stem, model, _ = resolve(ECC_RECON_MODELING="1", ECC_RECON_LAYER="layer4.1.conv2",
+                                     ECC_RECON_MODEL="resnet18")
+    assert layers == "layer4.1.conv2" and stem == "ReconSweep_optimiser__resnet18", (layers, stem)
+    layers, stem, model, _ = resolve(ECC_RECON_MODELING="1", ECC_RECON_LAYER="all",
+                                     ECC_RECON_MODEL="resnet18")
+    assert layers == "" and stem == "ReconSweep_optimiser__resnet18", (layers, stem)  # every layer
+    # the model is in the name: two networks never overwrite each other's figure
+    layers, stem, model, _ = resolve(ECC_RECON_MODELING="1", ECC_RECON_LAYER="all",
+                                     ECC_RECON_MODEL="mobilenet_v2")
+    assert layers == "" and stem == "ReconSweep_optimiser__mobilenet_v2", (layers, stem)
+    # ECC_LAYERS is NOT the knob under the placement study: it is overwritten
+    layers, _, _, _ = resolve(ECC_RECON_MODELING="1", ECC_LAYERS="conv1", ECC_RECON_LAYER="layer3.0.conv1")
+    assert layers != "conv1", layers
+    # the fixed-mapping study keeps the layer suffix (an empty stem) when scoped
+    layers, stem, _, _ = resolve(ECC_RECON_MODELING="1", RECON_OPTIMIZER="False", ECC_PHASE="Pre",
+                                 ECC_RECON_LAYER="layer3.0.conv1")
+    assert layers and stem == "", (layers, stem)
+    layers, stem, model, _ = resolve(ECC_RECON_MODELING="1", RECON_OPTIMIZER="False", ECC_PHASE="Pre",
+                                     ECC_RECON_LAYER="all")
+    assert layers == "" and stem == f"ReconSweep__{model}", (layers, stem)
+
+
 def test_the_width_table_holds_total_bits_and_puts_the_glb_at_four_times():
     """PROMPT_2'S WIDTH TABLE, and the two things that make it legal.
 

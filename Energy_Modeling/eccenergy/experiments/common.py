@@ -22,7 +22,8 @@ class Session:
     def __init__(self, cfg):
         self.cfg = cfg
         self.results = Results(cfg).prepare()
-        self.recon_pj, self.recon_provenance = load_recon_energy(cfg)
+        # prompt_6 RULE 3: incremental (pJ/codeword) and idle (pJ/cycle/engine)
+        self.recon_pj, self.recon_idle_pj, self.recon_provenance = load_recon_energy(cfg)
         self.workload = None
         self.models = None
         self.meta = {}
@@ -111,6 +112,15 @@ class Session:
                       f"-> victory {cfg.victory_for(levels)}, "
                       f"objective {cfg.opt_metric}")
 
+        # prompt_6: the ERT toll of this arm, None for the reference. In the
+        # fingerprint already; the Mapper also records it in every sidecar,
+        # requires it to match on a hit, and reads it back after a map.
+        bump = archmod.ert_bump(arch, cfg)
+        if bump is not None:
+            print(f"  ERT arm {tlmod.describe_bump(bump)}  "
+                  f"(block_size {bump['block_size']}, E_w {bump['e_w_pj']:.6f} pJ/weight; "
+                  f"narrow levels {'+'.join(bump['narrow_levels'])})")
+
         def factory():
             arch_yaml = (archmod.patched_arch_path(arch, cfg)
                          if not cfg.from_cache else None)
@@ -118,7 +128,8 @@ class Session:
                 cfg, arch, arch_yaml,
                 self.results.mapper_cache(arch, variant, fingerprint), levels,
                 fingerprint=fingerprint,
-                legacy_root=self.results.legacy_mapper_cache(arch, variant))
+                legacy_root=self.results.legacy_mapper_cache(arch, variant),
+                ert_bump=bump)
 
         raws, mapper = collect(cfg, self.results, arch, factory, self.models,
                                variant, fingerprint)
@@ -128,7 +139,9 @@ class Session:
             print(f"  !! {arch}: no results")
             return None
         self.raws[arch] = raws
-        self.stacks[arch] = {m: build_stacks(cfg, r, self.recon_pj) for m, r in raws.items()}
+        self.stacks[arch] = {m: build_stacks(cfg, r, self.recon_pj,
+                                             recon_idle_pj=self.recon_idle_pj)
+                             for m, r in raws.items()}
         for model, raw in raws.items():
             print(f"  {model:18s} raw {raw.total / 1e6:12,.2f} uJ   "
                   f"DRAM weight reads {raw.dram_w_reads:>14,.0f}")
@@ -193,6 +206,12 @@ class Session:
         the DRAM band on disk means."""
         payload = {
             "recon_pj_per_codeword": self.recon_pj,
+            "recon_idle_pj_per_cycle_per_engine": self.recon_idle_pj,
+            "recon_idle_engines_in_build_stacks": 1,
+            "recon_idle_note": ("prompt_6 RULE 3: Reconstruction = codewords x "
+                                "incremental + idle x cycles x engines; the sweep's "
+                                "recon arm counts its codewords from DRAM reads, so "
+                                "it reconstructs at the chip ingress with one engine"),
             "recon_provenance": self.recon_provenance,
             "workload_meta": self.meta,
             "swept_axis": self.cfg.sweep,

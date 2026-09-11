@@ -49,16 +49,13 @@ import pathlib
 
 import pandas as pd
 
-from . import baseline_dram, embedded, parity
+from . import baseline_dram, code_widths, embedded, parity
 from .energy import onchip_cats, plot_cats
 from .paths import ROOT
 
-#: Per-codeword reconstruction energy from the Design Compiler runs, BCH(63, K).
-#: incremental = dynamic parity compute; idle = static datapath energy. This is
-#: a copy of `data/dc/BCH_N63_results.json`, used only when that file is absent.
-DC_INCREMENTAL_PJ = {57: 1.6574, 51: 1.8995, 45: 1.6383, 39: 1.4561, 36: 1.5082, 30: 1.3786}
-DC_IDLE_PJ = {57: 1.9359672, 51: 2.2301273, 45: 2.4120856,
-              39: 2.7891299, 36: 2.8358254, 30: 2.8310811}
+#: prompt_6 RULE 3 (4.3.3): the Design Compiler tables live in env.sh section 6
+#: (`ECC_RECON_INCREMENTAL_PJ` / `ECC_RECON_IDLE_PJ`, flattened by section 10
+#: into `cfg.recon_incremental_table` / `cfg.recon_idle_table`), not here.
 
 
 # -------------------------------------------------- reconstruction energy (DC)
@@ -85,40 +82,68 @@ def _dc_entries(cfg):
 _dc_entries.warned = False
 
 
-def load_recon_energy(cfg, k=None):
-    """Return (pJ per codeword, provenance string) for BCH(cfg.code_n, k).
+def _env_table_entry(table, n, k):
+    """The env.sh table's value for BCH(n,k): key `BCH_<n>_<k>` or `BCH_<n>_<k>_t<t>`."""
+    want = f"BCH_{n}_{k}"
+    for key, val in (table or {}).items():
+        if key == want or key.startswith(want + "_"):
+            return float(val), key
+    return None, None
 
-    The synthesis run is selected by MATCHING (n, k), so the K sweep and a
-    fixed-K run read the same table and neither can silently be costed at
-    another code's datapath. `k` defaults to the held constant, ECC_CONST_K.
+
+def load_recon_terms(cfg, k=None):
+    """The synthesized datapath's TWO terms, separately: `(incremental_pJ_per_codeword,
+    idle_pJ_per_cycle_per_engine, provenance)` for BCH(cfg.code_n, k).
+
+    prompt_6 RULE 3: incremental is per reconstruction EVENT, idle is per CYCLE
+    for every engine that exists, and adding them is dimensionally wrong. The
+    ERT arm (archs.ert_bump) needs them apart -- incremental sets the access
+    delta, idle sets the `leak` delta -- and `build_stacks()` /
+    `recon.evaluate_placement()` charge them on their own denominators.
+
+    Lookup order: the DC JSON matched on (n, k); env.sh section 6's two tables
+    (the same synthesis runs, keyed by configuration id); the fallback
+    constants, with a warning. `ECC_RECON_PJ` is not applied here -- see
+    `load_recon_energy`.
     """
     k = cfg.code_k if k is None else k
-    if cfg.recon_pj_override is not None:
-        return cfg.recon_pj_override, f"ECC_RECON_PJ override ({cfg.recon_pj_override} pJ/cw)"
-
-    how = "incremental+idle" if cfg.recon_include_idle else "incremental only"
     entries, path = _dc_entries(cfg)
     for e in entries:
         if int(e.get("n", -1)) != cfg.code_n or int(e.get("k", -1)) != k:
             continue
         inc = float(e["energy_pJ"]["incremental_per_codeword"])
         idle = float(e["energy_pJ"]["idle_per_cycle"])
-        value = inc + idle if cfg.recon_include_idle else inc
-        return value, (f"{path.name} [{e.get('configuration_id')}] "
-                       f"n={e['n']} k={e['k']} t={e.get('t')} ({how}): "
-                       f"inc={inc:.7f} idle={idle:.7f}")
-
-    # built-in copy of the same synthesis runs, for BCH(63, K)
-    if cfg.code_n == 63 and k in DC_INCREMENTAL_PJ:
-        inc = DC_INCREMENTAL_PJ[k]
-        value = inc + (DC_IDLE_PJ[k] if cfg.recon_include_idle else 0.0)
-        return value, f"built-in DC table BCH(63,{k}) ({how})"
-
-    value = cfg.recon_incremental_fallback_pj + (
-        cfg.recon_idle_fallback_pj if cfg.recon_include_idle else 0.0)
+        return inc, idle, (f"{path.name} [{e.get('configuration_id')}] "
+                           f"n={e['n']} k={e['k']} t={e.get('t')}: "
+                           f"incremental={inc:.7f} pJ/codeword, "
+                           f"idle={idle:.7f} pJ/cycle/engine")
+    inc, key_i = _env_table_entry(getattr(cfg, "recon_incremental_table", {}), cfg.code_n, k)
+    idle, key_d = _env_table_entry(getattr(cfg, "recon_idle_table", {}), cfg.code_n, k)
+    if inc is not None and idle is not None:
+        return inc, idle, (f"env.sh DC tables [{key_i}]: incremental={inc:.7f} "
+                           f"pJ/codeword, idle={idle:.7f} pJ/cycle/engine")
     print(f"  [warn] no reconstruction energy for BCH({cfg.code_n},{k}); "
           f"using the fallback constants")
-    return value, f"hardcoded fallback constants, no entry for BCH({cfg.code_n},{k})"
+    return (cfg.recon_incremental_fallback_pj, cfg.recon_idle_fallback_pj,
+            f"hardcoded fallback constants, no entry for BCH({cfg.code_n},{k})")
+
+
+def load_recon_energy(cfg, k=None):
+    """`(incremental_pJ_per_codeword, idle_pJ_per_cycle_per_engine, provenance)`
+    for BCH(cfg.code_n, k) -- prompt_6 RULE 3's two terms, never added.
+
+    The synthesis run is selected by MATCHING (n, k), so the K sweep and a
+    fixed-K run read the same table and neither can silently be costed at
+    another code's datapath. `k` defaults to the held constant, ECC_CONST_K.
+    `ECC_RECON_PJ` overrides the INCREMENTAL term only; a per-cycle term has
+    no per-codeword override.
+    """
+    inc, idle, prov = load_recon_terms(cfg, k)
+    if cfg.recon_pj_override is not None:
+        return (cfg.recon_pj_override, idle,
+                f"ECC_RECON_PJ override ({cfg.recon_pj_override} pJ/codeword incremental); "
+                f"idle {idle:.7f} pJ/cycle/engine from {prov}")
+    return inc, idle, prov
 
 
 # -------------------------------------------------------------- the three arms
@@ -238,18 +263,74 @@ def embedded_dram(cfg, raw, code_k=None, layer_weights=None, dram_word_bits=64):
     return e_external, detail
 
 
+def mapper_narrowed_weight_energy(raw, cfg, q, cats):
+    """prompt_6 RULE 1, the FOURTH narrowing site: per plotted category, the
+    on-chip WEIGHT energy the mapper has ALREADY narrowed in this `Raw`.
+
+    `build_stacks()`'s recon column scales on-chip weight energy by K/N on
+    every evaluation. That is right for an 8-bit plan and doubles the saving
+    on a q-bit one (an ERT arm's own record), so the level rows are read: a
+    Weights row whose measured `Word bits` equals q was narrowed by the mapper
+    and is left alone; one at `weight_bits` is the evaluator's; anything else
+    stops. A row with no `word_bits` (a network row, or a record older than
+    this field -- `energy.load_raw` re-gathers those) is the evaluator's, as
+    before.
+    """
+    out = {}
+    for lv in getattr(raw, "levels", None) or []:
+        if lv.get("dataspace") != "Weights" or lv.get("category") not in cats:
+            continue
+        wb = lv.get("word_bits")
+        if wb is None:
+            continue
+        wb = int(wb)
+        if wb == cfg.weight_bits:
+            continue
+        if wb == q and q != cfg.weight_bits:
+            out[lv["category"]] = out.get(lv["category"], 0.0) + float(lv.get("energy_pJ") or 0.0)
+            continue
+        raise ValueError(
+            f"build_stacks: level {lv.get('level')!r} reports Word bits {wb}, which is "
+            f"neither the weight width {cfg.weight_bits} nor q = {q} at "
+            f"BCH({cfg.code_n},{cfg.code_k}); the arch and the code disagree and no "
+            f"owner can be assigned to its narrowing (prompt_6 RULE 1)")
+    return out
+
+
 def build_stacks(cfg, raw, recon_pj, code_k=None, recon_pj_by_k=None,
-                 parity_detail=None):
+                 parity_detail=None, recon_idle_pj=None, recon_engines=1):
     """Return a DataFrame: rows = plotted categories, columns = approaches.
 
     `code_k` overrides cfg.code_k for a K sweep; `recon_pj_by_k` supplies the
     matching per-codeword reconstruction energy. `parity_detail` receives the
     baseline's parity accounting when the caller wants to record it.
+
+    prompt_6 RULE 3: `recon_pj` is the INCREMENTAL term (pJ per codeword
+    event) and `recon_idle_pj` the idle term (pJ per cycle per engine; None =
+    look it up for this K). The recon column charges
+
+        Reconstruction = codewords x incremental + idle x cycles x engines
+
+    with `cycles` from THIS `Raw` (its own plan; a record without cycles is
+    refused, never charged zero) and `recon_engines` = 1: this arm counts
+    its reconstructions from DRAM weight reads, i.e. it reconstructs at the
+    chip ingress, where one engine sits. It is not one of the placement
+    study's boundaries (CLAUDE.md).
     """
     k = code_k or cfg.code_k
     n = cfg.code_n
     if recon_pj_by_k is not None:
         recon_pj = recon_pj_by_k
+    if recon_idle_pj is None:
+        recon_idle_pj = load_recon_energy(cfg, k)[1]
+    cycles = getattr(raw, "cycles", None)
+    if "recon" in cfg.approaches and recon_idle_pj and not cycles:
+        raise ValueError(
+            f"build_stacks: the raw record carries no cycle count, and the "
+            f"encoder's idle term is {recon_idle_pj:g} pJ per cycle per engine "
+            f"(prompt_6 RULE 3). Refusing to charge it as zero -- re-gather the "
+            f"record from the mapper cache (energy.load_raw does this when it is "
+            f"not ECC_REPLOT_ONLY=1).")
 
     cats = plot_cats(cfg)
     onchip = onchip_cats(cfg)
@@ -317,11 +398,19 @@ def build_stacks(cfg, raw, recon_pj, code_k=None, recon_pj_by_k=None,
     # ---- 3. recon+: parity regenerated on chip ------------------------------
     if "recon" in cfg.approaches:
         col = base.copy()
+        # RULE 1: weight energy the MAPPER already narrowed (a q-bit plan's
+        # levels at Word bits == q) is not scaled again. On an 8-bit plan
+        # `already` is 0 everywhere and this is the line it always was.
+        q = code_widths.declared_datawidth(n, k, cfg.weight_bits)
+        narrowed = mapper_narrowed_weight_energy(raw, cfg, q, onchip)
         for c in onchip:
-            col[c] = (base[c] - base_w[c]) + base_w[c] * sram_scale * weak
+            already = min(float(narrowed.get(c, 0.0)), float(base_w[c]))
+            col[c] = ((base[c] - base_w[c]) + already * weak
+                      + (base_w[c] - already) * sram_scale * weak)
         charges = cfg.decode_enabled and cfg.recon_charges_decode
         col["ECC decode"] = n_cw_emb * cfg.decode_pj_emb if charges else 0.0
-        col["Reconstruction"] = n_cw_base * recon_pj
+        col["Reconstruction"] = (n_cw_base * recon_pj
+                                 + float(recon_idle_pj) * float(cycles or 0) * recon_engines)
         columns["recon"] = col
 
     df = pd.DataFrame({a: columns[a] for a in cfg.approaches})
@@ -340,7 +429,8 @@ def savings(stacks, approaches):
 
 
 def recon_pj_for_k(cfg, k):
-    """Just the number, for the K sweep. Same lookup as `load_recon_energy`."""
+    """The INCREMENTAL term for the K sweep (prompt_6 RULE 3); the idle term
+    is `load_recon_energy(cfg, k)[1]`. Same lookup as `load_recon_energy`."""
     return load_recon_energy(cfg, k)[0]
 
 

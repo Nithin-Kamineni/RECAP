@@ -232,3 +232,19 @@ def require(path, hint):
     if not pathlib.Path(path).exists():
         raise SystemExit(f"missing: {path}\n  -> {hint}")
     return pathlib.Path(path)
+
+
+# ------------------------------------------------------------ prompt_6 probes
+#: Scratch output of `experiments/ert_probe.py` (prompt_6 PHASE 1). It runs
+#: Timeloop with a deliberately absurd energy table and MUST NOT land in the
+#: mapper cache: the mapping fingerprint does not include the ERT until PHASE 3,
+#: so a probe written under `outputs/` would sit at the reference fingerprint
+#: and be read back as the reference design.
+ERT_PROBE = WORK / "ert_probe"
+
+
+def ert_probe_dir(arch, fingerprint, shape):
+    """`ecc_energy_study/ert_probe/<arch>/fp-<fingerprint>/<shape>` (created)."""
+    d = ERT_PROBE / arch / f"fp-{fingerprint}" / shape
+    d.mkdir(parents=True, exist_ok=True)
+    return d

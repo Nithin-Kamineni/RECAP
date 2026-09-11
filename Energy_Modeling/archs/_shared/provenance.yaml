@@ -127,16 +127,21 @@ mac_energy_pj:
 
 dram_access_energy:
   status: >-
-    ECC_DRAM_PJ_PER_BIT = 40 pJ/bit since 2026-09-09 (env.sh section 4), applied
-    evaluator-side by energy.apply_dram_override to the WHOLE DRAM category.
-    Accelergy's CactiDRAM LPDDR4 model charges 8.0 pJ/bit (512 pJ per 64-bit
-    access; verified from the cached records at 64.0 pJ per 8-bit word), which is
-    below every measured figure below. 40 pJ/bit is within the range reported by
-    FReaC Cache (MICRO 2020) and Gebhart et al. (MICRO 2012). Every DRAM
-    percentage in the study scales linearly with it.
-  value: 40
+    ECC_DRAM_PJ_PER_BIT = 20 pJ/bit since 2026-09-11 (env.sh section 4; 40 from
+    2026-09-09 to 2026-09-11), applied evaluator-side by
+    energy.apply_dram_override to the WHOLE DRAM category. Accelergy's CactiDRAM
+    LPDDR4 model charges 8.0 pJ/bit (512 pJ per 64-bit access; verified from the
+    cached records at 64.0 pJ per 8-bit word), which is below every measured
+    figure below. 20 pJ/bit is Horowitz's ISSCC 2014 figure, from the same 45 nm
+    table as ECC_MAC_PJ_OVERRIDE=0.23, so both denominators of every percentage
+    share one source. The conventional-ECC baseline pays
+    ECC_BASELINE_DRAM_PJ_PER_BIT = 40 pJ/bit beside it (x2.0; 70 beside 40
+    before) for the array that also stores the parity. Every DRAM percentage in
+    the study scales linearly with the price; FINDINGS 2.9 records the 40/70
+    numbers as the sensitivity row.
+  value: 20
   units: pJ per bit of dynamic access energy
-  set_on: 2026-09-09
+  set_on: 2026-09-11
   candidates:
     - source: "Horowitz, \"Computing's Energy Problem (and what we can do about it)\", ISSCC 2014, Fig. 1.1.5 / the 45nm energy table"
       device: "DRAM (unspecified commodity part), 45nm-era"
@@ -146,8 +151,9 @@ dram_access_energy:
       implied_pj_per_bit: 20.0        # 640 / 32
       implied_nJ_per_64b: 1.28
       note: >-
-        Widely cited in the accelerator literature. The study's
-        ECC_MAC_PJ_OVERRIDE=0.23 comes from the same table.
+        THE ADOPTED SOURCE for ECC_DRAM_PJ_PER_BIT=20 since 2026-09-11. Widely
+        cited in the accelerator literature; the study's ECC_MAC_PJ_OVERRIDE=0.23
+        comes from the same table.
     - source: "FReaC Cache, MICRO 2020; Gebhart et al., MICRO 2012"
       device: "DRAM / off-chip main memory, accelerator context"
       quote: >-
@@ -155,12 +161,14 @@ dram_access_energy:
         (1.79-2.88 nJ per 64-bit access).
       implied_pj_per_bit: [28.0, 45.0]
       note: >-
-        THE ADOPTED SOURCE for ECC_DRAM_PJ_PER_BIT=40. Higher than Horowitz
-        because these count controller and link overheads that the ISSCC table
-        does not separate out.
+        The source of the 40 pJ/bit default from 2026-09-09 to 2026-09-11, kept
+        as FINDINGS 2.9's sensitivity row. Higher than Horowitz because these
+        count controller and link overheads that the ISSCC table does not
+        separate out.
   note: >-
-    The figure subtitle, the manifest and every result file carry the value
-    used.
+    The manifest (`title_caveats`, `dram_cost_provenance`) and every result file
+    carry the value used. Since 2026-09-11 the placement figure's heading is one
+    line and does not; read the manifest beside it.
 
 # RETIRED 2026-09-09: dram_interface_share (f_if).
 #   The array/interface split of the DRAM term is GONE. f_if = 0.40 was an

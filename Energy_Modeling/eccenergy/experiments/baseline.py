@@ -143,7 +143,8 @@ def run(cfg):
         for model, raw in raws.items():
             e_parity, detail = external_parity(cfg, raw)
             components = _components(raw.base.reindex(plot_cats(cfg), fill_value=0.0))
-            # The baseline's DRAM cost is a PRICE (70 pJ/bit against 40), not
+            # The baseline's DRAM cost is a PRICE (ECC_BASELINE_DRAM_PJ_PER_BIT
+            # against ECC_DRAM_PJ_PER_BIT, 40 against 20 since 2026-09-11), not
             # extra traffic: decoding is on the DRAM die, so its parity never
             # crosses the datapath. `detail` stays on the result as the array-
             # SIZE evidence that price is charged for. See baseline_dram.py;

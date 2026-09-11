@@ -60,7 +60,8 @@ scaled by K/N under every boundary because only the k message bits are read out
 and driven off the die. The `f_if` array/interface split (0.40) was REMOVED on
 2026-09-09: it charged a 38.1% bit cut as a 15.2% energy cut, and the DRAM
 access is designed to collect only the message bits of each codeword. The
-per-bit cost itself is `ECC_DRAM_PJ_PER_BIT` (40 pJ/bit; Accelergy's own is 8).
+per-bit cost itself is `ECC_DRAM_PJ_PER_BIT` (20 pJ/bit since 2026-09-11, 40
+before; Accelergy's own is 8).
 `ECC_RECON_DECODE_SITE=
 controller` reproduces the pre-2026-09-09 numbers for the diff. The figure
 subtitle, the table, the manifest and every result file carry the decode site
@@ -83,6 +84,7 @@ import pathlib
 import re
 
 import pandas as pd
+import yaml
 
 from .. import archs as archmod
 from .. import recon as reconmod
@@ -132,8 +134,8 @@ DRAM_TERM_NOTE = (
     "array/interface split -- 0.40, which charged a 38.1% bit cut as a 15.2% "
     "energy cut -- was removed: the DRAM access is designed to collect only the "
     "message bits of each codeword, so the array reads fewer bits too. The "
-    "per-bit DYNAMIC access cost is ECC_DRAM_PJ_PER_BIT (40 pJ/bit; FReaC Cache "
-    "MICRO 2020 and Gebhart MICRO 2012 report 28-45) -- see "
+    "per-bit DYNAMIC access cost is ECC_DRAM_PJ_PER_BIT (its value and citation "
+    "travel on every manifest and result as dram_cost_provenance) -- see "
     "archs/_shared/provenance.yaml `dram_access_energy`. Every DRAM number "
     "scales linearly with it and no ordering among the placements changes. "
     "E_background and E_refresh are NOT modelled (both 0).")
@@ -165,7 +167,8 @@ def stats_paths_for(cfg, ses, arch, model):
     mapper = tlmod.Mapper(
         cfg, arch, None, ses.results.mapper_cache(arch, variant, fingerprint),
         None, fingerprint=fingerprint,
-        legacy_root=ses.results.legacy_mapper_cache(arch, variant))
+        legacy_root=ses.results.legacy_mapper_cache(arch, variant),
+        ert_bump=archmod.ert_bump(arch, cfg))      # prompt_6: an arm's entries carry its toll
     out = {}
     for layer in ses.models[model]:
         if layer.shape_name in out:
@@ -227,8 +230,10 @@ def dilated_view(cfg, ses, arch, model, base_cats, ref_raw):
       * the reconstruction arm's mapper cache is missing or short of shapes
         (the alternative is a figure whose bars come from two different layer
         sets);
-      * the dilated capacity does not come back N/K times the reference's (a
-        scale that rounded back to the declared depth is not a dilation).
+      * the dilated capacity does not come back `weight_bits / q` times the
+        reference's (prompt_6 6: a quantised weight is a whole number of
+        bits, so the room delivered is 8/q, never N/K; a scale that rounded
+        back to the declared depth is not a dilation either).
 
     And one case it handles rather than refuses: when the mapper hands back a
     BYTE-IDENTICAL loop nest on every shape, the reconstruction arm is the
@@ -330,11 +335,15 @@ def dilated_view(cfg, ses, arch, model, base_cats, ref_raw):
     cap_ref = _capacity_of(ref_paths, prefixes)
     cap_dil = _capacity_of(paths_d, prefixes)
     got = (cap_dil / cap_ref) if cap_ref else 0.0
-    if cap_ref and abs(got - nk) > 0.05 * nk:
+    # prompt_6 6: the target is weight_bits/q -- exact for every code -- not N/K.
+    want, q = reconmod.capacity_target(cfg)
+    if cap_ref and abs(got - want) > 0.05 * want:
         raise SystemExit(
-            f"the dilated mapping of {arch} reports weight capacity "
+            f"the re-planned mapping of {arch} reports weight capacity "
             f"{cap_dil:,} against the reference's {cap_ref:,} -- a factor of "
-            f"{got:.4f}, not the N/K = {nk:.4f} Task 4 is about.\n"
+            f"{got:.4f}, not the {cfg.weight_bits}/q = {cfg.weight_bits}/{q} = "
+            f"{want:.4f} a quantisation arm at q = {q} delivers (prompt_6 6; "
+            f"N/K = {nk:.4f} is the ideal, not the whole-bit room).\n"
             f"  A `depth:` that rounded back to its declared value is not a "
             f"dilation, and the result would be Task 3's under a Task 4 "
             f"heading.\n"
@@ -379,7 +388,8 @@ def dilated_view(cfg, ses, arch, model, base_cats, ref_raw):
                       "arm's silicon.")),
             capacity={"reference_weights_per_instance": cap_ref,
                       "dilated_weights_per_instance": cap_dil,
-                      "delivered_factor": got, "wanted_factor": nk,
+                      "delivered_factor": got, "wanted_factor": want, "q": q,
+                      "ideal_N_over_K": nk,
                       "level": prefixes[0] if prefixes else "?",
                       "the_mapper_used_none_of_it": True},
             fingerprint=archmod.arch_fingerprint(arch, dcfg),
@@ -454,7 +464,8 @@ def dilated_view(cfg, ses, arch, model, base_cats, ref_raw):
                         provenance=corr.get("provenance", "")),
         capacity={"reference_weights_per_instance": cap_ref,
                   "dilated_weights_per_instance": cap_dil,
-                  "delivered_factor": got, "wanted_factor": nk,
+                  "delivered_factor": got, "wanted_factor": want, "q": q,
+                  "ideal_N_over_K": nk,
                   "level": prefixes[0] if prefixes else "?",
                   "the_mapper_used_none_of_it": False,
                   "per_shape_nest_identical": nests},
@@ -481,6 +492,470 @@ def _capacity_of(paths, prefixes):
             if m:
                 return int(m.group(1))
     return 0
+
+
+# --------------------------------------------------------- prompt_6: the ERT
+#  arms -- one plan per BAR (RULE 4)
+# ----------------------------------------------------------------------------
+EXPERIMENT_ERT = "task4_reconstruction_aware_mapping_ert"
+
+ERT_NOTE = (
+    "RECONSTRUCTION-AWARE MAPPING WITH THE ENCODER IN THE OBJECTIVE (prompt_6). "
+    "Each ERT-injectable boundary -- derived from its placement record: a storage "
+    "site whose counter names one real ERT action and is not the innermost weight "
+    "level's reads -- was RE-MAPPED with its encoder toll in Timeloop's energy "
+    "table (E_w x block_size on the site's access action, idle_per_cycle on "
+    "`leak`), so the mapper solved the loop nest knowing what reconstruction "
+    "costs at that boundary. Such a bar is billed from ITS OWN plan (bill, "
+    "discounts, cycles, DRAM reads), and the toll Timeloop billed inside the "
+    "level is MOVED into `Reconstruction`, never added a second time. The other "
+    "boundaries are post-processed on the reference plan. Two mapping regimes "
+    "share this figure; the bars that came from their own mapping are marked.")
+
+
+@dataclasses.dataclass
+class ErtArmView:
+    """One ERT arm's OWN plan, and everything needed to bill that bar from it.
+
+    prompt_6 RULE 4.4.3: a bar is bill minus discounts plus the encoder, so the
+    bill, the per-level energies, the raw record, the cycle count and the ERT
+    delta must all describe the same run -- this one. Built by
+    `ert_aware_view()`; `evaluate()` keeps one per ERT arm and a bar with no
+    arm points at the reference set.
+    """
+    placement: object
+    cfg: object                 # the arm's Config (recon_ert_arm = its key)
+    raw: object                 # the arm's Raw record (toll still inside)
+    wpath: object               # its weight path, with the toll MOVED OUT
+    base_series: object         # its bill by category, toll moved out
+    base_w: object              # the weight share of that
+    cycles: float               # its run length, the idle term's denominator
+    fingerprint: str
+    variant: str
+    bump: dict                  # archs.ert_bump()
+    split: dict                 # ert_split(), reconciled stats-side and evaluator-side
+    nest_identical: bool        # byte-identical loop nest to the reference on EVERY shape
+    per_shape_nest_identical: dict
+    read_back: dict             # tlmod.read_back_ert() per shape
+    checks: dict                # per-shape guard rows (updates, leak multiplier, PEs, ...)
+    capacity: dict              # the narrowed level's Effective size, arm / reference = 8/q
+    reconciles: bool
+    recon_check: dict
+    stats_paths: dict
+
+
+def ert_split(bump, st, cycles):
+    """prompt_6 5.3 -- the two amounts an ERT arm's Timeloop run carries because
+    of the toll, from THAT bar's own counts and cycles, on the action that was
+    bumped (RULE 2), never a level total or a blended average:
+
+        access   scalar <counter> x E_w      (= vector accesses x E_w x block_size)
+        leak     idle x engine_cycles  (= sum over shapes of idle x UTILIZED
+                 instances x cycles -- what Timeloop bills, buffer.cpp)
+
+    The ACCESS amount sits INSIDE the level's per-dataspace `Energy (total)`,
+    i.e. inside the bill's category, and is MOVED into `Reconstruction`. The
+    LEAK amount is not in the bill at all: Timeloop prints leakage as a
+    separate per-level line outside the per-dataspace energies, and the raw
+    record aggregates only those (a few tens of pJ of leakage on the
+    reference, never a category). So the idle term is verified against the
+    stats' leakage delta and CHARGED by the evaluator, not subtracted.
+    `st` is the site stage's StageStats from the arm's own weight path.
+    """
+    count = float(st.counter(bump["counter"]))
+    engine_cycles = float(st.engine_cycles or 0.0)
+    engines = (engine_cycles / float(cycles)) if cycles else 0.0
+    access = count * float(bump["e_w_pj"])
+    leak = float(bump["leak_delta_pj"]) * engine_cycles
+    return {"level": bump["level"], "action": bump["action"], "counter": bump["counter"],
+            "scalar_accesses": count, "e_w_pj": float(bump["e_w_pj"]),
+            "access_toll_pJ": access, "engines": engines, "cycles": float(cycles),
+            "engine_cycles": engine_cycles,
+            "engines_declared": float(st.declared_instances or 0.0),
+            "engines_utilized_max": float(st.instances or 0.0),
+            "idle_pj_per_cycle_per_engine": float(bump["leak_delta_pj"]),
+            "leak_toll_pJ": leak, "total_toll_pJ": access + leak,
+            "rule": ("stats-side access toll = vector accesses x (E_w x block_size) = "
+                     "scalar accesses x E_w; stats-side leak = idle x UTILIZED "
+                     "instances x cycles per shape (Timeloop power-gates unused "
+                     "instances: buffer.cpp FinalizeBufferEnergy); both moved out "
+                     "of the level's category into Reconstruction so the stack has "
+                     "Task 3's shape")}
+
+
+def _close(a, b, rel=1e-6, abs_tol=0.0):
+    """|a - b| within `rel` of the larger magnitude, OR within `abs_tol` --
+    the latter for quantities read off Timeloop's stats, which print to 0.01
+    pJ."""
+    return abs(float(a) - float(b)) <= max(rel * max(abs(float(a)), abs(float(b)), 1e-9),
+                                           float(abs_tol))
+
+
+def ert_aware_view(cfg, ses, arch, model, base_cats, ref_raw, ref_paths, placement):
+    """Load, GUARD and split ONE ERT arm's own mapping (prompt_6 RULE 4).
+
+    Stops the run -- never falls back to the reference plan -- when the arm's
+    cache is missing or short of shapes, when a stored ERT is not this bar's
+    (RULE 4.4.5 read-back against the reference entry's un-bumped table), when
+    `Scalar updates` for Weights at the patched level is not 0 (RULE 2), when
+    the leak multiplier is not the UTILIZED instance count of the site level
+    (RULE 3 -- Timeloop bills leak x utilized x cycles, power-gating each
+    unused instance; verified 2026-09-11 on 43 shapes of two models), when
+    DRAM is not 8-bit (RULE 1), when the narrowed level did not deliver 8/q
+    (prompt_6 6), or when the attribution split does not reconcile to 1e-6
+    (5.3).
+
+    A PE count that differs from the reference is REPORTED, not refused
+    (2026-09-11): on a full model the arm's own EDP-optimal plan may use fewer
+    PEs where the doubled GLB room changes the DRAM chunking (mobilenet_v2:
+    3 of 31 shapes on recon2, each at lower energy AND lower EDP than the
+    reference plan), and the reference itself fills the array on fewer than
+    two thirds of the shapes. Every such shape is recorded with both PE
+    counts, both cycle counts and both EDPs, printed, and carried into the
+    manifest's `title_caveats`. The equality rule of prompt_6 10.9 came from
+    one layer that fills the array; `PE!=` still suppresses Task 4's
+    CAPACITY verdict, which is a different claim.
+
+    The loop-nest verdict is recorded PER ARM and never collapsed (4.4.4).
+    """
+    acfg = dataclasses.replace(cfg, recon_ert_arm=placement.key)
+    bump = archmod.ert_bump(arch, acfg)
+    variant = archmod.effective_variant(arch, acfg)
+    fp = archmod.arch_fingerprint(arch, acfg)
+    print(f"\n  ---- prompt_6: {placement.key}'s OWN mapping -- {tlmod.describe_bump(bump)} ----")
+    print(f"       datawidth {acfg.weight_datawidth} on {'+'.join(acfg.weight_datawidth_levels)}; "
+          f"cache {variant}  fp {fp}")
+    ases = Session(acfg).setup(need_mapper=True)
+    ases.collect_arch(arch)
+    raw_a = (ases.raws.get(arch) or {}).get(model)
+    if raw_a is None:
+        raise SystemExit(
+            f"ECC_RECON_ERT_AWARE=1 needs {placement.key}'s OWN mapping for {arch}/{model} "
+            f"({tlmod.describe_bump(bump)}), and it is not in the cache.\n"
+            f"  expected: {ases.results.mapper_cache(arch, variant, fp, create=False)}\n"
+            f"  -> map it:  bash hpc/map_ert_arms.sh --no-eval   (one sbatch job per arm x shape)\n"
+            f"  Refusing rather than falling back to the reference plan: that fallback IS "
+            f"Task 3, and this heading says otherwise.")
+    paths_a, _mapper_a = stats_paths_for(acfg, ases, arch, model)
+    if set(paths_a) != set(ref_paths):
+        raise SystemExit(
+            f"{placement.key}'s own mapping and the reference are mapped on DIFFERENT "
+            f"layer shapes for {arch}/{model}:\n"
+            f"  only in the reference: {', '.join(sorted(set(ref_paths) - set(paths_a))) or 'none'}\n"
+            f"  only in {placement.key}: {', '.join(sorted(set(paths_a) - set(ref_paths))) or 'none'}\n"
+            f"  -> finish the missing maps before evaluating")
+
+    # RULE 4.4.5, defence 3: every entry's stored ERT, read back against the
+    # reference entry's un-bumped table (Accelergy is deterministic and the
+    # datawidth does not enter it, FINDINGS 3.5).
+    read_back = {}
+    for shape, path in paths_a.items():
+        ref_ert = pathlib.Path(ref_paths[shape]).parent / tlmod.ERT_NAME
+        base_prices = (tlmod.ert_prices(yaml.safe_load(ref_ert.read_text()))
+                       if ref_ert.exists() else None)
+        read_back[shape] = tlmod.read_back_ert(pathlib.Path(path).parent, bump,
+                                               base_prices=base_prices)
+
+    # ---- per-shape guards, off the arm's OWN stats -------------------------
+    counts_by_shape = {}
+    for layer in ases.models[model]:
+        counts_by_shape[layer.shape_name] = counts_by_shape.get(layer.shape_name, 0) \
+            + float(getattr(layer, "count", 1) or 1)
+    nests, rows, problems = {}, [], []
+    stats_access = stats_leak = 0.0
+    for shape, path in paths_a.items():
+        a = pathlib.Path(ref_paths[shape]).parent / "timeloop-mapper.map.txt"
+        b = pathlib.Path(path).parent / "timeloop-mapper.map.txt"
+        nests[shape] = a.is_file() and b.is_file() and a.read_text() == b.read_text()
+        lv, sm = tlmod.parse_levels(path)
+        rlv, rsm = tlmod.parse_levels(ref_paths[shape])
+        L = lv.get(bump["level"])
+        R = rlv.get(bump["level"])
+        if L is None or R is None or "Weights" not in L["ds"]:
+            raise SystemExit(f"{placement.key}/{shape}: level {bump['level']!r} carries no "
+                             f"Weights in the stats")
+        w = L["ds"]["Weights"]
+        updates = float(w.get("updates") or 0.0)
+        other = sorted(d for d in L["ds"] if d != "Weights")
+        cyc_a, cyc_r = sm["cycles"] or 0, rsm["cycles"] or 0
+        # The arm's leakage at this level is (base + idle) x utilized_a x
+        # cycles_a; the reference's is base x utilized_r x cycles_r. The base
+        # is the same per instance-cycle in both (Accelergy is deterministic,
+        # FINDINGS 3.5), so the toll is the arm's leakage minus the
+        # reference's rescaled by BOTH ratios -- cycles AND utilized
+        # instances. Rescaling by cycles alone assumed the two plans use the
+        # same PEs; on mobilenet_v2's G576 depthwise layer (126 PEs on the
+        # reference, 42 on recon4) that left base x 84 x cycles in the
+        # residual and read as a multiplier of 41.99996 (2026-09-11).
+        n_inst = float(w.get("utilized_instances") or L["instances"] or 1)
+        n_inst_r = float((R["ds"].get("Weights") or {}).get("utilized_instances")
+                         or R["instances"] or 1)
+        leak_mult = None
+        leak_delta_pJ = None
+        if L.get("leakage_pJ") is not None and R.get("leakage_pJ") is not None and cyc_a and cyc_r:
+            ref_base_here = R["leakage_pJ"] * (cyc_a / cyc_r) * (n_inst / n_inst_r)
+            leak_delta_pJ = L["leakage_pJ"] - ref_base_here
+            leak_mult = leak_delta_pJ / (bump["leak_delta_pj"] * cyc_a)
+        mac_a = next((k for k in lv if "Compute" in lv[k]["ds"]), None)
+        mac_r = next((k for k in rlv if "Compute" in rlv[k]["ds"]), None)
+        pes_a = lv[mac_a]["utilized_instances"] if mac_a else None
+        pes_r = rlv[mac_r]["utilized_instances"] if mac_r else None
+        dram_wb = (lv.get("DRAM") or {}).get("word_bits")
+        # the stats-side split: the level's printed Weights energy minus what
+        # the same counts cost at the UN-bumped prices (5.3), x repeat count
+        prices = tlmod.ert_prices(
+            yaml.safe_load((pathlib.Path(path).parent / tlmod.ERT_NAME).read_text()))
+        base_p = {a_: prices[(bump["level"], a_)] for a_ in ("read", "write", "update")
+                  if (bump["level"], a_) in prices}
+        base_p[bump["action"]] = base_p[bump["action"]] - bump["access_delta_pj"]
+        # The multiplier is judged in pJ, against the two printed leakage
+        # totals' precision: Timeloop prints `Leakage energy (total)` to 0.01
+        # pJ, so on a small depthwise layer (42 PEs x 60k cycles) the quotient
+        # lands at 41.99996 and a bare 1e-6 relative test refuses a multiplier
+        # that IS the utilized count (mobilenet_v2 G576, 2026-09-11).
+        leak_ok = (leak_delta_pJ is not None and _close(
+            leak_delta_pJ, bump["leak_delta_pj"] * n_inst * cyc_a,
+            abs_tol=0.01 * (1.0 + cyc_a / cyc_r)))
+        bs = float(L["block_size"] or 1)
+        at_base = ((float(w.get("reads") or 0.0) * base_p.get("read", 0.0)
+                    + float(w.get("fills") or 0.0) * base_p.get("write", 0.0)
+                    + updates * base_p.get("update", 0.0)) * n_inst / bs)
+        rep = counts_by_shape.get(shape, 1.0)
+        stats_access += (float(w["energy_pJ"]) - at_base) * rep
+        if leak_delta_pJ is not None:
+            stats_leak += leak_delta_pJ * rep
+        edp_a = float(sm["energy_uJ"] or 0.0) * float(cyc_a or 0)
+        edp_r = float(rsm["energy_uJ"] or 0.0) * float(cyc_r or 0)
+        row = dict(shape=shape, nest_identical=nests[shape], weights_updates=updates,
+                   other_dataspaces_on_level=other, leak_multiplier=leak_mult,
+                   leak_multiplier_expected=n_inst, leak_multiplier_ok=leak_ok,
+                   leak_delta_pJ=leak_delta_pJ,
+                   leak_multiplier_rule=("Timeloop bills leak x UTILIZED instances x "
+                                         "cycles (buffer.cpp FinalizeBufferEnergy, "
+                                         "power-gated per instance)"),
+                   declared_instances=L["instances"], utilized_instances=n_inst,
+                   utilized_instances_reference=n_inst_r,
+                   pes_used=pes_a, pes_used_reference=pes_r,
+                   pes_differ=(pes_a != pes_r), dram_word_bits=dram_wb,
+                   level_word_bits=L["word_bits"], block_size=L["block_size"],
+                   cycles=cyc_a, cycles_reference=cyc_r,
+                   timeloop_edp_uJ_cycles=edp_a, timeloop_edp_uJ_cycles_reference=edp_r,
+                   timeloop_edp_ratio_arm_over_reference=(edp_a / edp_r) if edp_r else None,
+                   vector_access_energy_source=L["source"],
+                   energy_uJ=sm["energy_uJ"], energy_uJ_reference=rsm["energy_uJ"])
+        rows.append(row)
+        if updates:
+            problems.append(f"{shape}: Scalar updates for Weights at {bump['level']} = "
+                            f"{updates:g}, not 0 -- put the toll on `update` too or stop (RULE 2)")
+        if other:
+            problems.append(f"{shape}: {bump['level']} also holds {other}; the toll on its "
+                            f"`{bump['action']}` would be billed to them as well")
+        if not leak_ok:
+            problems.append(f"{shape}: leak multiplier {leak_mult} != utilized instances "
+                            f"{n_inst:g} of {bump['level']} (declared {L['instances']}; "
+                            f"RULE 3: Timeloop bills leak x UTILIZED instances x cycles, "
+                            f"buffer.cpp FinalizeBufferEnergy -- verify the multiplier)")
+        if dram_wb != cfg.weight_bits:
+            problems.append(f"{shape}: DRAM Word bits {dram_wb} != {cfg.weight_bits} "
+                            f"(RULE 1: DRAM is never narrowed)")
+        if L["source"] != "ERT":
+            problems.append(f"{shape}: {bump['level']} vector access energy source is "
+                            f"{L['source']!r}, not ERT -- the supplied table was not billed")
+    if problems:
+        raise SystemExit(f"{placement.key}'s own mapping fails its guards:\n  "
+                         + "\n  ".join(problems))
+    # ---- PE utilisation: REPORTED per shape, never refused (see docstring) ----
+    differ = [r_ for r_ in rows if r_["pes_differ"]]
+    pe_report = {
+        "shapes_total": len(rows), "shapes_differ": len(differ),
+        "per_shape": {r_["shape"]: {"pes_arm": r_["pes_used"], "pes_reference": r_["pes_used_reference"],
+                                    "cycles_arm": r_["cycles"], "cycles_reference": r_["cycles_reference"],
+                                    "timeloop_edp_ratio_arm_over_reference":
+                                        r_["timeloop_edp_ratio_arm_over_reference"],
+                                    "nest_identical": r_["nest_identical"]} for r_ in differ},
+        "rule": ("PEs used may differ between the arm's OWN EDP-optimal plan and the "
+                 "reference plan; the difference is the arm's configuration (datawidth q "
+                 "on its narrowed levels) acting through the mapper, reported here and "
+                 "in the manifest's title_caveats rather than refused (2026-09-11; "
+                 "prompt_6 10.9's 168/168 rule came from one array-filling layer)")}
+    if differ:
+        print(f"  [note] {placement.key}: PEs used differ from the reference on "
+              f"{len(differ)}/{len(rows)} shape(s) -- reported, not refused:")
+        for r_ in differ:
+            print(f"         {r_['shape']}: PEs {r_['pes_used']} vs {r_['pes_used_reference']}, "
+                  f"cycles x{r_['cycles'] / r_['cycles_reference']:.3f}, Timeloop EDP "
+                  f"x{r_['timeloop_edp_ratio_arm_over_reference']:.3f} of the reference plan")
+
+    # ---- prompt_6 6: quantisation delivers 8/q, never N/K ---------------------
+    q = acfg.weight_datawidth
+    want = cfg.weight_bits / q
+    narrow = tuple(bump["narrow_levels"])
+    cap_ref, cap_arm = _capacity_of(ref_paths, narrow), _capacity_of(paths_a, narrow)
+    got = (cap_arm / cap_ref) if cap_ref else 0.0
+    if cap_ref and abs(got - want) > 0.05 * want:
+        raise SystemExit(
+            f"{placement.key}: {narrow[0]} reports Effective size {cap_arm:,} against the "
+            f"reference's {cap_ref:,} -- x{got:.4f}, but a quantisation arm at q = {q} "
+            f"delivers exactly {cfg.weight_bits}/q = {want:.4f} (prompt_6 6). The "
+            f"`datawidth` edit missed the level, or the plan is not this arm's.")
+    capacity = {"level": narrow[0] if narrow else "?", "reference_weights_per_instance": cap_ref,
+                "arm_weights_per_instance": cap_arm, "delivered_factor": got,
+                "wanted_factor": want, "q": q,
+                "rule": "a quantisation arm delivers weight_bits/q, never N/K (prompt_6 6)"}
+
+    # ---- the weight path, reconciled with the arm's record BEFORE the split ---
+    wpath_a = reconmod.weight_path(acfg, arch, model, ases.models[model], paths_a)
+    reconciles, recon_check = reconmod.cross_check(
+        acfg, arch, wpath_a, raw_a.base_w.reindex(base_cats, fill_value=0.0))
+
+    # ---- 5.3: the split -- MOVE the toll, do not add it --------------------
+    stage_def = next(s_ for s_ in reconmod.stages_for(arch, acfg)
+                     if s_.key == placement.site_stage)
+    st = wpath_a.stages[placement.site_stage]
+    split = ert_split(bump, st, wpath_a.cycles)
+    for name, stats_side, evaluator in (("access", stats_access, split["access_toll_pJ"]),
+                                        ("leak", stats_leak, split["leak_toll_pJ"])):
+        if not _close(stats_side, evaluator):
+            raise SystemExit(
+                f"{placement.key}: the {name} split does not reconcile -- stats-side "
+                f"{stats_side:.6f} pJ (printed level energy minus the same counts at the "
+                f"un-bumped prices) vs evaluator {evaluator:.6f} pJ (prompt_6 5.3, 1e-6)")
+    split.update(stats_side_access_pJ=stats_access, stats_side_leak_pJ=stats_leak,
+                 reconciled_rel_tol=1e-6)
+    cat = reconmod._category_of(stage_def, acfg)
+    base_series = raw_a.base.reindex(base_cats, fill_value=0.0).copy()
+    base_w = raw_a.base_w.reindex(base_cats, fill_value=0.0).copy()
+    # Only the ACCESS toll is inside the level's billed energy; the leak toll
+    # is a separate Timeloop line the raw record does not aggregate, so it is
+    # charged by the evaluator and must not be subtracted here.
+    base_series[cat] -= split["access_toll_pJ"]
+    base_w[cat] -= split["access_toll_pJ"]
+    st.energy_pJ -= split["access_toll_pJ"]
+    st.switch_pJ -= split["access_toll_pJ"]
+    if st.energy_pJ <= 0:
+        raise SystemExit(f"{placement.key}: moving the access toll out of {cat} left "
+                         f"{placement.site_stage} at {st.energy_pJ:.3f} pJ; the split is wrong")
+    split["moved_out_of_category"] = cat
+    split["moved_pJ"] = split["access_toll_pJ"]
+    split["leak_in_bill"] = False
+    split["leak_note"] = ("Timeloop prints leakage per level OUTSIDE the per-dataspace "
+                          "energies and the raw record aggregates only those, so the "
+                          "idle term is not in the bill: verified against the stats' "
+                          "leakage delta (stats_side_leak_pJ) and charged by the evaluator")
+
+    identical = bool(nests) and all(nests.values())
+    print(f"       loop nest {'IDENTICAL to' if identical else 'DIFFERENT from'} the reference "
+          f"on {sum(nests.values())}/{len(nests)} shape(s); cycles {wpath_a.cycles:,.0f}; "
+          f"moved {split['access_toll_pJ'] / 1e6:.4f} uJ (access) out of {cat} into "
+          f"Reconstruction; leak {split['leak_toll_pJ'] / 1e6:.3f} uJ ({split['engines']:.2f} "
+          f"engines cycle-weighted, of {split['engines_declared']:g} declared) verified "
+          f"against the stats' leakage and charged by the evaluator")
+    return ErtArmView(
+        placement=placement, cfg=acfg, raw=raw_a, wpath=wpath_a,
+        base_series=base_series, base_w=base_w, cycles=float(wpath_a.cycles),
+        fingerprint=fp, variant=variant, bump=bump, split=split,
+        nest_identical=identical, per_shape_nest_identical=nests,
+        read_back=read_back, checks={"per_shape": rows, "pe_utilization": pe_report},
+        capacity=capacity,
+        reconciles=reconciles, recon_check=recon_check, stats_paths=paths_a)
+
+
+def ert_checks(builder, cfg, arch, raw, views, results, base_components,
+               emb_components, e_parity, pricing, newly_mapped=0):
+    """prompt_6 10 -- the checklist, recorded on the result file, one per arm."""
+    frac = cfg.code_k / cfg.code_n
+    space_ok, space = reconmod.validate_placement_space(arch, cfg)
+    builder.check("placement_space_covers_the_whole_weight_path", space_ok, space)
+    stages = reconmod.stages_for(arch, cfg)
+    builder.check(
+        "ert_arms_are_derived_from_the_placement_records", True,
+        {"arms": sorted(views),
+         "per_placement": {p.key: dict(zip(("injectable", "why"),
+                                            reconmod.ert_injectable(p, stages)))
+                           for p in reconmod.placements_for(arch, cfg)},
+         "rule": "prompt_6 3.3: never `if key == ...`"})
+    ref_macs = float((getattr(raw, "mac", None) or {}).get("macs", 0.0) or 0.0)
+    dram_ref_emb = emb_components.get("DRAM", 0.0)
+    dram_w_ref = float(raw.base_w.get("DRAM", 0.0))
+    by_key = {r.placement.key: r for r in results}
+    for key, v in views.items():
+        res = by_key.get(key)
+        macs = float((getattr(v.raw, "mac", None) or {}).get("macs", 0.0) or 0.0)
+        builder.check(f"ert_{key}_same_workload_as_the_reference",
+                      ref_macs > 0 and math.isclose(ref_macs, macs, rel_tol=1e-9, abs_tol=1.0),
+                      {"reference_computes": ref_macs, "arm_computes": macs})
+        builder.check(f"ert_{key}_stored_ert_read_back_matches_the_bar", True,
+                      {"per_shape": v.read_back, "bump": v.bump,
+                       "rule": "RULE 4.4.5 defence 3, checked against the reference entry's table"})
+        rows = v.checks["per_shape"]
+        builder.check(f"ert_{key}_scalar_updates_zero_at_the_patched_level",
+                      all(not r_["weights_updates"] for r_ in rows),
+                      {r_["shape"]: r_["weights_updates"] for r_ in rows})
+        builder.check(f"ert_{key}_leak_multiplier_equals_the_utilized_instances",
+                      all(r_["leak_multiplier_ok"] for r_ in rows),
+                      {"rule": ("Timeloop bills leak x UTILIZED instances x cycles, power-gating "
+                                "each unused instance (buffer.cpp FinalizeBufferEnergy); the "
+                                "idle engines of a storage site are therefore its utilized "
+                                "instances per layer, declared count stated beside"),
+                       "tolerance": "0.01 pJ per printed leakage total (Timeloop prints to 0.01 pJ), else 1e-6 relative",
+                       "per_shape": {r_["shape"]: {"multiplier": r_["leak_multiplier"],
+                                                   "utilized_instances": r_["leak_multiplier_expected"],
+                                                   "declared_instances": r_["declared_instances"],
+                                                   "ok": r_["leak_multiplier_ok"]}
+                                     for r_ in rows}})
+        builder.check(f"ert_{key}_pes_used_vs_reference_reported_per_shape", True,
+                      v.checks["pe_utilization"])
+        builder.check(f"ert_{key}_dram_datawidth_is_8_on_every_arm",
+                      all(r_["dram_word_bits"] == cfg.weight_bits for r_ in rows),
+                      {r_["shape"]: r_["dram_word_bits"] for r_ in rows})
+        builder.check(f"ert_{key}_capacity_delivered_is_8_over_q", True, v.capacity)
+        builder.check(f"ert_{key}_attribution_split_reconciles", True, v.split)
+        builder.check(f"ert_{key}_loop_nest_verdict", True,
+                      {"identical_to_reference_on_every_shape": v.nest_identical,
+                       "per_shape": v.per_shape_nest_identical,
+                       "cycles": v.cycles, "reference_cycles": float(raw.cycles or 0),
+                       "meaning": ("informational: if IDENTICAL, the ERT toll changed nothing "
+                                   "FOR THIS ARM -- the residual pricing difference is not a "
+                                   "result (prompt_6 4.4.4). Never averaged across arms.")})
+        builder.check(f"ert_{key}_weight_path_reconciles_with_its_own_record",
+                      v.reconciles, v.recon_check)
+        if res is not None and res.status == "evaluated":
+            # RULE 4: the bar is ITS OWN plan's DRAM bill minus K/N of ITS OWN
+            # weight term. The bill may differ from the reference's beyond the
+            # weight credit -- an arm whose nest changed moves different
+            # activation traffic too (mobilenet_v2 recon2, 2026-09-11: 198 uJ
+            # less input/output DRAM on its own plan) -- so the expectation is
+            # built from the arm's bill, and that difference is recorded.
+            dram_w_arm = float(v.base_w.get("DRAM", 0.0))
+            dram_arm_bill = float(v.base_series.get("DRAM", 0.0))
+            expected = dram_arm_bill - dram_w_arm * (1.0 - frac)
+            got = res.components.get("DRAM", 0.0)
+            builder.check(f"ert_{key}_dram_credit_equals_its_own_reads_times_K_over_N",
+                          math.isclose(got, expected, rel_tol=1e-9, abs_tol=abs(expected) * 1e-9 + 1e-3),
+                          {"dram_pJ": got, "expected_dram_pJ": expected,
+                           "arm_dram_bill_pJ": dram_arm_bill, "arm_dram_weight_pJ": dram_w_arm,
+                           "reference_dram_bill_pJ": dram_ref_emb, "reference_dram_weight_pJ": dram_w_ref,
+                           "activation_dram_difference_arm_minus_reference_pJ":
+                               (dram_arm_bill - dram_w_arm) - (dram_ref_emb - dram_w_ref),
+                           "reference_dram_weight_reads": float(raw.dram_w_reads),
+                           "arm_dram_weight_reads": float(v.raw.dram_w_reads),
+                           "rule": ("bar DRAM = the arm's OWN DRAM bill - (1 - K/N) x its own "
+                                    "weight DRAM term (RULE 4); an arm whose nest differs may "
+                                    "also move different activation traffic, recorded above")})
+    builder.check(
+        "narrowing_ownership_exactly_one_owner_per_narrow_stop",
+        all(r_["ok"] for res in results if res.status == "evaluated"
+            for r_ in res.detail.get("narrowing_ownership", {}).get("stops", [])),
+        {res.placement.key: res.detail.get("narrowing_ownership", {}).get("stops", [])
+         for res in results if res.status == "evaluated"})
+    builder.check(
+        "evaluation_only_rerun", bool(cfg.from_cache) or newly_mapped == 0,
+        {"ECC_FROM_CACHE": bool(cfg.from_cache), "newly_mapped_shapes": newly_mapped,
+         "reference_fingerprint": archmod.arch_fingerprint(arch, cfg),
+         "arm_fingerprints": {k: v.fingerprint for k, v in views.items()}})
+    ok, detail = baseline_dram.reference_bars_agree(
+        base_components, emb_components, e_parity, pricing, dram_w_reads=raw.dram_w_reads)
+    builder.check("reference_bars_match_tasks_1_and_2", ok, detail)
 
 
 # --------------------------------------------------------------------- report
@@ -536,7 +1011,8 @@ def _report(cfg, arch, model, wpath, gran, packing, rows, base_total, emb_total,
               f"bits are read out and driven off the die)")
 
     print(f"\n    {'bar':26s} {'total uJ':>13s} {'vs base':>9s} {'vs emb':>9s} "
-          f"{'DRAM saved uJ':>14s} {'recon uJ':>12s} {'overhead uJ':>12s} {'N_rec':>16s}")
+          f"{'DRAM saved uJ':>14s} {'recon uJ':>12s} {'of it idle':>12s} {'engines':>8s} "
+          f"{'N_rec':>16s}")
     for r in rows:
         if r["status"] != "evaluated":
             print(f"    {r['label'][:26]:26s} {'UNSUPPORTED':>13s}   {r['reason'][:60]}")
@@ -546,10 +1022,30 @@ def _report(cfg, arch, model, wpath, gran, packing, rows, base_total, emb_total,
         print(f"    {r['label'][:26]:26s} {r['total'] / 1e6:13,.3f} {vb:8.2f}% "
               f"{ve:8.2f}% {r['dram_saved_pJ'] / 1e6:14,.3f} "
               f"{r['recon_pJ'] / 1e6:12,.3f} "
-              f"{r['overhead_pJ'] / 1e6:12,.3f} {r['n_cw']:16,.0f}")
+              f"{r.get('idle_pJ', 0.0) / 1e6:12,.3f} {float(r.get('engines', 0)):8.2f} "
+              f"{r['n_cw']:16,.0f}")
     print(f"    (vs base / vs emb are SAVINGS: a negative number costs more "
           f"than the reference; DRAM saved is the DRAM energy the bar "
-          f"REMOVED against the embedded reference)")
+          f"REMOVED against the embedded reference; recon uJ = incremental x "
+          f"events + idle x engine-cycles over {wpath.cycles:,.0f} cycles, engines = "
+          f"cycle-weighted mean of the instances that LEAK, i.e. the utilized ones, "
+          f"RULE 3)")
+
+
+def _report_narrowing(results):
+    """RULE 1 on the console: per bar, per narrow storage stop, who narrowed
+    it and from what measurement (prompt_6 10, item 2)."""
+    print(f"\n    narrowing ownership (RULE 1), from each bar's own stats:")
+    for res in results:
+        if res.status != "evaluated":
+            continue
+        stops = res.detail.get("narrowing_ownership", {}).get("stops", [])
+        if not stops:
+            print(f"      {res.placement.key:8s} no on-chip storage stop carries narrow weights")
+            continue
+        parts = [f"{r['stage']}: Word bits {r['measured_word_bits']} -> "
+                 f"{r['owner']} (x{r['applied_scale']:.4f})" for r in stops]
+        print(f"      {res.placement.key:8s} " + "; ".join(parts))
 
 
 # ------------------------------------------------------------------- evaluate
@@ -583,25 +1079,29 @@ def evaluate(cfg, ses, prov, arch, model, raw):
     # against N/K more weight room, so the two arms no longer move the same
     # data -- which is the entire mechanism Task 3 cannot show. With
     # RECON_OPTIMIZER=False `dil` is None and every line below is Task 3's.
+    # prompt_6 (ECC_RECON_ERT_AWARE=1) has FOUR worlds instead of two: the
+    # reference plan for baseline/embedded and the post-processed bars, and
+    # ONE PLAN PER ERT ARM. The single `p_*` set is replaced by a per-bar
+    # lookup (RULE 4.4.3); the depth dilation is not used under it.
+    aware = bool(getattr(cfg, "recon_ert_aware", False))
     dil = (dilated_view(cfg, ses, arch, model, cats, raw)
-           if cfg.recon_optimizer else None)
-    p_wpath = dil.wpath if dil else wpath
-    p_base_w = dil.base_w if dil else base_w
-    p_base_series = dil.base_series if dil else base_series
+           if (cfg.recon_optimizer and not aware) else None)
+    ert_keys = {p.key for p in reconmod.ert_arms(arch, cfg)} if aware else set()
+    # the run-wide reference record for the lines that describe the run as a
+    # whole (the per-bar plans are chosen below)
     p_raw = dil.raw if dil else raw
 
     gran = reconmod.Granularity(cfg.code_n, cfg.code_k, cfg.weight_bits,
                                 cfg.recon_granularity)
     packing = reconmod.Packing(cfg.recon_packing, cfg.weight_bits,
                                cfg.code_k, cfg.code_n)
-    # prompt_2: THE ON-CHIP NARROWING MUST BE APPLIED EXACTLY ONCE. Since the
-    # mapper can now deliver it via `ECC_WEIGHT_DATAWIDTH`, running that
-    # beside the default `stream` packing would SQUARE the on-chip saving.
-    # Stops here, before a number exists, rather than being caught in review.
-    narrowing = reconmod.assert_onchip_narrowing_once(cfg)
-    if narrowing.get("note"):
-        print(f"  [narrowing] {narrowing['note']}")
-    recon_pj, recon_prov = load_recon_energy(cfg)
+    # prompt_6 RULE 1: THE ON-CHIP NARROWING HAS EXACTLY ONE OWNER PER BAR PER
+    # STAGE, decided from each bar's own measured Word bits inside
+    # `evaluate_placement` (a hard stop on a stop narrowed twice or by nobody).
+    # The ownership rows are printed below, once the bars exist.
+    # prompt_6 RULE 3: two terms, two denominators. The idle term is charged
+    # per cycle of the plan a bar is billed from, times its engine count.
+    recon_pj, recon_idle_pj, recon_prov = load_recon_energy(cfg)
 
     # Decode: charged to nobody by default (Task 2's rule). When ECC_DECODE=1
     # the embedded layout's codeword count is what every recon bar decodes,
@@ -620,17 +1120,58 @@ def evaluate(cfg, ses, prov, arch, model, raw):
     wanted = cfg.recon_placements_for(arch)
     placements = [p for p in reconmod.placements_for(arch, cfg)
                   if not wanted or p.key in wanted or p.variant in wanted]
-    results = [reconmod.evaluate_placement(
-        cfg, arch, p, p_wpath, p_base_w, p_base_series, recon_pj, gran,
-        packing, decode_pj=decode_placement) for p in placements]
+    views = {p.key: ert_aware_view(cfg, ses, arch, model, cats, raw, paths, p)
+             for p in placements if p.key in ert_keys}
+
+    def plan(p):
+        """RULE 4: the (wpath, weight bill, bill, raw, cycles) THIS bar is billed
+        from -- its own ERT arm, the Task 4 dilated plan, or the reference."""
+        v = views.get(p.key)
+        if v is not None:
+            return v.wpath, v.base_w, v.base_series, v.raw, v.cycles, "own mapping (ERT)"
+        if dil is not None:
+            return dil.wpath, dil.base_w, dil.base_series, dil.raw, dil.wpath.cycles, "dilated"
+        return wpath, base_w, base_series, raw, wpath.cycles, "reference"
+
+    results, plans = [], {}
+    for p in placements:
+        p_wpath, p_base_w, p_base_series, p_raw, p_cycles, tag = plan(p)
+        plans[p.key] = (p_raw, tag)
+        # Under its own plan a bar issues its own DRAM reads, so it decodes
+        # its own codeword count (the reference's would bill reads it never made).
+        n_cw_p = p_raw.dram_w_reads / gran.weights_per_codeword
+        decode_p = ((n_cw_p * cfg.decode_pj_emb)
+                    if (cfg.decode_enabled and cfg.recon_placement_charges_decode) else 0.0)
+        results.append(reconmod.evaluate_placement(
+            cfg, arch, p, p_wpath, p_base_w, p_base_series, recon_pj, gran,
+            packing, decode_pj=decode_p, recon_idle_pj=recon_idle_pj, cycles=p_cycles))
+    # 5.3: what the evaluator charged as Reconstruction on an ERT bar must be
+    # exactly what was moved out of the level -- a split, not an addition.
+    for res in results:
+        v = views.get(res.placement.key)
+        if v is None or res.status != "evaluated":
+            continue
+        c = res.detail["reconstruction_counts"]
+        for name, charged, moved in (
+                ("access", c["reconstruction_energy_incremental_pJ"], v.split["access_toll_pJ"]),
+                ("leak", c["reconstruction_energy_idle_pJ"], v.split["stats_side_leak_pJ"])):
+            if not _close(charged, moved):
+                raise SystemExit(
+                    f"{arch}/{res.placement.key}: the {name} term the evaluator charged "
+                    f"({charged:.6f} pJ) is not the stats-side amount ({moved:.6f} pJ: "
+                    f"{'moved out of ' + v.split['moved_out_of_category'] if name == 'access' else 'the leakage delta Timeloop printed'}); "
+                    f"the encoder would be counted twice or not at all (prompt_6 5.3)")
+        v.split["evaluator_incremental_pJ"] = c["reconstruction_energy_incremental_pJ"]
+        v.split["evaluator_idle_pJ"] = c["reconstruction_energy_idle_pJ"]
 
     # ---- the result file ---------------------------------------------------
     builder = ResultBuilder(cfg, ses.results, arch, model,
-                            experiment=EXPERIMENT_TASK4 if dil else EXPERIMENT,
-                            fixed_mapping=not dil)
+                            experiment=(EXPERIMENT_ERT if aware else
+                                        EXPERIMENT_TASK4 if dil else EXPERIMENT),
+                            fixed_mapping=not (dil or aware))
     mapping_ids = audit.mapping_ids_of(raw)
-    # TASK 4: the reconstruction bars come from a DIFFERENT mapping, so they
-    # must carry that mapping's ids. A result file whose recon bars claimed the
+    # TASK 4 / prompt_6: a bar that comes from a DIFFERENT mapping must carry
+    # THAT mapping's ids. A result file whose recon bars claimed the
     # reference's ids would be indistinguishable from Task 3's.
     placement_mapping_ids = audit.mapping_ids_of(p_raw) if dil else mapping_ids
     builder.add(Variant(
@@ -675,14 +1216,39 @@ def evaluate(cfg, ses, prov, arch, model, raw):
                          "n_cw": 0.0, "dram_saved_pJ": 0.0})
             continue
         counts = res.detail["reconstruction_counts"]
+        bar_raw, bar_tag = plans[p.key]
+        v = views.get(p.key)
+        if aware:
+            bar_extra = ({"reconstruction_aware_mapping": ERT_NOTE, "plan": bar_tag,
+                          "ert_arm": {"bump": v.bump, "fingerprint": v.fingerprint,
+                                      "cache_variant": v.variant,
+                                      "loop_nest_identical_to_reference": v.nest_identical,
+                                      "per_shape_nest_identical": v.per_shape_nest_identical,
+                                      "attribution_split": v.split,
+                                      "capacity": v.capacity,
+                                      "guards_per_shape": v.checks["per_shape"],
+                                      "ert_read_back": v.read_back},
+                          "dram_weight_reads_reference": float(raw.dram_w_reads),
+                          "dram_weight_reads_this_arm": float(bar_raw.dram_w_reads),
+                          "cycles_reference": float(raw.cycles or 0),
+                          "cycles_this_arm": float(v.cycles)}
+                         if v is not None else
+                         {"plan": bar_tag, "fixed_mapping": FIXED_MAPPING_NOTE,
+                          "note": ("post-processed on the reference plan; this boundary "
+                                   "is not ERT-injectable (prompt_6 3.3)")})
+            bar_ids = audit.mapping_ids_of(bar_raw)
+        else:
+            bar_extra = None
+            bar_ids = placement_mapping_ids
         builder.add(Variant(
             p.variant, kind="reconstruction", status="evaluated",
             total_energy_pJ=res.total_pJ,
             energy_by_component_pJ={k: v for k, v in res.components.items()
                                     if v != 0.0},
-            mapping_ids=placement_mapping_ids, label=label,
+            mapping_ids=bar_ids, label=label,
             extra=dict(res.detail, placement_key=p.key,
-                       **({"reconstruction_aware_mapping": TASK4_NOTE,
+                       **(bar_extra if bar_extra is not None else
+                          {"reconstruction_aware_mapping": TASK4_NOTE,
                            "weight_capacity": dil.capacity,
                            "capacity_dilation_correction": dil.correction,
                            "dram_weight_reads_reference": float(raw.dram_w_reads),
@@ -697,6 +1263,9 @@ def evaluate(cfg, ses, prov, arch, model, raw):
                      "status": "evaluated", "reason": "",
                      "total": res.total_pJ,
                      "recon_pJ": counts["reconstruction_energy_pJ"],
+                     "idle_pJ": counts["reconstruction_energy_idle_pJ"],
+                     "engines": counts["engines"],
+                     "plan": bar_tag,
                      "overhead_pJ": counts["recon_overhead_energy_pJ"],
                      "n_cw": counts["reconstruction_events_codewords"],
                      "dram_saved_pJ":
@@ -709,7 +1278,11 @@ def evaluate(cfg, ses, prov, arch, model, raw):
     # reads, so it legitimately pays less array energy. Task 4 therefore
     # replaces that check with a tighter one -- the array credit must equal
     # exactly the reads the mapper removed, and not a picojoule more.
-    if dil:
+    if aware:
+        ert_checks(builder, cfg, arch, raw, views, results, base_components,
+                   emb_components, e_parity, pricing,
+                   newly_mapped=getattr(mapper, "n_mapped", 0))
+    elif dil:
         task4_checks(builder, cfg, arch, raw, dil, base_components,
                      emb_components, e_parity, results, wpath, base_w,
                      newly_mapped=getattr(mapper, "n_mapped", 0), pricing=pricing)
@@ -723,6 +1296,18 @@ def evaluate(cfg, ses, prov, arch, model, raw):
     audit.common_caveats(builder, cfg, arch, raw, pdetail, pricing)
     builder.approximate(edetail["traffic"]["method"])
     builder.approximate(CODEC_NOTE)
+    if aware:
+        builder.approximate(ERT_NOTE)
+        own = sorted(views)
+        rest = [p.key for p in placements if p.key not in views]
+        builder.warn(
+            f"TWO MAPPING REGIMES ON ONE FIGURE: {', '.join(own) or 'none'} come from "
+            f"their own mapping (encoder toll in the ERT); {', '.join(rest) or 'none'} "
+            f"are post-processed on the reference plan. Each ERT bar's loop-nest "
+            f"verdict is recorded on its own: "
+            + "; ".join(f"{k}: " + ("IDENTICAL to the reference -- the ERT changed nothing "
+                                    "for this arm" if v.nest_identical else "CHANGED")
+                        for k, v in views.items()))
     if dil:
         builder.approximate(TASK4_NOTE)
         builder.approximate(dil.correction.get("provenance", ""))
@@ -806,6 +1391,7 @@ def evaluate(cfg, ses, prov, arch, model, raw):
             "packing": packing.to_dict(),
             "granularity": gran.to_dict(),
             "reconstruction_datapath_pJ_per_codeword": recon_pj,
+            "reconstruction_datapath_idle_pJ_per_cycle_per_engine": recon_idle_pj,
             "reconstruction_datapath_provenance": recon_prov,
             "decode_site": cfg.recon_decode_site,
             "dram_pj_per_bit": cfg.dram_pj_per_bit,
@@ -825,9 +1411,11 @@ def evaluate(cfg, ses, prov, arch, model, raw):
 
     _report(cfg, arch, model, wpath, gran, packing, rows, base_total, emb_total,
             raw=raw)
+    _report_narrowing(results)
     path = builder.write()
     print(f"    -> {path}")
     return {"path": path, "rows": rows, "results": results, "wpath": wpath,
+            "views": views, "ert_bars": set(views),
             "base_components": base_components, "emb_components": emb_components,
             "base_total": base_total, "emb_total": emb_total,
             # the WEIGHT share of each plotted category, straight off the `Raw`
@@ -1051,16 +1639,18 @@ def task4_checks(builder, cfg, arch, raw, dil, base_components, emb_components,
     #    `depth:` the patch failed to rewrite, or one Timeloop clamped, shows up
     #    here rather than being assumed.
     cap = dil.capacity
+    want, q = reconmod.capacity_target(cfg)
     cap_ok = (cap["reference_weights_per_instance"] > 0
-              and abs(cap["delivered_factor"] - nk) <= 0.05 * nk)
+              and abs(cap["delivered_factor"] - want) <= 0.05 * want)
     builder.check(
-        "reconstruction_arm_has_N_over_K_more_weight_capacity", cap_ok,
+        "reconstruction_arm_has_8_over_q_more_weight_capacity", cap_ok,
         dict(cap, reference_scale=dil.ref_scale, dilated_scale=dil.scale,
-             rule=(f"the reduced representation stores N/K = {nk:.4f} times as "
-                   f"many weights in the same silicon, so the mapper for the "
-                   f"reconstruction arm must have been given exactly that much "
-                   f"more room at the weight level -- no more (which would be "
-                   f"unearned) and no less (which would understate it)")))
+             rule=(f"the reduced representation stores weights at q = {q} whole "
+                   f"bits, so it holds {cfg.weight_bits}/q = {want:.4f} times as many "
+                   f"in the same silicon (N/K = {nk:.4f} is the ideal rate, not the "
+                   f"room a whole-bit word delivers -- prompt_6 6); the mapper must "
+                   f"have been given exactly that much more room at the weight "
+                   f"level -- no more (unearned) and no less (understated)")))
 
     # 3. THE ARRAY CREDIT IS EXACTLY THE READS THE MAPPER REMOVED. This is the
     #    check that separates Task 4 from wishful thinking. Task 3's rule was
@@ -1296,6 +1886,9 @@ def panel_for(cfg, arch, model, out):
             lines.append(f"{sign}{abs(moved) / 1e6:,.2f} \u00b5J on chip")
         if recon:
             lines.append(f"+{recon / 1e6:,.2f} \u00b5J recon")
+        if key in out.get("ert_bars", ()):
+            # prompt_6 9: mark which bars came from their own mapping
+            lines.append("own mapping (ERT)")
         if lines:
             notes[key] = "\n".join(lines)
 
@@ -1327,6 +1920,8 @@ def panel_for(cfg, arch, model, out):
             "saving_vs_embedded_only_pct": pct(emb_t, total),
             "reconstruction_events_codewords": "", "reconstruction_uJ": "",
             "recon_overhead_uJ": "", "weights_reconstructed": "",
+            "idle_engines_cycle_weighted": "", "idle_engines_declared": "",
+            "pe_shapes_differing_from_reference": "",
             "reducible_energy_uJ": "",
             "saving_ceiling_uJ": "",
             "decode_site": "controller (reference bar)",
@@ -1352,6 +1947,11 @@ def panel_for(cfg, arch, model, out):
                 reconstruction_uJ=c["reconstruction_energy_pJ"] / 1e6,
                 recon_overhead_uJ=c["recon_overhead_energy_pJ"] / 1e6,
                 weights_reconstructed=c["weights_reconstructed"],
+                idle_engines_cycle_weighted=c["engines"],
+                idle_engines_declared=c["engines_declared"],
+                pe_shapes_differing_from_reference=(
+                    (out.get("views") or {}).get(res.placement.key).checks["pe_utilization"]["shapes_differ"]
+                    if (out.get("views") or {}).get(res.placement.key) is not None else ""),
                 reducible_energy_uJ=b["before_pJ"] / 1e6,
                 saving_ceiling_uJ=b["ceiling_on_the_saving_pJ"] / 1e6,
                 decode_site=dm["decode_site"],
@@ -1364,6 +1964,8 @@ def panel_for(cfg, arch, model, out):
                        saving_vs_embedded_only_pct="",
                        reconstruction_events_codewords="", reconstruction_uJ="",
                        recon_overhead_uJ="", weights_reconstructed="",
+                       idle_engines_cycle_weighted="", idle_engines_declared="",
+                       pe_shapes_differing_from_reference="",
                        reducible_energy_uJ="",
                        saving_ceiling_uJ="", decode_site=term["decode_site"],
                        dram_pj_per_bit=term["dram_pj_per_bit"], dram_uJ="",
@@ -1390,6 +1992,20 @@ def panel_for(cfg, arch, model, out):
     }
 
 
+#: What the multi-panel placement figure's heading said under its title until
+#: 2026-09-11. The heading is one line since; this travels in the manifest's
+#: `title_caveats` with the rest (`Config.recon_caveats`).
+PANEL_NOTE = ("each panel is one design's OWN weight path, measured against its "
+              "OWN two reference bars; the panels share a legend and a unit, not "
+              "a y limit or an x axis")
+
+
+def _title(cfg, panels):
+    """The ONE-LINE heading. Everything it used to say below that line is
+    `cfg.recon_caveats()`, written to the manifest by `run()`."""
+    return cfg.recon_title() if len(panels) == 1 else cfg.recon_panel_title()
+
+
 def figure(cfg, ses, panels):
     """Draw the placement figure: one panel per architecture, top to bottom.
 
@@ -1412,8 +2028,7 @@ def figure(cfg, ses, panels):
     with the panel in the row key.
     """
     one = len(panels) == 1
-    title = (cfg.recon_title(mac_ert_pj=panels[0]["mac_ert_pj"]) if one
-             else cfg.recon_panel_title(mac_ert_pj=panels[0]["mac_ert_pj"]))
+    title = _title(cfg, panels)
     if one:
         pan = panels[0]
         drawn, stacks = pan["drawn"], pan["stacks"]
@@ -1466,9 +2081,7 @@ def figure(cfg, ses, panels):
         cfg, ses.results, spec, title=title, stem=cfg.stem, group_fontsize=15,
         bars=["energy"], bar_tags={}, bar_width=0.92, ref_totals=refs,
         bar_notes=note_by_panel,
-        panel_note=("each panel is one design's OWN weight path, measured "
-                    "against its OWN two reference bars; the panels share a "
-                    "legend and a unit, not a y limit or an x axis"))
+        panel_note=None)             # PANEL_NOTE goes to the manifest (run())
     csv = write_table(
         cfg, ses.results,
         [(pan["arch"], pan["groups"], pan["stacks"], pan["labels"])
@@ -1558,7 +2171,34 @@ def run(cfg):
         panels.append(panel_for(cfg, arch, model, out))
 
     figs, csv, groups = figure(cfg, ses, panels)
+    # The heading is one line (2026-09-11). What it said below that line until
+    # then -- the mapping regime with its arms, the DRAM model and price, the
+    # static DRAM terms, the encoder site, the MAC denominator, the layer
+    # scope, and the panel rule on a multi-design figure -- is RECORDED here,
+    # beside the figure, instead of drawn on it.
+    caveats = cfg.recon_caveats(mac_ert_pj=panels[0]["mac_ert_pj"])
+    if len(panels) > 1:
+        caveats.append(PANEL_NOTE)
+    # PE utilisation per ERT arm (reported, never refused -- see ert_aware_view)
+    for a, o in outs.items():
+        for key, v in sorted((o.get("views") or {}).items()):
+            pe = v.checks.get("pe_utilization") or {}
+            if pe.get("shapes_differ"):
+                names = ", ".join(f"{s} ({d['pes_arm']} vs {d['pes_reference']} PEs)"
+                                  for s, d in pe["per_shape"].items())
+                caveats.append(
+                    f"{cfg.arch_label(a).replace(chr(10), ' ')} {key}: its own EDP-optimal "
+                    f"plan uses a different PE count than the reference plan on "
+                    f"{pe['shapes_differ']} of {pe['shapes_total']} layer shapes -- {names}; "
+                    f"idle is charged on the instances that leak (utilized, per layer), "
+                    f"as Timeloop bills it")
+            elif pe:
+                caveats.append(f"{cfg.arch_label(a).replace(chr(10), ' ')} {key}: PEs used "
+                               f"identical to the reference plan on all {pe['shapes_total']} "
+                               f"layer shapes")
     ses.finish(figs, csv, groups, extra={
+        "title": _title(cfg, panels),
+        "title_caveats": caveats,
         "recon_decode_site": cfg.recon_decode_site,
         "dram_pj_per_bit": cfg.dram_pj_per_bit,
         "dram_cost_provenance": cfg.dram_cost_note,
@@ -1568,7 +2208,14 @@ def run(cfg):
     })
 
     print("=" * 78)
-    if cfg.recon_optimizer:
+    if cfg.recon_optimizer and getattr(cfg, "recon_ert_aware", False):
+        print(f"prompt_6 reconstruction-AWARE MAPPING, encoder in the objective: {model}, "
+              f"one panel per architecture.")
+        print(f"  reference plan      : the published 8-bit chip, no toll")
+        print(f"  ERT arms            : one mapping each, datawidth q on the storage levels "
+              f"the boundary narrows, its toll in the ERT; the other boundaries are "
+              f"post-processed on the reference plan")
+    elif cfg.recon_optimizer:
         print(f"Task 4 reconstruction-AWARE MAPPING: {model}, one panel per "
               f"architecture.")
         print(f"  reference arm       : weight capacity x{cfg.weight_capacity_scale:g} "
@@ -1590,10 +2237,31 @@ def run(cfg):
                   f"{best.get('savings_vs_embedded_only_percent'):+.3f}%")
         else:
             print(f"    no placement was evaluated: {best.get('reason')}")
+    for arch in cfg.archs:
+        views = outs[arch].get("views") or {}
+        if not views:
+            continue
+        rest = [r["key"] for r in outs[arch]["rows"] if r["key"] not in views]
+        print(f"  prompt_6, {cfg.arch_label(arch).replace(chr(10), ' ')}: TWO MAPPING REGIMES "
+              f"on this panel -- {', '.join(sorted(views))} from their OWN mapping "
+              f"(marked 'own mapping (ERT)'); {', '.join(rest)} on the reference plan.")
+        for key, v in views.items():
+            verdict = ("IDENTICAL to the reference -- the ERT changed nothing for this arm"
+                       if v.nest_identical else "DIFFERENT from the reference")
+            n_same = sum(v.per_shape_nest_identical.values())
+            print(f"    {key}: {tlmod.describe_bump(v.bump)}")
+            print(f"      loop nest {verdict} ({n_same}/{len(v.per_shape_nest_identical)} "
+                  f"shapes identical); cycles {v.cycles:,.0f}; fp {v.fingerprint}")
+            print(f"      moved out of {v.split['moved_out_of_category']}: access "
+                  f"{v.split['access_toll_pJ'] / 1e6:.4f} uJ ({v.split['counter']} x E_w), "
+                  f"leak {v.split['leak_toll_pJ'] / 1e6:.3f} uJ ({v.split['engines']:.2f} engines x "
+                  f"{v.cycles:,.0f} cycles); both reconcile to 1e-6")
     if len(cfg.archs) > 1:
         print("Each design is measured against ITS OWN reference bars, so a")
         print("percentage on one panel says nothing about the other.")
-    if cfg.recon_optimizer:
+    if cfg.recon_optimizer and getattr(cfg, "recon_ert_aware", False):
+        pass                    # the per-arm block above said it all
+    elif cfg.recon_optimizer:
         print("The reconstruction bars come from a DIFFERENT mapping than the")
         print("reference bars: same design, N/K more weight room, solved on its")
         print("own. So the two arms no longer refetch identically, and a DRAM")

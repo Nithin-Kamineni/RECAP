@@ -462,7 +462,15 @@ def test_raw_record_is_stale_when_the_evaluator_terms_change():
         res = Results(dataclasses.replace(cfg, results_dir=d))
         res.prepare()
         raw = E.Raw(ser, ser, ser, 1.0, 1.0, 1, 0, 1, [], [],
-                    noc_post=noc_post.stamp("eyeriss_like", cfg))
+                    noc_post=noc_post.stamp("eyeriss_like", cfg), cycles=1)
+        E.save_raw(res, "eyeriss_like", "m", raw, "v", "fp")
+        assert E.load_raw(res, cfg, "eyeriss_like", "m", "v", "fp") is not None
+        # prompt_6 RULE 3: a record with no cycle count cannot be charged the
+        # encoder's idle term and is re-gathered
+        raw.cycles = None
+        E.save_raw(res, "eyeriss_like", "m", raw, "v", "fp")
+        assert E.load_raw(res, cfg, "eyeriss_like", "m", "v", "fp") is None
+        raw.cycles = 1
         E.save_raw(res, "eyeriss_like", "m", raw, "v", "fp")
         assert E.load_raw(res, cfg, "eyeriss_like", "m", "v", "fp") is not None
         other = _cfg(ECC_ARCH_FIDELITY="paper", ECC_NOC="1", ECC_NOC_SCALE="2")
