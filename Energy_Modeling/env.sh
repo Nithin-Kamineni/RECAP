@@ -59,7 +59,21 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # (`layer4.1.conv2`), never by index.
 #   the recorded resnet18 pair -- a fast 1x1 projection and a weight-heavy 3x3:
 #   : "${ECC_LAYERS:=layer3.0.downsample.0 layer4.1.conv2}"
-: "${ECC_LAYERS:=}"
+#   whole model (hours, and the whole matrix is cold after 2026-09-10):
+#   : "${ECC_LAYERS:=}"
+#
+# PROMPT_2'S LAYER, and the reason it is the default rather than empty: the
+# live plan is a ONE-LAYER depth sweep on Eyeriss v1, and everything a scoped
+# run writes is namespaced by the selection, so it can never be read back as a
+# full-model number. Verified from cache at declared capacity: 168/168 PEs,
+# `weights_spad` 192/448 = 42.9% fill, refetch 14.0 -- full PE occupancy, so
+# no PE!= confound at baseline, and the highest weight-buffer fill of any
+# high-refetch layer. C128_M256_R3_S3_P14_Q14_ws2_hs2, 294,912 weights.
+# NOT layer2.0.conv1 (the layer both earlier passes used and FINDINGS 7.8 says
+# is not the best test bed), NOT C64_M64_R3_S3_P56_Q56_ws1_hs1 (96/168 PEs and
+# 14.3% fill -- carries the confound at baseline), NOT layer4.* (refetch 1.0
+# already, so there is nothing to remove).
+: "${ECC_LAYERS:=layer3.0.conv1}"
 
 # Run every stage inside the Timeloop+Accelergy container (1) or with the host
 # python3 (0). The mapper ALWAYS needs the container; evaluation and plotting do
@@ -251,9 +265,14 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #   simple_output_stationary
 #   simple_input_stationary
 #   simba_like                a REFERENCE DESIGN named after Simba, not the chip
-# eyeriss_like and eyeriss_like_wglb are a BRACKETING PAIR -- upper and lower
-# bounds on Eyeriss v1's DRAM weight traffic. Quote them together or neither.
-: "${ECC_ARCHS:=eyeriss_v2_like eyeriss_like simple_weight_stationary simple_output_stationary simple_input_stationary simba_like}"
+# EYERISS v1 IS eyeriss_like_wglb (decided 2026-09-10, prompt_2.md). JSSC 2017
+# Sec. V-A publishes the 8 kB filter-weight allocation of the 108 kB GLB, so
+# the file that models it IS the design. `eyeriss_like`, which declares
+# `!Nothing` in its place, is RETIRED -- and with it the v1 bracketing-pair
+# doctrine (config.BRACKET_PAIRS is empty; a self-referential pair would stamp
+# every manifest with a caveat that is no longer true). The old file is still
+# mappable by name for a diff; it is simply not the design any more.
+: "${ECC_ARCHS:=eyeriss_v2_like eyeriss_like_wglb simple_weight_stationary simple_output_stationary simple_input_stationary simba_like}"
 
 # ---- models ----------------------------------------------------------------
 #   CNNs          resnet18 resnet50 densenet121 squeezenet1_1
@@ -271,7 +290,15 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # A list only matters when ECC_SWEEP=bch; otherwise the FIRST value is the code
 # the whole run uses.
 #   : "${ECC_KS:=57 51 45 39 36 30}"   # the full BCH sweep
-: "${ECC_KS:=51}"
+# 30 IS PROMPT_2'S CODE. BCH(63,30) is the only code that needs NO width change
+# at all -- q = round(8*30/63) = 4 divides both of Eyeriss v1's weight-level
+# widths (16 and 64), so the arms run on the UNTOUCHED published geometry at
+# exactly 2.000x effective capacity, zero rounding residual. It is also the
+# only code that clears the integer-tile step FINDINGS 7.8 measured (1.6154x
+# at 88.9% fill bought exactly nothing, because the tile could only grow in a
+# 2x jump): ratios 1.17, 1.33 and 1.58 all sit below that step, so if 2.00x
+# shows nothing the weaker codes cannot. Prove the mechanism here first.
+: "${ECC_KS:=30}"
 
 # ---- the ECC arms ----------------------------------------------------------
 #   baseline  parity beside the data in DRAM -> weight traffic x N/K
@@ -329,16 +356,31 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${ECC_RECON_MODELING:=1}"
 
 # Re-optimise the MAPPING for each reconstruction placement?
+# THIS IS THE SWITCH THAT DOES THE WORK. ECC_PHASE (section 3) only LABELS the
+# result; this decides whether a second mapping is solved at all.
 #   False  the energy cost of every placement is evaluated on the BASELINE's
 #          mapping. No special mapping optimisation per placement, so every bar
-#          moves the same data and only the boundary differs. This is Task 3,
-#          and it is the only thing implemented.
+#          moves the same data and only the boundary differs. This is Task 3.
 #   True   a mapping optimised per placement -- packed reduced weights raise the
-#          effective weight capacity and may enable better tiling. THIS IS TASK
-#          4 AND IS A PLACEHOLDER: setting it stops the run with an error rather
-#          than quietly producing fixed-mapping numbers under a heading that
-#          claims the mapping was optimised.
-: "${RECON_OPTIMIZER:=False}"
+#          effective weight capacity and may enable better tiling. This is
+#          TASK 4.
+#
+# CORRECTED 2026-09-11: this comment used to say True "IS A PLACEHOLDER:
+# setting it stops the run with an error". That has been FALSE since
+# 2026-09-09 -- Task 4 is implemented. What the code refuses now is only the
+# one combination that cannot mean anything, a re-optimised mapping filed as a
+# `Pre` result. The guarantee the placeholder gave is kept by
+# `experiments/recon.dilated_view()` (stops when the reconstruction arm's OWN
+# mapper cache is absent, or when the dilated capacity does not come back N/K
+# times the reference's) and by `task4_checks()`, which records both mapping
+# fingerprints on every result.
+#
+# MUST AGREE WITH ECC_PHASE, and config.py refuses both contradictions:
+#     ECC_PHASE=Post  RECON_OPTIMIZER=True    Task 4   <- a second mapping IS solved
+#     ECC_PHASE=Pre   RECON_OPTIMIZER=False   Task 3   <- one fixed mapping
+# `RECON_OPTIMIZER=True` with `ECC_PHASE=Pre` loads NOTHING -- every command
+# that reads the config dies on it, including --dry-run.
+: "${RECON_OPTIMIZER:=True}"
 
 # The single point the placement study is run at. These REPLACE section 3's
 # lists when ECC_RECON_MODELING=1, so change the point here, not there.
@@ -349,17 +391,22 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Only designs with a weight path in eccenergy/recon.py WEIGHT_PATHS are
 # accepted; ECC_RECON_ARCH is the older one-architecture spelling and seeds the
 # list when ECC_RECON_ARCHS is not set.
-: "${ECC_RECON_ARCH:=eyeriss_v2_like}"    # the FIRST architecture / the old knob
-: "${ECC_RECON_ARCHS:=simple_weight_stationary eyeriss_like}"
-#  ^ WHAT IS ON DISK. results/figures/ReconSweep.png is these two designs, top
-#    panel first, and a plain re-run reproduces it. The Eyeriss v2 study that
-#    ReconSweep.png used to hold is kept beside it as
-#    ReconSweep__eyeriss_v2_2026-09-09.* and is redrawn with
-#        ECC_RECON_ARCHS=eyeriss_v2_like bash hpc/run_all.sh --eval-only
+# : "${ECC_RECON_ARCH:=eyeriss_v2_like}"    # the FIRST architecture / the old knob
+: "${ECC_RECON_ARCHS:=eyeriss_like_wglb}"
+#  ^ PROMPT_2 IS A ONE-DESIGN STUDY: "For Eyeriss V1, one layer at a time".
+#    eyeriss_like_wglb IS Eyeriss v1 since 2026-09-10, and it is newly
+#    registered in recon.py's WEIGHT_PATHS/PLACEMENTS with FIVE boundaries --
+#    one more than eyeriss_like, because the filter GLB is a reducible storage
+#    stage above the array network and admits a boundary at its output.
+#    The two-panel figure the previous plan drew is reproduced with
+#        ECC_RECON_ARCHS="simple_weight_stationary eyeriss_like" \
+#            bash hpc/run_all.sh --eval-only
+#    though `eyeriss_like`'s caches are cold after the 2026-09-10 swap.
 #    Unset, this falls back to ECC_RECON_ARCH, the old one-architecture knob.
 : "${ECC_RECON_MODEL:=resnet18}"          # ONE model
 : "${ECC_RECON_CODE_N:=63}"               # ONE code geometry
-: "${ECC_RECON_K:=39}"                      # 54 51 45 39 36 30   # ONE code rate, from section 3's list
+: "${ECC_RECON_K:=30}"                      # 54 51 45 39 36 30   # ONE code rate, from section 3's list
+                                          # 30 is prompt_2's code -- see section 3.
 
 # The placements explored, per architecture: one bar per entry, left to right.
 # `baseline` and `embedded` are ALWAYS drawn as reference bars -- a placement is
@@ -387,10 +434,10 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #
 # A bash associative array CANNOT be exported, so section 10 flattens the entry
 # for ECC_RECON_ARCH into ECC_RECON_PLACEMENT_LIST, which is what the code reads.
-# For eyeriss_like, from Sec. 7.1/7.2 -- the same five-boundary shape as v2,
-# because the design has the same two network stages and one PE scratchpad, and
-# no weight GLB (JSSC 2017's 8 kB filter allocation is a prefetch buffer the RS
-# dataflow does not need; eyeriss_like_wglb is the bracketing variant):
+# For eyeriss_like -- RETIRED 2026-09-10, kept only so the pre-swap figure can
+# be reproduced. It declares `!Nothing` where the published 8 kB filter GLB
+# sits, so it has FOUR boundaries and no global-buffer boundary at all. Eyeriss
+# v1 is eyeriss_like_wglb; do not read these four keys as v1's:
 #   recon1  R1   reconstruct at the source, before the array network      [3/5]
 #   recon2  R2   reconstruct after the array multicast, at the column edge[4/5]
 #   recon3  R3   reconstruct at the PE filter-spad input                  [4/5]
@@ -407,10 +454,22 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # recon5 here is expected to be reported INFEASIBLE, not to produce a number:
 # the register holds one weight and a rebuild needs G_rec = 9 co-resident. It
 # is listed so the study answers Sec. 6.2's MAC row instead of omitting it.
+# For eyeriss_like_wglb -- EYERISS v1 since 2026-09-10 -- FIVE, because the
+# published 8 kB filter GLB is a reducible storage stage ABOVE the array
+# network and admits a boundary at its output that eyeriss_like has nowhere to
+# put. The numbering follows simple_weight_stationary's, the other design with
+# a weight buffer above its network: recon2 is the global weight buffer on
+# both.
+#   recon1  R1   reconstruct at chip ingress, before the filter GLB    [control]
+#   recon2  R2   reconstruct at the filter-GLB output                     [3/5]
+#   recon3  R3   reconstruct after the array multicast, at the column edge[4/5]
+#   recon4  R4   reconstruct at the PE filter-spad input                  [4/5]
+#   recon5  R5a  reconstruct on every filter-spad read                    [3/5]
 declare -A ECC_RECON_PLACEMENTS=(
     [eyeriss_v2_like]="recon1 recon2 recon3 recon4"
     [eyeriss_v2_like_wglb]="recon1 recon2 recon3 recon4"
     [eyeriss_like]="recon1 recon2 recon3 recon4"
+    [eyeriss_like_wglb]="recon1 recon2 recon3 recon4 recon5"
     [simple_weight_stationary]="recon1 recon2 recon3 recon4 recon5"
     # Still to come, each with its own weight path in recon.py:
     #   [simba_like]="..."  [simple_output_stationary]="..."
@@ -437,7 +496,23 @@ declare -A ECC_RECON_PLACEMENTS=(
 #            scratchpad word holds floor(24/7)=3 seven-bit values -- the same 3
 #            it held at 8 bits -- so the access count, and the SRAM energy, do
 #            not move. The pessimistic bound the optimistic one hides.
-: "${ECC_RECON_PACKING:=stream}"
+#
+# `aligned` IS NOW THE DEFAULT, AND IT IS A DOUBLE-COUNTING FIX, not a change
+# of physical assumption. Since 2026-09-10 the MAPPER delivers the on-chip
+# narrowing directly, via ECC_WEIGHT_DATAWIDTH (section 5): Timeloop bills
+# `vector_access_energy / block_size` with `block_size = width/datawidth`, so
+# a narrower declared datawidth already halves the per-weight SRAM energy
+# INSIDE the Timeloop number. `stream` would then scale that same saving by
+# K/N a SECOND time in the evaluator and the on-chip saving would be SQUARED.
+# `aligned`'s docstring describes exactly the right division of labour --
+# "each reduced weight occupies a whole number of bits ... the access count,
+# and the SRAM energy, do not move at all" -- so it leaves the on-chip
+# narrowing entirely to the mapper, which is now where it belongs.
+# `recon.assert_onchip_narrowing_once()` STOPS the run if both are active, and
+# also if the declared datawidth disagrees with ceil(weight_bits*K/N).
+# Set `stream` with ECC_WEIGHT_DATAWIDTH empty to reproduce the pre-2026-09-10
+# evaluator-side model.
+: "${ECC_RECON_PACKING:=aligned}"
 
 # ---- how encoder work is charged -------------------------------------------
 # Section 15: the encoder may work at CODEWORD granularity, because rebuilding
@@ -540,6 +615,26 @@ declare -A ECC_RECON_PLACEMENTS=(
 #       FReaC Cache (MICRO 2020) and Gebhart et al. (MICRO 2012); 2.56 nJ / 64b.
 #       archs/_shared/provenance.yaml `dram_access_energy` records the sources.
 : "${ECC_DRAM_PJ_PER_BIT:=40}"
+
+# THE BASELINE'S OWN pJ PER BIT. The conventional-ECC baseline stores the BCH
+# parity BESIDE the weights, so its DRAM array is bigger (6,193,152 stored bits
+# against 2,359,296 of payload at BCH(63,30) on layer3.0.conv1), and it does the
+# indexing/addressing work the embedded and reconstruction arms do not. Both are
+# priced by this one constant, applied to the WHOLE DRAM category of the
+# baseline arm only (eccenergy/baseline_dram.py, evaluator-side like
+# ECC_MAC_PJ_OVERRIDE -- it is NOT in the mapper fingerprint, so baseline and
+# embedded still share one mapper cache).
+#
+# IT IS A PRICE, NOT TRAFFIC. Decoding happens on the DRAM die, so the
+# baseline's parity is read, corrected and discarded there and never crosses
+# the datapath: all three arms drive the same 8 bits per weight off the die, and
+# reconstruction is the only arm whose traffic scales (x K/N). E_background and
+# E_refresh grow with the bigger array too and are still 0 below.
+#   70    THE DEFAULT since 2026-09-10: bigger array + baseline-only indexing.
+#   EMPTY the pre-2026-09-10 model -- baseline priced at ECC_DRAM_PJ_PER_BIT and
+#         charged the external-parity TRAFFIC as a separate component. Keeps the
+#         old numbers reproducible for the diff.
+: "${ECC_BASELINE_DRAM_PJ_PER_BIT:=70}"
 
 # The other two terms of E_total(DRAM) = E_dynamic + E_background + E_refresh.
 # BOTH ARE DELIBERATELY 0 FOR NOW (2026-09-09): the study's question is on-chip
@@ -662,6 +757,198 @@ declare -A ECC_RECON_PLACEMENTS=(
 # strictly more to explore: a relaxed run that comes back worse is evidence
 # about the SEARCH, not about the dataflow.
 : "${ECC_WEIGHT_FACTOR_RELAX:=0}"
+
+# TASK 4 LEVER 3 -- MAKE THE SEARCH EXHAUSTIVE INSTEAD OF MAKING IT LONGER.
+# Measured 2026-09-10 (FINDINGS 7.9): on Eyeriss v1 layer3.0.conv1 the
+# convergence gate FAILS by 6-21x -- the embedded arm's total energy moves
+# 43.7% between victory 4000 and 10000 where the ECC effect is 5.8%, and
+# refetch is non-monotone in the budget (1.000 -> 4.000 -> 2.000). The mapper
+# reports its own space as 7.41e10 index factorizations x 8.96e9 permutations;
+# victory 50000 covers 0.07% of ONE thread's factorization subspace.
+#
+# A BIGGER BUDGET CANNOT FIX THAT. It samples more of the same enormous space,
+# both arms still land on arbitrary points, and the DIFFERENCE between two
+# arbitrary points is noise -- measured, the ORDERING between the arms flips.
+# Constraining the loop nest collapses the space to ~9.5e4 factorizations,
+# which is searched EXHAUSTIVELY: each arm then gets its TRUE optimum rather
+# than a sample, the difference becomes architectural by construction, and the
+# gate passes because nothing is left unsearched. It is also ~8x CHEAPER than
+# the victory-5000 run whose answer is 9-11% wrong.
+#
+# WHICH LEVELS EACH DIMENSION MAY SPLIT ACROSS is archs.MAPSPACE_FREE_LEVELS,
+# read off the BEST MAPPING THE SEARCH HAS EVER FOUND for this design (the
+# victory-10000 embedded nest, 169.13 uJ against victory-4000's 300.34 on
+# identical silicon). Constraining around a known-good region is a CHOICE and
+# it is stated: the exhaustive answer is the best mapping IN THIS FAMILY, not
+# in the whole space. What keeps it a fair ECC comparison is that BOTH ARMS
+# get the identical constraint.
+#
+# RUN IT WITH ECC_WEIGHT_FACTOR_RELAX=1. The constraint makes the space
+# searchable; the relax is what lets the weight TILE grow into the room a
+# narrower word leaves. `weights_spad` keeps C and M free in the free-set
+# precisely so the two compose instead of cancelling. Without the relax the
+# tile stays pinned and capacity still cannot bind.
+#
+# THIS IS A DIFFERENT DATAFLOW. Own cache slug (`mcons`); a design run under
+# it is NOT the chip JSSC 2017 describes and `source: published` does not
+# licence its name -- the same rule ECC_WEIGHT_FACTOR_RELAX carries.
+# A design with no MAPSPACE_FREE_LEVELS entry is NOT constrained and says so.
+: "${ECC_MAPSPACE_CONSTRAIN:=0}"
+
+# ---- PROMPT_2: THE ON-CHIP QUANTISATION, AND THE DEPTH SWEEP ---------------
+# These two replace ECC_WEIGHT_CAPACITY_SCALE as the Task 4 mechanism. The
+# capacity knob above is kept -- it is still the right axis and its guards
+# still apply -- but it expressed a narrower word as a DEEPER array, and
+# Accelergy then priced the reconstruction arm's silicon 1.18-1.46x dearer per
+# access, so the optimiser had a reason to leave the room unused. That is the
+# defect that made the previous sweep prove nothing (FINDINGS 7.8).
+#
+# ECC_WEIGHT_DATAWIDTH rewrites `datawidth:` on the WEIGHT-carrying storage
+# levels at FIXED `width:` and `depth:`. VERIFIED 2026-09-10 from
+# timeloop-mapper.accelergy.log (`Calculated storage."width" as "width" = 16`):
+# CACTI receives `depth` and `width` ONLY -- datawidth never reaches the energy
+# model -- and Timeloop bills `vector_access_energy / block_size` per weight,
+# `block_size = width/datawidth`. So halving it at fixed geometry EXACTLY
+# halves per-weight energy and EXACTLY doubles effective capacity, with
+# byte-identical per-access read/write/leak. That is the fairness condition
+# depth-dilation could never meet.
+#
+#   EMPTY    the 8-bit arm: baseline AND embedded, which share one hardware
+#            YAML and one mapping -- only the evaluator separates them. This
+#            is the reference every margin is measured against.
+#   4        the reconstruction arm at BCH(63,30): round(8*30/63) = 4 bits per
+#            stored weight, 2.000x the weights per word on the SAME silicon.
+#
+# HARD CONSTRAINT: `width % datawidth == 0` on every level it rewrites, or
+# timeloop-mapper ABORTS -- `buffer.cpp:302`, measured at width 16 /
+# datawidth 5 as `exit=134, core dumped`. block_size defaults to 1 and is then
+# checked, so there is NO floor path and a partially-filled word cannot be
+# modelled. archs._set_weight_datawidth raises before the YAML is written, so
+# a bad combination fails once instead of aborting every layer of a wave.
+# Per-code widths are tabulated in prompt_2.md; BCH(63,30) needs none, which
+# is why it is the code this study starts from.
+# DRAM IS NEVER REWRITTEN. recon.py owns the DRAM K/N scaling; narrowing DRAM
+# here as well would double-count it there.
+: "${ECC_WEIGHT_DATAWIDTH:=}"
+
+# PROMPT_2'S WIDTH TABLE -- the declared physical word width, when the code's
+# q does not divide the published one. EMPTY keeps each design's published
+# widths, and BCH(63,30) NEEDS NOTHING ELSE: q = 4 divides Eyeriss v1's 16-bit
+# scratchpad word and its 64-bit GLB word already, so the arms run on the
+# UNTOUCHED published geometry at exactly 2.000x. That is why 30 is the code
+# this study starts from.
+#
+# THE TABLE IS QUOTED FOR THE SCRATCHPAD. A weight level ABOVE the PE array
+# declares ECC_WEIGHT_WIDTH_GLB_MULT times that width -- 4x, which is the
+# ratio Eyeriss v1's published geometry already has (filter spad 224 x 16 b,
+# filter GLB two 512-b x 64-b banks) and which preserves divisibility, since
+# q dividing W implies q dividing 4W. So one scratchpad width settles every
+# weight level at once.
+#
+# EACH LEVEL'S DEPTH IS RENORMALISED to hold its declared TOTAL BITS
+# (depth' = round(depth * width / width')), so this reshapes the word without
+# resizing the array -- and CACTI is handed depth and width, so that is
+# exactly the quantity that must not move. It reproduces prompt_2's own
+# numbers: weights_spad 224 x 16 b = 3,584 b -> depth 37 at width 96.
+#
+# A WIDTH MUST DIVIDE BOTH q AND ECC_WEIGHT_BITS, and prompt_2's table has two
+# rows that do not. Both arms share ONE declared width and the
+# baseline/embedded arm stores 8-bit weights, so a width chosen only to divide
+# q aborts the OTHER arm at buffer.cpp:302:
+#   BCH(63,57) q=7 W=98 -> 98 % 8 = 2   embedded arm ABORTS
+#   BCH(63,45) q=6 W=96 -> 96 % 8 = 0   both arms OK
+#   BCH(63,39) q=5 W=95 -> 95 % 8 = 7   embedded arm ABORTS
+#   BCH(63,30) q=4 W=96 -> 96 % 8 = 0   both arms OK  (and no change needed)
+# config.py refuses the illegal ones at validate time. Only the width-96 rows
+# are runnable as a pair, which is the same set prompt_2 identifies as
+# "literally the same silicon as Embedded's".
+#
+# `auto` IS THE ANSWER TO THAT, AND IT MAKES EVERY BCH CONFIGURATION RUNNABLE
+# (2026-09-11). eccenergy/code_widths.py holds THE WIDTH TABLE as a dict keyed
+# by (N, K), replaces the published width when that code comes up, and returns
+# nothing at all when the published width already admits q. It fixes both of
+# prompt_2's illegal rows by taking the smallest width BOTH arms can declare,
+# lcm(q, ECC_WEIGHT_BITS) -- not prompt_2's ~96-bit family, whose nearest legal
+# members (112 and 80) are +-17% apart anyway and leave a 2-3 entry scratchpad
+# on the current depth-16 spad, where `_set_weight_width` renormalises depth to
+# hold the published total bits and integer depth makes that lossy:
+#   BCH(63,57) q=7 -> spad  56b, GLB 224b    depth 5, 280 b  (+9.4%)
+#   BCH(63,51) q=6 -> spad  24b, GLB  96b    depth 11, 264 b (+3.1%)
+#   BCH(63,45) q=6 -> spad  24b, GLB  96b    depth 11, 264 b (+3.1%)
+#   BCH(63,39) q=5 -> spad  40b, GLB 160b    depth 6, 240 b  (-6.2%)
+#   BCH(63,36) q=5 -> spad  40b, GLB 160b    depth 6, 240 b  (-6.2%)
+#   BCH(63,30) q=4 -> published geometry, untouched, exactly 2.000x
+# Read the table with `python3 -m eccenergy.code_widths`.
+#
+#   EMPTY   keep each design's published widths. THE DEFAULT, and what every
+#           run before 2026-09-11 was made under -- so leaving it empty keeps
+#           every existing mapper cache valid (BCH(63,30) fingerprints
+#           identically under EMPTY and under `auto`, verified).
+#   auto    look the width up from (ECC_CODE_N, ECC_CONST_K). Set it for a
+#           mapping study at any code other than BCH(63,30); a Task 1/2/3 BCH
+#           sweep does NOT want it, because those arms never declare a reduced
+#           datawidth and a width change there would cold every cache for
+#           nothing.
+#   <bits>  a hand-typed width, which still wins and is still validated.
+#   : "${ECC_WEIGHT_WIDTH:=96}"    # BCH(63,45) or BCH(63,30)
+: "${ECC_WEIGHT_WIDTH:=}"
+: "${ECC_WEIGHT_WIDTH_GLB_MULT:=4}"
+
+# THE ONLY SWEPT VARIABLE: `depth:` of the on-chip weight levels. Explicitly
+# NOT swept: width, datawidth, DRAM (ECC_DRAM_DEPTH), any level not holding
+# Weights, bandwidths, n_banks, technology, PE counts, dataflow constraints.
+#
+# Its own cache slug (`wdepth<scale>`) and NOT `wcap`, because the two mean
+# different things even though they rewrite the same field:
+# ECC_WEIGHT_CAPACITY_SCALE triggers recon.capacity_dilation_correction(),
+# which re-prices the level at the UNDILATED geometry. That correction is
+# WRONG here -- a shallower array really IS a smaller array, and its cheaper
+# access is a real saving, not an artifact to undo. Sharing a directory would
+# let a corrected run be read as an uncorrected one.
+: "${ECC_WEIGHT_DEPTH_SCALE:=1.0}"
+
+# Restrict the depth scale to named levels. EMPTY = every weight-carrying
+# level, which is the default AND a limitation: one scale then moves
+# `weights_spad` and `filter_glb` TOGETHER, so it locates the zone but cannot
+# say which level bought it -- and the YAML needs a depth per level. The
+# SECOND PASS holds one at x1 and sweeps the other, which is what naming
+# levels is for. FINDINGS 7.8 predicts `filter_glb` is the one that matters
+# (refetch on v1 is set by the DRAM-level loop order over P/Q, a weight tile
+# cannot index either, so a buffer INSIDE the array can never absorb them --
+# measured flat to x32 at 1% fill); CONFIRM it, do not assume it.
+# A name no weight level has is an ERROR, not a silent no-op.
+#   : "${ECC_WEIGHT_DEPTH_LEVELS:=filter_glb}"
+: "${ECC_WEIGHT_DEPTH_LEVELS:=}"
+
+# The depth ladder hpc/map_depth_sweep.sh submits. sqrt(2) steps, NOT factor 2:
+# the window where Embedded cannot hold the tile and Recon can is exactly as
+# wide, in depth, as the effective-capacity ratio, so a factor-2 grid steps
+# clean over a 1.17x or 1.33x window and reports a grid artifact as "no
+# effect". sqrt(2) resolves BCH(63,30) (2.00x) and BCH(63,39) (1.58x); the
+# x0.5 / x0.25 / x0.125 points a YAML will quote are QUOTED OUT OF IT.
+# BCH(63,45) (1.33x) and BCH(63,57) (1.17x) would need ~x1.12 steps, about 20
+# depths -- do them only after the strong codes show something.
+: "${ECC_DEPTH_SWEEP_SCALES:=1.0 0.7071 0.5 0.3536 0.25 0.1768 0.125}"
+
+# The reconstruction arm's on-chip datawidth for the sweep. EMPTY derives it as
+# ceil(ECC_WEIGHT_BITS * K/N), which is 4 at BCH(63,30).
+: "${ECC_DEPTH_SWEEP_RECON_DW:=}"
+
+# CONVERGENCE IS A GATE, and it runs BEFORE any number is quoted. Map the
+# EMBEDDED arm at each of these victory budgets; converged means the last two
+# agree within a margin you STATE, and that margin must be SMALLER than the
+# Recon-vs-Embedded effect being claimed. Re-checked at the SMALLEST depth as
+# well as the largest, because a budget that converges on a big buffer may not
+# on a small one. ECC_VICTORY (section 2) is the budget the sweep itself runs
+# at and must be one of these.
+# Measured cost, 2026-09-10 (jobs 41582127-30, one layer, 18 threads):
+# victory 10000 ran 1h13m-1h34m wall; victory 50000 ran 6h02m-8h09m. A 4-point
+# gate at 50000 is a full day per arm.
+: "${ECC_DEPTH_SWEEP_GATE_VICTORIES:=2000 4000 10000}"
+
+# Which depths the gate is re-checked at: the largest and the smallest of the
+# ladder. A budget that converges on a big buffer may not on a small one.
+: "${ECC_DEPTH_SWEEP_GATE_SCALES:=1.0 0.125}"
 
 # ---- the MAC cost, i.e. the DENOMINATOR of every ECC percentage -------------
 # An ECC saving is saved_uJ / total_uJ. The saved uJ are weight traffic and do
@@ -788,8 +1075,14 @@ declare -A ECC_RECON_PLACEMENTS=(
 #  `sbatch hpc/map.sbatch`.
 
 : "${ECC_ACCOUNT:=rewetz}"
-: "${ECC_QOS:=rewetz}"            # rewetz-b is the burst QOS: idle cores, low
-                                  # priority, a 4-day limit
+: "${ECC_QOS:=rewetz-b}"          # rewetz-b is the burst QOS: idle cores, low
+                                  # priority, a 4-day limit. prompt_2 asks for
+                                  # it -- ~90 concurrent jobs against the
+                                  # investment QOS's handful, and the depth
+                                  # sweep is 18 independent maps that would
+                                  # otherwise queue in waves of 9. Set
+                                  # ECC_QOS=rewetz for a run that must not be
+                                  # preempted.
 : "${ECC_PARTITION:=hpg-default}"
 
 # ---- the mapping array: one task per (architecture, model) pair ------------
@@ -1000,11 +1293,16 @@ export ECC_PROJECT_ROOT ECC_SIF ECC_TASKFILE ECC_USE_CONTAINER ECC_PYTHON \
        ECC_RECON_ENCODER_GRANULARITY \
        ECC_RECON_ONCHIP_FRACTION ECC_RECON_PLACEMENT_CHARGES_DECODE \
        ECC_RECON_DECODE_SITE ECC_RECON_ENCODER_SITE \
-       ECC_DRAM_PJ_PER_BIT ECC_DRAM_BACKGROUND_PJ ECC_DRAM_REFRESH_PJ \
+       ECC_DRAM_PJ_PER_BIT ECC_BASELINE_DRAM_PJ_PER_BIT \
+       ECC_DRAM_BACKGROUND_PJ ECC_DRAM_REFRESH_PJ \
        ECC_WEIGHT_BITS ECC_ACTIVATION_BITS ECC_ACC_BITS ECC_ARCH_FIDELITY \
        ECC_FORCE_DATAWIDTH ECC_FORCE_TECHNOLOGY ECC_DRAM_DEPTH ECC_MAC_PJ_OVERRIDE \
        ECC_WEIGHT_CAPACITY_SCALE ECC_WEIGHT_CAPACITY_SCOPE \
-       ECC_WEIGHT_FACTOR_RELAX \
+       ECC_WEIGHT_FACTOR_RELAX ECC_MAPSPACE_CONSTRAIN \
+       ECC_WEIGHT_DATAWIDTH ECC_WEIGHT_DEPTH_SCALE ECC_WEIGHT_DEPTH_LEVELS \
+       ECC_WEIGHT_WIDTH ECC_WEIGHT_WIDTH_GLB_MULT \
+       ECC_DEPTH_SWEEP_SCALES ECC_DEPTH_SWEEP_RECON_DW \
+       ECC_DEPTH_SWEEP_GATE_VICTORIES ECC_DEPTH_SWEEP_GATE_SCALES \
        ECC_GLOBAL_CYCLE_SECONDS ECC_NOC ECC_NOC_WIRE_PJ_PER_BIT_MM \
        ECC_NOC_ROUTER_PJ ECC_NOC_PE_LATCH_PJ ECC_NOC_SCALE \
        ECC_PARITY_GROUPING ECC_PARITY_CHARGE_PADDING ECC_EMB_WEIGHTS_PER_CW \

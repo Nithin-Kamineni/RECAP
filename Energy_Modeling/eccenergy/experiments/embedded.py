@@ -57,6 +57,7 @@ import math
 from ..archs import accumulator_bits, load_provenance
 from ..ecc import embedded_dram, external_parity
 from ..energy import plot_cats
+from .. import baseline_dram
 from ..results_store import ResultBuilder, Variant
 from . import audit
 from .baseline import RECONSTRUCTION_PLACEMENTS
@@ -79,6 +80,22 @@ CODEC_NOTE = (
     "adopted. ECC_DECODE affects the sweep figures only.")
 
 
+def _what_changed(pricing):
+    """What the embedded arm actually removed, in the words of the model."""
+    if pricing is not None and pricing["model"] == "per_bit_price":
+        return (f"DRAM only, and it is a PRICE: both arms read the same weight "
+                f"bits -- the decoder is on the DRAM die, so the baseline's "
+                f"parity is corrected there and never crosses the datapath -- but "
+                f"the baseline's array also stores that parity and indexes it, at "
+                f"{pricing['pj_per_bit_baseline']:g} pJ/bit against "
+                f"{pricing['pj_per_bit_charged']:g}. Mapping, on-chip widths, "
+                f"access counts, NoC and MAC energy are the same numbers as the "
+                f"baseline variant in this file.")
+    return ("DRAM only: the external-parity traffic of the conventional baseline "
+            "is gone. Mapping, on-chip widths, access counts, NoC and MAC energy "
+            "are the same numbers as the baseline variant in this file.")
+
+
 def _recon_placeholders(builder):
     for name, description in RECONSTRUCTION_PLACEMENTS:
         builder.add(Variant(
@@ -91,12 +108,16 @@ def _recon_placeholders(builder):
 
 
 def task2_checks(builder, cfg, raw, base_components, emb_components, e_parity,
-                 edetail, sweep_arm_total=None, newly_mapped=0, raw_cache_hit=None):
+                 edetail, sweep_arm_total=None, newly_mapped=0, raw_cache_hit=None,
+                 pricing=None):
     """The checks that make Task 2's claim -- "only DRAM moved" -- auditable.
 
     Kept free of the Session so the offline test can drive it with a synthetic
     `Raw`. `sweep_arm_total` is the embedded bar of `ecc.build_stacks()` for the
-    same record, or None to skip that comparison.
+    same record, or None to skip that comparison. `pricing` is
+    `baseline_dram.charge()`'s record, which decides WHICH DRAM check is
+    written: None or the legacy model gives the pre-2026-09-10 parity-traffic
+    check, verbatim.
     """
     # 1. every non-DRAM component is identical, to the last digit
     names = sorted(set(base_components) | set(emb_components))
@@ -110,16 +131,15 @@ def task2_checks(builder, cfg, raw, base_components, emb_components, e_parity,
          "rule": ("exact equality -- both arms are arithmetic on ONE raw record, "
                   "so any difference outside DRAM is a bug, not a result")})
 
-    # 2. the DRAM difference is the external parity and nothing else
-    base_dram = sum(base_components.get(c, 0.0) for c in DRAM_KEYS)
-    emb_dram = sum(emb_components.get(c, 0.0) for c in DRAM_KEYS)
-    diff = base_dram - emb_dram
-    builder.check(
-        "dram_difference_is_exactly_the_external_parity",
-        math.isclose(diff, e_parity, rel_tol=1e-12, abs_tol=1e-6),
-        {"baseline_dram_pJ": base_dram, "embedded_dram_pJ": emb_dram,
-         "difference_pJ": diff, "external_parity_pJ": e_parity,
-         "timeloop_dram_pJ_both_arms": emb_components.get("DRAM", 0.0)})
+    # 2. the DRAM difference is the whole of the difference, and it is exactly
+    #    what the model says it is -- a per-bit PRICE under the current model,
+    #    the external-parity traffic under the pre-2026-09-10 one. Two names,
+    #    because one name meaning two things is how a model change hides.
+    ok, detail = baseline_dram.reference_bars_agree(
+        base_components, emb_components, e_parity, pricing,
+        dram_w_reads=raw.dram_w_reads)
+    detail["timeloop_dram_pJ_both_arms"] = emb_components.get("DRAM", 0.0)
+    builder.check(baseline_dram.check_name(pricing), ok, detail)
 
     # 3. the complete codeword is read: every bit of every weight read is billed
     tr = edetail["traffic"]
@@ -162,7 +182,8 @@ def task2_checks(builder, cfg, raw, base_components, emb_components, e_parity,
                      "evaluation-only rerun Task 2 asks for")})
 
 
-def _report(cfg, arch, model, raw, base_total, emb_total, pdetail, edetail):
+def _report(cfg, arch, model, raw, base_total, emb_total, pdetail, edetail,
+            pricing=None):
     acc, _ = accumulator_bits(arch, cfg)
     lay = edetail["layout"]
     ps = pdetail["stored"]
@@ -201,8 +222,18 @@ def _report(cfg, arch, model, raw, base_total, emb_total, pdetail, edetail):
           f"{raw.dram_w_reads:>20,.0f}   (identical; refetch x{et['refetch_factor']:.2f})")
     print(f"    external DRAM words   : {pt['external_dram_words']:>24,.0f}  "
           f"{et['external_dram_words']:>20,.0f}")
-    print(f"    DRAM weight energy    : {(raw.e_dram_w + pdetail['energy_pJ']) / 1e6:>21,.3f} uJ  "
-          f"{edetail['dram_weight_energy_pJ'] / 1e6:>17,.3f} uJ")
+    if pricing is not None and pricing["model"] == "per_bit_price":
+        print(f"    pJ per DRAM bit       : {pricing['pj_per_bit_baseline']:>24,.1f}  "
+              f"{pricing['pj_per_bit_charged']:>20,.1f}   "
+              f"(x{pricing['ratio']:.4f}; bigger array + indexing)")
+        print(f"    DRAM weight energy    : "
+              f"{raw.e_dram_w * pricing['ratio'] / 1e6:>21,.3f} uJ  "
+              f"{edetail['dram_weight_energy_pJ'] / 1e6:>17,.3f} uJ")
+        print(f"    parity traffic energy : {0.0:>21,.3f} uJ  "
+              f"{0.0:>17,.3f} uJ   (neither arm: corrected on the DRAM die)")
+    else:
+        print(f"    DRAM weight energy    : {(raw.e_dram_w + pdetail['energy_pJ']) / 1e6:>21,.3f} uJ  "
+              f"{edetail['dram_weight_energy_pJ'] / 1e6:>17,.3f} uJ")
     print(f"    total                 : {base_total / 1e6:>21,.3f} uJ  "
           f"{emb_total / 1e6:>17,.3f} uJ   -> saving {saving:.2f}%")
     print(f"    non-DRAM components   : identical by construction, checked")
@@ -216,10 +247,10 @@ def evaluate(cfg, ses, prov, arch, model, raw):
     cats = plot_cats(cfg)
     base_series = raw.base.reindex(cats, fill_value=0.0)
 
-    # ---- arm 1: Task 1's conventional baseline. Same function, same numbers.
+    # ---- arm 1: Task 1's conventional baseline. Same functions, same numbers.
     e_parity, pdetail = external_parity(cfg, raw)
     base_components = audit.components(base_series)
-    base_components[PARITY_KEY] = e_parity
+    pricing = baseline_dram.charge(cfg, raw, base_components, e_parity)
     base_total = float(sum(base_components.values()))
 
     # ---- arm 2: embedded. Same raw record; the external term is zero.
@@ -238,6 +269,7 @@ def evaluate(cfg, ses, prov, arch, model, raw):
         mapping_ids=mapping_ids,
         label="Conventional ECC, BCH parity external in DRAM",
         extra={"external_parity_accounting": pdetail,
+               "baseline_dram_pricing": pricing,
                "timeloop_energy_pJ": float(raw.total),
                "dram_weight_reads": raw.dram_w_reads,
                "dram_weight_energy_pJ": raw.e_dram_w,
@@ -251,11 +283,10 @@ def evaluate(cfg, ses, prov, arch, model, raw):
                "timeloop_energy_pJ": float(raw.total),
                "dram_weight_reads": raw.dram_w_reads,
                "dram_weight_energy_pJ": raw.e_dram_w,
-               "dram_energy_removed_vs_conventional_pJ": e_parity,
-               "what_changed": ("DRAM only: the external-parity traffic of the "
-                                "conventional baseline is gone. Mapping, on-chip "
-                                "widths, access counts, NoC and MAC energy are the "
-                                "same numbers as the baseline variant in this file."),
+               "dram_energy_removed_vs_conventional_pJ": (
+                   base_components.get("DRAM", 0.0) - emb_components.get("DRAM", 0.0)
+                   + e_parity - emb_components.get(PARITY_KEY, 0.0)),
+               "what_changed": _what_changed(pricing),
                "ecc_codec_energy": CODEC_NOTE}))
     _recon_placeholders(builder)
 
@@ -272,14 +303,14 @@ def evaluate(cfg, ses, prov, arch, model, raw):
             arm_total = float(stack["embedded"].sum())
     mapper = ses.mappers.get(arch)
     task2_checks(builder, cfg, raw, base_components, emb_components, e_parity,
-                 edetail, sweep_arm_total=arm_total,
+                 edetail, sweep_arm_total=arm_total, pricing=pricing,
                  newly_mapped=(getattr(mapper, "n_mapped", 0) if mapper is not None else 0),
                  raw_cache_hit=(mapper is None))
 
     # ---- Task 1's checks and caveats, so the baseline variant is as audited
     # here as in its own file --------------------------------------------------
     arch_report = audit.common_checks(builder, cfg, arch, raw, pdetail, mapping_ids)
-    audit.common_caveats(builder, cfg, arch, raw, pdetail)
+    audit.common_caveats(builder, cfg, arch, raw, pdetail, pricing)
     builder.approximate(edetail["traffic"]["method"])
     builder.approximate(CODEC_NOTE)
     builder.approximate(
@@ -291,7 +322,7 @@ def evaluate(cfg, ses, prov, arch, model, raw):
                      "is deliberately not charged to either arm in this file.")
     audit.common_detail(builder, cfg, ses, arch, model, raw, arch_report, prov)
 
-    _report(cfg, arch, model, raw, base_total, emb_total, pdetail, edetail)
+    _report(cfg, arch, model, raw, base_total, emb_total, pdetail, edetail, pricing)
     path = builder.write()
     print(f"    -> {path}")
     return path

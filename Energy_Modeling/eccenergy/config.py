@@ -28,6 +28,8 @@ import os
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
+from . import code_widths
+
 # ---------------------------------------------------------------- env helpers
 _TRUE = {"1", "true", "yes", "on", "y"}
 _FALSE = {"0", "false", "no", "off", "n", ""}
@@ -183,23 +185,26 @@ KNOWN_ARCHS = (
 #: Designs whose number is a BOUND, not a measurement, unless the partner named
 #: here is plotted beside them.
 #:
-#: Each pair differs in ONE modelling judgement that the design's paper does not
-#: settle, and the two choices land far apart: modelling Eyeriss v1's published
-#: 8 kB filter GLB as a reuse level takes its resnet18 DRAM weight refetch from
-#: 7.04x to 1.69x and its ECC saving from 13.1% to 4.7%. A single number from
-#: either file is a choice of bound. `Session.setup()` writes the caveat into
-#: the run manifest whenever a design appears without its partner, because a
-#: caveat that lives only in a README does not travel with the numbers.
-BRACKET_PAIRS = {
-    "eyeriss_like": (
-        "eyeriss_like_wglb",
-        "the 8 kB filter GLB that JSSC 2017 publishes is NOT modelled as a "
-        "reuse level, so DRAM weight traffic and the ECC saving are UPPER bounds"),
-    "eyeriss_like_wglb": (
-        "eyeriss_like",
-        "the published 8 kB filter GLB IS modelled as a full reuse level, so "
-        "DRAM weight traffic and the ECC saving are LOWER bounds"),
-}
+#: A pair differs in ONE modelling judgement that the design's paper does not
+#: settle, and `Session.setup()` writes the caveat into the run manifest
+#: whenever a design appears without its partner, because a caveat that lives
+#: only in a README does not travel with the numbers.
+#:
+#: THE EYERISS v1 PAIR IS RETIRED (2026-09-10, prompt_2.md / CLAUDE.md).
+#: `eyeriss_like_wglb` IS Eyeriss v1: JSSC 2017 Sec. V-A publishes the 8 kB
+#: filter-weight allocation of the 108 kB GLB, so the file that models it is
+#: the design and `eyeriss_like` -- which declares `!Nothing` where that
+#: allocation sits -- is retired rather than bracketed. Collapsing the two
+#: files to ONE design makes an entry here self-referential: it would ask the
+#: run to plot a retired file beside the live one and stamp every manifest
+#: with a caveat that is no longer true.
+#:
+#: The mechanism is kept, not deleted: it is how any future undecided
+#: modelling judgement is carried onto the numbers, and CLAUDE.md's bracket
+#: rule still holds for `eyeriss_v2_like_wglb`, whose extra weight level is
+#: NOT in its paper -- that pair has never been registered here and is not
+#: registered now, because prompt_2 does not ask for it.
+BRACKET_PAIRS = {}
 
 #: Which workload file a model comes from. Mixing the two in one sweep is an
 #: error: they live in different JSONs and have different problem generators.
@@ -330,6 +335,15 @@ class Config:
     #: constant (8 pJ/bit for LPDDR4 as modelled) alone. The f_if array/interface
     #: split this replaced is GONE: the whole DRAM weight term scales by K/N.
     dram_pj_per_bit: Optional[float]
+    #: ECC_BASELINE_DRAM_PJ_PER_BIT: pJ per bit of DYNAMIC DRAM access for the
+    #: CONVENTIONAL-ECC BASELINE ARM ONLY (baseline_dram.charge). Its array is
+    #: bigger -- parity is stored beside the weights -- and it does indexing
+    #: work the other two arms do not, so a bit out of it costs more: 70
+    #: against 40. It is a PRICE, not traffic: decoding is on the DRAM die, so
+    #: the baseline drives the same weight bits off it as the embedded arm and
+    #: the parity never crosses the datapath. None = the pre-2026-09-10 model
+    #: (baseline at `dram_pj_per_bit`, charged the external-parity traffic).
+    baseline_dram_pj_per_bit: Optional[float]
     #: The other two terms of E_total(DRAM) = E_dynamic + E_background + E_refresh.
     #: Both 0 for now, on purpose (the study's question is on-chip energy) --
     #: modelling them is a TODO and would give the embedded arm further credit,
@@ -377,6 +391,75 @@ class Config:
     #: binding constraint at all -- and it is a DIFFERENT DATAFLOW, so a design
     #: run under it must never be quoted as the published chip.
     weight_factor_relax: bool
+    #: TASK 4 LEVER 3 (2026-09-10, FINDINGS 7.9). Pin every loop dimension to 1
+    #: at the levels `archs.MAPSPACE_FREE_LEVELS` does not name, collapsing the
+    #: index-factorization space from ~7.4e10 to something the mapper searches
+    #: EXHAUSTIVELY. This is the answer to a FAILED convergence gate: raising
+    #: the budget samples more of the same enormous space and the difference
+    #: between two sampled points is noise, whereas an exhaustive search gives
+    #: each arm its true optimum and the difference becomes architectural.
+    #: A DIFFERENT DATAFLOW -- own cache slug (`mcons`), never quotable as the
+    #: published chip. Designed to be run WITH `weight_factor_relax`.
+    mapspace_constrain: bool
+    #: PROMPT_2 (2026-09-10) -- THE ON-CHIP QUANTISATION THE MAPPER SEES.
+    #: `datawidth:` on the weight-carrying storage levels, at FIXED `width:`
+    #: and `depth:`. This is how the reduced representation is now expressed:
+    #: Timeloop computes `block_size = width / datawidth` and bills
+    #: `vector_access_energy / block_size` per weight, while CACTI is handed
+    #: `depth` and `width` ONLY -- verified 2026-09-10 from
+    #: `timeloop-mapper.accelergy.log` (`Calculated storage."width" as
+    #: "width"`). So halving it at fixed geometry exactly halves per-weight
+    #: energy and exactly doubles effective capacity with BYTE-IDENTICAL
+    #: per-access read/write/leak. That is the fairness condition
+    #: `weight_capacity_scale` could never meet.
+    #: None = leave the YAML alone (the 8-bit baseline/embedded arm).
+    #: HARD CONSTRAINT: `width % datawidth == 0` on every level it rewrites, or
+    #: `timeloop-mapper` aborts (`buffer.cpp:302`). Checked before the YAML is
+    #: written, never discovered per-layer.
+    weight_datawidth: Optional[int]
+    #: PROMPT_2 -- THE ONLY SWEPT VARIABLE: `depth:` of the on-chip weight
+    #: levels. Deliberately NOT `weight_capacity_scale`, even though the two
+    #: rewrite the same field: that knob triggers
+    #: `recon.capacity_dilation_correction()`, which re-prices the level at the
+    #: UNDILATED geometry. That correction is right when depth is standing in
+    #: for a narrower word and wrong here -- a shallower array really IS a
+    #: smaller array, and its cheaper access is a real saving, not an artifact
+    #: to undo. Separate knob, separate cache slug (`wdepth<scale>`), no
+    #: correction.
+    weight_depth_scale: float
+    #: PROMPT_2's WIDTH TABLE. The declared physical word `width:` of the
+    #: INNERMOST weight level -- the scratchpad -- chosen so the code's
+    #: `q = round(8*K/N)` divides it, because `timeloop-mapper` ABORTS on
+    #: `width % datawidth != 0` and has no floor path. A weight level ABOVE the
+    #: PE array takes `weight_width_glb_mult` times that width, which is the
+    #: ratio Eyeriss v1's published geometry already has (16-b spad word,
+    #: 64-b GLB word) and which preserves the divisibility (q | W implies
+    #: q | 4W). Each level's DEPTH is renormalised to hold its declared TOTAL
+    #: BITS, so this reshapes the word without resizing the array -- and CACTI
+    #: is handed depth and width, so that is exactly what must not move.
+    #: None = leave the published widths alone, which is what BCH(63,30) needs.
+    weight_width: Optional[int]
+    weight_width_glb_mult: int
+    #: `ECC_WEIGHT_WIDTH=auto`: look the width up from the code instead of
+    #: typing it in. `__post_init__` resolves it into `weight_width` above
+    #: (see `code_widths.WIDTH_TABLE`) before anything else reads it, so this
+    #: flag itself is NOT in `fingerprint()` -- the resolved integer is, and a
+    #: hand-typed 56 and an auto-resolved 56 are the same silicon and share one
+    #: mapper cache, which is the whole point.
+    weight_width_auto: bool
+    #: Which weight levels `weight_depth_scale` may rewrite. Empty = all of
+    #: them, which is the default and the limitation prompt_2 records: one
+    #: scale moves `weights_spad` and `filter_glb` TOGETHER, so it locates the
+    #: zone but cannot say which level bought it. Naming levels here is the
+    #: second pass -- hold one at x1 and sweep the other.
+    weight_depth_levels: tuple
+    #: PROMPT_2's convergence gate, read by `dilation --gate` and submitted by
+    #: `hpc/map_depth_sweep.sh`. The budgets the EMBEDDED arm is mapped at, and
+    #: the depths the gate is re-checked at -- the largest AND the smallest,
+    #: because a budget that converges on a big buffer may not on a small one.
+    #: Not in the mapper fingerprint: they select which caches to READ.
+    depth_sweep_gate_victories: tuple
+    depth_sweep_gate_scales: tuple
 
     # ---- interconnect (NoC) energy: archs/_shared/noc.yaml ------------------
     # Timeloop's built-in wire model is a stub returning 0, so without these
@@ -509,6 +592,22 @@ class Config:
                               f"K={self.code_k} (ECC_CONST_K)")
         if self.weight_bits <= 0:
             raise ConfigError("ECC_WEIGHT_BITS must be positive")
+
+        # ECC_WEIGHT_WIDTH=auto -- resolve THE WIDTH TABLE from the code. Here,
+        # after `code_k` is set and before the width is validated below, so the
+        # resolved integer is what every later check, the fingerprint and the
+        # cache slug all see. A code whose q divides ECC_WEIGHT_BITS resolves
+        # to None and keeps the published silicon; that is BCH(63,30), and its
+        # cache stays bit-identical to every run made before this knob existed.
+        # UNCONDITIONAL, so it is IDEMPOTENT: `dataclasses.replace()` re-runs
+        # __post_init__ on an already-resolved Config, and both
+        # `dilation.arm_configs()` and hpc/map_depth_sweep.sh's geometry check
+        # build their two arms that way. Refusing a width that is already the
+        # table's own answer would make the knob work from the shell and fail
+        # inside the tools that use it.
+        if self.weight_width_auto:
+            self.weight_width = code_widths.declared_width(
+                self.code_n, self.code_k, self.weight_bits)
         if self.activation_bits <= 0:
             raise ConfigError("ECC_ACTIVATION_BITS must be positive")
         if self.acc_bits_override is not None:
@@ -556,6 +655,13 @@ class Config:
                 f"ECC_DRAM_PJ_PER_BIT={self.dram_pj_per_bit}: the per-bit DRAM "
                 f"dynamic access energy must be > 0 (8 = Accelergy LPDDR4 as "
                 f"modelled, 20 = Horowitz ISSCC 2014, 40 = this study's default)")
+        if (self.baseline_dram_pj_per_bit is not None
+                and self.baseline_dram_pj_per_bit <= 0):
+            raise ConfigError(
+                f"ECC_BASELINE_DRAM_PJ_PER_BIT={self.baseline_dram_pj_per_bit}: the "
+                f"baseline arm's per-bit DRAM dynamic access energy must be > 0 "
+                f"(70 = this study's value for the bigger, indexed conventional-ECC "
+                f"array; EMPTY = the pre-2026-09-10 parity-traffic model)")
         for _n, _v in (("ECC_DRAM_BACKGROUND_PJ", self.dram_background_pj),
                        ("ECC_DRAM_REFRESH_PJ", self.dram_refresh_pj)):
             if _v < 0:
@@ -674,6 +780,65 @@ class Config:
                 f"holds Weights beside another dataspace, which hands the "
                 f"mapper free capacity for that dataspace too. They bracket "
                 f"one design and are quoted as a pair")
+        if self.weight_depth_scale <= 0:
+            raise ConfigError(
+                f"ECC_WEIGHT_DEPTH_SCALE={self.weight_depth_scale}: the depth "
+                f"multiplier must be positive. 1.0 is the declared design; "
+                f"prompt_2's search grid is the sqrt(2) ladder "
+                f"1 / 0.71 / 0.5 / 0.35 / 0.25 / 0.18 / 0.125")
+        if self.weight_width is not None and self.weight_width < 1:
+            raise ConfigError(
+                f"ECC_WEIGHT_WIDTH={self.weight_width}: the declared word "
+                f"width must be a positive integer number of bits. Leave it "
+                f"EMPTY to keep each design's published widths -- BCH(63,30) "
+                f"needs no width change at all.")
+        if self.weight_width_glb_mult < 1:
+            raise ConfigError(
+                f"ECC_WEIGHT_WIDTH_GLB_MULT={self.weight_width_glb_mult}: a "
+                f"weight GLB's word is a positive multiple of the "
+                f"scratchpad's. 4 is Eyeriss v1's published ratio.")
+        if (self.weight_width is not None
+                and self.weight_width % self.weight_bits != 0):
+            # THE WIDTH MUST SUIT *BOTH* ARMS. prompt_2's fairness rule is that
+            # baseline/embedded and recon share ONE width, and the 8-bit arm
+            # declares datawidth = ECC_WEIGHT_BITS. So a width chosen only to
+            # divide the code's q aborts the OTHER arm.
+            # Measured against prompt_2's own WIDTH TABLE: 98 (BCH(63,57),
+            # q=7) and 95 (BCH(63,39), q=5) both divide their q but leave
+            # remainders 2 and 7 against 8 -- the embedded arm would abort at
+            # buffer.cpp:302 on every layer. Only the width-96 rows
+            # (BCH(63,45) q=6 and BCH(63,30) q=4) are legal for both arms,
+            # which is the same set prompt_2 identifies as "literally the same
+            # silicon as Embedded's".
+            raise ConfigError(
+                f"ECC_WEIGHT_WIDTH={self.weight_width} is not a multiple of "
+                f"ECC_WEIGHT_BITS={self.weight_bits}. Both arms share ONE "
+                f"declared width and the baseline/embedded arm stores "
+                f"{self.weight_bits}-bit weights, so that arm's mapper run "
+                f"would abort on `width % datawidth == 0` "
+                f"(buffer.cpp:302). A width must divide BOTH "
+                f"{self.weight_bits} and the code's q.")
+        if (self.weight_width is not None and self.weight_datawidth is not None
+                and self.weight_width % self.weight_datawidth != 0):
+            raise ConfigError(
+                f"ECC_WEIGHT_WIDTH={self.weight_width} is not a multiple of "
+                f"ECC_WEIGHT_DATAWIDTH={self.weight_datawidth}. "
+                f"timeloop-mapper asserts width % datawidth == 0 "
+                f"(buffer.cpp:302) and ABORTS -- there is no floor path. "
+                f"prompt_2's WIDTH TABLE gives a width per code.")
+        if self.weight_datawidth is not None and self.weight_datawidth < 1:
+            raise ConfigError(
+                f"ECC_WEIGHT_DATAWIDTH={self.weight_datawidth}: the on-chip "
+                f"weight datawidth must be a positive integer number of bits. "
+                f"Leave it EMPTY for the 8-bit baseline/embedded arm; set it "
+                f"to round(8*K/N) for the reconstruction arm (4 at "
+                f"BCH(63,30)). Per-code values are tabulated in prompt_2.md.")
+        if (self.weight_datawidth is not None
+                and self.weight_datawidth > self.weight_bits):
+            raise ConfigError(
+                f"ECC_WEIGHT_DATAWIDTH={self.weight_datawidth} exceeds "
+                f"ECC_WEIGHT_BITS={self.weight_bits}. The reconstruction arm "
+                f"stores a REDUCED weight; a wider one is not a code rate.")
         if self.arch_fidelity not in ARCH_FIDELITIES:
             raise ConfigError(f"ECC_ARCH_FIDELITY must be one of "
                               f"{', '.join(ARCH_FIDELITIES)}")
@@ -1001,6 +1166,29 @@ class Config:
             # the scale rewrites nothing.
             parts.append(f"wcap{self.weight_capacity_scale:g}"
                          + ("-shared" if self.weight_capacity_scope == "shared" else ""))
+        if self.weight_depth_scale != 1.0:
+            # prompt_2's swept variable. Its own slug, NOT `wcap`: the two
+            # rewrite the same YAML field but mean different things, and a
+            # shared directory would let a corrected run be read as an
+            # uncorrected one.
+            parts.append(f"wdepth{self.weight_depth_scale:g}"
+                         + ("-" + "+".join(self.weight_depth_levels)
+                            if self.weight_depth_levels else ""))
+        if self.weight_datawidth is not None:
+            # A narrower on-chip weight IS a different architecture to the
+            # mapper -- more values per word, so a different block size and a
+            # different mapspace. The two arms of a prompt_2 pair are exactly
+            # this and nothing else.
+            parts.append(f"wdw{self.weight_datawidth}")
+        if self.mapspace_constrain:
+            # A constrained loop nest is a different MAPSPACE and a different
+            # DATAFLOW. MUST stay in step with `archs.effective_variant()`:
+            # when only one of the two knew about a treatment, one mapping was
+            # written under TWO slugs (measured 2026-09-10, `mcons` missing
+            # here) -- harmless only because the fingerprint is
+            # content-addressed on the patched YAML, but it doubles the cache
+            # and makes the tree advertise architectures that do not exist.
+            parts.append("mcons")
         if self.weight_factor_relax:
             # A relaxed dataflow constraint is a different MAPSPACE, so it is a
             # different architecture to the mapper and gets its own cache.
@@ -1192,6 +1380,38 @@ class Config:
                 f"provenance.yaml dram_access_energy; UNCITED for this run")
 
     @property
+    def baseline_dram_note(self):
+        """What a DRAM bit costs the conventional-ECC baseline, and why.
+
+        archs/_shared/provenance.yaml `dram_access_energy` carries the sources
+        for the per-bit constants; the baseline's own value is this study's,
+        for an array that also stores the parity and indexes it.
+        """
+        v = self.baseline_dram_pj_per_bit
+        if v is None:
+            return ("pre-2026-09-10 model: the baseline is priced at the same "
+                    "pJ/bit as the embedded arm and charged the external-parity "
+                    "TRAFFIC on top (ECC_BASELINE_DRAM_PJ_PER_BIT unset)")
+        return (f"ECC_BASELINE_DRAM_PJ_PER_BIT={v:g} -- the baseline's DRAM array "
+                f"also stores the parity and indexes it, so a bit out of it costs "
+                f"more than out of the embedded/recon array; the parity itself is "
+                f"corrected on the DRAM die and never crosses the datapath")
+
+    @property
+    def baseline_dram_line(self):
+        """One line for the console header: what each arm actually fetches."""
+        if self.baseline_dram_pj_per_bit is None:
+            return (f"baseline x{self.code_n / self.code_k:.4f} "
+                    f"(+{self.parity_frac * 100:.1f}%), embedded/recon x1.0   "
+                    f"(pre-2026-09-10 traffic model)")
+        other = (f"{self.dram_pj_per_bit:g}" if self.dram_pj_per_bit is not None
+                 else "the ERT's")
+        return (f"identical on all three arms; baseline pays "
+                f"{self.baseline_dram_pj_per_bit:g} pJ/bit against {other} "
+                f"pJ/bit (bigger array + indexing), recon fetches "
+                f"K/N = {self.code_k / self.code_n:.4f} of the bits")
+
+    @property
     def dram_static_note(self):
         """E_background and E_refresh are 0 unless someone sets them."""
         if self.dram_background_pj == 0 and self.dram_refresh_pj == 0:
@@ -1256,6 +1476,9 @@ class Config:
                 "acc_bits_override", "arch_fidelity", "force_technology",
                 "force_datawidth", "weight_capacity_scale",
                 "weight_capacity_scope", "weight_factor_relax",
+                "mapspace_constrain",
+                "weight_datawidth", "weight_depth_scale", "weight_depth_levels",
+                "weight_width", "weight_width_glb_mult",
                 "dram_depth", "global_cycle_seconds",
                 "noc_enabled", "noc_wire_pj_per_bit_mm", "noc_router_pj",
                 "noc_pe_latch_pj", "noc_scale",
@@ -1312,6 +1535,7 @@ def load_config():
         recon_decode_site=_s("ECC_RECON_DECODE_SITE", "ondie").lower(),
         recon_encoder_site=_s("ECC_RECON_ENCODER_SITE", "destination").lower(),
         dram_pj_per_bit=_of("ECC_DRAM_PJ_PER_BIT"),
+        baseline_dram_pj_per_bit=_of("ECC_BASELINE_DRAM_PJ_PER_BIT"),
         dram_background_pj=_f("ECC_DRAM_BACKGROUND_PJ", 0.0),
         dram_refresh_pj=_f("ECC_DRAM_REFRESH_PJ", 0.0),
 
@@ -1335,6 +1559,28 @@ def load_config():
         # resolve and is what env.sh documents.
         weight_capacity_scale=round(_f("ECC_WEIGHT_CAPACITY_SCALE", 1.0), 4),
         weight_capacity_scope=_s("ECC_WEIGHT_CAPACITY_SCOPE", "exclusive").lower(),
+        # Quantised to four decimals for the same reason the capacity scale is:
+        # one geometry must have exactly ONE spelling, or 0.7071 written
+        # `0.71` by the shell and `0.7071` by python is the same architecture
+        # filed under two cache directories.
+        weight_depth_scale=round(_f("ECC_WEIGHT_DEPTH_SCALE", 1.0), 4),
+        weight_depth_levels=tuple(_list("ECC_WEIGHT_DEPTH_LEVELS")),
+        weight_datawidth=_oi("ECC_WEIGHT_DATAWIDTH"),
+        mapspace_constrain=_b("ECC_MAPSPACE_CONSTRAIN", False),
+        # ECC_WEIGHT_WIDTH takes a number, EMPTY, or the word `auto`.
+        # `auto` is resolved from the code by `__post_init__` (THE WIDTH
+        # TABLE, eccenergy/code_widths.py) so every BCH configuration has a
+        # width that both arms can declare; EMPTY still means "keep each
+        # design's published widths", which is what every pre-2026-09-11 run
+        # was made under and what BCH(63,30) needs.
+        weight_width=None if _s("ECC_WEIGHT_WIDTH").lower() == "auto"
+                     else _oi("ECC_WEIGHT_WIDTH"),
+        weight_width_auto=_s("ECC_WEIGHT_WIDTH").lower() == "auto",
+        weight_width_glb_mult=int(_f("ECC_WEIGHT_WIDTH_GLB_MULT", 4)),
+        depth_sweep_gate_victories=tuple(
+            _list("ECC_DEPTH_SWEEP_GATE_VICTORIES", "2000 4000 10000")),
+        depth_sweep_gate_scales=tuple(
+            _list("ECC_DEPTH_SWEEP_GATE_SCALES", "1.0 0.125")),
         weight_factor_relax=_b("ECC_WEIGHT_FACTOR_RELAX", False),
         dram_depth=_i("ECC_DRAM_DEPTH", 1048576),
         global_cycle_seconds=_s("ECC_GLOBAL_CYCLE_SECONDS", "1e-9"),
@@ -1432,9 +1678,7 @@ def banner(cfg, recon_pj, recon_provenance):
             ("code", f"BCH({cfg.code_n},{cfg.code_k})  t={cfg.code_t}  "
                      f"r={cfg.code_n - cfg.code_k}"),
             ("weights / codeword", f"{cfg.weights_per_codeword:.4f}"),
-            ("DRAM weight inflation", f"baseline x{cfg.code_n / cfg.code_k:.4f} "
-                                      f"(+{cfg.parity_frac * 100:.1f}%), "
-                                      f"embedded/recon x1.0"),
+            ("DRAM weight traffic", cfg.baseline_dram_line),
             ("recon on-chip scale", f"{cfg.sram_scale:.4f} (weights only)"),
             ("reconstruction", f"{recon_pj:.7f} pJ per codeword"),
             ("recon provenance", recon_provenance),

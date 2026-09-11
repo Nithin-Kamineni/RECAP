@@ -27,6 +27,7 @@ optimisation it did not perform.
 """
 from __future__ import annotations
 
+from .. import baseline_dram
 from ..archs import accumulator_bits, arch_source, load_provenance, noc_terms, validate_arch
 from ..ecc import external_parity
 from ..energy import plot_cats
@@ -69,7 +70,7 @@ def _placeholder_variants(builder):
             label=description))
 
 
-def _report(cfg, arch, model, raw, energy_total, detail):
+def _report(cfg, arch, model, raw, energy_total, detail, pricing):
     acc, _ = accumulator_bits(arch, cfg)
     p = detail["stored"]
     tr = detail["traffic"]
@@ -90,13 +91,36 @@ def _report(cfg, arch, model, raw, energy_total, detail):
     print(f"    (a flat n/k model would have charged "
           f"{detail['comparison_to_flat_model']['flat_n_over_k_minus_1'] * 100:.2f}%)")
     print(f"    DRAM weight reads     : {raw.dram_w_reads:,.0f}   "
-          f"refetch x{tr['refetch_factor']:.2f}")
-    print(f"    parity DRAM words     : {tr['external_dram_words']:,.0f}  "
-          f"({tr['external_dram_scalars']:,.0f} weight-sized accesses)")
-    print(f"    pJ per DRAM weight    : {detail['pJ_per_dram_weight_scalar']:.4f}"
-          f"   <- must match across architectures at the same node/datawidth")
+          f"refetch x{tr['refetch_factor']:.2f}"
+          + ("   (identical on all three arms)"
+             if pricing["model"] == "per_bit_price" else ""))
+    if pricing["model"] == "per_bit_price":
+        # NOT traffic: the parity sits in the array and is corrected on the die.
+        print(f"    parity words STORED   : {tr['external_dram_words']:,.0f}  "
+              f"({tr['external_dram_scalars']:,.0f} weight-sized words held, "
+              f"NOT fetched)")
+        print(f"    pJ per DRAM weight    : "
+              f"{detail['pJ_per_dram_weight_scalar'] * pricing['ratio']:.4f}   "
+              f"(embedded/recon pay {detail['pJ_per_dram_weight_scalar']:.4f} "
+              f"for the same 8 bits)")
+    else:
+        print(f"    parity DRAM words     : {tr['external_dram_words']:,.0f}  "
+              f"({tr['external_dram_scalars']:,.0f} weight-sized accesses)")
+        print(f"    pJ per DRAM weight    : {detail['pJ_per_dram_weight_scalar']:.4f}"
+              f"   <- must match across architectures at the same node/datawidth")
     print(f"    Timeloop energy       : {raw.total / 1e6:12,.3f} uJ")
-    print(f"    + external parity     : {detail['energy_pJ'] / 1e6:12,.3f} uJ")
+    if pricing["model"] == "per_bit_price":
+        print(f"    DRAM price            : {pricing['pj_per_bit_charged']:g} -> "
+              f"{pricing['pj_per_bit_baseline']:g} pJ/bit "
+              f"(x{pricing['ratio']:.4f}; bigger array + indexing)")
+        print(f"    + DRAM price delta    : {pricing['dram_delta_pJ'] / 1e6:12,.3f} uJ"
+              f"   (whole DRAM category: {pricing['dram_pJ_before'] / 1e6:,.3f} -> "
+              f"{pricing['dram_pJ_after'] / 1e6:,.3f} uJ)")
+        print(f"    parity traffic        : "
+              f"{pricing['parity_traffic_energy_NOT_charged_pJ'] / 1e6:12,.3f} uJ"
+              f"   NOT CHARGED -- corrected on the DRAM die, never on the datapath")
+    else:
+        print(f"    + external parity     : {detail['energy_pJ'] / 1e6:12,.3f} uJ")
     print(f"    = conventional ECC    : {energy_total / 1e6:12,.3f} uJ")
     print(f"    hand check            : "
           f"{'PASS' if detail['hand_check_passed'] else 'FAIL'}")
@@ -119,7 +143,12 @@ def run(cfg):
         for model, raw in raws.items():
             e_parity, detail = external_parity(cfg, raw)
             components = _components(raw.base.reindex(plot_cats(cfg), fill_value=0.0))
-            components["DRAM external BCH parity"] = e_parity
+            # The baseline's DRAM cost is a PRICE (70 pJ/bit against 40), not
+            # extra traffic: decoding is on the DRAM die, so its parity never
+            # crosses the datapath. `detail` stays on the result as the array-
+            # SIZE evidence that price is charged for. See baseline_dram.py;
+            # with ECC_BASELINE_DRAM_PJ_PER_BIT unset this is the old model.
+            pricing = baseline_dram.charge(cfg, raw, components, e_parity)
             total = float(sum(components.values()))
 
             builder = ResultBuilder(
@@ -135,6 +164,7 @@ def run(cfg):
                 mapping_ids=mapping_ids,
                 label="Conventional ECC, BCH parity external in DRAM",
                 extra={"external_parity_accounting": detail,
+                       "baseline_dram_pricing": pricing,
                        "timeloop_energy_pJ": float(raw.total),
                        "dram_weight_reads": raw.dram_w_reads,
                        "dram_weight_energy_pJ": raw.e_dram_w}))
@@ -198,12 +228,7 @@ def run(cfg):
 
             # ---- what a reader must not over-read --------------------------
             builder.approximate(detail["traffic"]["method"])
-            builder.approximate(
-                "External parity is billed at the measured per-access energy of a "
-                "DRAM weight read on this architecture, not at an independently "
-                "modelled parity-region access cost. That is exact if parity is "
-                "read from the same DRAM by the same controller, which is the "
-                "conventional-ECC assumption.")
+            builder.approximate(baseline_dram.caveat(pricing))
             if cfg.layers:
                 builder.warn(
                     f"DEVELOPMENT RUN: {cfg.layer_scope} "
@@ -260,7 +285,7 @@ def run(cfg):
                     arch, None, ses.fingerprints.get(arch))),
             )
 
-            _report(cfg, arch, model, raw, total, detail)
+            _report(cfg, arch, model, raw, total, detail, pricing)
             path = builder.write()
             written.append(path)
             print(f"    -> {path}")

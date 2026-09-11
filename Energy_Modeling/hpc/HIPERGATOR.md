@@ -343,7 +343,7 @@ python3 hpc/summary.py --scope layers-full --csv results/tables/panel_matrix.csv
 ```
 
 `hpc/summary.py` is standard-library only, so it runs with the system python
-outside the container. `--field timeloop|parity|total` chooses which of the
+outside the container. `--field timeloop|ecc-cost|total` chooses which of the
 three numbers per cell is shown; `timeloop` is the default because it is what
 the architectures are actually compared on.
 

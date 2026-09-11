@@ -1,0 +1,403 @@
+"""Tests for the baseline's DRAM PRICE model (ECC_BASELINE_DRAM_PJ_PER_BIT).
+
+    bash hpc/tl.sh python3 -m eccenergy.tests.test_baseline_dram
+
+The seven assertions prompt_4.md asks for, plus deliberate breakage for each:
+a test that only ever sees the correct code cannot tell a check that works from
+a check that always passes.
+
+The property tests run on the REAL cached Timeloop record for the study point
+(`eyeriss_like_wglb` / resnet18 / `layer3.0.conv1`, BCH(63,30)) where it is on
+disk, and are SKIPPED -- reported, not hidden -- where it is not.
+"""
+from __future__ import annotations
+
+import json
+import math
+import os
+import pathlib
+import sys
+import traceback
+
+FAILURES = []
+SKIPPED = []
+
+#: The cached raw record every property test below is measured on. Pure
+#: Timeloop output at Accelergy's own 8 pJ/bit; the overrides are applied here.
+REAL_RECORD = pathlib.Path(
+    "results/_raw/eyeriss_like_wglb/vic4000__vicx__alg-linear_pruned__to100000000"
+    "__noc__paper__mcons__wrelax/fp-48347c8b8194/cnn/layers1__layer3_0_conv1"
+    "/cls-instances/rw-joint/resnet18.json")
+
+
+def check(name, fn):
+    try:
+        fn()
+    except _Skip as why:
+        SKIPPED.append(name)
+        print(f"  skip  {name}  ({why})")
+    except Exception:
+        FAILURES.append(name)
+        print(f"  FAIL  {name}")
+        traceback.print_exc()
+    else:
+        print(f"  ok    {name}")
+
+
+class _Skip(Exception):
+    pass
+
+
+def _cfg(**env):
+    """A BCH(63,30) config on the study point. `ECC_BASELINE_DRAM_PJ_PER_BIT`
+    is passed explicitly by every test, so neither default can hide a bug."""
+    base = dict(
+        ECC_EXPERIMENT="baseline", ECC_SWEEP="arch",
+        ECC_CONST_ARCH="eyeriss_like_wglb", ECC_CONST_MODEL="resnet18",
+        ECC_RECON_ARCHS="eyeriss_like_wglb",
+        ECC_CONST_K="30", ECC_CODE_N="63", ECC_LAYERS="layer3.0.conv1",
+        ECC_DRAM_PJ_PER_BIT="40", ECC_MAC_PJ_OVERRIDE="0.23",
+        ECC_MAPPER_THREADS="18", ECC_VICTORY="4000", ECC_FROM_CACHE="1",
+    )
+    base.update(env)
+    for k in list(os.environ):
+        if k.startswith("ECC_"):
+            del os.environ[k]
+    os.environ.update({k: v for k, v in base.items() if v is not None})
+    from eccenergy.config import load_config
+    return load_config()
+
+
+def _real_raw(cfg):
+    """The cached record, with the study's two overrides applied as `collect` does."""
+    if not REAL_RECORD.is_file():
+        raise _Skip(f"cached record absent: {REAL_RECORD}")
+    try:
+        from eccenergy.energy import Raw, apply_dram_override, apply_mac_override
+    except ImportError as exc:                       # pandas, on the host python
+        raise _Skip(f"pandas not available on this python: {exc}")
+    raw = Raw.from_json(json.loads(REAL_RECORD.read_text()), cfg)
+    return apply_dram_override(apply_mac_override(raw, cfg, verbose=False),
+                               cfg, verbose=False)
+
+
+def _arms(cfg, raw):
+    """`(baseline components, embedded components, parity pJ, pricing)`.
+
+    Built exactly as `experiments/baseline.py` and `experiments/embedded.py`
+    build them, so a divergence between this and the experiments is a failure
+    here rather than a silent difference in the results.
+    """
+    from eccenergy import baseline_dram
+    from eccenergy.ecc import embedded_dram, external_parity
+    from eccenergy.energy import plot_cats
+    from eccenergy.experiments import audit
+    series = raw.base.reindex(plot_cats(cfg), fill_value=0.0)
+    e_parity, pdetail = external_parity(cfg, raw)
+    e_emb, _ = embedded_dram(cfg, raw)
+    base = audit.components(series)
+    pricing = baseline_dram.charge(cfg, raw, base, e_parity)
+    emb = audit.components(series)
+    emb[baseline_dram.PARITY_KEY] = e_emb
+    return base, emb, e_parity, pricing, pdetail
+
+
+# ------------------------------------------------------- 1. the traffic is gone
+def test_1_no_arm_issues_extra_dram_reads():
+    """The price model adds no traffic: same reads, same bits per weight."""
+    cfg = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT="70")
+    raw = _real_raw(cfg)
+    base, emb, e_parity, pricing, pdetail = _arms(cfg, raw)
+    # the record's own read count is what both arms are billed on
+    assert raw.dram_w_reads == 294912.0, raw.dram_w_reads
+    assert pricing["model"] == "per_bit_price"
+    # the parity traffic external_parity() accounts for is NOT charged
+    assert e_parity > 0.0
+    assert pricing["parity_traffic_energy_NOT_charged_pJ"] == e_parity
+    # and the whole baseline-vs-embedded difference is the price, not traffic
+    assert math.isclose(base["DRAM"] - emb["DRAM"], pricing["dram_delta_pJ"],
+                        rel_tol=1e-12)
+
+
+# --------------------------------------- 2. parity is zero, the evidence stays
+def test_2_parity_component_is_zero_and_the_accounting_survives():
+    cfg = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT="70")
+    raw = _real_raw(cfg)
+    from eccenergy.baseline_dram import PARITY_KEY
+    base, _, e_parity, pricing, pdetail = _arms(cfg, raw)
+    assert base[PARITY_KEY] == 0.0                    # explicitly zero, not missing
+    assert PARITY_KEY in base
+    # the accounting is still there, still hand-checks, and is now SIZE evidence
+    assert pdetail["hand_check_passed"], pdetail["hand_check"]
+    assert pdetail["stored"]["stored_bits"] == 6193152
+    assert pdetail["stored"]["payload_bits"] == 2359296
+    assert math.isclose(pdetail["stored"]["stored_bits"]
+                        / pdetail["stored"]["payload_bits"], 2.625, rel_tol=1e-12)
+
+
+# ------------------------------------------- 3. the price, on the whole category
+def test_3_whole_dram_category_scales_by_the_price_ratio():
+    cfg = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT="70")
+    raw = _real_raw(cfg)
+    base, emb, _, pricing, _ = _arms(cfg, raw)
+    assert pricing["ratio"] == 70.0 / 40.0 == 1.75
+    assert math.isclose(base["DRAM"], emb["DRAM"] * 1.75, rel_tol=1e-12)
+    # the WEIGHT share alone is not what moved: the whole category did, so the
+    # delta must exceed the weight term's own share of it
+    weight_only = raw.e_dram_w * 0.75
+    assert pricing["dram_delta_pJ"] > weight_only, (pricing, weight_only)
+    assert math.isclose(pricing["dram_delta_pJ"], emb["DRAM"] * 0.75, rel_tol=1e-12)
+
+
+def test_3b_a_weights_only_price_would_fail_the_check():
+    """MUTATION: price the weight rows only. The check must catch it."""
+    cfg = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT="70")
+    raw = _real_raw(cfg)
+    from eccenergy import baseline_dram
+    base, emb, e_parity, pricing, _ = _arms(cfg, raw)
+    broken = dict(emb)
+    broken["DRAM"] = emb["DRAM"] + raw.e_dram_w * 0.75      # weights only
+    broken[baseline_dram.PARITY_KEY] = 0.0
+    ok, _ = baseline_dram.reference_bars_agree(broken, emb, e_parity, pricing)
+    assert ok is False
+    good, _ = baseline_dram.reference_bars_agree(base, emb, e_parity, pricing)
+    assert good is True
+
+
+def test_3c_charging_the_parity_as_well_would_fail_the_check():
+    """MUTATION: keep the old traffic term AND the new price. Double-charged."""
+    cfg = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT="70")
+    raw = _real_raw(cfg)
+    from eccenergy import baseline_dram
+    base, emb, e_parity, pricing, _ = _arms(cfg, raw)
+    broken = dict(base)
+    broken[baseline_dram.PARITY_KEY] = e_parity
+    ok, _ = baseline_dram.reference_bars_agree(broken, emb, e_parity, pricing)
+    assert ok is False
+
+
+def test_3d_the_ratio_is_read_from_the_record_not_assumed():
+    """MUTATION: the same 70 against Accelergy's own 8 pJ/bit is x8.75, not x1.75.
+
+    A ratio hardcoded as 70/40 would silently misprice any run that does not
+    set ECC_DRAM_PJ_PER_BIT.
+    """
+    cfg = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT="70", ECC_DRAM_PJ_PER_BIT=None)
+    raw = _real_raw(cfg)
+    _, _, _, pricing, _ = _arms(cfg, raw)
+    assert pricing["pj_per_bit_charged"] == 8.0, pricing
+    assert math.isclose(pricing["ratio"], 70.0 / 8.0, rel_tol=1e-12)
+
+
+# ----------------------------------------------- 4. recon is the arm that scales
+def test_4_dram_is_reducible_by_k_over_n_on_every_recon_boundary():
+    from eccenergy.recon import PLACEMENTS, WEIGHT_PATHS
+    stages = [s for stages in WEIGHT_PATHS.values()
+              for s in stages if s.key == "dram"]
+    assert stages, "no design declares a `dram` weight-path stage"
+    assert all(s.reducible for s in stages), [s for s in stages if not s.reducible]
+    # every design's boundaries reach it -- the DRAM term is x K/N under all
+    for arch, places in PLACEMENTS.items():
+        if arch not in WEIGHT_PATHS:
+            continue
+        assert all("dram" in set(pl.reduced) for pl in places), arch
+
+
+def test_4b_recon_and_embedded_totals_do_not_move_at_all():
+    """Only the baseline arm is repriced. The other two bars must be identical."""
+    raw_a = _real_raw(_cfg(ECC_BASELINE_DRAM_PJ_PER_BIT="70"))
+    raw_b = _real_raw(_cfg(ECC_BASELINE_DRAM_PJ_PER_BIT=None))
+    from eccenergy.ecc import build_stacks, load_recon_energy
+    cfg_a = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT="70")
+    cfg_b = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT=None)
+    recon_pj, _ = load_recon_energy(cfg_a)
+    a = build_stacks(cfg_a, raw_a, recon_pj)
+    b = build_stacks(cfg_b, raw_b, recon_pj)
+    for arm in ("embedded", "recon"):
+        assert a[arm].to_dict() == b[arm].to_dict(), arm
+    assert float(a["baseline"].sum()) > float(b["baseline"].sum())
+
+
+# ------------------------------------------------ 5. nothing on chip moved
+def test_5_no_component_outside_dram_differs():
+    cfg = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT="70")
+    raw = _real_raw(cfg)
+    from eccenergy.baseline_dram import DRAM_KEY, PARITY_KEY
+    base, emb, _, _, _ = _arms(cfg, raw)
+    assert set(base) == set(emb)
+    for c in base:
+        if c in (DRAM_KEY, PARITY_KEY):
+            continue
+        assert base[c] == emb[c], (c, base[c], emb[c])
+
+
+# -------------------------------------------- 6. no mapper input changed
+def test_6_the_knob_is_not_in_any_fingerprint():
+    from eccenergy.archs import arch_fingerprint
+    with_knob = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT="70")
+    without = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT=None)
+    assert with_knob.baseline_dram_pj_per_bit == 70.0
+    assert without.baseline_dram_pj_per_bit is None
+    assert with_knob.fingerprint() == without.fingerprint()
+    assert (arch_fingerprint("eyeriss_like_wglb", with_knob)
+            == arch_fingerprint("eyeriss_like_wglb", without))
+    # and the DRAM array is NOT scaled per arm: one declared depth, all arms
+    assert with_knob.dram_depth == without.dram_depth
+
+
+# ----------------------------------------- 7. the legacy path is untouched
+def test_7_unset_reproduces_the_pre_2026_09_10_model():
+    cfg = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT=None)
+    raw = _real_raw(cfg)
+    from eccenergy.baseline_dram import PARITY_KEY
+    from eccenergy.energy import plot_cats
+    from eccenergy.experiments import audit
+    base, emb, e_parity, pricing, _ = _arms(cfg, raw)
+    assert pricing["model"] == "parity_traffic" and pricing["ratio"] == 1.0
+    # the old two lines, computed here, must give exactly today's numbers
+    old = audit.components(raw.base.reindex(plot_cats(cfg), fill_value=0.0))
+    old[PARITY_KEY] = e_parity
+    assert base == old, {k: (base[k], old[k]) for k in old if base[k] != old[k]}
+    assert base["DRAM"] == emb["DRAM"]          # priced identically, as before
+    assert float(sum(base.values())) == float(sum(old.values()))
+
+
+def test_7b_the_two_models_write_different_check_names():
+    """One name meaning two things is how a model change hides in a diff."""
+    from eccenergy import baseline_dram
+    assert (baseline_dram.check_name({"model": "per_bit_price"})
+            == "baseline_dram_is_exactly_the_per_bit_price")
+    assert (baseline_dram.check_name(None)
+            == "dram_difference_is_exactly_the_external_parity")
+    assert baseline_dram.caveat({"model": "parity_traffic"}) != baseline_dram.caveat(
+        {"model": "per_bit_price", "pj_per_bit_baseline": 70,
+         "pj_per_bit_charged": 40, "ratio": 1.75})
+
+
+# ------------------------------------------- the result document and the report
+def _task2_document(cfg, raw):
+    """The Task 2 validation list, built the way `experiments/embedded` builds it."""
+    import tempfile
+    from eccenergy.baseline_dram import PARITY_KEY
+    from eccenergy.experiments.embedded import task2_checks
+    from eccenergy.ecc import embedded_dram
+    from eccenergy.paths import Results
+    from eccenergy.results_store import ResultBuilder, Variant
+    base, emb, e_parity, pricing, _ = _arms(cfg, raw)
+    _, edetail = embedded_dram(cfg, raw)
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg = _cfg(ECC_RESULTS_DIR=tmp,
+                   ECC_BASELINE_DRAM_PJ_PER_BIT=(
+                       None if cfg.baseline_dram_pj_per_bit is None
+                       else f"{cfg.baseline_dram_pj_per_bit:g}"))
+        results = Results(cfg).prepare()
+        b = ResultBuilder(cfg, results, "eyeriss_like_wglb", "resnet18",
+                          experiment="unit_test", fixed_mapping=True)
+        for name, kind, comps in (("baseline_external_parity", "baseline", base),
+                                  ("embedded_ecc", "embedded", emb)):
+            b.add(Variant(name, kind=kind, status="evaluated",
+                          total_energy_pJ=float(sum(comps.values())),
+                          energy_by_component_pJ=comps, mapping_ids=["aaaa1111"]))
+        task2_checks(b, cfg, raw, base, emb, e_parity, edetail,
+                     sweep_arm_total=None, newly_mapped=0, raw_cache_hit=True,
+                     pricing=pricing)
+        return {c["check"]: c["passed"] for c in b.document()["validation"]}, pricing
+
+
+def test_the_price_model_writes_its_own_check_and_passes_it():
+    cfg = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT="70")
+    raw = _real_raw(cfg)
+    checks, pricing = _task2_document(cfg, raw)
+    assert checks["baseline_dram_is_exactly_the_per_bit_price"] is True, checks
+    assert "dram_difference_is_exactly_the_external_parity" not in checks
+    assert checks["non_dram_components_match_task1_baseline"] is True
+    assert checks["embedded_reads_complete_codeword"] is True
+
+
+def test_the_legacy_model_writes_the_old_check_and_passes_it():
+    cfg = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT=None)
+    raw = _real_raw(cfg)
+    checks, pricing = _task2_document(cfg, raw)
+    assert checks["dram_difference_is_exactly_the_external_parity"] is True, checks
+    assert "baseline_dram_is_exactly_the_per_bit_price" not in checks
+    assert checks["non_dram_components_match_task1_baseline"] is True
+
+
+def test_a_repriced_baseline_with_a_stale_ratio_is_caught():
+    """MUTATION: components priced at x1.75, pricing record claiming x1.0."""
+    from eccenergy import baseline_dram
+    cfg = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT="70")
+    raw = _real_raw(cfg)
+    base, emb, e_parity, pricing, _ = _arms(cfg, raw)
+    stale = dict(pricing, ratio=1.0)
+    ok, _ = baseline_dram.reference_bars_agree(base, emb, e_parity, stale)
+    assert ok is False
+
+
+def test_both_reports_render_under_both_models():
+    """The console reports are format strings over the pricing record; a typo in
+    one of them only shows up when it is actually printed."""
+    from eccenergy.ecc import embedded_dram
+    from eccenergy.experiments import baseline as baseline_exp
+    from eccenergy.experiments import embedded as embedded_exp
+    for knob in ("70", None):
+        cfg = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT=knob)
+        raw = _real_raw(cfg)
+        base, emb, e_parity, pricing, pdetail = _arms(cfg, raw)
+        _, edetail = embedded_dram(cfg, raw)
+        baseline_exp._report(cfg, "eyeriss_like_wglb", "resnet18", raw,
+                             float(sum(base.values())), pdetail, pricing)
+        embedded_exp._report(cfg, "eyeriss_like_wglb", "resnet18", raw,
+                             float(sum(base.values())), float(sum(emb.values())),
+                             pdetail, edetail, pricing)
+
+
+# ------------------------------------------------------------- refusals
+def test_an_unpriceable_record_is_refused_not_guessed():
+    """No reads and no ECC_DRAM_PJ_PER_BIT: there is no price to scale from."""
+    try:
+        import pandas as pd
+    except ImportError as exc:
+        raise _Skip(f"pandas not available on this python: {exc}")
+    from eccenergy import baseline_dram
+    from eccenergy.energy import Raw, plot_cats
+    cfg = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT="70", ECC_DRAM_PJ_PER_BIT=None)
+    cats = plot_cats(cfg)
+    zero = pd.Series({c: 0.0 for c in cats}).reindex(cats)
+    raw = Raw(zero, zero, zero, 0.0, 0.0, 1, 0, 0, per_layer=[], levels=[])
+    try:
+        baseline_dram.price(cfg, raw)
+    except ValueError as exc:
+        assert "no per-bit DRAM price" in str(exc), str(exc)
+    else:
+        raise AssertionError("an unpriceable record was priced anyway")
+
+
+def test_the_knob_must_be_positive():
+    from eccenergy.config import ConfigError
+    for bad in ("0", "-70"):
+        try:
+            _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT=bad)
+        except ConfigError:
+            pass
+        else:
+            raise AssertionError(f"ECC_BASELINE_DRAM_PJ_PER_BIT={bad} was accepted")
+
+
+def main():
+    print("eccenergy baseline DRAM price (prompt_4) tests")
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            check(name, fn)
+    print()
+    if SKIPPED:
+        print(f"{len(SKIPPED)} skipped: {', '.join(SKIPPED)}")
+    if FAILURES:
+        print(f"{len(FAILURES)} FAILED: {', '.join(FAILURES)}")
+        return 1
+    print("all tests passed")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

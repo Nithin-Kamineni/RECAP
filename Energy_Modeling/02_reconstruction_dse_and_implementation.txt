@@ -380,13 +380,43 @@ Model:
 - Group-assembly requirements.
 - Number of useful values delivered per access.
 
-The same rule holds at the DRAM. A message-only fetch saves interface
-bits only if the k message bits of successive codewords are driven as a
-packed stream; it saves array energy only if the burst that is read is
-narrower, which is not assumed.
+At the DRAM the same rule is now SETTLED rather than assumed: the access is
+custom-designed to collect the interleaved message bits, so the whole weight
+term scales by k/n. See 01_..., Sec. 4.
 
 Reduced logical bit count and reduced physical energy are related but are
 not interchangeable.
+
+
+WHO APPLIES THE SAVING -- ONE OWNER, DECLARED (2026-09-10)
+
+The packing saving above can be applied in TWO places, and applying it in
+both SQUARES it:
+
+  the MAPPER     `datawidth: q` on the weight levels. Timeloop then counts
+                 16 weights per 64-bit word instead of 8 and reports half the
+                 accesses by itself. This is also what gives the mapper the
+                 extra capacity, so for any mapping study it MUST be here.
+  the EVALUATOR  a post-processing multiplier on the level's energy.
+
+Rule: Timeloop owns an effect whenever Timeloop can express it; the evaluator
+owns only what Timeloop cannot. The two sets are disjoint and the split is
+DECLARED, not inferred from a mode name.
+
+  on-chip storage width  -> mapper      (`datawidth: q`)
+  DRAM x k/n             -> evaluator   (the array still holds all n bits;
+                                         a 4-bit DRAM would also shrink the
+                                         capacity the mapper thinks it has)
+  network wire/switching -> evaluator   (the NoC level is datawidth 1 with an
+                                         explicit word width; the mapper never
+                                         sees the narrower operand)
+  encoder, per access    -> mapper      (the ERT -- Sec. 19)
+  encoder, per cycle     -> evaluator   (a price list cannot express it)
+
+A check that asks "which packing MODE is selected" is not good enough: the
+`aligned` mode is a no-op only when floor(W/q) == floor(W/8), which is true
+for 7-bit values in a 24-bit word and FALSE for 4-bit values in a 64-bit one.
+Measure the multiplier, do not read its name.
 
 
 ======================================================================
@@ -451,7 +481,7 @@ Other central dimensions from the discussion:
 - Reconstructed-weight retention.
 - Physical memory packing.
 - Sparse metadata overhead.
-- Interface share of DRAM energy (f_if, Part 1 section 4).
+- Per-bit DRAM cost, and the baseline's own higher one (Part 1, Sec. 4).
 
 
 ======================================================================
@@ -462,9 +492,8 @@ Collect per layer and per architecture/variant.
 
 | Metric | Purpose |
 |--------|---------|
-| DRAM array bits read | Complete codewords read for correction; identical under every variant |
-| DRAM interface bits transmitted | k/n of the array bits under every reconstruction variant; the first saving |
-| DRAM array vs interface energy | The split of the DRAM term; report f_if beside it |
+| DRAM weight bits moved | k/n under every reconstruction variant; the first saving. The WHOLE term scales -- there is no array/interface split |
+| DRAM weight energy per arm | Baseline at its own pJ/bit, embedded and reconstruction at the shared one; report both prices beside the number |
 | Global-buffer weight writes | Quantify higher-level weight-storage traffic |
 | Global-buffer weight reads | Quantify higher-level weight-storage traffic |
 | Weight-NoC bits and bit-hops | Quantify transport cost and placement benefit |
@@ -546,17 +575,16 @@ Energy per physical access
 
 Use reduced physical representations where appropriate.
 
-The DRAM level needs one extra step. Accelergy's DRAM model is one flat
-per-bit constant with no array/interface decomposition, and Timeloop charges
-the DRAM-to-chip network zero. So the evaluator splits the DRAM weight energy
-itself (Part 1, section 4):
+The DRAM level needs two extra steps, both evaluator-side (Part 1, Sec. 4).
+Accelergy's DRAM model is one flat per-bit constant and Timeloop charges the
+DRAM-to-chip network zero, so:
 
-E_array      = (1 - f_if) x DRAM weight energy    complete codeword, unchanged
-E_interface  =      f_if  x DRAM weight energy    x k/n under every boundary
-
-f_if, the interface share of the per-bit DRAM energy, is a cited parameter
-recorded in the provenance file. If no citation is available, refuse to
-produce a single number and print the DRAM saving at several f_if values.
+  1. Replace the tool's per-bit constant with the cited one, and give the
+     conventional baseline its own higher constant -- its array also holds
+     the parity and it does the indexing the other arms do not.
+  2. Scale the WHOLE DRAM weight term by k/n under every reconstruction
+     boundary. No array/interface split is applied; the access collects the
+     interleaved message bits, so the array reads fewer bits too.
 
 Do not assume that changing a logical datawidth alone automatically models:
 - Correct physical packing.
@@ -566,20 +594,71 @@ Do not assume that changing a logical datawidth alone automatically models:
 - ECC-group dependencies.
 - Reconstruction caching.
 - Encoder throughput.
-- The array/interface split of DRAM energy.
+- Which side of the model owns a given saving.
 
 Encoder integration options:
 1. Add an explicit reconstruction component to Accelergy.
 2. Post-process measured/derived reconstruction counts with characterized
    encoder costs.
 
-Basic reconstruction energy:
+WHICH OPTION IS RIGHT DEPENDS ON WHETHER THE MAPPER CAN MOVE THE COUNT
+(2026-09-10). Option 2 is the default and it is what Task 3 does: the mapping
+is fixed, every access count is Timeloop's, and the encoder cost is added
+afterwards. It is also the ONLY defensible option for a boundary whose count
+the mapping cannot change -- at the innermost boundary the count is the MAC
+count, so the encoder term is a constant added to every mapping and putting it
+in the objective cannot change which mapping wins.
+
+Option 1 is what a boundary with a MAPPING-SENSITIVE count needs, and the
+mechanism is the ERT rather than a new component: Timeloop's energy is
+`sum over actions of count x ERT energy`, so adding the per-weight encoder
+energy to the action whose count IS the reconstruction count puts the encoder
+in the mapper's objective exactly. The action energy is per PHYSICAL access, so
+the quantity added is
+
+    E_encoder_per_weight x block_size,    block_size = width / datawidth
+
+because Timeloop bills `vector_access_energy / block_size` per weight. The
+encoder then costs `E_encoder_per_weight` per weight however the mapper tiles,
+and the mapper trades fewer crossings of that boundary against whatever the
+tiling costs elsewhere.
+
+Note that Timeloop's own CONSTRAINTS mechanism is the wrong tool for this:
+constraints prune the mapspace, they do not price it. A constraint is the right
+mechanism only for FEASIBILITY -- the G_rec co-residency of section 15.
+
+ONE CHARGING SITE PER ARM. Every weight crosses the encoder exactly once and
+pays once. A boundary names ONE level and ONE action, and the bump goes there
+and nowhere else. Charging both the buffer's read and the next level's write
+looks like two halves of one transfer and is in fact the same toll collected
+twice -- they describe two DIFFERENT chips, one encoder above the network and
+one encoder per PE, which also differ by 168x in engine count. Pick the chip;
+the cost follows.
+
+WHICH ARM GETS ITS OWN MAPPING. Both must hold: the count is mapping-
+sensitive, AND an ERT action exists whose count IS that count. On Eyeriss v1
+that is the filter-GLB output and the PE scratchpad input. The chip-ingress
+boundary moves only weakly, the column-edge boundary's count lives in the NoC
+model rather than in a component action, and the spad-read boundary's count is
+the MAC count, which no mapping can change.
+
+ATTRIBUTION IS A SPLIT, NOT AN ADDITION. An ERT-injected arm already carries
+the encoder energy inside the level's reported energy, and within one run
+`accesses x E_per_weight` equals `events x incremental` exactly. So MOVE that
+quantity out of the level's category into the reconstruction category; do not
+add it. Compute it from THAT run's own access counts -- the whole point of the
+exercise is that the counts changed.
+
+Reconstruction energy, with the two denominators kept apart:
 
 E_rec_total =
-    N_reconstruct * E_encoder
+    incremental_per_codeword * N_reconstruct
+  + idle_per_cycle * total_cycles * N_engines
 
-Use the same code configuration, width, granularity, and operating
-conditions for the characterized encoder and the architectural count.
+Only the first term can go in the ERT; the second is per-cycle and the
+evaluator owns it (Sec. 16). Use the same code configuration, width,
+granularity, and operating conditions for the characterized encoder and the
+architectural count.
 
 A default "eyeriss-like" configuration is not automatically a faithful
 Eyeriss-v2 implementation. Confirm topology, bypass rules, storage,
@@ -638,6 +717,18 @@ Total energy, area, latency, and derived metrics
 Dynamic energy must be associated with a defined event interval and
 activity assumptions. Synthesis area alone does not determine energy per
 reconstruction.
+
+THE SYNTHESIS REPORTS TWO NUMBERS AND THEY HAVE DIFFERENT DENOMINATORS:
+
+  incremental_per_codeword   energy burned performing one reconstruction
+  idle_per_cycle             energy burned per clock while powered on
+
+They may not be added. The first is charged per reconstruction event, the
+second per cycle of the run per engine instance (Sec. 25, risk 6). Both are
+tabulated per BCH configuration and both live in env.sh, not in Python.
+Clocks must match between the two pipelines before either is used: the
+synthesis clock period and the architectural cycle time are both 1 ns here,
+so no rescaling is applied -- state it rather than assume it.
 
 Use representative switching activity where available, and document:
 - Technology/library.
@@ -728,24 +819,21 @@ show the on-chip part.
 
 22.1 EYERISS V2
 
-Leading candidate:
+Leading candidate (revised 2026-09-10): reconstruct at the PE weight-SPad
+INPUT, one step earlier than originally proposed.
 
-Reduced weight SPad
+Reduced NoC / cluster transport
       |
       v
-XOR reconstruction
+XOR reconstruction          <-- at the SPad WRITE port
       |
       v
-Small reconstructed-weight reuse register
-      |
-      v
-MAC
+Full-width weight SPad --> MAC
 
-Rating: 5/5.   -- REMOVED 2026-09-10, see 01_..., Sec. 2.3 --
-The register catches nothing: consecutive weight reuse is 1 on 20 of 21
-resnet18 layers, and a register covering the cycled set is as large as the
-scratchpad. NEW LEADING CANDIDATE for this design: reconstruct at the PE
-weight-SPad INPUT (R3), one step earlier.
+Rating: 4/5. The earlier 5/5 candidate put a reuse register after the SPad;
+it was measured and removed (01_..., Sec. 2.3) -- consecutive weight reuse is
+1 on 20 of 21 resnet18 layers, so the register catches nothing, and one that
+covers the cycled set is as large as the scratchpad behind it.
 
 Alternative if PE-local replication is expensive:
 
@@ -800,10 +888,39 @@ Rating: 5/5.   -- REMOVED 2026-09-10, see 01_..., Sec. 2.3 --
 Same failure as Eyeriss v2 and weight stationary: no consecutive reuse for the
 latch to capture. On this design the PE-local boundaries are additionally
 INFEASIBLE in 4 of 21 layers (fewer than G_rec = 9 weights resident). NEW
-LEADING CANDIDATE: reconstruct at the filter-SPad INPUT (R3), +17.24% vs
-embedded -- the best bar in the study.
+LEADING CANDIDATE: reconstruct at the filter-SPad INPUT, +17.24% vs embedded
+-- the best bar in the study.
+
+RENUMBERED 2026-09-10 WITH THE FILTER GLB. Eyeriss v1 is now
+`archs/eyeriss_like_wglb`, which models the published 8 kB filter-weight
+allocation of the 108 kB GLB, so the design has FIVE boundaries and the
+spad-input one is R4, not R3:
+
+    R1  @ chip ingress, before the filter GLB              [3/5]
+    R2  @ filter-GLB output                                [3/5]
+    R3  @ column edge, after the 14-way array multicast    [4/5]
+    R4  @ PE filter-spad input   <-- the leading candidate [4/5]
+    R5a @ every filter-spad read                           [3/5]
+
+The +17.24% figure above was measured on the retired no-GLB file, where the
+same boundary was keyed R3. It has NOT been re-measured on the GLB design --
+`results/evaluation/` holds no `eyeriss_like_wglb` record at all -- so treat it
+as the prior, not as this design's result.
 
 Its multicast distribution provides an explicit fanout experiment.
+
+WHICH OF THE FIVE THE MAPPER CAN REACH. A boundary's reconstruction count is
+the number of times a weight CROSSES it, which is an access count Timeloop
+already reports. R5a's is the spad read count = the MAC count, fixed by the
+layer, so no mapping can move it and adding its cost to the objective cannot
+change the argmax. R1's is the DRAM weight read count, which tiling moves only
+weakly. R2's (GLB reads) and R4's (spad fills) are set by the tiling and the
+spatial mapping and move by multiples -- R4's is the fanout term this section
+is about. So R2 and R4 are the two given to the mapping optimiser, via the
+ERT (section 19's "encoder integration option 1"), and R1, R3 and R5a stay
+option 2, post-processed on the reference mapping. R3 has no ERT hook: its
+count is a network delivery count, billed through the NoC model rather than
+through a component action. prompt_6.md is the plan.
 
 
 22.4 OUTPUT STATIONARY
@@ -959,34 +1076,13 @@ Reduced weight SPad
 Reconstruct at SPad output for each required read/use
 
 
-EV2-CACHE   -- REMOVED 2026-09-10, see 01_..., Sec. 2.3 --
-
-Reduced DRAM interface
-      |
-      v
-Reduced weight through HM-NoC
-      |
-      v
-Reduced weight SPad
-      |
-      v
-Reconstruct at SPad output
-      |
-      v
-Retain reconstructed weight in a small reuse register/cache
-      |
-      v
-NOT IMPLEMENTED: the "small" register has to hold the whole set the inner
-loops cycle through (up to 384 weights, the size of the scratchpad), because
-consecutive weight reuse is 1 on 20 of 21 resnet18 layers.
-
-
 MEASURE
 
-- DRAM energy, array and interface shares reported separately.
+- DRAM weight energy, with the per-bit price each arm was charged at.
 - NoC energy.
 - Weight-SPad energy.
-- Encoder energy.
+- Encoder energy, incremental and idle reported SEPARATELY, with the
+  engine count the placement needs.
 - MAC energy.
 - Total energy.
 - Area.
@@ -1094,15 +1190,25 @@ Encoder energy per useful MAC after amortization.
 Count actual reconstructed-result reuse under the execution schedule.
 
 
-6. THE DRAM ARRAY/INTERFACE SPLIT
+6. THE ENCODER'S IDLE TERM AND ITS FANOUT
+   (this slot used to hold "the DRAM array/interface split", which is
+    SETTLED and removed -- see 01_..., Sec. 4)
 
-The DRAM-interface saving is worth f_if x (1 - k/n) of the DRAM weight
-energy, and the modeling tool supplies no f_if. An uncited f_if turns the
-largest term of the study into an assumption; cite it, and report the
-saving at several values while it is uncertain.
+The synthesised engine has a per-CODEWORD incremental energy and a per-CYCLE
+idle energy. Adding them and multiplying by codeword count is dimensionally
+wrong and was doing exactly that until 2026-09-10. Charge them separately,
+and multiply the idle term by the number of ENGINES the placement needs.
 
-Do not credit the DRAM array: a message-only fetch reads the same bursts
-unless a narrower array access is demonstrated.
+That count is the risk. A boundary above the network needs one engine; a
+boundary at the PE scratchpad input needs one per PE -- 168 on Eyeriss v1.
+Measured on resnet18 layer3.0.conv1 (344,064 cycles), the idle term is
+0.97 uJ at one engine and 163.6 uJ at 168, i.e. 0.2% of the run against 34%,
+while the incremental term is under 0.4 uJ either way. The engine count,
+not the mapping, is the dominant variable at any PE-local boundary.
+
+Two consequences. Report engine count on every row. And note that no mapping
+can remove a standby cost -- only a shorter run can -- so an idle-dominated
+boundary is a LATENCY problem, not a data-movement one.
 
 
 ======================================================================
@@ -1139,9 +1245,6 @@ Reconstruction
       |
       v
 MAC
-
-  (a "decoded reuse register" between Reconstruction and MAC was part of this
-   hierarchy until 2026-09-10; it is REMOVED -- see 01_..., Sec. 2.3)
 
 Treat every feasible boundary at or below the chip ingress as a DSE
 candidate.
@@ -1226,9 +1329,9 @@ The source discussion identifies these reference families:
 - Accelergy documentation and energy-estimation components:
   Component actions, energy tables, memory and custom encoder integration.
 
-- On-die DRAM ECC and DRAM energy decomposition:
-  LPDDR4/LPDDR5/DDR5 on-die ECC descriptions; array versus I/O energy
-  breakdowns, which are the only legitimate sources for f_if.
+- On-die DRAM ECC and measured DRAM energy:
+  LPDDR4/LPDDR5/DDR5 on-die ECC descriptions, and measured per-bit access
+  energy -- the only legitimate source for the per-bit constants.
 
 Verify exact implementation claims and record usable bibliographic
 references in the project rather than retaining chat-local citation IDs.
@@ -1247,8 +1350,10 @@ Before making architectural changes:
 2. Identify the actual baseline architecture configuration.
 3. Inspect the ECC parameters, generator relationships, and weight mapping.
 4. Establish reconstruction granularity and dependency availability.
-5. Split the DRAM weight energy into array and interface shares with a
-   cited f_if; scale only the interface share by k/n.
+5. Scale the WHOLE DRAM weight term by k/n (the access collects only the
+   interleaved message bits; there is no array/interface split), and price
+   the conventional baseline's larger, indexed array per BIT rather than as
+   extra traffic.
 6. Define physically packed reduced representations, including metadata.
 7. Implement the initial Eyeriss-v2 variants.
 8. Derive reconstruction counts from actual events and reuse schedules.
@@ -1260,10 +1365,11 @@ Do not assume:
 - A default Eyeriss-like model is Eyeriss v2.
 - Weights reside in a global buffer in every architecture.
 - Half the value bits means half the SRAM or NoC energy.
-- The flat DRAM constant is all interface, or all array.
-- A message-only fetch reads fewer DRAM array bits.
+- The conventional baseline moves more DRAM traffic than the embedded arm.
+  (It does not: its parity is corrected on the die. It pays a dearer BIT.)
+- Two parts of the model may each apply the same saving. Exactly one owns it.
 - Every weight can be reconstructed independently.
-- A single latch captures all reuse.   <-- CONFIRMED FALSE 2026-09-10 (Sec. 2.3 of 01_...): consecutive reuse is 1 on 20 of 21 layers; R4b removed.
+- A single latch captures all reuse.   <-- MEASURED FALSE 2026-09-10; removed.
 - Late reconstruction always wins.
 - An added encoder is free in timing, area, leakage, or control.
 - The qualitative ratings are experimental results.

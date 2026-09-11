@@ -83,7 +83,7 @@ evaluator.
 ### The lists in section 3 are the run
 
 ```bash
-ECC_ARCHS="eyeriss_v2_like eyeriss_like simple_weight_stationary ..."
+ECC_ARCHS="eyeriss_v2_like eyeriss_like_wglb simple_weight_stationary ..."
 ECC_MODELS="resnet18 mobilenet_v2"
 ECC_KS="51"
 ECC_APPROACHES="baseline embedded recon"
@@ -205,7 +205,7 @@ everything is already cached. The uncapped default is typically 4–10× that.
 
 ```bash
 python3 hpc/summary.py --scope layers-full --csv results/tables/panel_matrix.csv
-python3 hpc/summary.py --field total         # timeloop | parity | total | embedded | saving
+python3 hpc/summary.py --field total         # timeloop | ecc-cost | total | embedded | saving
 ```
 
 Standard-library only, so it runs with the system python outside the container.
@@ -288,18 +288,26 @@ sacct -j <jobid> --format=JobID%18,State%12,Elapsed -X
 
 ## Current state
 
-* resnet18 (21 layers) and mobilenet_v2 (53 layers, 10 depthwise) are evaluated
-  **whole-model on all six architectures** at the converged search.
-* The architecture ranking is preserved across both models:
-  `v2 ≈ v1 < Simba-like ≈ input-stationary < weight-stationary < output-stationary`.
-* **The two development layers are not a proxy for the model** — weight- and
-  input-stationary swap places between them.
-* Still open: six of eight models unmapped; the `_wglb` Eyeriss bracketing pair
-  was not run; the reconstruction placement study (section 4 of `env.sh`) is a
-  placeholder with no code behind it.
+**The live plan is `prompt_6.md`** — reconstruction-aware mapping: put the
+encoder's energy into the ERT so the mapper solves the mapping knowing what
+reconstruction costs. Scope is `eyeriss_like_wglb` (Eyeriss v1), one layer,
+BCH(63,30).
 
-`progress.txt` is the status board, `FINDINGS.md` §13 the evidence,
-`PROJECT_STATUS.md` the summary.
+⚠ **Every reconstruction energy number in the project is pending
+regeneration.** prompt_6 RULE 3 separates the encoder's per-codeword and
+per-cycle terms, which were previously added together, so every percentage and
+every ranking that includes an encoder cost moves. Do not quote a figure or a
+table produced before 2026-09-11.
+
+* Tasks 1–3 (conventional / embedded / placement) are implemented; their totals
+  await regeneration.
+* Task 4 by capacity dilation is **withdrawn** — the capacity mechanism moves in
+  2× steps and N/K sits below the step. The live mechanism is `datawidth`.
+* The mapper search is converged only under the **constrained mapspace**; an
+  unconstrained ranking is not quotable.
+
+`FINDINGS.md` is what was learned, `progress.txt` what is happening now, and
+`legacy/` holds the full dated working record.
 
 ---
 

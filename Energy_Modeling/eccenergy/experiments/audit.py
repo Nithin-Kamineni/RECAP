@@ -10,7 +10,7 @@ if a check changes here, change it there too, and vice versa. Task 2
 """
 from __future__ import annotations
 
-from .. import noc_post
+from .. import baseline_dram, noc_post
 from ..archs import (accumulator_bits, arch_source, noc_band_levels, noc_terms,
                      pe_latch_pj, validate_arch)
 
@@ -120,8 +120,12 @@ def common_checks(builder, cfg, arch, raw, parity_detail, mapping_ids):
     return arch_report
 
 
-def common_caveats(builder, cfg, arch, raw, parity_detail):
-    """Task 1's approximations and warnings, verbatim."""
+def common_caveats(builder, cfg, arch, raw, parity_detail, pricing=None):
+    """Task 1's approximations and warnings, verbatim.
+
+    `pricing` is `baseline_dram.charge()`'s record: it decides which of the two
+    DRAM-cost caveats this result carries. None keeps the pre-2026-09-10 text.
+    """
     builder.approximate(parity_detail["traffic"]["method"])
     mac = getattr(raw, "mac", None) or {}
     if cfg.mac_pj_override is not None:
@@ -141,12 +145,7 @@ def common_caveats(builder, cfg, arch, raw, parity_detail):
             f"width and 1.2652x from 40 to 45 nm). It is the denominator of every "
             f"percentage here; FINDINGS 7.3 and provenance.yaml mac_energy_pj record "
             f"the cited alternatives and ECC_MAC_PJ_OVERRIDE re-evaluates under one.")
-    builder.approximate(
-        "External parity is billed at the measured per-access energy of a "
-        "DRAM weight read on this architecture, not at an independently "
-        "modelled parity-region access cost. That is exact if parity is "
-        "read from the same DRAM by the same controller, which is the "
-        "conventional-ECC assumption.")
+    builder.approximate(baseline_dram.caveat(pricing))
     if cfg.layers:
         builder.warn(
             f"DEVELOPMENT RUN: {cfg.layer_scope} "

@@ -152,21 +152,26 @@ Array holds full codeword --> on-die correction (off the fetch path)
     --> fetch selects k message bits --> interface carries k bits
     --> accelerator reduced-representation datapath
 
-What IS credited at the DRAM:
-- DRAM interface energy scales by k/n under every reconstruction boundary.
+What IS credited at the DRAM (settled 2026-09-10):
+- The WHOLE DRAM weight term scales by k/n under every reconstruction
+  boundary. The access is custom-designed to collect only the interleaved
+  message bits of each codeword, so the array reads fewer bits too; there is
+  no array/interface split to apply and none is applied.
 
 What is NOT credited at the DRAM:
-- DRAM array energy. The array stores and, for correction, reads the
-  complete codeword. Whether a message-only fetch touches fewer array bits
-  depends on burst granularity and the codeword layout; do not assume it.
 - Decoder energy. The decoder is the same BCH decoder relocated to the
   DRAM die; it runs once per corrected codeword and sits outside the
   placement comparison. Record that it is DRAM-process logic.
+- E_background and E_refresh. Both are 0 and unmodelled, which understates
+  the embedded and reconstruction arms.
 
-Reference bars are unchanged: the conventional baseline is side-band ECC,
-so its external parity is read from the array AND crosses the interface;
-the embedded arm without reconstruction consumes every weight bit on chip,
-so its complete codeword crosses the interface too.
+Reference bars: the conventional baseline is side-band ECC, so its array
+holds the parity beside the data -- but that parity is corrected ON THE DIE
+and never crosses the datapath, so the baseline moves the SAME weight bits as
+the embedded arm and issues no extra reads. It pays for the bigger, indexed
+array through a higher per-bit price (70 pJ/bit against 40), not through
+traffic. The embedded arm without reconstruction consumes every weight bit on
+chip, so its complete codeword crosses the interface.
 
 Reconstructing at an SRAM input restores full-width data before storage,
 so that SRAM does not receive the reduced-storage benefit. Upstream
@@ -231,47 +236,19 @@ Main risk:
 The encoder may execute once for every MAC use of the weight.
 
 
-2.3 LATE RECONSTRUCTION WITH A RECONSTRUCTED-WEIGHT LATCH/CACHE
-    -- REJECTED AND REMOVED FROM THE STUDY, 2026-09-10 --
+2.3 A RECONSTRUCTED-WEIGHT LATCH -- REJECTED, REMOVED FROM THE STUDY
 
-The proposal was to hold reconstructed weights in a register/latch between the
-weight SPad and the MAC, so one reconstruction could serve many MAC uses:
+Holding reconstructed weights in a latch between the weight SPad and the MAC,
+so one reconstruction serves many MAC uses, was rated 5/5 and evaluated as
+boundary R4b. It was measured and it does not work: consecutive weight reuse is
+1 on 20 of the 21 resnet18 layers, so a latch catches nothing, and a register
+that would pay has to hold the whole inner tile (16-384 weights) -- a second
+scratchpad, not a latch. No dataflow in this study escapes that.
 
-    4-bit SPad --> XOR encoder --> reconstructed-weight register --> MAC
-                                            +--> reuse x N
-
-It was rated 5/5 on architectural promise and evaluated as boundary R4b. IT DOES
-NOT WORK, and the measurement is not close:
-
-  * A LATCH CATCHES NOTHING. Measured on the cached Timeloop mappings for
-    resnet18, the number of MAC operations that use the same weight
-    CONSECUTIVELY is 1 on 20 of the 21 layers (the exception is conv1, at 196).
-    The innermost temporal loops below the scratchpad walk weight dimensions
-    (C, R, S), so the required weight changes every cycle and a 1-, 2- or
-    4-entry register is reloaded on every access.
-  * A REGISTER THAT DOES PAY IS A SECOND SCRATCHPAD. Reuse does not need to be
-    consecutive, but the register must then hold the whole set the inner loops
-    cycle through. That set is 16-384 weights across the layers, worst case 384
-    -- and simple_weight_stationary's pe_spad holds exactly 384 weights. There
-    is no useful middle: a register smaller than the cycled set has a 0% hit
-    rate, because a cyclic walk is the worst case for any replacement policy.
-  * NO DATAFLOW IN THE STUDY ESCAPES THIS. Weight-stationary is the best case
-    and already fails. Output- and input-stationary hold the psum or the
-    activation in the PE by definition, so weights stream past the MAC faster
-    still. Simba's PE behaves like Eyeriss v2, where the boundary is infeasible
-    anyway (fewer than G_rec = 9 weights resident in 4 of 21 layers).
-  * THE MAPPER CANNOT BE ASKED TO FIX IT CHEAPLY. Holding a weight while
-    sweeping output positions is expressible as a loop-order constraint, and
-    Timeloop does produce such a nest for conv1 (P14/Q14 innermost). But weight
-    reuse trades directly against psum residency -- 196 consecutive uses needs
-    196 partial sums live in the PE -- so buying it costs more in psum traffic
-    than the boundary was worth. R4b beat R3 by only 1.34 points even with a
-    384-entry register charged nothing for area or leakage.
-
-CONCLUSION: reconstruct at the PE weight-SPad INPUT (R3). It needs no extra
-state, no mapping constraint, and it is the lowest-energy feasible boundary on
-both designs measured. Every R4b row, rating and diagram below is retained only
-as a record of the rejected option; the code no longer implements it.
+REMOVED 2026-09-10: no boundary on any design carries a per-PE reuse register,
+and `eccenergy/recon.py` no longer implements one. Do not reintroduce one
+without first measuring consecutive reuse on the target mapping. The
+conclusion stands: reconstruct at the PE weight-SPad INPUT.
 
 
 ======================================================================
@@ -330,27 +307,42 @@ E_rec:
 E_control(r):
     Additional control energy associated with placement r.
 
-DRAM term. A DRAM read has two physical parts, and only one of them gets
-smaller when fewer bits leave the die:
+DRAM term. SETTLED 2026-09-10. The array/interface split (f_if) that this
+section used to carry is REMOVED. The DRAM access in this architecture is
+custom-designed to collect only the interleaved message bits of each codeword,
+so the array reads fewer bits too and the WHOLE DRAM weight term scales:
 
-E_array      reading the complete n-bit codeword out of the array. A row
-             activation and a burst move whole words; they cannot pick the
-             k message bits out of a chunk. Never reduced.
-E_interface  driving bits off the die: I/O drivers, link, controller port.
-             Proportional to the bits sent, so reduced to k of n.
+E_DRAM(embedded, no reconstruction) = E_DRAM
+E_DRAM(r), every boundary           = E_DRAM * k/n
 
-E_DRAM(embedded, no reconstruction) = E_array + E_interface
-E_DRAM(r), every boundary           = E_array + E_interface * k/n
+There is no array/interface caveat to state and no f_if to cite. What remains
+cited is the per-bit cost itself: 40 pJ/bit (FReaC Cache MICRO 2020; Gebhart
+et al. MICRO 2012, 28-45 band), against the modeling tool's own 8 pJ/bit.
 
-The modeling tool bills DRAM as ONE per-bit number that contains both
-parts, so the evaluator needs the interface share of that number:
+The conventional-ECC BASELINE is priced differently and it is NOT a traffic
+term. Decoding happens on the DRAM die, so its parity is read, corrected and
+discarded there and never crosses the datapath: the baseline issues the SAME
+weight reads as the embedded arm. What it pays for is an array that also holds
+the parity (2.625x the payload bits at BCH(63,30)) plus the indexing the other
+two arms do not do, priced as 70 pJ/bit against 40 -- x1.75 on the whole DRAM
+category of that arm only. Reconstruction is the only arm whose TRAFFIC scales.
 
-f_if = E_interface / (E_array + E_interface)
+E_background and E_refresh grow with the bigger array too. Both are currently
+0 and unmodelled, which understates the embedded and reconstruction arms.
 
-f_if is the only new parameter. It comes from a cited DRAM energy breakdown,
-not from code; when it is uncertain, print the DRAM saving at several values.
-f_if = 0 would mean no DRAM saving at all; f_if = 1 would claim the array
-also reads fewer bits, which needs physical justification.
+Reconstruction term. The synthesised engine has TWO energies with DIFFERENT
+denominators, and adding them is dimensionally wrong:
+
+E_rec_total = incremental_per_codeword * N_rec(r)
+            + idle_per_cycle * total_cycles * N_engines(r)
+
+incremental  per actual reconstruction -- an EVENT cost, so it can be put in
+             front of the mapper (see 02_..., Sec. 19)
+idle         per CYCLE the engine is powered, for every copy of it the
+             placement needs. N_engines is 1 above the network and one per PE
+             inside the array (168 on Eyeriss v1), so the placement choice
+             moves this term by two orders of magnitude. It is a standby cost
+             and no mapping can remove it -- only a shorter run can.
 
 Conceptual model:
 
@@ -358,7 +350,7 @@ E(r) =
     E_DRAM(r)
   + SUM over l in partial(r) [A_l * E_l(k)]
   + SUM over l in full(r)    [A_l * E_l(n)]
-  + N_rec(r) * E_rec
+  + E_rec_total(r)
   + E_control(r)
 
 Boundary interpretation:
@@ -495,10 +487,6 @@ operate simultaneously.
       Encoder
         |
         v
- Reconstructed-weight latch/cache
-        |     R4b: retain reconstructed values for reuse
-        |     -- REMOVED 2026-09-10, see Sec. 2.3 --
-        v
        MAC
 
 Why R1 is no longer a zero-saving control:
@@ -544,7 +532,6 @@ This is a compromise between:
 | Cluster router/local distribution | Multicast/unicast to PEs | Reduced preferred | Cluster-local boundary | Output | Keeps much of HM-NoC reduced; localizes reconstruction | Replication and throughput requirements depend on distribution | 4/5 |
 | PE weight-SPad input | Fills local weight memory | Reduced to full | R3 | SPad input | Reduced NoC traffic; reconstruction once per local fill | SPad remains full-width | 4/5 |
 | PE weight SPad | Stores CSC weight data | Reduced | R4a | SPad output | Saves local capacity and access bit-volume | May repeatedly reconstruct the same weight | 3/5 |
-| Post-SPad decoded latch/cache | Holds reconstructed active weight(s) | Full | R4b | Encoder output | Reduced SPad plus amortized reconstruction | Extra register/cache and control | REMOVED 2026-09-10 (Sec. 2.3): the register would have to hold the whole inner tile |
 | MAC input | Consumes full weight | Full | Very late placement possible | MAC input | Longest reduced-representation lifetime | Timing and throughput risk | 2/5 |
 
 
@@ -750,17 +737,28 @@ The source discussion describes original Eyeriss as:
 - 108-kB global buffer.
 - Approximately 0.5 kB of local RF per PE in the fabricated chip.
 
-Important modeling distinction:
+Important modeling distinction -- SETTLED 2026-09-10:
 The referenced official Timeloop Eyeriss example contains:
 - ifmap_spad
 - weights_spad
 - psum_spad
 
-The example explicitly bypasses weights at shared_glb.
+and it explicitly bypasses weights at shared_glb. That example is NOT the
+published chip. JSSC 2017 Sec. V-A allocates 8 kB of the 108 kB GLB (two banks
+of 512-b x 64-b SRAMs) to filter weights: "Even though it is not required by
+the dataflow ... the GLB preloads the filters used by the next processing
+pass." The file that models that allocation IS Eyeriss v1 for this study --
+`archs/eyeriss_like_wglb/arch_paper.yaml`. `archs/eyeriss_like/arch_paper.yaml`,
+which declares `!Nothing` where the filter GLB sits, is RETIRED; the
+bracketing-pair doctrine for v1 is over.
 
-Therefore, do not assume every Eyeriss model uses:
-
-DRAM --> Global weight buffer --> Weight RF
+The consequence for this section is one extra reconstruction boundary. A
+weight level ABOVE the PE array admits a boundary at its output that a design
+with no weight GLB has nowhere to put, and FINDINGS 7.8 is why it matters:
+refetch on v1 is set by the DRAM-level loop order over P and Q, a weight tile
+cannot index either, so a weight buffer INSIDE the array cannot absorb those
+loops however large it is made (measured flat to x32 capacity at 1 % fill).
+`filter_glb` sits above the array and can.
 
 Useful abstraction:
 
@@ -770,10 +768,13 @@ DRAM array (on-die ECC)
 DRAM interface / iFIFO: k bits per codeword
   |
   v
-GLB or weight-bypass path, depending on model
+Filter GLB: 8 kB of the published 108 kB, weights only
   |
   v
-Flat multicast/distribution NoC
+Flat array NoC: 14-way multicast across PE columns
+  |
+  v
+Column-local distribution to the 12 PEs of a column
   |
   v
 PE pFIFO
@@ -784,41 +785,73 @@ PE weight SPad/RF
   v
 MAC
 
+The flat array network is TWO stages as modelled, not one -- Timeloop's
+PE_column fanout (meshX 14) and its PE fanout (meshY 12) -- and each admits its
+own boundary. The PE pFIFO has no level in the model, so Sec. 7.2's
+FIFO-output boundary does not exist to evaluate and is absent by construction
+rather than omitted.
+
 RS seeks reuse of weights, activations, and partial sums across RF and
 array levels instead of optimizing only one tensor.
 
 
 7.1 RECONSTRUCTION DIAGRAM
 
+FIVE boundaries since the filter GLB was adopted on 2026-09-10, not three.
+The numbering follows weight-stationary's (Sec. 6.2) -- the other design in the
+study with a weight buffer above its network -- so R2 is the global weight
+buffer's output on both. `eccenergy/recon.py` `_EYERISS_V1_WGLB_PLACEMENTS` is
+this list, key for key.
+
 DRAM array: complete codeword, corrected on the die
   |
   | DRAM interface: k of n bits   <-- saved under every boundary
   v
-Reduced weights
+Reduced weights at chip ingress
   |
-  +--> R1: source-side reconstruction                [3/5]
-  |
+  +--> R1: source-side reconstruction, before the GLB      [3/5]
+  |         nothing on chip carries the reduced form; the
+  |         control that isolates the interface saving
   v
-Flat multicast NoC
+Filter GLB (8 kB, weights only)
   |
-  +--> R2: after multicast / PE input                [4/5]
+  +--> R2: reconstruct at the filter-GLB output            [3/5]
+  |         the GLB holds the reduced form; encoder at its
+  |         read port, before the array network
   v
-PE pFIFO
+Flat array NoC: 14-way multicast across PE columns
   |
+  +--> R3: reconstruct at the column edge                  [4/5]
+  |         one encoder per COLUMN, so the count is
+  |         arrivals = ingresses x multicast factor
+  v
+Column-local distribution to the 12 PEs
+  |
+  +--> R4: reconstruct at the PE filter-spad input         [4/5]
+  |         encoder at the scratchpad WRITE port; runs once
+  |         per weight FILLED into a PE -- the smallest
+  |         count of any boundary below the network
+  v
+PE pFIFO  (no level in the model; Sec. 7.2's FIFO boundary
+  |        does not exist to evaluate)
   v
 Reduced weight SPad/RF
   |
-  +--> R3a: reconstruct on every read                [3/5]
+  +--> R5a: reconstruct on every filter-spad read          [3/5]
+  |          encoder at the READ port; the MAC reads the
+  |          spad directly, so it runs once per MAC
   v
 Encoder
   |
   v
-Decoded reuse register
-  |
-  +--> R3b: retain reconstructed weight
-  |    -- REMOVED 2026-09-10, see Sec. 2.3 --
-  v
 MAC
+
+Which boundaries the MAPPER can move, and which it cannot (2026-09-10):
+R5a's count is the spad read count, which is the MAC count, so it is fixed by
+the layer and no mapping can change it. R1's count is the DRAM weight read
+count, which tiling moves only weakly. R2's (GLB reads) and R4's (spad fills)
+are set by the tiling and the spatial mapping and move by multiples, so those
+two are the ones worth putting in front of the mapper. See prompt_6.md.
 
 Multicast tradeoff:
 
@@ -857,12 +890,28 @@ variable.
 |-------|----------|-----------------------|----------|-------------|-----------|--------|
 | DRAM array | Protected weight storage; on-die correction off the fetch path | No | N/A | N/A | Complete codeword read for correction | N/A |
 | DRAM interface / iFIFO | Carries k message bits per codeword | Strip on the die | DRAM output pins | Interface energy x k/n, every boundary | On-die decoder logic | Essential |
-| Weight source/GLB if modeled | Supplies weight tile | Source reconstruction | Output | Potential source-storage saving | Full downstream network | 3/5 |
-| Flat array NoC | Multicasts/distributes weights | Destination reconstruction | Output | Network-width saving | More encoder instances | 4/5 |
-| PE FIFO | Buffers incoming weights | FIFO-output reconstruction | Output | Keeps transport reduced | FIFO-only storage benefit may be small | 3/5 |
-| PE weight RF/SPad | Exploits RS reuse | Local-output reconstruction | Output | Storage/read savings | Repeated encoding without retained full weights | 3/5 |
-| Reconstructed-weight latch | Holds currently reused weight | Reconstruct before latch | Input | Local savings with amortized XOR | Additional state | REMOVED 2026-09-10 (Sec. 2.3): no consecutive reuse to amortize over |
+| Chip ingress | Receives the reduced stream | R1 source reconstruction | Before the GLB | Interface only; the control | Full-width GLB, network and spad | 3/5 |
+| Filter GLB (8 kB of 108 kB) | Preloads the next pass's filters | R2 GLB-output reconstruction | Output | GLB capacity and per-weight read cost | GLB is read once per weight DELIVERED into the array, not once per weight stored | 3/5 |
+| Flat array NoC (14-way column multicast) | Multicasts weights across PE columns | R3 destination reconstruction | Column edge | Network-width saving on the long hop | One encoder per column; count = ingresses x multicast factor (up to 7x) | 4/5 |
+| Column-local distribution (12 PEs) | Distributes within a column | -- folded into R4 -- | -- | -- | -- | -- |
+| PE FIFO | Buffers incoming weights | FIFO-output reconstruction | Output | Keeps transport reduced | NO LEVEL IN THE MODEL -- absent by construction, not omitted | not evaluable |
+| PE weight RF/SPad, write port | Receives weights into the PE | R4 spad-input reconstruction | Input | Whole network carries the reduced form | One encoder per weight FILLED into a PE | 4/5 |
+| PE weight RF/SPad, read port | Exploits RS reuse | R5a local-output reconstruction | Output | Spad capacity, write AND read bit-volume | The MAC reads the spad directly, so the encoder runs once per MAC | 3/5 |
 | MAC | Executes products | Very late reconstruction possible | Input | Maximum reduced lifetime | Timing risk | 2/5 |
+
+Boundary keys, counts, and what the mapper can reach:
+
+| Key | Boundary | Reconstruction count | Mapping-sensitive | ERT hook |
+|-----|----------|----------------------|-------------------|----------|
+| recon1 | R1 @ chip ingress | DRAM weight reads | weakly | none (post-processed) |
+| recon2 | R2 @ filter-GLB output | filter_glb READS | strongly | filter_glb `read` action |
+| recon3 | R3 @ column edge | array-NoC deliveries | strongly | none -- the count lives in the NoC model, not in a component action |
+| recon4 | R4 @ PE spad input | weights_spad FILLS | strongly | weights_spad `write` action |
+| recon5 | R5a @ every spad read | weights_spad reads = MACs | NO -- fixed by the layer | pointless: a constant added to every mapping cannot change the argmax |
+
+Only recon2 and recon4 have both a mapping-sensitive count and a storage
+action to attach an encoder to, so those are the two the mapping optimiser is
+given. The rest are post-processed on the reference mapping. prompt_6.md.
 
 
 ======================================================================
@@ -1161,7 +1210,6 @@ Vector-MAC stationary register
 | NoP | Package/chiplet communication | Reduced | R2 at output | Saves package communication | Chiplet NoC carries full data | 3/5 |
 | Chiplet NoC | Routes to PEs | Reduced | R3 at output | Saves NoP and NoC traffic | Full PE weight-buffer storage | 4/5 |
 | Distributed weight buffer | Holds local weight tile | Reduced | R4 at output | Saves NoP, NoC, local storage/access | Local encoder needed | 5/5 |
-| Vector-MAC weight register | Retains reconstructed weight | Full | Reconstruction before register | Once per stationary-weight load | Account for register/state costs | REMOVED 2026-09-10 (Sec. 2.3): same failure as R4b -- Simba's PE behaves like Eyeriss v2 |
 | Vector MAC | Reuses stationary weight | Full | Avoid encoding every MAC | Strong amortization opportunity | N/A | N/A |
 
 Promising implementation:
@@ -1193,24 +1241,22 @@ assuming an additional register is necessary.
 11. CROSS-ARCHITECTURE COMPARISON
 ======================================================================
 
-These rankings are hypotheses. The DRAM-interface saving is common to every
-column of one row, so it moves every boundary of an architecture by the
-same amount and does not reorder the columns.
+These rankings are hypotheses. The DRAM saving is common to every column of
+one row, so it moves every boundary of an architecture by the same amount and
+does not reorder the columns.
 
-The "decoded reuse register" column is REMOVED (2026-09-10, Sec. 2.3): the
-register it assumes has to hold the whole set the inner loops cycle through
-(16-384 weights, worst case the entire scratchpad), because consecutive weight
-reuse is 1 on 20 of 21 resnet18 layers. It is struck through below rather than
-deleted so the rejected hypothesis stays on the record.
+A fifth column, "local output + decoded reuse register", was rated 5/5 on
+every row until 2026-09-10. It is deleted, not struck through: it was measured
+and it does not exist as a useful option (Sec. 2.3).
 
-| Architecture | Early/global reconstruction | After NoC | Local weight-storage output | ~~Local output + decoded reuse register~~ | Likely best candidate |
-|--------------|-----------------------------|-----------|-----------------------------|---------------------------------------|-----------------------|
-| Eyeriss v2 | 2/5 | 4/5 | 3/5 | ~~5/5~~ REMOVED | SPad INPUT (R3) |
-| Weight stationary | 3/5 | 4/5 | 2/5 for naive repeated encoding | ~~5/5~~ REMOVED | PE INPUT (R3) |
-| Eyeriss v1 | 3/5 | 4/5 | 3/5 | ~~5/5~~ REMOVED | SPad INPUT (R3) |
-| Output stationary | 3/5 | 5/5 | 4/5 | n/a -- holds the psum, not the weight | Destination-side NoC/PE input |
-| Input stationary | 3/5 | 5/5 | 4/5 | n/a -- holds the activation, not the weight | Destination-side NoC/PE input |
-| Simba | 2/5 | 4/5 | 5/5 | ~~5/5~~ REMOVED | Distributed weight-buffer output |
+| Architecture | Early/global reconstruction | After NoC | Local weight-storage output | Likely best candidate |
+|--------------|-----------------------------|-----------|-----------------------------|-----------------------|
+| Eyeriss v2 | 2/5 | 4/5 | 3/5 | SPad INPUT (R3) |
+| Weight stationary | 3/5 | 4/5 | 2/5 for naive repeated encoding | PE INPUT (R3) |
+| Eyeriss v1 | 3/5 | 4/5 | 3/5 | SPad INPUT (R3) |
+| Output stationary | 3/5 | 5/5 | 4/5 | Destination-side NoC/PE input |
+| Input stationary | 3/5 | 5/5 | 4/5 | Destination-side NoC/PE input |
+| Simba | 2/5 | 4/5 | 5/5 | Distributed weight-buffer output |
 
 MEASURED OUTCOME (2026-09-10): the best feasible boundary is the PE weight-SPad
 INPUT (R3) on both designs evaluated -- +11.07% vs embedded on

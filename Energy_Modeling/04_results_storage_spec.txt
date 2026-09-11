@@ -78,4 +78,4 @@ Implement:
 
 Do not fabricate unavailable measurements. Store unavailable values explicitly and explain why they are unavailable. Do not launch full-model mapping searches while implementing or testing this feature.
 
-Before editing, briefly report the proposed final namespace and the files you expect to change. Then implement the system, run the small test, update `PROJECT_STATUS.md`, and stop for review.
+Before editing, briefly report the proposed final namespace and the files you expect to change. Then implement the system, run the small test, update `progress.txt`, and stop for review.

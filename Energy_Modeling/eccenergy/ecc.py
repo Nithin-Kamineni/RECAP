@@ -49,7 +49,7 @@ import pathlib
 
 import pandas as pd
 
-from . import embedded, parity
+from . import baseline_dram, embedded, parity
 from .energy import onchip_cats, plot_cats
 from .paths import ROOT
 
@@ -281,9 +281,16 @@ def build_stacks(cfg, raw, recon_pj, code_k=None, recon_pj_by_k=None,
         # `comparison_to_flat_model` block in every result JSON for what the
         # old flat `n/k - 1` would have charged instead.
         e_parity, detail = external_parity(cfg, raw, code_k=k)
-        col["DRAM"] += e_parity
+        # The baseline's DRAM cost is a per-bit PRICE (70 against 40) for an
+        # array that also stores the parity, NOT extra traffic: the decoder is
+        # on the DRAM die, so the parity is corrected there and never crosses
+        # the datapath. `baseline_dram.charge_stack` folds the old traffic term
+        # into DRAM instead when ECC_BASELINE_DRAM_PJ_PER_BIT is unset, which
+        # reproduces the pre-2026-09-10 figures exactly.
+        pricing = baseline_dram.charge_stack(cfg, raw, col, e_parity)
         if parity_detail is not None:
             parity_detail.update(detail)
+            parity_detail["baseline_dram_pricing"] = pricing
         for c in onchip:
             # ECC_BASELINE_INFLATES_ONCHIP is NOT the conventional baseline:
             # external parity is consumed by the off-chip ECC correction and is

@@ -713,6 +713,266 @@ def _scale_weight_capacity(text, scale, scope="exclusive", arch="?", quiet=False
     return "".join(out)
 
 
+def _weight_level_parts(text, scope="exclusive"):
+    """Split `text` into `!Node` parts, tagging which ones hold WEIGHTS on chip.
+
+    Shared by `_set_weight_datawidth` and `_scale_weight_depth` so the two
+    prompt_2 knobs can never disagree about which levels they are talking
+    about -- if one narrowed a level the other did not shrink, the two arms of
+    a pair would stop declaring the same geometry and the comparison would be
+    void without anything saying so.
+
+    Yields `(part, name, is_weight_level, why_not)`.
+    """
+    for part in re.split(r"(\n\s*-\s*!)", text):
+        depth = re.search(r"\bdepth:\s*(\d+)", part)
+        name = re.search(r"name:\s*(\S+)", part)
+        name = name.group(1) if name else "?"
+        if not depth:
+            yield part, name, False, None
+            continue
+        keep = re.search(r"keep:\s*\[([^\]]*)\]", part)
+        keep = [s.strip() for s in keep.group(1).split(",") if s.strip()] if keep else []
+        if "class: DRAM" in part or name == "DRAM":
+            # DRAM `datawidth` STAYS 8 ON EVERY ARM. `recon.py` owns the DRAM
+            # K/N scaling in the evaluator; narrowing DRAM in the YAML too
+            # would charge the same reduction twice (prompt_2, BEFORE ANY
+            # NUMBER IS QUOTED, item 1).
+            yield part, name, False, "DRAM (recon.py owns the DRAM K/N term)"
+            continue
+        if "Weights" not in keep:
+            yield part, name, False, None
+            continue
+        if keep != ["Weights"] and scope != "shared":
+            yield (part, name, False,
+                   f"{name} holds {'+'.join(keep)}; "
+                   f"ECC_WEIGHT_CAPACITY_SCOPE=shared includes it")
+            continue
+        if int(depth.group(1)) == 1:
+            yield (part, name, False,
+                   f"{name} declares depth 1 -- a pipeline latch, not a "
+                   f"reuse level")
+            continue
+        yield part, name, True, None
+
+
+def _set_weight_width(text, spad_width, glb_mult, scope="exclusive", arch="?",
+                      quiet=False):
+    """PROMPT_2's WIDTH TABLE: declare a physical word width the code's `q`
+    divides, holding each level's TOTAL BITS at the published value.
+
+    WHY A WIDTH KNOB EXISTS AT ALL. `timeloop-mapper` asserts
+    `width % (word_bits * block_size) == 0` (`buffer.cpp:302`) with
+    `block_size` defaulting to 1, and there is NO floor path -- a width the
+    datawidth does not divide ABORTS the mapper (measured, `exit=134, core
+    dumped`), it does not fall back to `floor(width/q)`. So a code whose
+    `q = round(8*K/N)` does not divide the published word needs a declared
+    width that it does. prompt_2 tabulates one per code, all five within 3 % of
+    each other so the arms stay comparable across codes.
+
+    BCH(63,30) NEEDS NONE, which is why it is the code this study starts from:
+    q = 4 divides Eyeriss v1's published 16-bit scratchpad word and its 64-bit
+    GLB word already, so the arms run on the UNTOUCHED published geometry.
+    Leave this EMPTY for that case; it is not a no-op that costs nothing, it is
+    a no-op that keeps the published silicon.
+
+    THE WIDTH TABLE IS QUOTED FOR THE SCRATCHPAD. A weight level ABOVE the PE
+    array declares `glb_mult` times that width -- 4x, which is the ratio
+    Eyeriss v1's published geometry already has (the filter spad is a 224 x
+    16-b SRAM, the filter GLB two 512-b x 64-b banks). The rule also preserves
+    the divisibility the mapper demands: if `q` divides W it divides 4W, so one
+    scratchpad width settles every weight level at once.
+
+    DEPTH IS RENORMALISED TO HOLD THE DECLARED BITS. `depth' = round(depth *
+    width / width')`, so the level is the same amount of silicon at a different
+    word shape rather than a bigger array smuggled in as a width change -- and
+    CACTI is handed `depth` and `width`, so that is exactly the quantity that
+    must not move. It reproduces prompt_2's own table: `weights_spad`
+    224 x 16 b = 3,584 b -> depth 37 at width 96; `filter_glb` 1024 x 64 b =
+    65,536 b -> depth 171 at width 384.
+
+    This runs BEFORE `_scale_weight_depth`, so the swept ladder multiplies the
+    renormalised depth, not the published one.
+    """
+    if not spad_width:
+        return text
+    # The INNERMOST weight level is the scratchpad; everything above it is a
+    # GLB and takes `glb_mult` times the width. Innermost = last in file order,
+    # which is the order Timeloop reads levels in (outer to inner).
+    names = [name for _p, name, is_w, _why
+             in _weight_level_parts(text, scope) if is_w]
+    if not names:
+        return text
+    spad = names[-1]
+    out, touched, skipped = [], [], []
+    for part, name, is_weight, why_not in _weight_level_parts(text, scope):
+        if not is_weight:
+            if why_not:
+                skipped.append(why_not)
+            out.append(part)
+            continue
+        want = int(spad_width) if name == spad else int(spad_width) * int(glb_mult)
+        w = re.search(r"\bwidth:\s*(\d+)", part)
+        d = re.search(r"\bdepth:\s*(\d+)", part)
+        if not w:
+            skipped.append(f"{name} declares no width:")
+            out.append(part)
+            continue
+        w0, d0 = int(w.group(1)), int(d.group(1))
+        if w0 == want:
+            skipped.append(f"{name} already declares width {want}")
+            out.append(part)
+            continue
+        nd = max(1, int(round(d0 * w0 / want)))
+        part = re.sub(r"\bwidth:\s*\d+", f"width: {want}", part, count=1)
+        part = re.sub(r"\bdepth:\s*\d+", f"depth: {nd}", part, count=1)
+        touched.append(f"{name} {d0}x{w0}b -> {nd}x{want}b "
+                       f"({d0 * w0:,} -> {nd * want:,} bits)")
+        out.append(part)
+    if not quiet and arch:
+        note = (f"  [weight-width] {arch}: scratchpad {spad_width}b, GLB "
+                f"{int(spad_width) * int(glb_mult)}b ({glb_mult}x) on "
+                + (", ".join(touched) if touched else "NOTHING"))
+        if skipped:
+            note += "; skipped " + "; ".join(skipped)
+        print(note)
+    return "".join(out)
+
+
+def _set_weight_datawidth(text, bits, scope="exclusive", arch="?", quiet=False):
+    """PROMPT_2: express the reduced representation as `datawidth:` on the
+    on-chip weight levels, at FIXED `width:` and `depth:`.
+
+    WHY THIS AND NOT `_scale_weight_capacity`. Verified in this repo
+    2026-09-10 from `timeloop-mapper.accelergy.log:97` (`Calculated
+    storage."width" as "width" = 16`): CACTI receives `depth` and `width`
+    ONLY -- `datawidth` never reaches the energy model. Timeloop then bills
+    `vector_access_energy / block_size` per weight, `block_size =
+    width / datawidth`. So halving `datawidth` at fixed geometry exactly
+    halves per-weight energy and exactly doubles effective capacity, with
+    IDENTICAL per-access read/write/leak. That is the "same energies, more
+    effective capacity" condition, and it holds exactly -- which is the
+    fairness condition depth-dilation could never meet (it priced the
+    reconstruction arm's array 1.18-1.46x dearer and gave the optimiser a
+    reason to leave the room unused; FINDINGS 7.8).
+
+    HARD CONSTRAINT, and it ABORTS rather than degrades. `timeloop-mapper`
+    asserts `width % (word_bits * block_size) == 0` (`buffer.cpp:302`) with
+    `block_size` defaulting to 1: measured at `width: 16, datawidth: 5` it
+    dies with `exit=134, core dumped`. There is NO floor path -- Timeloop does
+    not attempt `floor(16/5) = 3`, so a partially-filled word cannot be
+    modelled at all. This raises here, before the YAML is written, so a bad
+    combination fails once instead of aborting every layer of a wave.
+
+    WHAT IS NOT REWRITTEN: DRAM (`recon.py` owns its K/N scaling; narrowing it
+    here as well would double-count), any level holding no Weights, a level
+    holding Weights beside another dataspace unless `scope=shared`, and a
+    declared `depth: 1` latch.
+    """
+    out, touched, skipped, bad = [], [], [], []
+    for part, name, is_weight, why_not in _weight_level_parts(text, scope):
+        if not is_weight:
+            if why_not:
+                skipped.append(why_not)
+            out.append(part)
+            continue
+        width = re.search(r"\bwidth:\s*(\d+)", part)
+        dw = re.search(r"\bdatawidth:\s*(\d+)", part)
+        if not dw:
+            skipped.append(f"{name} declares no datawidth:")
+            out.append(part)
+            continue
+        if width is not None and int(width.group(1)) % bits != 0:
+            bad.append(f"{name}: width {width.group(1)} % datawidth {bits} != 0")
+            out.append(part)
+            continue
+        if int(dw.group(1)) == bits:
+            skipped.append(f"{name} already declares datawidth {bits}")
+            out.append(part)
+            continue
+        touched.append(f"{name} {dw.group(1)}->{bits}b "
+                       f"({int(width.group(1)) // bits} weights/word)"
+                       if width else f"{name} {dw.group(1)}->{bits}b")
+        out.append(re.sub(r"\bdatawidth:\s*\d+", f"datawidth: {bits}", part,
+                          count=1))
+    if bad:
+        raise ValueError(
+            f"ECC_WEIGHT_DATAWIDTH={bits} on {arch}: " + "; ".join(bad) + ".\n"
+            f"  timeloop-mapper asserts `width % (word_bits * block_size) == 0` "
+            f"(buffer.cpp:302) and ABORTS -- there is no floor path, so a\n"
+            f"  partially-filled word cannot be modelled. Declare a `width:` "
+            f"the datawidth divides. prompt_2.md's WIDTH TABLE gives one per\n"
+            f"  code: BCH(63,57) q=7 width 98; BCH(63,45) q=6 width 96; "
+            f"BCH(63,39) q=5 width 95; BCH(63,30) q=4 needs NO width change.")
+    if not quiet and arch:
+        note = f"  [weight-datawidth] {arch}: {bits}b on " + (
+            ", ".join(touched) if touched else "NOTHING")
+        if skipped:
+            note += "; skipped " + "; ".join(skipped)
+        print(note)
+    return "".join(out)
+
+
+def _scale_weight_depth(text, scale, levels=(), scope="exclusive", arch="?",
+                        quiet=False):
+    """PROMPT_2's ONLY SWEPT VARIABLE: `depth:` of the on-chip weight levels.
+
+    Deliberately a SEPARATE knob from `_scale_weight_capacity`, even though
+    the two rewrite the same field. That one exists to stand a narrower word
+    up as a deeper array, so its energy has to be corrected back by
+    `recon.capacity_dilation_correction()`. Here the depth change is the
+    experiment: a shallower array really IS a smaller array, and its cheaper
+    per-access energy is a real saving, not an artifact to undo. Sharing the
+    slug would let a corrected run be read as an uncorrected one, so they get
+    separate cache directories (`wdepth<scale>` vs `wcap<scale>`).
+
+    `levels` restricts the rewrite to the named levels. Empty means every
+    weight-carrying level, which is the default AND the limitation prompt_2
+    records: one scale then moves `weights_spad` and `filter_glb` together, so
+    it locates the zone but cannot say which level bought it. The second pass
+    holds one at x1 and sweeps the other, which is what naming levels is for.
+    A name that matches nothing is an error, not a silent no-op -- a typo
+    there would quietly sweep every level and report it as a per-level result.
+    """
+    if scale == 1.0:
+        return text
+    want = set(levels or ())
+    out, touched, skipped, seen = [], [], [], set()
+    for part, name, is_weight, why_not in _weight_level_parts(text, scope):
+        if not is_weight:
+            if why_not:
+                skipped.append(why_not)
+            out.append(part)
+            continue
+        seen.add(name)
+        if want and name not in want:
+            skipped.append(f"{name} (not in ECC_WEIGHT_DEPTH_LEVELS)")
+            out.append(part)
+            continue
+        d = int(re.search(r"\bdepth:\s*(\d+)", part).group(1))
+        nd = max(1, int(round(d * scale)))
+        if nd == d:
+            skipped.append(f"{name} (depth {d} x {scale:g} rounds back to {d})")
+            out.append(part)
+            continue
+        touched.append(f"{name} {d}->{nd}")
+        out.append(re.sub(r"\bdepth:\s*\d+", f"depth: {nd}", part, count=1))
+    unknown = want - seen
+    if unknown:
+        raise ValueError(
+            f"ECC_WEIGHT_DEPTH_LEVELS names {', '.join(sorted(unknown))}, "
+            f"which {arch} has no weight-carrying level called. It has: "
+            f"{', '.join(sorted(seen)) or 'none'}. Refusing rather than "
+            f"sweeping every level and reporting it as a per-level result.")
+    if not quiet and arch:
+        note = f"  [weight-depth] {arch}: x{scale:g} on " + (
+            ", ".join(touched) if touched else "NOTHING")
+        if skipped:
+            note += "; skipped " + "; ".join(skipped)
+        print(note)
+    return "".join(out)
+
+
 #: The loop dimensions a WEIGHT tile is indexed by. A `factors:` pin on any of
 #: them caps how many weights a level can hold whatever its capacity is; a pin
 #: on N, P or Q does not (weights do not index them) and is left alone, so the
@@ -801,6 +1061,178 @@ def _relax_weight_factors(text, arch="?", quiet=False):
     return "".join(out)
 
 
+#: WHICH LEVELS EACH LOOP DIMENSION MAY BE SPLIT ACROSS, per design.
+#:
+#: THE PROBLEM THIS SOLVES, measured 2026-09-10 (FINDINGS 7.9). The mapper
+#: reports its own mapspace for ONE layer of Eyeriss v1 as IndexFactorization
+#: 7.41e10 x LoopPermutation 8.96e9 ~ 6.6e20. At the measured 400,000 valid
+#: mappings per thread-hour, victory 50000 covers 0.07 % of ONE thread's
+#: factorization subspace, ignoring permutations entirely. The consequence is
+#: not slow convergence, it is NO convergence: the residual between victory
+#: 4000 and 10000 is 43.7 % where the ECC effect being measured is 5.8 %, and
+#: refetch is non-monotone in the budget. The search noise is larger than the
+#: signal, so no Recon-vs-Embedded conclusion survives at ANY affordable
+#: budget.
+#:
+#: RAISING THE BUDGET CANNOT FIX THAT AND SHRINKING THE SPACE CAN. A bigger
+#: budget samples more of the same enormous space; both arms still land on
+#: arbitrary points and the DIFFERENCE between two arbitrary points is noise
+#: (measured: the ordering between the arms flips). Constraining the loop nest
+#: collapses the space to something searchable EXHAUSTIVELY, and then each arm
+#: gets its true optimum rather than a sample -- so the difference is
+#: architectural by construction and the gate passes because there is nothing
+#: left unsearched. progress.txt 2026-09-10 costs the tiers: pinning R and S to
+#: one level each leaves 2.06e9 factorizations (still impossible), adding
+#: P/Q across <=2 levels leaves 1.32e7 (29 h), and adding C/M across <=3
+#: leaves 3.63e4 -- EXACT in about five minutes, and roughly 8x CHEAPER than
+#: the victory-5000 run whose answer is 9-11 % wrong.
+#:
+#: WHY THE FREE SETS ARE THESE ONES. They are read off the BEST MAPPING THE
+#: SEARCH HAS EVER FOUND for this design -- the victory-10000 embedded nest at
+#: x1, 169.13 uJ against the victory-4000 mapping's 300.34 uJ on identical
+#: silicon. Constraining around a known-good region is a choice and it is
+#: stated: the exhaustive answer is the best mapping IN THIS FAMILY, not in
+#: the whole space. What makes it a fair ECC comparison is that BOTH ARMS get
+#: the identical constraint, so neither is handed a region the other cannot
+#: reach.
+#:
+#: THIS IS A DIFFERENT DATAFLOW AND MUST BE LABELLED AS ONE, exactly as
+#: `_relax_weight_factors` is: a design run under it is not the chip JSSC 2017
+#: describes, `source: published` does not licence its name, and it gets its
+#: own cache slug (`mcons`).
+#:
+#: `weights_spad` deliberately KEEPS M free, because this lever is meant to be
+#: run together with `ECC_WEIGHT_FACTOR_RELAX=1` -- that relaxation exists to
+#: let the weight TILE grow into the room a shallower/narrower array leaves,
+#: and pinning M back at that level here would undo it.
+MAPSPACE_FREE_LEVELS = {
+    "eyeriss_like_wglb": {
+        # dimension: the levels it may be split across. Pinned to 1 elsewhere.
+        "C": ("DRAM", "PE", "weights_spad"),
+        "M": ("ifmap_glb", "PE_column", "weights_spad", "psum_spad"),
+        "R": ("psum_glb",),
+        "S": ("PE",),
+        "P": ("ifmap_glb", "psum_glb"),
+        "Q": ("filter_glb", "PE_column"),
+        "N": (),                      # N = 1 in every workload here
+    },
+}
+
+#: Every loop dimension the constraint reasons about.
+MAPSPACE_DIMENSIONS = ("N", "C", "M", "R", "S", "P", "Q")
+
+
+def _merge_factor_list(existing, pins):
+    """`existing` factor entries plus `pins`, with `pins` winning. Order-stable."""
+    out, seen = [], set()
+    for e in list(existing) + list(pins):
+        k = e.split("=")[0].strip().upper()
+        if k in seen:
+            out = [x for x in out if x.split("=")[0].strip().upper() != k]
+        seen.add(k)
+        out.append(e)
+    # `pins` appended last already won; de-duplicate keeping the LAST
+    final, seen = [], set()
+    for e in reversed(out):
+        k = e.split("=")[0].strip().upper()
+        if k in seen:
+            continue
+        seen.add(k)
+        final.append(e)
+    return list(reversed(final))
+
+
+def _constrain_mapspace(text, arch="?", quiet=False):
+    """Pin every loop dimension to 1 at the levels `MAPSPACE_FREE_LEVELS` does
+    not list, so the index-factorization space collapses to something the
+    mapper can search EXHAUSTIVELY.
+
+    A storage level gets `constraints.temporal.factors`; a spatial container
+    gets `constraints.spatial.factors`. Both are created if absent and merged
+    if present, with these pins winning -- a design that already pins a
+    dimension keeps that pin, and one that leaves it free has it pinned here
+    unless the free set names the level.
+    """
+    spec = MAPSPACE_FREE_LEVELS.get(arch)
+    if not spec:
+        if not quiet and arch:
+            print(f"  [mapspace] {arch}: no MAPSPACE_FREE_LEVELS entry -- "
+                  f"NOT constrained (the search is unbounded here)")
+        return text
+    touched, out = [], []
+    for part in re.split(r"(\n\s*-\s*!)", text):
+        name = re.search(r"name:\s*(\S+)", part)
+        if not name or "!" in part[:3] or not re.search(r"name:", part):
+            out.append(part)
+            continue
+        name = name.group(1)
+        if name == "DRAM" and "class: DRAM" not in part:
+            out.append(part)
+            continue
+        if re.search(r"class:\s*intmac", part):
+            out.append(part)               # the arithmetic level takes none
+            continue
+        # ONLY REAL LOOP LEVELS. A storage component declares `depth:`; a
+        # spatial container declares `spatial: {meshX/meshY}`. A bare grouping
+        # container (`system`, and the accelerator container itself) is
+        # neither -- it carries no loops, so pinning every dimension to 1 on
+        # it would be inventing a constraint on a level Timeloop does not map.
+        is_storage = re.search(r"\bdepth:\s*\d+", part) is not None
+        is_spatial = re.search(r"\n\s*spatial:\s*\{[^}]*mesh", part) is not None
+        if not (is_storage or is_spatial):
+            out.append(part)
+            continue
+        pins = [f"{d}=1" for d in MAPSPACE_DIMENSIONS
+                if name not in spec.get(d, ())]
+        if not pins:
+            out.append(part)
+            continue
+        kind = "spatial" if is_spatial else "temporal"
+        m = re.search(rf"({kind}:\s*\n(?:\s+\w+:.*\n)*?\s+factors:\s*)\[([^\]]*)\]",
+                      part)
+        if m:
+            existing = [e.strip() for e in m.group(2).split(",") if e.strip()]
+            merged = _merge_factor_list(existing, pins)
+            part = part[:m.start(2) - 1] + "[" + ", ".join(merged) + "]" \
+                + part[m.end(2) + 1:]
+            touched.append(f"{name}({kind}) {','.join(pins)}")
+            out.append(part)
+            continue
+        # no factors: list at that kind -- create the block
+        km = re.search(rf"\n(\s+){kind}:\s*\n", part)
+        if km:
+            ind = km.group(1)
+            part = (part[:km.end()] + f"{ind}  factors: [{', '.join(pins)}]\n"
+                    + part[km.end():])
+            touched.append(f"{name}({kind}, new factors) {','.join(pins)}")
+            out.append(part)
+            continue
+        cm = re.search(r"\n(\s+)constraints:\s*\n", part)
+        if cm:
+            ind = cm.group(1)
+            block = (f"{ind}  {kind}:\n"
+                     f"{ind}    factors: [{', '.join(pins)}]\n")
+            part = part[:cm.end()] + block + part[cm.end():]
+            touched.append(f"{name}({kind}, new block) {','.join(pins)}")
+            out.append(part)
+            continue
+        nm = re.search(r"\n(\s+)name:\s*\S+\s*\n", part)
+        if nm:
+            ind = nm.group(1)
+            block = (f"{ind}constraints:\n{ind}  {kind}:\n"
+                     f"{ind}    factors: [{', '.join(pins)}]\n")
+            part = part.rstrip("\n") + "\n" + block
+            touched.append(f"{name}({kind}, new constraints) {','.join(pins)}")
+            out.append(part)
+            continue
+        out.append(part)
+    if not quiet and arch:
+        print(f"  [mapspace] {arch}: EXHAUSTIVE-SEARCH CONSTRAINT on "
+              + ("; ".join(touched) if touched else "NOTHING")
+              + "   (a DIFFERENT DATAFLOW -- not the published chip)")
+    return "".join(out)
+
+
 def weight_capacity_levels(arch, cfg):
     """Which levels a capacity dilation would rewrite, and by how much.
 
@@ -830,6 +1262,93 @@ def weight_capacity_levels(arch, cfg):
     return rows
 
 
+def patched_weight_geometry(arch, cfg):
+    """The geometry of every weight-carrying level AS THE MAPPER WILL SEE IT.
+
+    `weight_capacity_levels()` reads the SOURCE YAML, which is what a
+    dilation-scope question needs. This reads the PATCHED text -- after
+    `ECC_WEIGHT_DEPTH_SCALE` and `ECC_WEIGHT_DATAWIDTH` -- which is what the
+    fairness rule needs, because the whole prompt_2 claim is that the two arms
+    differ in `datawidth` and in NOTHING ELSE.
+
+    Returns `{level: {"depth", "width", "datawidth", "weights_per_word",
+    "weights"}}`, outer to inner.
+    """
+    text = _patched_text(arch, cfg, quiet=True)
+    out = {}
+    for part in re.split(r"(?=\n\s*-\s*!)", text):
+        depth = re.search(r"\bdepth:\s*(\d+)", part)
+        name = re.search(r"name:\s*(\S+)", part)
+        if not depth or not name or name.group(1) == "DRAM":
+            continue
+        keep = re.search(r"keep:\s*\[([^\]]*)\]", part)
+        keep = [s.strip() for s in keep.group(1).split(",") if s.strip()] if keep else []
+        if "Weights" not in keep:
+            continue
+        width = re.search(r"\bwidth:\s*(\d+)", part)
+        dw = re.search(r"\bdatawidth:\s*(\d+)", part)
+        d = int(depth.group(1))
+        w = int(width.group(1)) if width else None
+        b = int(dw.group(1)) if dw else None
+        per_word = (w // b) if (w and b) else 1
+        out[name.group(1)] = {
+            "depth": d, "width": w, "datawidth": b,
+            "weights_per_word": per_word, "weights": d * per_word,
+            "shared_with": [k for k in keep if k != "Weights"]}
+    return out
+
+
+def assert_pair_geometry(arch, cfg_ref, cfg_arm, ref_name="embedded",
+                         arm_name="recon"):
+    """PROMPT_2 FAIRNESS RULE, mechanically: the two arms of a pair must
+    declare the SAME `width` and the SAME `depth` on every weight level.
+
+    WHY IT IS AN ASSERTION AND NOT A CONVENTION. This is the exact defect that
+    made the previous sweep prove nothing: capacity was expressed as
+    `depth x N/K`, so Accelergy priced the reconstruction arm's array
+    1.18-1.46x dearer per access and the optimiser had a REASON to leave the
+    room unused (FINDINGS 7.8). Under prompt_2 the arms share one hardware
+    YAML and differ only in `datawidth`, which CACTI never sees -- so if a
+    width or a depth ever differs between them, the comparison is void and
+    must stop rather than be corrected afterwards.
+
+    `datawidth` (and the `weights_per_word` it derives) is EXPECTED to differ;
+    that is the treatment.
+    """
+    a = patched_weight_geometry(arch, cfg_ref)
+    b = patched_weight_geometry(arch, cfg_arm)
+    problems = []
+    if set(a) != set(b):
+        problems.append(
+            f"different weight LEVELS: {ref_name} has "
+            f"{', '.join(sorted(a)) or 'none'}; {arm_name} has "
+            f"{', '.join(sorted(b)) or 'none'}")
+    for level in sorted(set(a) & set(b)):
+        for field in ("depth", "width"):
+            if a[level][field] != b[level][field]:
+                problems.append(
+                    f"{level}.{field}: {ref_name}={a[level][field]} "
+                    f"{arm_name}={b[level][field]}")
+    if problems:
+        raise ValueError(
+            f"{arch}: the two arms do NOT declare the same silicon -- "
+            + "; ".join(problems) + ".\n"
+            f"  prompt_2's fairness rule is that both arms of a pair share one "
+            f"hardware YAML and differ ONLY in `datawidth:`, which CACTI never\n"
+            f"  sees. A width or depth difference is priced by Accelergy as "
+            f"real silicon one arm does not have, which is the defect that\n"
+            f"  invalidated the previous sweep (FINDINGS 7.8). The comparison "
+            f"is void; fix the configuration rather than correcting the energy.")
+    return {level: {"shared": {k: a[level][k] for k in ("depth", "width")},
+                    ref_name: a[level]["datawidth"],
+                    arm_name: b[level]["datawidth"],
+                    f"{ref_name}_weights": a[level]["weights"],
+                    f"{arm_name}_weights": b[level]["weights"],
+                    "capacity_ratio": (b[level]["weights"] / a[level]["weights"]
+                                       if a[level]["weights"] else 0.0)}
+            for level in sorted(set(a) & set(b), key=list(a).index)}
+
+
 def _patched_text(arch, cfg, apply_per_arch=True, quiet=False):
     text = arch_source(arch, cfg).read_text()
     text = _patch_dram_depth(text, cfg.dram_depth)
@@ -842,8 +1361,31 @@ def _patched_text(arch, cfg, apply_per_arch=True, quiet=False):
     if apply_per_arch and cfg.weight_capacity_scale != 1.0:
         text = _scale_weight_capacity(text, cfg.weight_capacity_scale,
                                       cfg.weight_capacity_scope, arch, quiet)
+    # prompt_2: WIDTH, then DEPTH, then DATAWIDTH.
+    # WIDTH first because it renormalises `depth:` to hold the declared bits,
+    # so the swept ladder must multiply the renormalised depth rather than the
+    # published one. DATAWIDTH last because its hard constraint
+    # (`width % datawidth == 0`) has to be checked against the FINAL width.
+    if apply_per_arch and getattr(cfg, "weight_width", None):
+        text = _set_weight_width(text, cfg.weight_width,
+                                 cfg.weight_width_glb_mult,
+                                 cfg.weight_capacity_scope, arch, quiet)
+    if apply_per_arch and getattr(cfg, "weight_depth_scale", 1.0) != 1.0:
+        text = _scale_weight_depth(text, cfg.weight_depth_scale,
+                                   cfg.weight_depth_levels,
+                                   cfg.weight_capacity_scope, arch, quiet)
+    if apply_per_arch and getattr(cfg, "weight_datawidth", None) is not None:
+        text = _set_weight_datawidth(text, cfg.weight_datawidth,
+                                     cfg.weight_capacity_scope, arch, quiet)
     if apply_per_arch and cfg.weight_factor_relax:
         text = _relax_weight_factors(text, arch, quiet)
+    # AFTER the relax, deliberately. The relax frees M/C/R/S on the weight
+    # levels so the TILE can grow into the room; this then pins every
+    # dimension at the levels the free-set does not name. `weights_spad` keeps
+    # M and C free in the free-set precisely so the two levers compose instead
+    # of cancelling.
+    if apply_per_arch and getattr(cfg, "mapspace_constrain", False):
+        text = _constrain_mapspace(text, arch, quiet)
     # Last, so the coefficients land on the final text and are hashed by
     # arch_fingerprint(). Applied regardless of apply_per_arch: the NoC model
     # is a study-wide treatment, not a per-architecture no-op candidate.
@@ -934,6 +1476,55 @@ def effective_variant(arch, cfg):
                                   quiet=True) != base:
             parts.append(f"wcap{cfg.weight_capacity_scale:g}"
                          + ("-shared" if cfg.weight_capacity_scope == "shared" else ""))
+    if getattr(cfg, "weight_width", None):
+        # Same no-op rule: a design already declaring that width keeps its
+        # existing cache rather than paying for a fresh map of an unchanged
+        # architecture.
+        base = arch_source(arch, cfg).read_text()
+        if _set_weight_width(base, cfg.weight_width, cfg.weight_width_glb_mult,
+                             cfg.weight_capacity_scope, arch,
+                             quiet=True) != base:
+            parts.append(f"ww{cfg.weight_width}"
+                         + (f"x{cfg.weight_width_glb_mult}"
+                            if cfg.weight_width_glb_mult != 4 else ""))
+    if getattr(cfg, "weight_depth_scale", 1.0) != 1.0:
+        # Same no-op rule as the capacity scale.
+        base = _set_weight_width(arch_source(arch, cfg).read_text(),
+                                 getattr(cfg, "weight_width", None),
+                                 getattr(cfg, "weight_width_glb_mult", 4),
+                                 cfg.weight_capacity_scope, arch, quiet=True)
+        if _scale_weight_depth(base, cfg.weight_depth_scale,
+                               cfg.weight_depth_levels,
+                               cfg.weight_capacity_scope, arch,
+                               quiet=True) != base:
+            parts.append(f"wdepth{cfg.weight_depth_scale:g}"
+                         + ("-" + "+".join(cfg.weight_depth_levels)
+                            if cfg.weight_depth_levels else ""))
+    if getattr(cfg, "weight_datawidth", None) is not None:
+        # Same no-op rule again: the BASELINE/EMBEDDED arm may legitimately be
+        # spelled `ECC_WEIGHT_DATAWIDTH=8` on a design already declaring 8, and
+        # that arm must then READ THE SAME CACHE as leaving the knob empty --
+        # otherwise the two arms of a pair would be compared across two mapper
+        # caches of one identical architecture.
+        base = _set_weight_width(arch_source(arch, cfg).read_text(),
+                                 getattr(cfg, "weight_width", None),
+                                 getattr(cfg, "weight_width_glb_mult", 4),
+                                 cfg.weight_capacity_scope, arch, quiet=True)
+        # depth first, so the no-op test sees the geometry the arm really has
+        base_d = _scale_weight_depth(base, cfg.weight_depth_scale,
+                                     cfg.weight_depth_levels,
+                                     cfg.weight_capacity_scope, arch, quiet=True) \
+            if getattr(cfg, "weight_depth_scale", 1.0) != 1.0 else base
+        if _set_weight_datawidth(base_d, cfg.weight_datawidth,
+                                 cfg.weight_capacity_scope, arch,
+                                 quiet=True) != base_d:
+            parts.append(f"wdw{cfg.weight_datawidth}")
+    if getattr(cfg, "mapspace_constrain", False) and arch in MAPSPACE_FREE_LEVELS:
+        # A constrained loop nest is a different MAPSPACE and a different
+        # DATAFLOW, so it is a different architecture to the mapper and gets
+        # its own cache. A design with no free-set entry is NOT constrained and
+        # keeps its existing cache rather than being silently mislabelled.
+        parts.append("mcons")
     if cfg.weight_factor_relax:
         # Same no-op rule as the capacity scale: a design with no `factors:`
         # pin on a weight-indexing dimension is not relaxed by this and keeps

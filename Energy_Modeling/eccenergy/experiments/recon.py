@@ -88,6 +88,7 @@ from .. import archs as archmod
 from .. import recon as reconmod
 from .. import timeloop as tlmod
 from ..archs import accumulator_bits, load_provenance
+from .. import baseline_dram
 from ..ecc import embedded_dram, external_parity, load_recon_energy
 from ..energy import plot_cats
 from ..plots import panels as panels_mod
@@ -562,7 +563,9 @@ def evaluate(cfg, ses, prov, arch, model, raw):
     e_external, edetail = embedded_dram(cfg, raw)
 
     base_components = audit.components(base_series)
-    base_components[PARITY_KEY] = e_parity
+    # the baseline's DRAM cost is a per-bit PRICE, not extra traffic
+    # (baseline_dram.py); unset ECC_BASELINE_DRAM_PJ_PER_BIT = the old model
+    pricing = baseline_dram.charge(cfg, raw, base_components, e_parity)
     base_total = float(sum(base_components.values()))
 
     emb_components = audit.components(base_series)
@@ -591,6 +594,13 @@ def evaluate(cfg, ses, prov, arch, model, raw):
                                 cfg.recon_granularity)
     packing = reconmod.Packing(cfg.recon_packing, cfg.weight_bits,
                                cfg.code_k, cfg.code_n)
+    # prompt_2: THE ON-CHIP NARROWING MUST BE APPLIED EXACTLY ONCE. Since the
+    # mapper can now deliver it via `ECC_WEIGHT_DATAWIDTH`, running that
+    # beside the default `stream` packing would SQUARE the on-chip saving.
+    # Stops here, before a number exists, rather than being caught in review.
+    narrowing = reconmod.assert_onchip_narrowing_once(cfg)
+    if narrowing.get("note"):
+        print(f"  [narrowing] {narrowing['note']}")
     recon_pj, recon_prov = load_recon_energy(cfg)
 
     # Decode: charged to nobody by default (Task 2's rule). When ECC_DECODE=1
@@ -637,7 +647,9 @@ def evaluate(cfg, ses, prov, arch, model, raw):
         mapping_ids=mapping_ids,
         label="Embedded ECC, parity inside the stored weights, no external parity",
         extra={"embedded_dram_accounting": edetail,
-               "dram_energy_removed_vs_conventional_pJ": e_parity,
+               "dram_energy_removed_vs_conventional_pJ": (
+                   base_components.get("DRAM", 0.0) - emb_components.get("DRAM", 0.0)
+                   + e_parity - emb_components.get(PARITY_KEY, 0.0)),
                "role": ("the reference Task 3 measures reconstruction against: "
                         "every placement reads the same complete codeword out of "
                         "the DRAM ARRAY as this bar; with the decoder on the DRAM "
@@ -700,15 +712,15 @@ def evaluate(cfg, ses, prov, arch, model, raw):
     if dil:
         task4_checks(builder, cfg, arch, raw, dil, base_components,
                      emb_components, e_parity, results, wpath, base_w,
-                     newly_mapped=getattr(mapper, "n_mapped", 0))
+                     newly_mapped=getattr(mapper, "n_mapped", 0), pricing=pricing)
     else:
         task3_checks(builder, cfg, arch, raw, base_components, emb_components,
                      e_parity, results, wpath, reconciles, recon_check, base_w,
-                     newly_mapped=getattr(mapper, "n_mapped", 0))
+                     newly_mapped=getattr(mapper, "n_mapped", 0), pricing=pricing)
 
     # ---- Task 1's checks and caveats, so the baseline bar is as audited ----
     arch_report = audit.common_checks(builder, cfg, arch, raw, pdetail, mapping_ids)
-    audit.common_caveats(builder, cfg, arch, raw, pdetail)
+    audit.common_caveats(builder, cfg, arch, raw, pdetail, pricing)
     builder.approximate(edetail["traffic"]["method"])
     builder.approximate(CODEC_NOTE)
     if dil:
@@ -829,7 +841,7 @@ def evaluate(cfg, ses, prov, arch, model, raw):
 
 def task3_checks(builder, cfg, arch, raw, base_components, emb_components,
                  e_parity, results, wpath, reconciles, recon_check, base_w,
-                 newly_mapped=0):
+                 newly_mapped=0, pricing=None):
     """The checks that make Task 3's claim -- "only the boundary moved" -- auditable.
 
     Kept free of the Session so the offline test can drive it with a synthetic
@@ -971,18 +983,15 @@ def task3_checks(builder, cfg, arch, raw, base_components, emb_components,
                      "requires. Failed: re-run with --eval.")})
 
     # 6. the reference bars still say what Tasks 1 and 2 said
-    dram_diff = (base_components.get("DRAM", 0.0) + base_components.get(PARITY_KEY, 0.0)
-                 - emb_components.get("DRAM", 0.0) - emb_components.get(PARITY_KEY, 0.0))
-    builder.check(
-        "reference_bars_match_tasks_1_and_2",
-        math.isclose(dram_diff, e_parity, rel_tol=1e-12, abs_tol=1e-6),
-        {"baseline_minus_embedded_dram_pJ": dram_diff,
-         "external_parity_pJ": e_parity,
-         "source": "ecc.external_parity() and ecc.embedded_dram(), unchanged"})
+    ok, detail = baseline_dram.reference_bars_agree(
+        base_components, emb_components, e_parity, pricing,
+        dram_w_reads=raw.dram_w_reads)
+    builder.check("reference_bars_match_tasks_1_and_2", ok, detail)
 
 
 def task4_checks(builder, cfg, arch, raw, dil, base_components, emb_components,
-                 e_parity, results, ref_wpath, base_w, newly_mapped=0):
+                 e_parity, results, ref_wpath, base_w, newly_mapped=0,
+                 pricing=None):
     """The checks that make Task 4's claim -- "the mapper spent the extra room" --
     auditable, and that stop it borrowing a claim it is not entitled to.
 
@@ -1180,14 +1189,10 @@ def task4_checks(builder, cfg, arch, raw, dil, base_components, emb_components,
                      "two")})
 
     # 9. the reference bars still say what Tasks 1 and 2 said
-    dram_diff = (base_components.get("DRAM", 0.0) + base_components.get(PARITY_KEY, 0.0)
-                 - emb_components.get("DRAM", 0.0) - emb_components.get(PARITY_KEY, 0.0))
-    builder.check(
-        "reference_bars_match_tasks_1_and_2",
-        math.isclose(dram_diff, e_parity, rel_tol=1e-12, abs_tol=1e-6),
-        {"baseline_minus_embedded_dram_pJ": dram_diff,
-         "external_parity_pJ": e_parity,
-         "source": "ecc.external_parity() and ecc.embedded_dram(), unchanged"})
+    ok, detail = baseline_dram.reference_bars_agree(
+        base_components, emb_components, e_parity, pricing,
+        dram_w_reads=raw.dram_w_reads)
+    builder.check("reference_bars_match_tasks_1_and_2", ok, detail)
 
 
 # --------------------------------------------------------------------- figure
@@ -1236,9 +1241,11 @@ def panel_for(cfg, arch, model, out):
     def add(key, label, components):
         # The conventional baseline's external parity is a COMPONENT of the
         # result file, not a plotted category, so it has to be folded into the
-        # DRAM band or the drawn bar would silently be 277 uJ shorter than the
-        # total it is annotated with. `ecc.build_stacks()` folds it the same
-        # way (`col["DRAM"] += e_parity`), so the two figures agree.
+        # DRAM band or the drawn bar would silently be shorter than the total it
+        # is annotated with. `ecc.build_stacks()` folds it the same way, so the
+        # two figures agree. Under the price model (baseline_dram.py) that
+        # component is 0 and the baseline's cost is already inside `DRAM`; the
+        # fold is then a no-op and this stays correct either way.
         stack = {c: float(components.get(c, 0.0)) for c in cats}
         stack["DRAM"] += float(components.get(PARITY_KEY, 0.0))
         drawn = sum(stack.values())
@@ -1324,7 +1331,7 @@ def panel_for(cfg, arch, model, out):
             "saving_ceiling_uJ": "",
             "decode_site": "controller (reference bar)",
             "dram_pj_per_bit": term["dram_pj_per_bit"],
-            # the weight share only; the baseline's external parity is on top
+            # the weight share only, and only for the embedded reference bar
             "dram_uJ": (term["dram_weight_energy_pJ"] / 1e6
                         if key == "embedded" else ""),
             "dram_saving_uJ": 0.0 if key == "embedded" else "",

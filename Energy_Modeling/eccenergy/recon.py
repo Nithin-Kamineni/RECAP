@@ -282,6 +282,39 @@ _EYERISS_V1_PATH = (
                    "pure ADDITION, which is part of why R4b was removed."),
 )
 
+#: `eyeriss_like_wglb` -- EYERISS v1 (decided 2026-09-10; see prompt_2.md and
+#: CLAUDE.md). JSSC 2017 Sec. V-A publishes the 8 kB filter-weight allocation
+#: of the 108 kB GLB, so the file that models it IS the design, and
+#: `eyeriss_like` -- which declares `!Nothing` in its place -- is retired
+#: rather than bracketed. The bracketing-pair doctrine for v1 is over.
+#:
+#: THE ONE STRUCTURAL DIFFERENCE from `_EYERISS_V1_PATH` is a weight level
+#: ABOVE the PE array, and that is exactly the level this study needs.
+#: FINDINGS 7.8: refetch on v1 is set by the DRAM-level loop order over
+#: `P`/`Q`, and a weight tile cannot index `P` or `Q`, so a weight buffer
+#: INSIDE the array cannot absorb those loops however large it is made --
+#: measured flat to x32 capacity at 1 % fill. `filter_glb` sits above the
+#: array and can.
+#:
+#: Inserted after the DRAM stages by name, not at a literal index, so a future
+#: change to the DRAM stages cannot silently reorder this path -- the same
+#: guard `_EYERISS_V2_WGLB_PATH` uses.
+_V1_DRAM_N = sum(1 for _s in _EYERISS_V1_PATH if _s.kind == "dram")
+_EYERISS_V1_WGLB_PATH = _EYERISS_V1_PATH[:_V1_DRAM_N] + (
+    Stage("filter_glb", "Filter global buffer (8 kB of the 108 kB GLB)",
+          "storage", ("filter_glb",), reducible=True,
+          evidence="JSSC 2017 Sec. V-A: 'Even though it is not required by the "
+                   "dataflow, the remaining 8 kB (two banks of 512-b x 64-b "
+                   "SRAMs) of the GLB is allocated for filter weights to "
+                   "compensate for insufficient off-chip traffic bandwidth. "
+                   "While the PE array is working on a processing pass, the "
+                   "GLB preloads the filters used by the next processing "
+                   "pass.' The bank geometry is exact (2 x 512 x 64b), so it "
+                   "is the same CACTI array as the other 23 banks. It keeps "
+                   "Weights and nothing else, so every pJ read from it is "
+                   "weight energy."),
+) + _EYERISS_V1_PATH[_V1_DRAM_N:]
+
 #: `simple_weight_stationary` as modelled by `archs/simple_weight_stationary/`,
 #: outer to inner. Sec. 6's canonical WS hierarchy is
 #:
@@ -376,6 +409,7 @@ WEIGHT_PATHS = {
     "eyeriss_v2_like": _EYERISS_V2_PATH,
     "eyeriss_v2_like_wglb": _EYERISS_V2_WGLB_PATH,
     "eyeriss_like": _EYERISS_V1_PATH,
+    "eyeriss_like_wglb": _EYERISS_V1_WGLB_PATH,
     "simple_weight_stationary": _WS_PATH,
 }
 
@@ -649,10 +683,110 @@ _WS_PLACEMENTS = (
 )
 
 
+#: `eyeriss_like_wglb` -- Eyeriss v1's boundaries WITH the published filter
+#: GLB. Five, not four: the GLB is a reducible storage stage above the array
+#: network, so it admits a boundary at its output that `eyeriss_like` has
+#: nowhere to put. The numbering follows `simple_weight_stationary`'s, the
+#: other design in the study with a weight buffer above its network -- recon2
+#: is the global weight buffer's output on both -- rather than shifting
+#: `eyeriss_like`'s keys, which name different boundaries anyway.
+#:
+#: `validate_placement_space()` enforces both invariants this list has to
+#: satisfy: each `reduced` set is a PREFIX of the path's reducible stages in
+#: path order, and every reducible stage is reached by some boundary. Without
+#: the second, adding `filter_glb` to `WEIGHT_PATHS` and forgetting it here
+#: would leave every boundary below it reporting its own saving while the GLB
+#: stayed at full width -- the whole list understated, with nothing saying so.
+_EYERISS_V1_WGLB_PLACEMENTS = (
+    Placement(
+        "recon1", "recon_source_noc_ingress",
+        "R1 - reconstruct at chip ingress, before the filter GLB",
+        "R1\n@ source", "3/5",
+        reduced=("dram",), site_stage="dram", site_counter="reads",
+        description=(
+            "Sec. 7.1's source-side reconstruction. The die drives only the k "
+            "message bits across the DRAM interface and an encoder at the chip "
+            "source restores them before anything on chip stores them, so "
+            "nothing on chip carries the reduced form -- not even the filter "
+            "GLB. It is the control that isolates the DRAM-interface saving, "
+            "which every boundary shares, from every on-chip saving, and it "
+            "pays one reconstruction per codeword fetched from DRAM with "
+            "nothing but that interface saving against it."),
+    ),
+    Placement(
+        "recon2", "recon_weight_glb_output",
+        "R2 - reconstruct at the filter-GLB output",
+        "R2\n@ filter GLB", "3/5",
+        reduced=("dram", "filter_glb"),
+        site_stage="filter_glb", site_counter="reads",
+        description=(
+            "The 8 kB filter GLB stores the reduced form, so it holds N/K more "
+            "weights per bank and its per-weight read cost falls with the bit "
+            "count; the encoder sits at its read port, before the array "
+            "network. This is the boundary `eyeriss_like` has nowhere to put, "
+            "and it is the one FINDINGS 7.8 predicts matters: refetch on v1 is "
+            "set by the DRAM-level loop order over P and Q, a weight tile "
+            "cannot index either, and only a weight level ABOVE the PE array "
+            "can absorb those loops. Its cost side is that the GLB is read "
+            "once per weight DELIVERED into the array, not once per weight "
+            "stored."),
+    ),
+    Placement(
+        "recon3", "recon_after_array_multicast",
+        "R3 - reconstruct after the array multicast, at the column edge",
+        "R3\n@ column edge", "4/5",
+        reduced=("dram", "filter_glb", "array_multicast"),
+        site_stage="array_multicast", site_counter="deliveries",
+        description=(
+            "Sec. 7.1's multicast tradeoff, resolved in favour of reduced-width "
+            "shared transport: the GLB and the 14-way column multicast both "
+            "carry the reduced form and one encoder per column restores it "
+            "before the column's own fanout. Fewer encoders than one per PE, "
+            "and the long half of the array network moves fewer bits. The "
+            "encoders run once per word ARRIVING at a column, which on this "
+            "design's own mappings is up to 7x the number injected; "
+            "`ECC_RECON_ENCODER_SITE=source` prices the other side of the "
+            "tradeoff (one encoder, full-width network)."),
+    ),
+    Placement(
+        "recon4", "recon_pe_spad_input",
+        "R4 - reconstruct at the PE filter-spad input",
+        "R4\n@ spad input", "4/5",
+        reduced=("dram", "filter_glb", "array_multicast", "pe_local_multicast"),
+        site_stage="weights_spad", site_counter="fills",
+        description=(
+            "The GLB and both halves of the array network carry the reduced "
+            "form and the encoder sits at the scratchpad write port, so the "
+            "spad keeps its published 224 x 16b capacity and its full-width "
+            "read cost. The encoder runs once per weight FILLED into a PE, the "
+            "smallest count of any boundary below the network. Sec. 7.2's "
+            "PE-FIFO boundary would sit between R3 and R4; the model has no "
+            "FIFO level, so this is the first boundary after the whole "
+            "network."),
+    ),
+    Placement(
+        "recon5", "recon_pe_spad_output",
+        "R5a - reconstruct on every filter-spad read",
+        "R5a\n@ spad output", "3/5",
+        reduced=("dram", "filter_glb", "array_multicast", "pe_local_multicast",
+                 "weights_spad"),
+        site_stage="weights_spad", site_counter="reads",
+        description=(
+            "Every weight-carrying stage holds the reduced form, so the spad's "
+            "write and read bit-volume fall with its capacity too, and the "
+            "encoder sits at its read port. Row-stationary reuse is what makes "
+            "this expensive: the MAC reads the spad directly, once per MAC, so "
+            "the encoder runs once per weight DELIVERED rather than once per "
+            "weight stored."),
+    ),
+)
+
+
 PLACEMENTS = {
     "eyeriss_v2_like": _V2_PLACEMENTS,
     "eyeriss_v2_like_wglb": _V2_PLACEMENTS,
     "eyeriss_like": _EYERISS_V1_PLACEMENTS,
+    "eyeriss_like_wglb": _EYERISS_V1_WGLB_PLACEMENTS,
     "simple_weight_stationary": _WS_PLACEMENTS,
 }
 
@@ -1452,6 +1586,108 @@ class Packing:
 
 
 
+
+
+# ===========================================================================
+#  PROMPT_2: the on-chip narrowing must be applied EXACTLY ONCE
+# ===========================================================================
+def onchip_narrowing_audit(cfg):
+    """Where the K/N on-chip weight narrowing is applied, and how many times.
+
+    THE DOUBLE-COUNTING THIS EXISTS TO STOP. There are now two places that can
+    narrow an on-chip weight:
+
+    * the EVALUATOR, via `Packing`. `stream` scales every reduced stage's
+      access count and energy by k/n.
+    * the MAPPER, via `ECC_WEIGHT_DATAWIDTH`. Timeloop bills
+      `vector_access_energy / block_size` with `block_size = width/datawidth`,
+      so a narrower declared datawidth delivers the same saving INSIDE the
+      Timeloop number, with no mapping change at all.
+
+    Apply both and the on-chip saving is SQUARED. prompt_2's resolution is
+    `ECC_RECON_PACKING=aligned`, whose docstring already describes exactly the
+    right model -- "each reduced weight occupies a whole number of bits ...
+    the access count, and the SRAM energy, do not move at all" -- so `aligned`
+    leaves the on-chip narrowing entirely to the mapper, which is now where it
+    belongs.
+
+    Two consequences this checks, both named in prompt_2:
+
+    * DRAM `datawidth` stays 8 on every arm. `_set_weight_datawidth` refuses to
+      touch DRAM for this reason; `recon.py` owns the DRAM K/N scaling and
+      narrowing DRAM in the YAML too would double-count it there. That is
+      structural, so it is asserted in `archs.py` rather than here.
+    * `aligned` computes its own reduced width as `ceil(weight_bits*k/n)`, and
+      that has to AGREE with the `datawidth` the arch declares, or the arch and
+      the accounting are describing two different codes and the check cannot
+      reconcile. At BCH(63,30) both are 4; at BCH(63,57) `aligned` says 8 and
+      the declared q is 7, which is exactly the disagreement prompt_2 warns
+      about.
+
+    NEITHER site active is NOT a defect: `aligned` with no mapper-side
+    datawidth is the pessimistic bound this study has always been able to run
+    (`Packing`'s docstring, section 16). It comes back `ok` with a `note`, so
+    it stays runnable but cannot be mistaken for a prompt_2 result.
+
+    Returns a dict; `ok` False means the run must not be quoted.
+    """
+    mapper_bits = getattr(cfg, "weight_datawidth", None)
+    packing = Packing(cfg.recon_packing, cfg.weight_bits, cfg.code_k, cfg.code_n)
+    mapper_narrows = (mapper_bits is not None
+                      and mapper_bits < cfg.weight_bits)
+    # `stream` is the only packing that moves an on-chip ACCESS COUNT.
+    evaluator_narrows = cfg.recon_packing == "stream"
+    sites = ([f"mapper (ECC_WEIGHT_DATAWIDTH={mapper_bits})"] if mapper_narrows
+             else []) + (["evaluator (ECC_RECON_PACKING=stream)"]
+                         if evaluator_narrows else [])
+    out = {
+        "mapper_datawidth": mapper_bits,
+        "packing": cfg.recon_packing,
+        "aligned_bits_per_weight": packing.reduced_bits_per_weight,
+        "sites": sites, "n_sites": len(sites),
+        "ok": len(sites) == 1,
+    }
+    if len(sites) > 1:
+        out["problem"] = (
+            "THE ON-CHIP NARROWING IS APPLIED TWICE and the saving is "
+            "SQUARED: " + " and ".join(sites) + ". prompt_2's resolution is "
+            "ECC_RECON_PACKING=aligned, which leaves the on-chip narrowing "
+            "entirely to the mapper.")
+    elif not sites:
+        # NOT a defect, and deliberately not a stop: `aligned` with no
+        # mapper-side datawidth is the PESSIMISTIC BOUND this study has always
+        # been able to run (`Packing`'s docstring, section 16). It predates
+        # prompt_2 and stays runnable. It is simply not a prompt_2 result, so
+        # it says so rather than being quoted as one.
+        out["ok"] = True
+        out["note"] = (
+            f"NO on-chip narrowing is applied anywhere: "
+            f"ECC_RECON_PACKING={cfg.recon_packing} moves no on-chip access "
+            f"count and ECC_WEIGHT_DATAWIDTH is unset, so the reconstruction "
+            f"arm stores its weights at the full {cfg.weight_bits} bits. That "
+            f"is the pessimistic bound, not prompt_2's model -- for that, set "
+            f"ECC_WEIGHT_DATAWIDTH={packing.reduced_bits_per_weight} "
+            f"(= ceil({cfg.weight_bits}*K/N) at "
+            f"BCH({cfg.code_n},{cfg.code_k})) on the reconstruction arm.")
+    elif mapper_narrows and mapper_bits != packing.reduced_bits_per_weight:
+        out["ok"] = False
+        out["problem"] = (
+            f"THE ARCH AND THE ACCOUNTING DISAGREE ABOUT THE CODE: the arch "
+            f"declares datawidth {mapper_bits} on its weight levels, but "
+            f"`aligned` computes ceil({cfg.weight_bits}*K/N) = "
+            f"{packing.reduced_bits_per_weight} bits at "
+            f"BCH({cfg.code_n},{cfg.code_k}). Make them agree -- prompt_2's "
+            f"width table rounds 8*K/N to an integer q and the declared "
+            f"datawidth IS that q -- or the check cannot reconcile.")
+    return out
+
+
+def assert_onchip_narrowing_once(cfg):
+    """`onchip_narrowing_audit()` as a hard stop. Returns the audit."""
+    audit = onchip_narrowing_audit(cfg)
+    if not audit["ok"]:
+        raise ValueError(audit["problem"])
+    return audit
 
 
 # ===========================================================================

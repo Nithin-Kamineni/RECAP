@@ -12,14 +12,22 @@ python outside the container.
 Five numbers per cell are available; `--field` chooses which is shown:
 
     timeloop   the Timeloop/Accelergy energy alone (no ECC arithmetic on top)
-    parity     the external BCH parity charged in DRAM
-    total      timeloop + parity == the `baseline_external_parity` variant
+    ecc-cost   what conventional ECC costs the baseline on top of that: the DRAM
+               PRICE DELTA under the current model (its array also stores the
+               parity and indexes it, so a bit costs 70 pJ against 40 --
+               eccenergy/baseline_dram.py), or the external-parity TRAFFIC under
+               the pre-2026-09-10 model. `parity` is accepted as the old name.
+    total      timeloop + ecc-cost == the `baseline_external_parity` variant
     embedded   the `embedded_ecc` variant (Task 2), where it has been evaluated
     saving     100 * (total - embedded) / total, percent (Task 2)
 
 `timeloop` is the default because it is the number the architectures are
-actually being compared on; the parity term is nearly architecture-independent
-and would compress the spread.
+actually being compared on; the ECC cost is nearly architecture-independent and
+would compress the spread.
+
+A cell reads `ecc-cost` 0.00 only if conventional ECC really is free on that
+result -- under the price model the cost lives in the DRAM category, so it is
+read back from the `baseline_dram_pricing` record rather than from a component.
 """
 from __future__ import annotations
 
@@ -43,25 +51,31 @@ def newest(d: pathlib.Path):
 
 
 def cell(path: pathlib.Path):
-    """(timeloop uJ, parity uJ, total uJ, embedded uJ | None, saving % | None)."""
+    """(timeloop uJ, ecc-cost uJ, total uJ, embedded uJ | None, saving % | None)."""
     doc = json.loads(path.read_text())
     variants = {v.get("name"): v for v in doc.get("variants", [])}
     base = variants.get("baseline_external_parity")
     if base is None or base.get("status") != "evaluated":
         return None
     comp = base.get("energy_by_component_pJ") or {}
-    parity = comp.get(PARITY_KEY, 0.0)
+    # What conventional ECC cost, above raw Timeloop. Under the price model the
+    # parity component is 0 and the cost is the DRAM rescale, so reading the
+    # component alone would report the baseline as free.
+    pricing = (base.get("extra") or {}).get("baseline_dram_pricing") or {}
+    ecc_cost = float(comp.get(PARITY_KEY, 0.0) or 0.0)
+    if pricing.get("model") == "per_bit_price":
+        ecc_cost = float(pricing.get("dram_delta_pJ", 0.0) or 0.0)
     total = base["total_energy_pJ"]
     emb = variants.get("embedded_ecc")
     emb_uj = saving = None
     if emb is not None and emb.get("status") == "evaluated":
         emb_uj = emb["total_energy_pJ"] / 1e6
         saving = 100.0 * (total - emb["total_energy_pJ"]) / total if total else None
-    return ((total - parity) / 1e6, parity / 1e6, total / 1e6, emb_uj, saving)
+    return ((total - ecc_cost) / 1e6, ecc_cost / 1e6, total / 1e6, emb_uj, saving)
 
 
 def collect(scope=None, mapper=None, phase="Pre"):
-    """{(model, arch): (timeloop, parity, total, embedded, saving, scope, mapper, path)}"""
+    """{(model, arch): (timeloop, ecc_cost, total, embedded, saving, scope, mapper, path)}"""
     out = {}
     root = EVAL / phase
     if not root.is_dir():
@@ -100,7 +114,10 @@ def main(argv=None):
     ap.add_argument("--mapper", help="mapper slug filter")
     ap.add_argument("--phase", default="Pre", choices=("Pre", "Post"))
     ap.add_argument("--field", default="timeloop",
-                    choices=("timeloop", "parity", "total", "embedded", "saving"))
+                    choices=("timeloop", "ecc-cost", "parity", "total",
+                             "embedded", "saving"),
+                    help="which number to show; `parity` is the old name for "
+                         "`ecc-cost`")
     ap.add_argument("--csv", help="also write the matrix here")
     args = ap.parse_args(argv)
 
@@ -109,7 +126,8 @@ def main(argv=None):
         print("no evaluated results found under", EVAL / args.phase)
         return 1
 
-    idx = {"timeloop": 0, "parity": 1, "total": 2, "embedded": 3, "saving": 4}[args.field]
+    idx = {"timeloop": 0, "ecc-cost": 1, "parity": 1, "total": 2,
+           "embedded": 3, "saving": 4}[args.field]
     unit = "%" if args.field == "saving" else "uJ"
     models = sorted({m for m, _ in data})
     archs = sorted({a for _, a in data})
@@ -140,7 +158,7 @@ def main(argv=None):
         with open(out, "w", newline="") as fh:
             wr = csv.writer(fh)
             wr.writerow(["model", "arch", "scope", "mapper",
-                         "timeloop_uJ", "parity_uJ", "total_uJ",
+                         "timeloop_uJ", "ecc_cost_uJ", "total_uJ",
                          "embedded_uJ", "embedded_saving_pct", "source"])
             for (m, a), v in sorted(data.items()):
                 wr.writerow([m, a, v[5], v[6],

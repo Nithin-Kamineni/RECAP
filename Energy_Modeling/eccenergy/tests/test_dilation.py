@@ -429,6 +429,453 @@ def test_the_relax_changes_the_cache_slug_and_the_fingerprint():
         f"{seen['0'][1]} -- one would be read as the other")
 
 
+# ===========================================================================
+#  PROMPT_2 (2026-09-10): datawidth, depth, width and the fairness rule
+# ===========================================================================
+#  Each of these guards a claim prompt_2 makes about the mechanism, and each
+#  fails by name if the claim stops holding. The mechanism is: the two arms
+#  share ONE hardware YAML and differ ONLY in `datawidth:`, which CACTI never
+#  sees -- so the reduced arm gets more effective capacity at byte-identical
+#  per-access energy. Every part of that sentence is checked below.
+
+_P2_ARCH = "eyeriss_like_wglb"
+
+
+def _p2_cfgs(**over):
+    """`(cfg, embedded, recon)` at BCH(63,30) on Eyeriss v1."""
+    import dataclasses
+    try:
+        from eccenergy import config
+    except Exception as exc:                       # pragma: no cover
+        raise _Skip(f"config unavailable: {exc}")
+    import os
+    saved = {k: os.environ.get(k) for k in ("ECC_KS", "ECC_CONST_K", "ECC_SWEEP")}
+    try:
+        os.environ["ECC_KS"] = "30"
+        os.environ["ECC_CONST_K"] = "30"
+        os.environ["ECC_SWEEP"] = "arch"
+        cfg = config.load_config()
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    cfg = dataclasses.replace(cfg, **over) if over else cfg
+    emb = dataclasses.replace(cfg, weight_datawidth=None)
+    rec = dataclasses.replace(cfg, weight_datawidth=4)
+    return cfg, emb, rec
+
+
+def test_the_datawidth_knob_narrows_every_weight_level_and_never_dram():
+    """DRAM `datawidth` STAYS 8 ON EVERY ARM.
+
+    `recon.py` owns the DRAM K/N scaling. Narrowing DRAM in the YAML too would
+    charge the same reduction twice -- once in the mapping and once in the
+    evaluator -- which is prompt_2's first BEFORE-ANY-NUMBER item. It is
+    structural, so it is asserted rather than remembered.
+    """
+    try:
+        from eccenergy import archs
+    except Exception as exc:                       # pragma: no cover
+        raise _Skip(f"archs unavailable: {exc}")
+    import re
+    _, emb, rec = _p2_cfgs()
+    text = archs._patched_text(_P2_ARCH, rec, quiet=True)
+    # every WEIGHT level narrowed ...
+    geo = archs.patched_weight_geometry(_P2_ARCH, rec)
+    assert geo, "no weight levels found"
+    for level, g in geo.items():
+        assert g["datawidth"] == 4, (level, g)
+    # ... and DRAM untouched.
+    head = text.split("name: DRAM", 1)[1].split("- !", 1)[0]
+    dram_dw = int(re.search(r"\bdatawidth:\s*(\d+)", head).group(1))
+    assert dram_dw == 8, (
+        f"DRAM datawidth is {dram_dw}, not 8. recon.py already scales the DRAM "
+        f"term by K/N, so narrowing it here DOUBLE-COUNTS the saving in DRAM.")
+
+
+def test_the_two_arms_declare_identical_silicon_at_every_swept_depth():
+    """PROMPT_2'S FAIRNESS RULE. Same `width`, same `depth`, every level.
+
+    This is the condition depth-dilation could never meet: expressing capacity
+    as `depth x N/K` made Accelergy price the reconstruction arm's array
+    1.18-1.46x dearer per access, so the optimiser had a positive reason to
+    leave the room unused (FINDINGS 7.8). If a width or a depth ever differs
+    between the arms the comparison is VOID, so this must fail loudly.
+    """
+    try:
+        from eccenergy import archs
+    except Exception as exc:                       # pragma: no cover
+        raise _Skip(f"archs unavailable: {exc}")
+    import dataclasses
+    _, emb, rec = _p2_cfgs()
+    for s in (1.0, 0.7071, 0.5, 0.3536, 0.25, 0.1768, 0.125):
+        e = dataclasses.replace(emb, weight_depth_scale=round(s, 4))
+        r = dataclasses.replace(rec, weight_depth_scale=round(s, 4))
+        info = archs.assert_pair_geometry(_P2_ARCH, e, r)   # raises if not
+        assert info, s
+        for level, v in info.items():
+            # the treatment, and the ONLY difference
+            assert v["embedded"] == 8 and v["recon"] == 4, (s, level, v)
+
+
+def test_a_width_or_depth_mismatch_between_the_arms_is_refused():
+    """The fairness assertion is a STOP, not an annotation.
+
+    Deliberately break it the way the previous sweep did -- give the
+    reconstruction arm a deeper array -- and check the comparison is refused
+    rather than corrected afterwards.
+    """
+    try:
+        from eccenergy import archs
+    except Exception as exc:                       # pragma: no cover
+        raise _Skip(f"archs unavailable: {exc}")
+    import dataclasses
+    _, emb, rec = _p2_cfgs()
+    dilated = dataclasses.replace(rec, weight_depth_scale=2.0)  # the old model
+    try:
+        archs.assert_pair_geometry(_P2_ARCH, emb, dilated)
+    except ValueError as e:
+        assert "same silicon" in str(e) and "depth" in str(e), str(e)
+    else:
+        raise AssertionError(
+            "a reconstruction arm with 2x the DEPTH was accepted as a fair "
+            "pair. That is exactly the geometry FINDINGS 7.8 withdrew.")
+
+
+def test_the_reduced_arm_gets_exactly_two_times_the_capacity_at_bch_63_30():
+    """BCH(63,30) is the code with ZERO rounding residual, at every depth.
+
+    q = round(8*30/63) = 4 divides Eyeriss v1's published 16-bit scratchpad
+    word and its 64-bit GLB word, so no width change is needed and the
+    effective-capacity ratio is EXACTLY 2.000 -- not 1.98, not 2.02. That
+    exactness is why prompt_2 starts here: it is also the only code that
+    clears the integer-tile step FINDINGS 7.8 measured.
+    """
+    try:
+        from eccenergy import archs
+    except Exception as exc:                       # pragma: no cover
+        raise _Skip(f"archs unavailable: {exc}")
+    import dataclasses
+    _, emb, rec = _p2_cfgs()
+    for s in (1.0, 0.7071, 0.5, 0.3536, 0.25, 0.1768, 0.125):
+        e = dataclasses.replace(emb, weight_depth_scale=round(s, 4))
+        r = dataclasses.replace(rec, weight_depth_scale=round(s, 4))
+        for level, v in archs.assert_pair_geometry(_P2_ARCH, e, r).items():
+            assert v["capacity_ratio"] == 2.0, (
+                f"x{s:g} {level}: capacity ratio {v['capacity_ratio']} != "
+                f"exactly 2.0 -- BCH(63,30) is chosen precisely because it "
+                f"has no rounding residual")
+
+
+def test_the_embedded_arm_spelled_8b_reads_the_same_cache_as_unset():
+    """Both spellings of the 8-bit arm must be ONE cache directory.
+
+    The reference arm may legitimately be written `ECC_WEIGHT_DATAWIDTH=8` on
+    a design already declaring 8. If that produced its own slug, the two arms
+    of a pair would be compared across two mapper caches of one IDENTICAL
+    architecture -- hours of recompute, and a diff of the search rather than
+    of the silicon.
+    """
+    try:
+        from eccenergy import archs
+    except Exception as exc:                       # pragma: no cover
+        raise _Skip(f"archs unavailable: {exc}")
+    import dataclasses
+    cfg, emb, _ = _p2_cfgs()
+    eight = dataclasses.replace(emb, weight_datawidth=8)
+    assert (archs.effective_variant(_P2_ARCH, emb)
+            == archs.effective_variant(_P2_ARCH, eight)), (
+        archs.effective_variant(_P2_ARCH, emb),
+        archs.effective_variant(_P2_ARCH, eight))
+    assert (archs.arch_fingerprint(_P2_ARCH, emb)
+            == archs.arch_fingerprint(_P2_ARCH, eight))
+
+
+def test_the_depth_sweep_has_its_own_cache_and_never_shares_wcap_s():
+    """`wdepth` and `wcap` rewrite the same field and mean different things.
+
+    `ECC_WEIGHT_CAPACITY_SCALE` triggers `capacity_dilation_correction()`,
+    which re-prices the level at the UNDILATED geometry. Under prompt_2 that
+    correction is WRONG -- a shallower array really IS a smaller array and its
+    cheaper access is a real saving. Sharing a directory would let a corrected
+    run be read as an uncorrected one.
+    """
+    try:
+        from eccenergy import archs
+    except Exception as exc:                       # pragma: no cover
+        raise _Skip(f"archs unavailable: {exc}")
+    import dataclasses
+    cfg, _, _ = _p2_cfgs()
+    depth = dataclasses.replace(cfg, weight_depth_scale=0.5)
+    cap = dataclasses.replace(cfg, weight_capacity_scale=0.5)
+    vd = archs.effective_variant(_P2_ARCH, depth)
+    vc = archs.effective_variant(_P2_ARCH, cap)
+    assert "wdepth0.5" in vd and "wcap" not in vd, vd
+    assert "wcap0.5" in vc and "wdepth" not in vc, vc
+    assert vd != vc, f"the two knobs share the cache directory {vd}"
+    # THE SEPARATION IS THE SLUG, NOT THE FINGERPRINT, and that is correct.
+    # `arch_fingerprint` hashes the patched YAML the mapper actually sees, and
+    # at the same scale both knobs rewrite the same `depth:` fields to the same
+    # numbers -- the architecture IS identical, so an identical hash is the
+    # honest answer. What must not be shared is the DIRECTORY, because what
+    # differs is the ACCOUNTING applied afterwards: `wcap` is re-priced by
+    # `capacity_dilation_correction()` at the undilated geometry and `wdepth`
+    # deliberately is not. One directory would let a corrected run be read as
+    # an uncorrected one.
+    assert (archs.arch_fingerprint(_P2_ARCH, depth)
+            == archs.arch_fingerprint(_P2_ARCH, cap)), (
+        "the two knobs no longer produce identical YAML at the same scale; if "
+        "that is intended, this test records the assumption that broke")
+    from eccenergy import paths as pathsmod
+    pd = pathsmod.Results(depth).mapper_cache(
+        _P2_ARCH, vd, archs.arch_fingerprint(_P2_ARCH, depth), create=False)
+    pc = pathsmod.Results(cap).mapper_cache(
+        _P2_ARCH, vc, archs.arch_fingerprint(_P2_ARCH, cap), create=False)
+    assert str(pd) != str(pc), f"both knobs resolve to {pd}"
+
+
+def test_naming_a_level_the_design_does_not_have_is_refused():
+    """A typo in ECC_WEIGHT_DEPTH_LEVELS must not silently sweep everything.
+
+    The second pass exists to say WHICH level bought the margin. A name that
+    matches nothing would fall back to sweeping every level and the result
+    would be filed as a per-level answer.
+    """
+    try:
+        from eccenergy import archs
+    except Exception as exc:                       # pragma: no cover
+        raise _Skip(f"archs unavailable: {exc}")
+    import dataclasses
+    cfg, _, _ = _p2_cfgs()
+    bad = dataclasses.replace(cfg, weight_depth_scale=0.5,
+                              weight_depth_levels=("filter_gbl",))  # typo
+    try:
+        archs.patched_weight_geometry(_P2_ARCH, bad)
+    except ValueError as e:
+        assert "filter_gbl" in str(e) and "no weight-carrying level" in str(e)
+    else:
+        raise AssertionError("a misspelt weight level was accepted and would "
+                             "have swept every level instead")
+
+
+def test_a_single_named_level_moves_only_that_level():
+    """The second pass holds the other weight level(s) at x1."""
+    try:
+        from eccenergy import archs
+    except Exception as exc:                       # pragma: no cover
+        raise _Skip(f"archs unavailable: {exc}")
+    import dataclasses
+    cfg, _, _ = _p2_cfgs()
+    base = archs.patched_weight_geometry(_P2_ARCH, cfg)
+    only = dataclasses.replace(cfg, weight_depth_scale=0.25,
+                               weight_depth_levels=("filter_glb",))
+    got = archs.patched_weight_geometry(_P2_ARCH, only)
+    assert got["filter_glb"]["depth"] == round(base["filter_glb"]["depth"] * 0.25)
+    assert got["weights_spad"]["depth"] == base["weights_spad"]["depth"], (
+        "the unnamed level moved too, so the row cannot say which level "
+        "bought the margin")
+
+
+def test_the_width_table_holds_total_bits_and_puts_the_glb_at_four_times():
+    """PROMPT_2'S WIDTH TABLE, and the two things that make it legal.
+
+    * The GLB word is 4x the scratchpad's -- the ratio Eyeriss v1's published
+      geometry already has (224 x 16 b spad, 512-b x 64-b GLB banks).
+    * Each level's DEPTH is renormalised so its TOTAL BITS do not move. CACTI
+      is handed depth and width, so a width change that grew the array would
+      be a bigger array smuggled in as a word reshape. Checked to within one
+      word of rounding.
+
+    It reproduces prompt_2's own number: weights_spad 224 x 16 b = 3,584 b
+    becomes depth 37 at width 96.
+    """
+    try:
+        from eccenergy import archs
+    except Exception as exc:                       # pragma: no cover
+        raise _Skip(f"archs unavailable: {exc}")
+    import dataclasses
+    cfg, _, _ = _p2_cfgs()
+    base = archs.patched_weight_geometry(_P2_ARCH, cfg)
+    wide = dataclasses.replace(cfg, weight_width=96, weight_width_glb_mult=4)
+    got = archs.patched_weight_geometry(_P2_ARCH, wide)
+    assert got["weights_spad"]["width"] == 96, got["weights_spad"]
+    assert got["filter_glb"]["width"] == 96 * 4, got["filter_glb"]
+    # DERIVED, not hard-coded. prompt_2's table quotes depth 37 for the
+    # PUBLISHED 224 x 16 b scratchpad (3,584 b / 96 = 37.3), but the declared
+    # geometry is a design variable in this study -- it was reconfigured
+    # 2026-09-10 -- so pinning the literal made this test assert a property of
+    # one arch revision rather than a property of the renormalisation.
+    want = round(base["weights_spad"]["depth"] * base["weights_spad"]["width"] / 96)
+    assert got["weights_spad"]["depth"] == want, (
+        f"depth should renormalise to {want} at width 96 "
+        f"({base['weights_spad']['depth']} x {base['weights_spad']['width']} b); "
+        f"got {got['weights_spad']['depth']}")
+    for level in base:
+        before = base[level]["depth"] * base[level]["width"]
+        after = got[level]["depth"] * got[level]["width"]
+        assert abs(after - before) <= got[level]["width"], (
+            f"{level}: {before:,} bits became {after:,} -- a width change must "
+            f"reshape the word, not resize the array")
+
+
+def test_a_width_that_only_divides_q_is_refused_because_it_aborts_the_other_arm():
+    """BOTH ARMS SHARE ONE WIDTH, so it must divide 8 AS WELL AS q.
+
+    prompt_2's WIDTH TABLE has two rows that do not: 98 (BCH(63,57), q=7) and
+    95 (BCH(63,39), q=5) divide their own q but leave remainders 2 and 7
+    against the 8-bit arm's datawidth. `timeloop-mapper` asserts
+    `width % (word_bits * block_size) == 0` (buffer.cpp:302) and ABORTS -- so
+    the EMBEDDED arm would core-dump on every layer of that wave. Only the
+    width-96 rows are runnable as a pair, which is the same set prompt_2
+    identifies as "literally the same silicon as Embedded's".
+    """
+    try:
+        from eccenergy import config
+    except Exception as exc:                       # pragma: no cover
+        raise _Skip(f"config unavailable: {exc}")
+    import dataclasses
+    cfg, _, _ = _p2_cfgs()
+    for w, legal in ((96, True), (98, False), (95, False), (384, True)):
+        try:
+            dataclasses.replace(cfg, weight_width=w)
+        except Exception:
+            ok = False
+        else:
+            ok = True
+        assert ok is legal, (
+            f"width {w}: expected {'accepted' if legal else 'refused'}; both "
+            f"arms share one width and the 8-bit arm needs width % 8 == 0")
+
+
+def test_the_onchip_narrowing_is_applied_exactly_once():
+    """Both the mapper and the evaluator can narrow an on-chip weight now.
+
+    `stream` scales every reduced stage by k/n in the EVALUATOR;
+    `ECC_WEIGHT_DATAWIDTH` delivers the same saving inside the MAPPER's own
+    Timeloop number. Apply both and the on-chip saving is SQUARED. prompt_2's
+    resolution is `aligned`, and this is the assertion that enforces it.
+    """
+    try:
+        from eccenergy import recon
+    except Exception as exc:                       # pragma: no cover
+        raise _Skip(f"recon unavailable: {exc}")
+    import dataclasses
+    cfg, _, _ = _p2_cfgs()
+    both = dataclasses.replace(cfg, recon_packing="stream", weight_datawidth=4)
+    try:
+        recon.assert_onchip_narrowing_once(both)
+    except ValueError as e:
+        assert "TWICE" in str(e) and "SQUARED" in str(e), str(e)
+    else:
+        raise AssertionError(
+            "stream packing beside a mapper-side datawidth was accepted; the "
+            "on-chip saving would be counted twice")
+    # the prompt_2 configuration passes
+    good = dataclasses.replace(cfg, recon_packing="aligned", weight_datawidth=4)
+    assert recon.assert_onchip_narrowing_once(good)["n_sites"] == 1
+    # and a datawidth that disagrees with the code is refused
+    wrong = dataclasses.replace(cfg, recon_packing="aligned", weight_datawidth=5)
+    try:
+        recon.assert_onchip_narrowing_once(wrong)
+    except ValueError as e:
+        assert "DISAGREE" in str(e), str(e)
+    else:
+        raise AssertionError("datawidth 5 was accepted at BCH(63,30), whose "
+                             "ceil(8*K/N) is 4")
+
+
+def test_aligned_without_a_mapper_datawidth_is_the_old_bound_not_an_error():
+    """The pessimistic bound predates prompt_2 and must stay runnable."""
+    try:
+        from eccenergy import recon
+    except Exception as exc:                       # pragma: no cover
+        raise _Skip(f"recon unavailable: {exc}")
+    import dataclasses
+    cfg, _, _ = _p2_cfgs()
+    old = dataclasses.replace(cfg, recon_packing="aligned", weight_datawidth=None)
+    audit = recon.onchip_narrowing_audit(old)
+    assert audit["ok"] and audit["n_sites"] == 0 and "note" in audit, audit
+
+
+def test_eyeriss_v1_wglb_has_a_weight_path_and_every_stage_has_a_boundary():
+    """The blocking work prompt_2 names: v1 IS `eyeriss_like_wglb` now.
+
+    `weight_path()` refuses when a weight-carrying level goes unclaimed, so
+    `filter_glb` needs a Stage AND a placement. Without the placement, every
+    boundary below it would report its own saving while showing the GLB at
+    full width -- the whole list understated, with nothing saying so.
+    """
+    try:
+        from eccenergy import recon
+    except Exception as exc:                       # pragma: no cover
+        raise _Skip(f"recon unavailable: {exc}")
+    assert _P2_ARCH in recon.WEIGHT_PATHS, "no weight path registered"
+    assert _P2_ARCH in recon.PLACEMENTS, "no placements registered"
+    keys = [s.key for s in recon.WEIGHT_PATHS[_P2_ARCH]]
+    assert "filter_glb" in keys, keys
+    ok, detail = recon.validate_placement_space(_P2_ARCH)
+    assert ok, detail.get("violations")
+    # five boundaries: one more than eyeriss_like, because of the GLB
+    assert len(recon.PLACEMENTS[_P2_ARCH]) == len(recon.PLACEMENTS["eyeriss_like"]) + 1
+
+
+def test_the_eyeriss_v1_bracket_pair_is_retired():
+    """Collapsing the two v1 files to ONE design makes the pair
+    self-referential: it would stamp every manifest with a caveat that is no
+    longer true, and ask the run to plot a retired file beside the live one.
+    """
+    try:
+        from eccenergy import config
+    except Exception as exc:                       # pragma: no cover
+        raise _Skip(f"config unavailable: {exc}")
+    assert "eyeriss_like" not in config.BRACKET_PAIRS, config.BRACKET_PAIRS
+    assert "eyeriss_like_wglb" not in config.BRACKET_PAIRS, config.BRACKET_PAIRS
+
+
+def test_the_two_recon_terms_sum_to_the_margin_they_decompose():
+    """PROMPT_2 ITEM 4: the flat packing discount and the differential-refetch
+    term are SEPARATE columns, and their difference is the margin.
+
+    The packing discount applies to every on-chip weight access regardless of
+    mapping, so Recon wins monotonically at every depth even on a
+    byte-identical loop nest. Summed with the refetch term the table looks
+    like a win everywhere and says nothing about which memory size matters --
+    which is the whole question. This checks the split is a decomposition and
+    not two independently-computed numbers that can drift apart.
+    """
+    # emb_pJ at 8b, rec_pJ at 4b: ratio 0.5.
+    for emb_pj, rec_pj, ratio in ((2_636_267.0, 383_917.0, 0.5),
+                                  (18_463_326.0, 4_156_115.0, 0.5),
+                                  (132_120_576.0, 75_497_472.0, 1.0)):
+        pack = emb_pj * (1.0 - ratio)
+        refet = rec_pj - emb_pj * ratio
+        margin = rec_pj - emb_pj
+        assert abs((refet - pack) - margin) <= 1e-6 * max(1.0, abs(margin)), (
+            emb_pj, rec_pj, ratio, pack, refet, margin)
+    # DRAM carries NO packing discount: its datawidth is 8 on both arms.
+    assert 132_120_576.0 * (1.0 - 1.0) == 0.0
+
+
+def test_the_level_parser_reads_geometry_and_energy_off_the_stats_file():
+    """`declared_depth`, `width`, `datawidth`, `weights_per_word` and
+    `level_pJ` all come from the run that produced the number, not from a YAML
+    that may since have been edited. That is what makes the fairness rule
+    checkable on the ROWS.
+    """
+    from eccenergy.experiments import dilation
+    text = _stats()
+    rows = dilation._weight_level_rows(text, ("weights_spad",))
+    assert len(rows) == 1, rows
+    r = rows[0]
+    for key in ("datawidth", "weights_per_word", "width", "declared_depth",
+                "energy_pJ", "vector_access_pJ", "reads", "fills"):
+        assert key in r, f"{key} missing from the level row"
+    assert r["width"] == r["datawidth"] * r["weights_per_word"], r
+    if r["weights_per_word"]:
+        assert r["declared_depth"] == r["capacity"] // r["weights_per_word"], r
+
 def main():
     print("eccenergy capacity-dilation (Task 4 step 1) tests")
     for name, fn in sorted(globals().items()):

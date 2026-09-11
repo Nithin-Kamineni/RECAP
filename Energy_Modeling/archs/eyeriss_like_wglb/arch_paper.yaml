@@ -149,8 +149,8 @@ architecture:
       name: filter_glb
       class: smartbuffer_SRAM
       attributes:
-        depth: 1024          # 2 banks x 512 entries -> 1024 x 64b = 8 kB
-        width: 64            # paper: 512-b x 64-b SRAM banks
+        depth: 256          # 2 banks x 128 entries -> 1024 x 64b = 8 kB
+        width: 64            # paper: 256-b x 64-b SRAM banks
         n_banks: 2
         datawidth: 8         # 8-bit weights (this study's quantization)
         read_bandwidth: 16
@@ -214,9 +214,9 @@ architecture:
       name: weights_spad
       class: smartbuffer_SRAM
       attributes:
-        depth: 224
+        depth: 16
         width: 16
-        datawidth: 8         # 448 8-bit weights in the paper's 224 x 16b array
+        datawidth: 8         # 448 8-bit weights in the paper's 64 x 16b array
         read_bandwidth: 2
         write_bandwidth: 2
       constraints:
@@ -235,7 +235,7 @@ architecture:
       name: psum_spad
       class: smartbuffer_RF_decoded
       attributes:
-        depth: 24
+        depth: 64
         width: 16
         datawidth: 16        # partial sums stay at the accumulator width
         update_fifo_depth: 2

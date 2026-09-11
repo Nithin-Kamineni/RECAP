@@ -1,0 +1,1321 @@
+{
+ "schema_version": "1.0",
+ "experiment": {
+  "name": "task2_embedded_ecc_dram_only",
+  "phase": "Pre",
+  "phase_meaning": "Pre: the mapping is ECC-unaware and the ECC effect is applied during energy evaluation only",
+  "mapping_mode": "fixed-mapping",
+  "run_id": "20260910T202916Z__9ec6cdf8",
+  "status": "ok",
+  "units": {
+   "energy": "pJ unless a field name says otherwise",
+   "savings": "percent",
+   "capacity": "bits or bytes as the field name says"
+  }
+ },
+ "identity": {
+  "architecture": "eyeriss_like_wglb",
+  "architecture_label": "Eyeriss v1\n(+8kB filter GLB)",
+  "model": "resnet18",
+  "layer_scope": "one-layer",
+  "layers": [
+   "layer3.0.conv1"
+  ],
+  "bch": {
+   "n": 63,
+   "k": 30,
+   "t": 6,
+   "label": "BCH(63,30)"
+  },
+  "precisions_bits": {
+   "weight": 8,
+   "activation": 8,
+   "accumulator": 16,
+   "accumulator_policy": "paper-native (per architecture)",
+   "accumulator_evidence": "inherited from eyeriss_like"
+  }
+ },
+ "reference_variants": {
+  "conventional_ecc": "baseline_external_parity",
+  "embedded_only": "embedded_ecc"
+ },
+ "summary": [
+  {
+   "variant": "baseline_external_parity",
+   "kind": "baseline",
+   "status": "evaluated",
+   "total_energy_pJ": 761101573.3668001,
+   "total_energy_uJ": 761.1015733668,
+   "savings_vs_conventional_ecc_percent": 0.0,
+   "savings_vs_embedded_only_percent": -57.29997984117892,
+   "unavailable_reason": null
+  },
+  {
+   "variant": "embedded_ecc",
+   "kind": "embedded",
+   "status": "evaluated",
+   "total_energy_pJ": 483853573.3667999,
+   "total_energy_uJ": 483.8535733667999,
+   "savings_vs_conventional_ecc_percent": 36.42720100729383,
+   "savings_vs_embedded_only_percent": 0.0,
+   "unavailable_reason": null
+  },
+  {
+   "variant": "recon_source_noc_ingress",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "savings_vs_conventional_ecc_percent": null,
+   "savings_vs_embedded_only_percent": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the source / NoC ingress) so the document shape is final, but no reconstruction has been evaluated."
+  },
+  {
+   "variant": "recon_destination_cluster",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "savings_vs_conventional_ecc_percent": null,
+   "savings_vs_embedded_only_percent": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the destination-cluster boundary) so the document shape is final, but no reconstruction has been evaluated."
+  },
+  {
+   "variant": "recon_pe_spad_input",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "savings_vs_conventional_ecc_percent": null,
+   "savings_vs_embedded_only_percent": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the PE weight-SPad input) so the document shape is final, but no reconstruction has been evaluated."
+  },
+  {
+   "variant": "recon_pe_spad_output",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "savings_vs_conventional_ecc_percent": null,
+   "savings_vs_embedded_only_percent": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the weight-SPad output, repeated) so the document shape is final, but no reconstruction has been evaluated."
+  }
+ ],
+ "best_reconstruction_placement": {
+  "variant": null,
+  "reason": "no reconstruction placement has been evaluated in this run"
+ },
+ "validation": [
+  {
+   "check": "non_dram_components_match_task1_baseline",
+   "passed": true,
+   "detail": {
+    "components": {
+     "Compute": {
+      "baseline": 13294632.96,
+      "embedded": 13294632.96
+     },
+     "Global buffer": {
+      "baseline": 24632473.21,
+      "embedded": 24632473.21
+     },
+     "Local (spads/RF)": {
+      "baseline": 30251744.97,
+      "embedded": 30251744.97
+     },
+     "NoC": {
+      "baseline": 46010722.22679999,
+      "embedded": 46010722.22679999
+     }
+    },
+    "rule": "exact equality -- both arms are arithmetic on ONE raw record, so any difference outside DRAM is a bug, not a result"
+   }
+  },
+  {
+   "check": "baseline_dram_is_exactly_the_per_bit_price",
+   "passed": true,
+   "detail": {
+    "baseline_dram_pJ": 646912000.0,
+    "embedded_dram_pJ": 369664000.0,
+    "difference_pJ": 277248000.0,
+    "dram_weight_reads_both_arms": 294912.0,
+    "model": "per_bit_price",
+    "expected_baseline_dram_pJ": 646912000.0,
+    "ratio": 1.75,
+    "pj_per_bit_baseline": 70.0,
+    "pj_per_bit_embedded": 40.0,
+    "parity_component_pJ": 0.0,
+    "rule": "the arms fetch the SAME weight bits -- the decoder is on the DRAM die, so the baseline's parity is corrected there and never crosses the datapath. The only difference is what a bit costs out of the bigger, indexed array, so the baseline's DRAM must be the embedded arm's x that ratio and its parity component must be zero",
+    "timeloop_dram_pJ_both_arms": 369664000.0
+   }
+  },
+  {
+   "check": "embedded_reads_complete_codeword",
+   "passed": true,
+   "detail": {
+    "dram_weight_reads": 294912.0,
+    "weight_bits": 8,
+    "bits_billed": 2359296.0,
+    "bits_expected": 2359296.0,
+    "external_bits": 0.0,
+    "dram_weight_energy_pJ": 94371840.0,
+    "rule": "no K/N reduction at DRAM: the embedded parity is read and corrected, not discarded before correction"
+   }
+  },
+  {
+   "check": "embedded_layout_hand_check",
+   "passed": true,
+   "detail": {
+    "method": "codeword-by-codeword walk of the padded weight bit stream, classifying every interior boundary, compared against the closed form; both must agree exactly",
+    "code": "BCH(63,30) embedded in 8-bit weights",
+    "weights_checked": 294912,
+    "weights_per_codeword": 7.875,
+    "checks": {
+     "codewords": {
+      "walked": 37450,
+      "closed_form": 37450
+     },
+     "payload_bits": {
+      "walked": 2359296,
+      "closed_form": 2359296
+     },
+     "tail_pad_bits": {
+      "walked": 54,
+      "closed_form": 54
+     },
+     "stored_bits": {
+      "walked": 2359350,
+      "closed_form": 2359350
+     },
+     "split_boundaries": {
+      "walked": 32768,
+      "closed_form": 32768
+     },
+     "straddling_weights": {
+      "walked": 32768,
+      "closed_form": 32768
+     },
+     "stored_dram_words": {
+      "walked": 36865,
+      "closed_form": 36865
+     },
+     "external_parity_bits": {
+      "walked": 0,
+      "closed_form": 0
+     }
+    },
+    "mismatches": {},
+    "passed": true,
+    "grouping": "layer",
+    "layers_checked": 1
+   }
+  },
+  {
+   "check": "embedded_matches_sweep_figure_arm",
+   "passed": true,
+   "detail": {
+    "sweep_figure_embedded_pJ": 483853573.36679995,
+    "this_result_pJ": 483853573.3667999,
+    "source": "ecc.build_stacks()['embedded'] on the same raw record"
+   }
+  },
+  {
+   "check": "evaluation_only_rerun",
+   "passed": true,
+   "detail": {
+    "ECC_FROM_CACHE": true,
+    "raw_energy_cache_hit": true,
+    "newly_mapped_shapes": 0,
+    "meaning": "passed: every mapping behind this result already existed; the mapper was not invoked. Failed: this run generated mappings -- re-run with --eval to produce the evaluation-only rerun Task 2 asks for"
+   }
+  },
+  {
+   "check": "parity_payload_hand_check",
+   "passed": true,
+   "detail": {
+    "method": "codeword-by-codeword walk compared against the closed form; both must agree exactly",
+    "code": "BCH(63,30) over 8-bit weights",
+    "weights_checked": 294912,
+    "weights_per_codeword": 3,
+    "message_pad_bits_per_codeword": 6,
+    "checks": {
+     "codewords": {
+      "walked": 98304,
+      "closed_form": 98304
+     },
+     "payload_bits": {
+      "walked": 2359296,
+      "closed_form": 2359296
+     },
+     "padding_bits_total": {
+      "walked": 589824,
+      "closed_form": 589824
+     },
+     "parity_bits": {
+      "walked": 3244032,
+      "closed_form": 3244032
+     },
+     "parity_dram_words": {
+      "walked": 50688,
+      "closed_form": 50688
+     }
+    },
+    "mismatches": {},
+    "passed": true
+   }
+  },
+  {
+   "check": "all_layers_mapped",
+   "passed": true,
+   "detail": "1 mapped, 0 skipped"
+  },
+  {
+   "check": "mapping_ids_recorded",
+   "passed": true,
+   "detail": "1 distinct mapping(s) behind this result"
+  },
+  {
+   "check": "architecture_obeys_shared_contract",
+   "passed": true,
+   "detail": {
+    "violations": [],
+    "notes": [
+     "published at 65nm, modelled at 45nm. Deliberate: a mixed-node comparison would report silicon as architecture.",
+     "interconnect: multicast_network_no_routers -- wire 0.12 pJ/b/mm (shared); PE_column: router 0 pJ, ingress 0.915206 pJ, hop from area; PE: router 0 pJ, ingress 0.915206 pJ, hop from area (archs/_shared/noc.yaml)"
+    ]
+   }
+  },
+  {
+   "check": "noc_energy_costed",
+   "passed": true,
+   "detail": {
+    "enabled": true,
+    "noc_pJ": 46010722.22679999,
+    "share_of_timeloop_total": 0.09509224434707265,
+    "share_of_onchip": 0.4029327798520121,
+    "paper_band_levels": [],
+    "mesh_pJ": 0,
+    "mesh_share_of_onchip": 0.0,
+    "evaluator_only_pJ": 8904574.1568,
+    "evaluator_only_terms": {
+     "enabled": true,
+     "network_word_bits": 8,
+     "outputs_word_bits": 16,
+     "adder_pj_per_bit": 0.0065625,
+     "reduction_hops": 1.0,
+     "noc_scale": 1.0
+    },
+    "pe_latch_pj": 0.0,
+    "tile_width_um": {},
+    "wire_pj_per_bit_mm": 0.12,
+    "router_pj_per_flit": 0.25,
+    "operands_per_flit": 1.0,
+    "levels": {
+     "PE_column": {
+      "router_pj": 0.0,
+      "ingress_pj": 0.9152060000000001
+     },
+     "PE": {
+      "router_pj": 0.0,
+      "ingress_pj": 0.9152060000000001
+     }
+    },
+    "source": "archs/_shared/noc.yaml"
+   }
+  },
+  {
+   "check": "components_sum_to_total[baseline_external_parity]",
+   "passed": true,
+   "detail": "components sum to 761101573.366800 pJ, total is 761101573.366800 pJ"
+  },
+  {
+   "check": "components_sum_to_total[embedded_ecc]",
+   "passed": true,
+   "detail": "components sum to 483853573.366800 pJ, total is 483853573.366800 pJ"
+  },
+  {
+   "check": "fixed_mapping_shared_across_variants",
+   "passed": true,
+   "detail": "all evaluated variants reference the same mapping set"
+  }
+ ],
+ "warnings": [
+  "ECC_MAC_PJ_OVERRIDE=0.23 pJ per MAC (M. Horowitz, 'Computing's energy problem (and what we can do about it)', ISSCC 2014, Fig. 1.1.9 'Rough energy costs for various operations in 45nm 0.9V'): the Compute category was rescaled in the evaluator from the ERT's 1.13555 pJ/MAC to MACs x this value. Every ECC PERCENTAGE in this file has a different denominator from the primary result; no saved pJ changed. ECC_OPT_METRIC=edp: a cheaper MAC can move the mapping optimum, and the mapper was NOT re-run (it prices MACs from the ERT) -- a fixed-mapping result",
+  "DEVELOPMENT RUN: one-layer (layer3.0.conv1). These numbers validate the implementation, not any architecture ranking. Layer selection is in the path and in `identity.layers`."
+ ],
+ "approximations": [
+  "Interconnect energy uses Timeloop's Legacy network model with one shared 45nm wire constant and per-architecture switching terms (archs/_shared/noc.yaml); hop distance is derived by Timeloop from each level's Accelergy area. The recon arm scales the WEIGHT share of NoC energy by K/N like the other on-chip categories.",
+  "exact stored codeword count x measured DRAM refetch factor; parity + message padding; rounded up to whole DRAM words once",
+  "The baseline's DRAM cost is a PER-BIT PRICE, not extra traffic: it reads the same weight bits as the embedded arm (the decoder is on the DRAM die, so parity is corrected there and never crosses the datapath) and pays 70 pJ/bit against 40 for the bigger, indexed array (x1.7500 on the whole DRAM category, weights, inputs and outputs alike -- a per-bit cost is a property of the device, not of a dataspace). The parity accounting on this result is the array-SIZE evidence for that price, not an energy term; it charges no pJ. E_background and E_refresh grow with the array and are not modelled.",
+  "complete codeword read: every bit of every DRAM weight read that Timeloop counts is billed, message and embedded parity alike, and no K/N reduction is applied at DRAM; no external parity; physical DRAM words are ESTIMATED as bits / word rounded up once at the end (bit-proportional -- Timeloop bills per 8-bit scalar); the final chunk's tail padding is reported, not charged, as for the baseline",
+  "ECC codec (decode/correction) energy is OUTSIDE this comparison: it is charged to neither arm (Task 2: do not silently change ECC codec energy). Note that the arms would decode different numbers of codewords -- the baseline packs whole weights into a separately stored codeword, the embedded layout cuts the weight bit stream itself -- so a codec cost would not cancel; it is simply not costed until a characterised codec energy is adopted. ECC_DECODE affects the sweep figures only.",
+  "This is a fixed-mapping, DRAM-only comparison. It credits no on-chip saving to the embedded arm and makes no inference-accuracy claim about overwriting weight LSBs with parity."
+ ],
+ "variants": [
+  {
+   "name": "baseline_external_parity",
+   "label": "Conventional ECC, BCH parity external in DRAM",
+   "kind": "baseline",
+   "status": "evaluated",
+   "total_energy_pJ": 761101573.3668001,
+   "total_energy_uJ": 761.1015733668,
+   "unavailable_reason": null,
+   "energy_by_component_pJ": {
+    "DRAM": 646912000.0,
+    "Global buffer": 24632473.21,
+    "Local (spads/RF)": 30251744.97,
+    "NoC": 46010722.22679999,
+    "Compute": 13294632.96,
+    "DRAM external BCH parity": 0.0
+   },
+   "mapping_ids": [
+    "a8de944a99d12f49"
+   ],
+   "detail": {
+    "external_parity_accounting": {
+     "code": {
+      "n": 63,
+      "k": 30,
+      "weight_bits": 8,
+      "parity_bits_per_codeword": 33,
+      "weights_per_codeword": 3,
+      "message_used_bits": 24,
+      "message_pad_bits_per_codeword": 6,
+      "parity_overhead_frac": 1.375,
+      "parity_overhead_ideal_frac": 1.1
+     },
+     "grouping": "layer",
+     "charge_message_padding": true,
+     "dram_word_bits": 64,
+     "stored": {
+      "weights": 294912,
+      "payload_bits": 2359296,
+      "codewords": 98304,
+      "message_pad_bits": 589824,
+      "tail_pad_bits": 0,
+      "parity_bits": 3244032,
+      "parity_dram_words": 50688,
+      "parity_dram_scalars": 405504.0,
+      "dram_word_bits": 64,
+      "stored_bits": 6193152,
+      "overhead_frac": 1.625,
+      "payload_bytes": 294912.0,
+      "parity_bytes": 405504.0,
+      "stored_bytes": 774144.0
+     },
+     "traffic": {
+      "refetch_factor": 1.0,
+      "codeword_reads": 98304.0,
+      "parity_bits": 3244032.0,
+      "message_pad_bits": 589824.0,
+      "external_bits": 3833856.0,
+      "external_dram_words": 59904.0,
+      "external_dram_scalars": 479232.0,
+      "charge_padding": true,
+      "overhead_vs_payload_frac": 1.625,
+      "method": "exact stored codeword count x measured DRAM refetch factor; parity + message padding; rounded up to whole DRAM words once"
+     },
+     "energy_pJ": 153354240.0,
+     "pJ_per_dram_weight_scalar": 320.0,
+     "hand_check": {
+      "method": "codeword-by-codeword walk compared against the closed form; both must agree exactly",
+      "code": "BCH(63,30) over 8-bit weights",
+      "weights_checked": 294912,
+      "weights_per_codeword": 3,
+      "message_pad_bits_per_codeword": 6,
+      "checks": {
+       "codewords": {
+        "walked": 98304,
+        "closed_form": 98304
+       },
+       "payload_bits": {
+        "walked": 2359296,
+        "closed_form": 2359296
+       },
+       "padding_bits_total": {
+        "walked": 589824,
+        "closed_form": 589824
+       },
+       "parity_bits": {
+        "walked": 3244032,
+        "closed_form": 3244032
+       },
+       "parity_dram_words": {
+        "walked": 50688,
+        "closed_form": 50688
+       }
+      },
+      "mismatches": {},
+      "passed": true
+     },
+     "hand_check_passed": true,
+     "comparison_to_flat_model": {
+      "flat_n_over_k_minus_1": 1.1,
+      "accounted_overhead": 1.625,
+      "note": "the flat model assumes the k-bit message field is fully packed with weights; it is not, because a weight cannot straddle a codeword"
+     }
+    },
+    "baseline_dram_pricing": {
+     "model": "per_bit_price",
+     "ratio": 1.75,
+     "pj_per_bit_charged": 40.0,
+     "pj_per_bit_baseline": 70.0,
+     "parity_traffic_energy_NOT_charged_pJ": 153354240.0,
+     "note": "ECC_BASELINE_DRAM_PJ_PER_BIT=70 -- the baseline's DRAM array also stores the parity and indexes it, so a bit out of it costs more than out of the embedded/recon array; the parity itself is corrected on the DRAM die and never crosses the datapath",
+     "dram_pJ_before": 369664000.0,
+     "dram_pJ_after": 646912000.0,
+     "dram_delta_pJ": 277248000.0
+    },
+    "timeloop_energy_pJ": 483853573.36679995,
+    "dram_weight_reads": 294912.0,
+    "dram_weight_energy_pJ": 94371840.0,
+    "ecc_codec_energy": "ECC codec (decode/correction) energy is OUTSIDE this comparison: it is charged to neither arm (Task 2: do not silently change ECC codec energy). Note that the arms would decode different numbers of codewords -- the baseline packs whole weights into a separately stored codeword, the embedded layout cuts the weight bit stream itself -- so a codec cost would not cancel; it is simply not costed until a characterised codec energy is adopted. ECC_DECODE affects the sweep figures only."
+   }
+  },
+  {
+   "name": "embedded_ecc",
+   "label": "Embedded ECC, parity inside the stored weights, no external parity",
+   "kind": "embedded",
+   "status": "evaluated",
+   "total_energy_pJ": 483853573.3667999,
+   "total_energy_uJ": 483.8535733667999,
+   "unavailable_reason": null,
+   "energy_by_component_pJ": {
+    "DRAM": 369664000.0,
+    "Global buffer": 24632473.21,
+    "Local (spads/RF)": 30251744.97,
+    "NoC": 46010722.22679999,
+    "Compute": 13294632.96,
+    "DRAM external BCH parity": 0.0
+   },
+   "mapping_ids": [
+    "a8de944a99d12f49"
+   ],
+   "detail": {
+    "embedded_dram_accounting": {
+     "code": {
+      "n": 63,
+      "k": 30,
+      "t": 6,
+      "parity_bits_per_codeword": 33
+     },
+     "layout": {
+      "n": 63,
+      "k": 30,
+      "weight_bits": 8,
+      "layout": "bitstream",
+      "layout_meaning": "the MSB-first weight bit stream is cut into fixed n-bit codewords; weights straddle codeword boundaries; the parity overwrites the lowest-significance positions; storage is weight_bits per weight with no external parity",
+      "parity_bits_per_codeword": 33,
+      "codeword_bits": 63,
+      "weights_per_codeword": 7.875,
+      "independent_frac": 0.47619047619047616,
+      "period_bits": 504,
+      "period_codewords": 8,
+      "period_weights": 63,
+      "split_boundaries_per_period": 7,
+      "parity_significance": {
+       "rule": "per chunk, the n-k parity bits overwrite the positions of lowest bit significance (ties: higher chunk index first)",
+       "phases": 8,
+       "parity_slots_by_significance_per_phase": [
+        {
+         "bit0": 7,
+         "bit1": 8,
+         "bit2": 8,
+         "bit3": 8,
+         "bit4": 2
+        },
+        {
+         "bit0": 8,
+         "bit1": 7,
+         "bit2": 8,
+         "bit3": 8,
+         "bit4": 2
+        },
+        {
+         "bit0": 8,
+         "bit1": 8,
+         "bit2": 7,
+         "bit3": 8,
+         "bit4": 2
+        },
+        {
+         "bit0": 8,
+         "bit1": 8,
+         "bit2": 8,
+         "bit3": 7,
+         "bit4": 2
+        },
+        {
+         "bit0": 8,
+         "bit1": 8,
+         "bit2": 8,
+         "bit3": 8,
+         "bit4": 1
+        },
+        {
+         "bit0": 8,
+         "bit1": 8,
+         "bit2": 8,
+         "bit3": 8,
+         "bit4": 1
+        },
+        {
+         "bit0": 8,
+         "bit1": 8,
+         "bit2": 8,
+         "bit3": 8,
+         "bit4": 1
+        },
+        {
+         "bit0": 8,
+         "bit1": 8,
+         "bit2": 8,
+         "bit3": 8,
+         "bit4": 1
+        }
+       ],
+       "parity_bits_per_weight_by_significance": {
+        "bit0": 1.0,
+        "bit1": 1.0,
+        "bit2": 1.0,
+        "bit3": 1.0,
+        "bit4": 0.19047619047619047
+       },
+       "parity_bits_per_weight_total": 4.190476190476191
+      }
+     },
+     "layout_source": {
+      "pipeline": "ECC-CODE-Engine/4-EmbeddingECC/ecc_embed.py -- approach `replace`, chunk_size = message_parity_size (the codeword n); one int8 tensor per call",
+      "slicing": "Input_Embedding/3-Testing/utils/messageSliceBasedOnChunkSize.py -- fixed n-bit chunks over the MSB-first 8-bit weight stream; chunks span weights; only the last chunk is zero-padded",
+      "encoding": "Input_Embedding/3-Testing/implementations/ParityOverwriteByTopWeightsEncode.py -- systematic BCH(n,k) via galois.BCH(n,k).G; the k highest-significance chunk positions are the message, the n-k lowest-significance positions are overwritten with the parity",
+      "phases": "Input_Embedding/3-Testing/implementations/secded_vectorized.py -- the chunk/weight alignment repeats every lcm(n, 8)/n chunks",
+      "verified": "2026-09-07, read-only inspection of the files above"
+     },
+     "grouping": "layer",
+     "dram_word_bits": 64,
+     "stored": {
+      "weights": 294912,
+      "payload_bits": 2359296,
+      "codewords": 37450,
+      "tail_pad_bits": 54,
+      "embedded_parity_bits": 1235850,
+      "split_boundaries": 32768,
+      "straddling_weights": 32768,
+      "external_parity_bits": 0,
+      "stored_dram_words": 36865,
+      "dram_word_bits": 64,
+      "stored_bits": 2359350,
+      "overhead_frac": 2.288818359375e-05,
+      "bits_per_weight": 8.00018310546875,
+      "payload_bytes": 294912.0,
+      "external_parity_bytes": 0.0,
+      "stored_bytes": 294918.75
+     },
+     "traffic": {
+      "refetch_factor": 1.0,
+      "codeword_reads": 37450.0,
+      "payload_bits_read": 2359296.0,
+      "embedded_parity_bits_read": 1235850.0,
+      "tail_pad_bits_read": 54.0,
+      "external_bits": 0.0,
+      "external_dram_words": 0.0,
+      "external_dram_scalars": 0.0,
+      "physical_dram_words_estimate": 36864.0,
+      "overhead_vs_payload_frac": 0.0,
+      "method": "complete codeword read: every bit of every DRAM weight read that Timeloop counts is billed, message and embedded parity alike, and no K/N reduction is applied at DRAM; no external parity; physical DRAM words are ESTIMATED as bits / word rounded up once at the end (bit-proportional -- Timeloop bills per 8-bit scalar); the final chunk's tail padding is reported, not charged, as for the baseline"
+     },
+     "dram_weight_energy_pJ": 94371840.0,
+     "external_parity_energy_pJ": 0.0,
+     "energy_pJ": 0.0,
+     "pJ_per_dram_weight_scalar": 320.0,
+     "hand_check": {
+      "method": "codeword-by-codeword walk of the padded weight bit stream, classifying every interior boundary, compared against the closed form; both must agree exactly",
+      "code": "BCH(63,30) embedded in 8-bit weights",
+      "weights_checked": 294912,
+      "weights_per_codeword": 7.875,
+      "checks": {
+       "codewords": {
+        "walked": 37450,
+        "closed_form": 37450
+       },
+       "payload_bits": {
+        "walked": 2359296,
+        "closed_form": 2359296
+       },
+       "tail_pad_bits": {
+        "walked": 54,
+        "closed_form": 54
+       },
+       "stored_bits": {
+        "walked": 2359350,
+        "closed_form": 2359350
+       },
+       "split_boundaries": {
+        "walked": 32768,
+        "closed_form": 32768
+       },
+       "straddling_weights": {
+        "walked": 32768,
+        "closed_form": 32768
+       },
+       "stored_dram_words": {
+        "walked": 36865,
+        "closed_form": 36865
+       },
+       "external_parity_bits": {
+        "walked": 0,
+        "closed_form": 0
+       }
+      },
+      "mismatches": {},
+      "passed": true,
+      "grouping": "layer",
+      "layers_checked": 1
+     },
+     "hand_check_passed": true,
+     "comparison_to_baseline_layout": {
+      "baseline_weights_per_codeword": 3,
+      "baseline_stored_bits_per_weight": 21.0,
+      "embedded_weights_per_codeword": 7.875,
+      "embedded_stored_bits_per_weight": 8.00018310546875,
+      "note": "the baseline stores a codeword BESIDE the data and packs only whole weights into its k-bit message field; the embedded pipeline cuts the weight bit stream itself into n-bit codewords. The two arms therefore count codewords differently, and neither count is a modelling choice."
+     }
+    },
+    "timeloop_energy_pJ": 483853573.36679995,
+    "dram_weight_reads": 294912.0,
+    "dram_weight_energy_pJ": 94371840.0,
+    "dram_energy_removed_vs_conventional_pJ": 430602240.0,
+    "what_changed": "DRAM only, and it is a PRICE: both arms read the same weight bits -- the decoder is on the DRAM die, so the baseline's parity is corrected there and never crosses the datapath -- but the baseline's array also stores that parity and indexes it, at 70 pJ/bit against 40. Mapping, on-chip widths, access counts, NoC and MAC energy are the same numbers as the baseline variant in this file.",
+    "ecc_codec_energy": "ECC codec (decode/correction) energy is OUTSIDE this comparison: it is charged to neither arm (Task 2: do not silently change ECC codec energy). Note that the arms would decode different numbers of codewords -- the baseline packs whole weights into a separately stored codeword, the embedded layout cuts the weight bit stream itself -- so a codec cost would not cancel; it is simply not costed until a characterised codec energy is adopted. ECC_DECODE affects the sweep figures only."
+   }
+  },
+  {
+   "name": "recon_source_noc_ingress",
+   "label": "reconstruct at the source / NoC ingress",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the source / NoC ingress) so the document shape is final, but no reconstruction has been evaluated.",
+   "energy_by_component_pJ": {},
+   "mapping_ids": [],
+   "detail": {}
+  },
+  {
+   "name": "recon_destination_cluster",
+   "label": "reconstruct at the destination-cluster boundary",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the destination-cluster boundary) so the document shape is final, but no reconstruction has been evaluated.",
+   "energy_by_component_pJ": {},
+   "mapping_ids": [],
+   "detail": {}
+  },
+  {
+   "name": "recon_pe_spad_input",
+   "label": "reconstruct at the PE weight-SPad input",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the PE weight-SPad input) so the document shape is final, but no reconstruction has been evaluated.",
+   "energy_by_component_pJ": {},
+   "mapping_ids": [],
+   "detail": {}
+  },
+  {
+   "name": "recon_pe_spad_output",
+   "label": "reconstruct at the weight-SPad output, repeated",
+   "kind": "reconstruction",
+   "status": "not_implemented",
+   "total_energy_pJ": null,
+   "total_energy_uJ": null,
+   "unavailable_reason": "Tasks 3-5 have not been implemented. This entry names the placement (reconstruct at the weight-SPad output, repeated) so the document shape is final, but no reconstruction has been evaluated.",
+   "energy_by_component_pJ": {},
+   "mapping_ids": [],
+   "detail": {}
+  }
+ ],
+ "detail": {
+  "architecture": {
+   "source_yaml": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/archs/eyeriss_like_wglb/arch_paper.yaml",
+   "fingerprint": "3cd00eb16801",
+   "accumulator_bits": 16,
+   "accumulator_evidence": "inherited from eyeriss_like",
+   "contract_report": {
+    "arch": "eyeriss_like_wglb",
+    "violations": [],
+    "notes": [
+     "published at 65nm, modelled at 45nm. Deliberate: a mixed-node comparison would report silicon as architecture.",
+     "interconnect: multicast_network_no_routers -- wire 0.12 pJ/b/mm (shared); PE_column: router 0 pJ, ingress 0.915206 pJ, hop from area; PE: router 0 pJ, ingress 0.915206 pJ, hop from area (archs/_shared/noc.yaml)"
+    ],
+    "facts": {
+     "source": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/archs/eyeriss_like_wglb/arch_paper.yaml",
+     "origin": "derived",
+     "label": "Eyeriss v1 (+8kB filter GLB)",
+     "accumulator_bits": 16,
+     "accumulator_evidence": "inherited from eyeriss_like",
+     "citation": "Same JSSC 52(1), 2017 as eyeriss_like.  Differs from it in ONE block: the 8 kB filter allocation the paper describes -- \"the remaining 8 kB (two banks of 512-b x 64-b SRAMs) of the GLB is allocated for filter weights to compensate for insufficient off-chip traffic bandwidth\" -- is declared as a Timeloop storage level instead of !Nothing. Unlike eyeriss_v2_like_wglb, whose weight level is NOT in its paper, this level IS published; what is uncertain is whether a prefetch buffer should be modelled as a reuse level.  The pair BRACKETS that uncertainty: eyeriss_like is the upper bound on DRAM weight traffic (and so on the ECC saving), eyeriss_like_wglb the lower bound. Quote the pair, never one alone.",
+     "technology_declared": [
+      "45nm"
+     ],
+     "noc": {
+      "structure": "multicast_network_no_routers",
+      "wire_pj_per_bit_mm": 0.12,
+      "source": "derived",
+      "router_pj_per_flit": 0.25,
+      "operands_per_flit": 1.0,
+      "pe_latch_pj": 0.0,
+      "levels": {
+       "PE_column": {
+        "router_pj": 0.0,
+        "ingress_pj": 0.9152060000000001,
+        "tile_width_um": null
+       },
+       "PE": {
+        "router_pj": 0.0,
+        "ingress_pj": 0.9152060000000001,
+        "tile_width_um": null
+       }
+      },
+      "datapath_levels": [],
+      "components_digest": "6743fff86989"
+     },
+     "dram": {
+      "width": 64,
+      "datawidth": 8,
+      "depth": 1048576
+     },
+     "mac": {
+      "multiplier_width": 8,
+      "adder_width": 16
+     },
+     "levels": [
+      {
+       "name": "ifmap_glb",
+       "class": "smartbuffer_SRAM",
+       "depth": 6656,
+       "width": 64,
+       "datawidth": 8,
+       "entries_each": 53248,
+       "instances": 1,
+       "keep": [
+        "Inputs"
+       ],
+       "bypass": [
+        "Weights",
+        "Outputs"
+       ]
+      },
+      {
+       "name": "psum_glb",
+       "class": "smartbuffer_SRAM",
+       "depth": 6144,
+       "width": 64,
+       "datawidth": 16,
+       "entries_each": 24576,
+       "instances": 1,
+       "keep": [
+        "Outputs"
+       ],
+       "bypass": [
+        "Weights",
+        "Inputs"
+       ]
+      },
+      {
+       "name": "filter_glb",
+       "class": "smartbuffer_SRAM",
+       "depth": 256,
+       "width": 64,
+       "datawidth": 8,
+       "entries_each": 2048,
+       "instances": 1,
+       "keep": [
+        "Weights"
+       ],
+       "bypass": [
+        "Inputs",
+        "Outputs"
+       ]
+      },
+      {
+       "name": "ifmap_spad",
+       "class": "smartbuffer_RF_decoded",
+       "depth": 12,
+       "width": 16,
+       "datawidth": 8,
+       "entries_each": 24,
+       "instances": 168,
+       "keep": [
+        "Inputs"
+       ],
+       "bypass": []
+      },
+      {
+       "name": "weights_spad",
+       "class": "smartbuffer_SRAM",
+       "depth": 16,
+       "width": 16,
+       "datawidth": 8,
+       "entries_each": 32,
+       "instances": 168,
+       "keep": [
+        "Weights"
+       ],
+       "bypass": []
+      },
+      {
+       "name": "psum_spad",
+       "class": "smartbuffer_RF_decoded",
+       "depth": 64,
+       "width": 16,
+       "datawidth": 16,
+       "entries_each": 64,
+       "instances": 168,
+       "keep": [
+        "Outputs"
+       ],
+       "bypass": []
+      }
+     ],
+     "total_fanout": 168,
+     "weight_levels": [
+      {
+       "name": "filter_glb",
+       "entries_each": 2048,
+       "instances": 1,
+       "entries_total": 2048
+      },
+      {
+       "name": "weights_spad",
+       "entries_each": 32,
+       "instances": 168,
+       "entries_total": 5376
+      }
+     ],
+     "weight_capacity": 7424,
+     "glb_keeps_weights": true
+    }
+   },
+   "provenance": {
+    "source_document": "Chen, Krishna, Emer, Sze, IEEE JSSC 52(1), 2017 -- same paper as eyeriss_like",
+    "url": "https://eems.mit.edu/wp-content/uploads/2016/11/eyeriss_jssc_2017.pdf",
+    "verified": "2026-09-06",
+    "inherits": "eyeriss_like",
+    "levels": {
+     "filter_glb": {
+      "quote": "\"Even though it is not required by the dataflow, the remaining 8 kB (two banks of 512-b x 64-b SRAMs) of the GLB is allocated for filter weights to compensate for insufficient off-chip traffic bandwidth. While the PE array is working on a processing pass, the GLB preloads the filters used by the next processing pass.\"",
+      "modelled": "depth 1024 (2 x 512), width 64, n_banks 2, datawidth 8 -> 8192 weights",
+      "rationale": "The CAPACITY and the BANK GEOMETRY are published exactly; what is a judgement call is whether a double-buffered prefetch store should be declared as a Timeloop reuse level. Modelled as a reuse level here and as !Nothing in eyeriss_like, so the two BRACKET the answer instead of one of them silently choosing it.",
+      "why_it_matters": "eyeriss_like refetches resnet18's weights 7.0x from DRAM against 1.0-2.3x for every other design, and the ECC saving is very nearly 0.3125 * E_dram_weights / (total + 0.3125 * E_dram_weights). So this single structural choice sets the largest saving in the study. It is the reason this variant exists."
+     }
+    }
+   }
+  },
+  "workload": {
+   "file": "cnn",
+   "layers": [
+    {
+     "name": "layer3.0.conv1",
+     "shape_signature": "C128_M256_R3_S3_P14_Q14_ws2_hs2",
+     "dims": {
+      "C": 128,
+      "M": 256,
+      "R": 3,
+      "S": 3,
+      "P": 14,
+      "Q": 14,
+      "Wstride": 2,
+      "Hstride": 2,
+      "N": 1,
+      "G": 1
+     },
+     "dims_note": "C and M are per group; G is the group count (G=1: ordinary convolution)",
+     "grouped": false,
+     "repeat_count": 1,
+     "weights": 294912,
+     "macs": 57802752
+    }
+   ],
+   "layer_scope": "one-layer",
+   "total_weights": 294912
+  },
+  "per_layer": [
+   {
+    "layer": "layer3.0.conv1",
+    "shape": "C128_M256_R3_S3_P14_Q14_ws2_hs2",
+    "status": "ok",
+    "weights": 294912,
+    "macs": 57802752,
+    "grouped": false,
+    "repeat_count": 1,
+    "mapping_id": "a8de944a99d12f49",
+    "mapping_cached": false,
+    "total_energy_pJ": 483853573.36679995,
+    "dram_weight_reads": 294912.0,
+    "dram_weight_energy_pJ": 18874368.0,
+    "compute_energy_pJ_charged": 13294632.96,
+    "dram_weight_energy_pJ_charged": 94371840.0
+   }
+  ],
+  "per_level": [
+   {
+    "level": "DRAM",
+    "dataspace": "Inputs",
+    "category": "DRAM",
+    "instances": 1,
+    "energy_pJ": 34447360.0,
+    "reads": 107648.0,
+    "writes": 0.0,
+    "dram_pj_per_bit": 40.0
+   },
+   {
+    "level": "DRAM",
+    "dataspace": "Outputs",
+    "category": "DRAM",
+    "instances": 1,
+    "energy_pJ": 240844800.0,
+    "reads": 351232.0,
+    "writes": 401408.0,
+    "dram_pj_per_bit": 40.0
+   },
+   {
+    "level": "DRAM",
+    "dataspace": "Weights",
+    "category": "DRAM",
+    "instances": 1,
+    "energy_pJ": 94371840.0,
+    "reads": 294912.0,
+    "writes": 0.0,
+    "dram_pj_per_bit": 40.0
+   },
+   {
+    "level": "NoC: inter_PE_column_spatial <==> inter_PE_spatial",
+    "dataspace": "Inputs",
+    "category": "NoC",
+    "instances": null,
+    "energy_pJ": 17371088.24,
+    "reads": 3612672.0,
+    "writes": 0.0
+   },
+   {
+    "level": "NoC: inter_PE_column_spatial <==> inter_PE_spatial",
+    "dataspace": "Outputs",
+    "category": "NoC",
+    "instances": null,
+    "energy_pJ": 4149475.35,
+    "reads": 1204224.0,
+    "writes": 0.0
+   },
+   {
+    "level": "NoC: inter_PE_column_spatial <==> inter_PE_spatial",
+    "dataspace": "Weights",
+    "category": "NoC",
+    "instances": null,
+    "energy_pJ": 1360640.88,
+    "reads": 294912.0,
+    "writes": 0.0
+   },
+   {
+    "level": "NoC: inter_PE_column_spatial <==> inter_PE_spatial [psum word width]",
+    "dataspace": "Outputs",
+    "category": "NoC",
+    "instances": null,
+    "energy_pJ": 3047385.16992,
+    "reads": 0.0,
+    "writes": 0.0
+   },
+   {
+    "level": "NoC: inter_PE_spatial <==> ifmap_spad",
+    "dataspace": "Inputs",
+    "category": "NoC",
+    "instances": null,
+    "energy_pJ": 9048756.79,
+    "reads": 516096.0,
+    "writes": 0.0
+   },
+   {
+    "level": "NoC: inter_PE_spatial <==> ifmap_spad",
+    "dataspace": "Outputs",
+    "category": "NoC",
+    "instances": null,
+    "energy_pJ": 2590827.73,
+    "reads": 86016.0,
+    "writes": 0.0
+   },
+   {
+    "level": "NoC: inter_PE_spatial <==> ifmap_spad",
+    "dataspace": "Weights",
+    "category": "NoC",
+    "instances": null,
+    "energy_pJ": 2585359.08,
+    "reads": 147456.0,
+    "writes": 0.0
+   },
+   {
+    "level": "NoC: inter_PE_spatial <==> ifmap_spad [psum word width]",
+    "dataspace": "Outputs",
+    "category": "NoC",
+    "instances": null,
+    "energy_pJ": 1488770.08896,
+    "reads": 0.0,
+    "writes": 0.0
+   },
+   {
+    "level": "NoC: inter_PE_spatial <==> ifmap_spad [spatial reduction]",
+    "dataspace": "Outputs",
+    "category": "NoC",
+    "instances": null,
+    "energy_pJ": 4368418.89792,
+    "reads": 946176.0,
+    "writes": 0.0
+   },
+   {
+    "level": "filter_glb",
+    "dataspace": "Weights",
+    "category": "Global buffer",
+    "instances": 1,
+    "energy_pJ": 259792.04,
+    "reads": 294912.0,
+    "writes": 294912.0
+   },
+   {
+    "level": "ifmap_glb",
+    "dataspace": "Inputs",
+    "category": "Global buffer",
+    "instances": 1,
+    "energy_pJ": 10854427.58,
+    "reads": 3612672.0,
+    "writes": 107648.0
+   },
+   {
+    "level": "ifmap_spad",
+    "dataspace": "Inputs",
+    "category": "Local (spads/RF)",
+    "instances": 168,
+    "energy_pJ": 1700099.96,
+    "reads": 344064.0,
+    "writes": 43008.0
+   },
+   {
+    "level": "mac",
+    "dataspace": "Compute",
+    "category": "Compute",
+    "instances": 168,
+    "energy_pJ": 13294632.96,
+    "reads": 0.0,
+    "writes": 0.0,
+    "mac_pj_override": 0.23
+   },
+   {
+    "level": "psum_glb",
+    "dataspace": "Outputs",
+    "category": "Global buffer",
+    "instances": 1,
+    "energy_pJ": 13518253.59,
+    "reads": 1154048.0,
+    "writes": 1555456.0
+   },
+   {
+    "level": "psum_spad",
+    "dataspace": "Outputs",
+    "category": "Local (spads/RF)",
+    "instances": 168,
+    "energy_pJ": 24021471.99,
+    "reads": 340480.0,
+    "writes": 426496.0
+   },
+   {
+    "level": "weights_spad",
+    "dataspace": "Weights",
+    "category": "Local (spads/RF)",
+    "instances": 168,
+    "energy_pJ": 4530173.02,
+    "reads": 344064.0,
+    "writes": 12288.0
+   }
+  ],
+  "mac_energy": {
+   "macs": 57802752.0,
+   "compute_pJ_ert": 65637915.03,
+   "ert_pj_per_mac": 1.1355499999377192,
+   "override_pj_per_mac": 0.23,
+   "pj_per_mac_charged": 0.23,
+   "source": "ECC_MAC_PJ_OVERRIDE",
+   "citation_short": "Horowitz ISSCC 2014 int8 mult+add, 45 nm",
+   "citation": "M. Horowitz, 'Computing's energy problem (and what we can do about it)', ISSCC 2014, Fig. 1.1.9 'Rough energy costs for various operations in 45nm 0.9V'",
+   "compute_pJ_charged": 13294632.96,
+   "compute_scale": 0.20254502224702978,
+   "opt_metric": "edp",
+   "mapping_note": "ECC_OPT_METRIC=edp: a cheaper MAC can move the mapping optimum, and the mapper was NOT re-run (it prices MACs from the ERT) -- a fixed-mapping result"
+  },
+  "mappings": [
+   {}
+  ],
+  "raw_energy_cache": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/results/_raw/eyeriss_like_wglb/vic4000__vicx__alg-linear_pruned__to100000000__noc__paper__mcons__wrelax/fp-3cd00eb16801/cnn/layers1__layer3_0_conv1/cls-instances/rw-joint/resnet18.json",
+  "mapper_cache": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/ecc_energy_study/outputs/eyeriss_like_wglb/multimodel__vic4000__vicx__alg-linear_pruned__to100000000__noc__paper__mcons__wrelax/fp-3cd00eb16801"
+ },
+ "provenance": {
+  "config": {
+   "experiment": "embedded",
+   "sweep": "arch",
+   "sweep_archs": [
+    "eyeriss_like_wglb"
+   ],
+   "sweep_models": [
+    "resnet18"
+   ],
+   "sweep_ks": [
+    30
+   ],
+   "panel_models": [],
+   "const_arch": "eyeriss_like_wglb",
+   "const_model": "resnet18",
+   "const_k": 30,
+   "approaches": [
+    "baseline",
+    "embedded",
+    "recon"
+   ],
+   "weight_bits": 8,
+   "activation_bits": 8,
+   "acc_bits_override": null,
+   "code_n": 63,
+   "emb_weights_per_cw_override": null,
+   "parity_grouping": "layer",
+   "parity_charge_padding": true,
+   "decode_enabled": false,
+   "decode_pj_base": 40.0,
+   "decode_pj_emb": 40.0,
+   "recon_charges_decode": true,
+   "recon_json": "data/dc/BCH_N63_results.json",
+   "recon_include_idle": true,
+   "recon_pj_override": null,
+   "recon_incremental_fallback_pj": 1.8995,
+   "recon_idle_fallback_pj": 2.2301273,
+   "recon_modeling": true,
+   "recon_optimizer": false,
+   "recon_placement_keys": [
+    "eyeriss_like_wglb=recon1 recon2 recon3 recon4 recon5"
+   ],
+   "recon_stem": "ReconSweep",
+   "recon_packing": "aligned",
+   "recon_granularity": "weight",
+   "recon_onchip_fraction": null,
+   "recon_placement_charges_decode": true,
+   "recon_decode_site": "ondie",
+   "recon_encoder_site": "destination",
+   "dram_pj_per_bit": 40.0,
+   "baseline_dram_pj_per_bit": 70.0,
+   "dram_background_pj": 0.0,
+   "dram_refresh_pj": 0.0,
+   "weak_enabled": false,
+   "weak_n": 63,
+   "weak_k": 57,
+   "baseline_inflates_onchip": false,
+   "split_read_write": false,
+   "classify_mode": "instances",
+   "arch_fidelity": "paper",
+   "force_technology": "",
+   "force_datawidth": null,
+   "dram_depth": 1048576,
+   "global_cycle_seconds": "1e-9",
+   "weight_capacity_scale": 1.0,
+   "weight_capacity_scope": "exclusive",
+   "weight_factor_relax": true,
+   "mapspace_constrain": true,
+   "weight_datawidth": null,
+   "weight_depth_scale": 1.0,
+   "weight_width": null,
+   "weight_width_glb_mult": 4,
+   "weight_depth_levels": [],
+   "depth_sweep_gate_victories": [
+    "2000",
+    "4000",
+    "10000"
+   ],
+   "depth_sweep_gate_scales": [
+    "1.0",
+    "0.125"
+   ],
+   "noc_enabled": true,
+   "noc_wire_pj_per_bit_mm": null,
+   "noc_router_pj": null,
+   "noc_pe_latch_pj": null,
+   "noc_scale": 1.0,
+   "mac_pj_override": 0.23,
+   "layers": [
+    "layer3.0.conv1"
+   ],
+   "phase": "Pre",
+   "overwrite": false,
+   "cache_strict": true,
+   "rerun_optimiser": false,
+   "run_note": "",
+   "opt_metric": "edp",
+   "victory": 4000,
+   "victory_scaling": "levels",
+   "mapper_threads": 18,
+   "mapper_timeout": 100000000,
+   "mapper_algorithm": "linear_pruned",
+   "mapper_seed": null,
+   "mapper_search_size": null,
+   "mapper_max_permutations": 16,
+   "results_dir": "results",
+   "replot_only": false,
+   "from_cache": true,
+   "palette": "house",
+   "dpi": 400,
+   "formats": [
+    "png",
+    "pdf"
+   ],
+   "title_note": "",
+   "nice_labels": true,
+   "stem_override": "",
+   "archs": [
+    "eyeriss_like_wglb"
+   ],
+   "models": [
+    "resnet18"
+   ],
+   "code_k": 30,
+   "code_t": 6,
+   "workload": "cnn",
+   "stem": "ArchitectureSweep__layers1__layer3_0_conv1",
+   "arch_variant_slug": "vic4000__vicx__alg-linear_pruned__to100000000__noc__paper__mcons__wrelax",
+   "weights_per_codeword": 3,
+   "emb_weights_per_cw": 3,
+   "parity_frac": 1.1,
+   "sram_scale": 0.47619047619047616,
+   "weak_overhead": 1.0
+  },
+  "config_hash": "9ec6cdf8",
+  "mapper_settings": {
+   "optimization_metric": "edp",
+   "victory_condition_base": 4000,
+   "victory_scaling": "levels",
+   "algorithm": "linear_pruned",
+   "timeout": 100000000,
+   "search_size": null,
+   "max_permutations_per_if_visit": 16,
+   "num_threads": 18,
+   "seed": null,
+   "seed_supported": false,
+   "seed_note": "timeloop-mapper v4 exposes no random seed; pytimeloop's Mapper spec has no `random_seed` attribute. ECC_MAPPER_SEED is RECORDED so a result says which value was asked for, but it does not make the search deterministic. What does bound it is the thread count and victory condition, both of which are in the fingerprint -- so pin ECC_MAPPER_THREADS for a reproducible run rather than leaving it at 'all cores', which differs per machine."
+  },
+  "mapper_fingerprint": "63523804",
+  "command": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/eccenergy/__main__.py embedded --eval",
+  "git_commit": "770fe1731226cd86e77f710daffafe3951d478cd",
+  "started_utc": "2026-09-10T20:29:16+00:00",
+  "finished_utc": "2026-09-10T20:29:16+00:00",
+  "runtime_seconds": 0.0,
+  "host": "login12.ufhpc",
+  "user": "vkamineni",
+  "platform": "Linux-5.14.0-687.36.1.el9_8.x86_64-x86_64-with-glibc2.35",
+  "project_root": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling"
+ }
+}
