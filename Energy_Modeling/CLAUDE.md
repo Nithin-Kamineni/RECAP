@@ -32,7 +32,11 @@ must reproduce today's numbers exactly**, and §9.1's gate is one command --
 model) and every evaluated total is unchanged to the pJ. Run it BEFORE touching
 anything, so a red gate is never ambiguous. `restructure/README.md` says what the gate
 covers and what it cannot; ProjectRestructure §10 is what not to do.
-**Phases 0-5 are DONE.** Phases 6 (guards) and 7 (backfill tests) are not.
+**Phases 0-6 are DONE.** Phase 7 (backfill tests) is ongoing, not blocking.
+**`GUARDS.md` (generated, `make guards`) is the list of every guard** -- 136 of
+them, each with an id and a TIER. Tiers 3 and 4 are liftable by naming them in
+`ECC_ALLOW` (env.sh section 1), and an override is RECORDED on the manifest as
+`guard_overrides` and on the figure's caveat list. Tiers 1 and 2 never lift.
 
 Phase-by-phase status lives in `progress.txt`, not here.
 

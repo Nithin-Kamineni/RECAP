@@ -3,3 +3,4 @@
 2026-09-13T17:57:33Z	231 passed, 4 skipped, 1 xfailed in <T>s -> unchanged	phase 3: golden re-taken after the phase, for ONE corrected prose line (WEIGHT_PATHS' module path); no test added, removed or changed count
 2026-09-13T18:50:48Z	231 passed, 4 skipped, 1 xfailed in <T>s -> 240 passed, 4 skipped in <T>s	phase 4: +8 tests/contract/test_settings.py (the record's key order and the hashed set); the layer-rule xfail is a pass now that KNOWN_UPWARD is empty
 2026-09-13T19:16:07Z	240 passed, 4 skipped in <T>s -> 272 passed, 10 skipped in <T>s	phase 5: +32 tests/contract/test_designs_are_data.py (every design loads and validates; zero production sites name a design)
+2026-09-13T20:11:42Z	272 passed, 10 skipped in <T>s -> 301 passed, 10 skipped in <T>s	phase 6: +29 tests (24 guards contract, 5 out-of-package import audit); no test lost, no energy moved

@@ -40,6 +40,7 @@ from .common import Session
 
 from .dilated_view import _capacity_of
 from .placement_notes import stats_paths_for
+from ..settings import guards
 
 
 # --------------------------------------------------------- prompt_6: the ERT
@@ -271,7 +272,7 @@ def ert_aware_view(cfg, ses, arch, model, base_cats, ref_raw, ref_paths, placeme
     ases.collect_arch(arch)
     raw_a = (ases.raws.get(arch) or {}).get(model)
     if raw_a is None:
-        raise SystemExit(
+        raise guards.refusal("ert-arm-cache-cold",
             f"ECC_RECON_ERT_AWARE=1 needs {placement.key}'s OWN mapping for {arch}/{model} "
             f"({ert.describe_bump(bump)}), and it is not in the cache.\n"
             f"  expected: {ases.results.mapper_cache(arch, variant, fp, create=False)}\n"
@@ -280,7 +281,7 @@ def ert_aware_view(cfg, ses, arch, model, base_cats, ref_raw, ref_paths, placeme
             f"Task 3, and this heading says otherwise.")
     paths_a, _mapper_a = stats_paths_for(acfg, ases, arch, model)
     if set(paths_a) != set(ref_paths):
-        raise SystemExit(
+        raise guards.refusal("ert-arm-shapes-differ",
             f"{placement.key}'s own mapping and the reference are mapped on DIFFERENT "
             f"layer shapes for {arch}/{model}:\n"
             f"  only in the reference: {', '.join(sorted(set(ref_paths) - set(paths_a))) or 'none'}\n"
@@ -337,8 +338,9 @@ def ert_aware_view(cfg, ses, arch, model, base_cats, ref_raw, ref_paths, placeme
         L = lv.get(site) if site else None
         R = rlv.get(site) if site else None
         if site and (L is None or R is None or "Weights" not in L["ds"]):
-            raise SystemExit(f"{placement.key}/{shape}: level {site!r} carries no "
-                             f"Weights in the stats")
+            raise guards.refusal("level-carries-no-weights",
+                f"{placement.key}/{shape}: level {site!r} carries no "
+                f"Weights in the stats")
         w = L["ds"]["Weights"] if L else {}
         updates = float(w.get("updates") or 0.0)
         other = sorted(d for d in (L["ds"] if L else {}) if d != "Weights")
@@ -457,8 +459,9 @@ def ert_aware_view(cfg, ses, arch, model, base_cats, ref_raw, ref_paths, placeme
             problems.append(f"{shape}: {site} vector access energy source is "
                             f"{L['source']!r}, not ERT -- the supplied table was not billed")
     if problems:
-        raise SystemExit(f"{placement.key}'s own mapping fails its guards:\n  "
-                         + "\n  ".join(problems))
+        raise guards.refusal("ert-arm-fails-guards",
+            f"{placement.key}'s own mapping fails its guards:\n  "
+            + "\n  ".join(problems))
     # ---- PE utilisation: REPORTED per shape, never refused (see docstring) ----
     differ = [r_ for r_ in rows if r_["pes_differ"]]
     pe_report = {
@@ -492,7 +495,7 @@ def ert_aware_view(cfg, ses, arch, model, base_cats, ref_raw, ref_paths, placeme
     cap_ref, cap_arm = _capacity_of(ref_paths, narrow), _capacity_of(paths_a, narrow)
     got = (cap_arm / cap_ref) if cap_ref else 0.0
     if narrow and cap_ref and abs(got - want) > 0.05 * want:
-        raise SystemExit(
+        raise guards.refusal("ert-arm-capacity-wrong",
             f"{placement.key}: {narrow[0]} reports Effective size {cap_arm:,} against the "
             f"reference's {cap_ref:,} -- x{got:.4f}, but a quantisation arm at q = {q} "
             f"delivers exactly {cfg.weight_bits}/q = {want:.4f} (prompt_6 6). The "
@@ -525,7 +528,7 @@ def ert_aware_view(cfg, ses, arch, model, base_cats, ref_raw, ref_paths, placeme
     for name, stats_side, evaluator in (("access", stats_access, split["access_toll_pJ"]),
                                         ("leak", stats_leak, split["leak_toll_pJ"])):
         if not _close(stats_side, evaluator):
-            raise SystemExit(
+            raise guards.refusal("ert-split-does-not-reconcile",
                 f"{placement.key}: the {name} split does not reconcile -- stats-side "
                 f"{stats_side:.6f} pJ (printed level energy minus the same counts at the "
                 f"un-bumped prices) vs evaluator {evaluator:.6f} pJ (prompt_6 5.3, 1e-6)")
@@ -542,8 +545,9 @@ def ert_aware_view(cfg, ses, arch, model, base_cats, ref_raw, ref_paths, placeme
     st.energy_pJ -= split["access_toll_pJ"]
     st.switch_pJ -= split["access_toll_pJ"]
     if st.energy_pJ <= 0:
-        raise SystemExit(f"{placement.key}: moving the access toll out of {cat} left "
-                         f"{placement.site_stage} at {st.energy_pJ:.3f} pJ; the split is wrong")
+        raise guards.refusal("ert-split-left-residue",
+            f"{placement.key}: moving the access toll out of {cat} left "
+            f"{placement.site_stage} at {st.energy_pJ:.3f} pJ; the split is wrong")
     split["moved_out_of_category"] = cat
     split["moved_pJ"] = split["access_toll_pJ"]
     split["leak_in_bill"] = False

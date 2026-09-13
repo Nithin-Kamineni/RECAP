@@ -20,6 +20,7 @@ from __future__ import annotations
 from .stacked import grouped_stacks
 from ..study.common import Session
 from ..study.stacks import build_stacks, k_label, recon_pj_for_k
+from ..settings import guards
 
 
 def _bch_groups(cfg, ses):
@@ -58,7 +59,7 @@ def run(cfg):
 
     groups, stacks, labels, fontsize = BUILDERS[cfg.sweep](cfg, ses)
     if not groups:
-        raise SystemExit(
+        raise guards.refusal("sweep-nothing-to-plot",
             f"nothing to plot: the {cfg.sweep} sweep produced no groups.\n"
             f"  -> check the [skip] lines above; with ECC_REPLOT_ONLY=1 every "
             f"point must already be in results/_raw/")

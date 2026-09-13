@@ -18,6 +18,7 @@ import json
 import os
 import pathlib
 import sys
+from .settings import guards
 
 #: eccenergy/paths.py -> eccenergy/ -> project root
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -251,6 +252,15 @@ class Results:
     def write_manifest(self, extra=None, stem=None):
         payload = {"config": self.cfg.to_dict(),
                    "mapper_fingerprint": self.cfg.fingerprint()}
+        # ProjectRestructure section 6.4 rule 2: AN OVERRIDE IS RECORDED. A tier
+        # 3 or 4 guard lifted by `ECC_ALLOW` lands here, so a manifest that
+        # carries this key is the manifest of an ABLATION and says so itself.
+        # WRITTEN ONLY WHEN SOMETHING FIRED: every published run of this study
+        # overrides nothing, and an always-present `"overrides": []` would have
+        # rewritten every manifest on disk without changing one number in it.
+        fired = guards.overrides()
+        if fired:
+            payload["guard_overrides"] = fired
         if extra:
             payload.update(extra)
         p = self.manifest_path(stem)
@@ -264,7 +274,8 @@ class Results:
 
 def require(path, hint):
     if not pathlib.Path(path).exists():
-        raise SystemExit(f"missing: {path}\n  -> {hint}")
+        raise guards.refusal("missing-path",
+            f"missing: {path}\n  -> {hint}")
     return pathlib.Path(path)
 
 

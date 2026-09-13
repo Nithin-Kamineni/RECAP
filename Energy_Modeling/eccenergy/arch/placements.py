@@ -58,11 +58,11 @@ import functools
 
 from dataclasses import dataclass, replace
 
-from ..contracts.errors import ConfigError
 from ..paths import ARCH_SRC
 from . import design, weight_path
 
 from .weight_path import DECODE_SITES, ENCODER_SITES, WEIGHT_PATHS
+from ..settings import guards
 
 
 # ===========================================================================
@@ -118,7 +118,7 @@ def _declared_placements(arch):
     path = ARCH_SRC / arch / design.PLACEMENTS_FILE
     stages = weight_path.stages_of(arch)
     if not stages:
-        raise ConfigError(
+        raise guards.refusal("placements-need-weight-path",
             f"{path}: this design declares boundaries but no "
             f"{design.WEIGHT_PATH_FILE}. The two are loaded together or not at "
             f"all -- a boundary is a cut through a weight path.")

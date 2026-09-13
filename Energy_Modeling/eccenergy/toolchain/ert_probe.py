@@ -101,6 +101,7 @@ from . import inputs as inputs_mod
 from . import stats as stats_mod
 from ..config import load_config
 from ..arch.workloads import load_workload, select, select_layers
+from ..settings import guards
 
 #: Relative tolerance for every reconciliation. Stats print to 0.01 pJ, so a
 #: number in the pJ range reconciles far tighter than this.
@@ -138,7 +139,8 @@ def _patched_ert(doc, changes):
     try:
         return ert.patched_ert(doc, changes)
     except ValueError as exc:
-        raise SystemExit(f"ert_probe: {exc}")
+        raise guards.refusal("ert-probe-failed",
+            f"ert_probe: {exc}")
 
 
 def _write_yaml(path, doc):
@@ -195,25 +197,29 @@ class Probe:
                 "timeloop-mapper.map.txt", PROCESSED_INPUT, inputs_mod.MAPPING_SIDECAR]
         missing = [n for n in need if not (self.ref / n).exists()]
         if missing:
-            raise SystemExit(f"ert_probe: reference cache entry {self.ref} lacks {missing}.\n"
-                             f"  Map the reference arm first (prompt_3's four exports set).")
+            raise guards.refusal("ert-probe-reference-incomplete",
+                f"ert_probe: reference cache entry {self.ref} lacks {missing}.\n"
+                f"  Map the reference arm first (prompt_3's four exports set).")
         side = json.loads((self.ref / inputs_mod.MAPPING_SIDECAR).read_text())
         if side.get("arch_fingerprint") != self.fp:
-            raise SystemExit(f"ert_probe: sidecar fingerprint {side.get('arch_fingerprint')} "
-                             f"!= current {self.fp}")
+            raise guards.refusal("ert-probe-fingerprint-moved",
+                f"ert_probe: sidecar fingerprint {side.get('arch_fingerprint')} "
+                f"!= current {self.fp}")
         self.out = pathsmod.ert_probe_dir(self.arch, self.fp, shape)
 
         # The bumped levels come from the weight path, not from a design name.
         storage = [s for s in placements.stages_for(self.arch, cfg) if s.kind == "storage"]
         if not storage:
-            raise SystemExit(f"ert_probe: {self.arch} has no storage stage on its weight path")
+            raise guards.refusal("ert-probe-no-storage-stage",
+                f"ert_probe: {self.arch} has no storage stage on its weight path")
         self.read_level = storage[0].prefixes[0]
         self.leak_levels = [s.prefixes[0] for s in storage]
 
         self.ref_levels, self.ref_summary = parse_levels(self.ref / "timeloop-mapper.stats.txt")
         for lv in [self.read_level] + self.leak_levels:
             if lv not in self.ref_levels or "Weights" not in self.ref_levels[lv]["ds"]:
-                raise SystemExit(f"ert_probe: level {lv!r} carries no Weights in the reference stats")
+                raise guards.refusal("ert-probe-level-no-weights",
+                    f"ert_probe: level {lv!r} carries no Weights in the reference stats")
         self.ert_doc = yaml.safe_load((self.ref / "timeloop-mapper.ERT.yaml").read_text())
         self.art_doc = yaml.safe_load((self.ref / "timeloop-mapper.ART.yaml").read_text())
         self.prices = _ert_prices(self.ert_doc)
@@ -623,7 +629,8 @@ def main(argv=None):
         return 0 if all(c[2] for c in probe.checks) else 1
     inputs_mod.require_container()
     if not shutil.which("timeloop-model"):
-        raise SystemExit("ert_probe: timeloop-model is not on PATH")
+        raise guards.refusal("timeloop-model-not-on-path",
+            "ert_probe: timeloop-model is not on PATH")
     probe.run()
     return 0 if probe.report() else 1
 

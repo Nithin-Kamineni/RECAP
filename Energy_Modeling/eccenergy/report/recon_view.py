@@ -38,6 +38,7 @@ from ..study.energy import plot_cats
 
 from ..study.placement_notes import ONCHIP_EXCLUDE, PARITY_KEY
 from ..study.placement_study import evaluate
+from ..settings import guards
 
 
 # --------------------------------------------------------------------- figure
@@ -96,7 +97,7 @@ def panel_for(cfg, arch, model, out):
         drawn = sum(stack.values())
         total = sum(float(v) for v in components.values())
         if not math.isclose(drawn, total, rel_tol=1e-9, abs_tol=1e-3):
-            raise SystemExit(
+            raise guards.refusal("figure-draws-the-total",
                 f"figure would draw {drawn:.3f} pJ for {key!r} but its total is "
                 f"{total:.3f} pJ -- a component of the result is not in a "
                 f"plotted category, so the bar and its label would disagree. "
@@ -366,12 +367,12 @@ def run(cfg):
     # it, so both stop the run. (`config.py` catches Post-without-optimizer
     # from the other side.)
     if cfg.recon_optimizer and cfg.phase != "Post":
-        raise SystemExit(
+        guards.refuse("task4-not-task3",
             f"RECON_OPTIMIZER=True is Task 4 and is a `Post` result: the "
             f"mapping was re-optimised for the reduced weight width.\n"
             f"  -> ECC_PHASE=Post RECON_OPTIMIZER=True ...")
     if not cfg.recon_optimizer and cfg.phase != "Pre":
-        raise SystemExit(
+        guards.refuse("task3-is-pre-figure",
             f"ECC_PHASE={cfg.phase} but Task 3 is a `Pre` result by "
             f"construction: the mapping is fixed and ECC-unaware, and the "
             f"placement effect is applied when evaluating. `Post` is Task 4, "
@@ -384,7 +385,7 @@ def run(cfg):
     # weight path at all, must stop the run rather than quietly draw one panel.
     for arch in cfg.archs:
         if arch not in weight_path.WEIGHT_PATHS:
-            raise SystemExit(
+            raise guards.refusal("no-weight-path",
                 f"no weight path is defined for {arch!r}, so its reconstruction "
                 f"boundaries are unknown.\n"
                 f"  defined: {', '.join(placements.supported_archs())}\n"
@@ -394,7 +395,7 @@ def run(cfg):
 
         space_ok, space = arms.validate_placement_space(arch, cfg)
         if not space_ok:
-            raise SystemExit(
+            raise guards.refusal("weight-path-drifted",
                 f"{arch}'s weight path and its placement list have drifted "
                 f"apart, so every boundary below the missing stage would be "
                 f"reported UNDERSTATED rather than wrong-looking:\n  "
@@ -407,7 +408,7 @@ def run(cfg):
                    and k not in {p.variant for p in defined}
                    and k not in ("baseline", "embedded")]
         if unknown:
-            raise SystemExit(
+            raise guards.refusal("unknown-placement",
                 f"ECC_RECON_PLACEMENTS[{arch}] names placements this "
                 f"architecture does not define: {', '.join(unknown)}\n"
                 f"  defined: {', '.join(p.key for p in defined)}\n"
@@ -422,7 +423,7 @@ def run(cfg):
     for arch in cfg.archs:
         raw = (ses.raws.get(arch) or {}).get(model)
         if raw is None:
-            raise SystemExit(
+            raise guards.refusal("recon-nothing-collected",
                 f"nothing collected for {arch}/{model}; see the [skip] lines "
                 f"above.\n  -> every architecture of a panelled placement study "
                 f"needs its own mapper cache: map it first "

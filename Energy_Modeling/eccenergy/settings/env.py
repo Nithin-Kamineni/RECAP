@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 
 from ..contracts.errors import ConfigError
+from . import guards
 
 #: What counts as true and false in every ECC_* boolean.
 _TRUE = {"1", "true", "yes", "on", "y"}
@@ -38,7 +39,8 @@ def _b(name, default):
         return True
     if low in _FALSE:
         return False
-    raise ConfigError(f"{name}={raw!r} is not a boolean (use 1/0, true/false, on/off)")
+    raise guards.refusal("not-a-boolean",
+        f"{name}={raw!r} is not a boolean (use 1/0, true/false, on/off)")
 
 
 def _i(name, default):
@@ -48,7 +50,8 @@ def _i(name, default):
     try:
         return int(raw)
     except ValueError as exc:
-        raise ConfigError(f"{name}={raw!r} is not an integer") from exc
+        raise guards.refusal("not-an-integer",
+            f"{name}={raw!r} is not an integer") from exc
 
 
 def _f(name, default):
@@ -58,7 +61,8 @@ def _f(name, default):
     try:
         return float(raw)
     except ValueError as exc:
-        raise ConfigError(f"{name}={raw!r} is not a number") from exc
+        raise guards.refusal("not-a-number",
+            f"{name}={raw!r} is not a number") from exc
 
 
 def _oi(name):
@@ -83,7 +87,8 @@ def _table(name):
         try:
             out[key.strip()] = float(val)
         except ValueError:
-            raise ConfigError(f"{name}: entry {entry!r} is not `key=number`") from None
+            raise guards.refusal("not-a-key-value-table",
+                f"{name}: entry {entry!r} is not `key=number`") from None
     return out
 
 
@@ -103,8 +108,9 @@ def _one(name, default=""):
     """A single token. Extra tokens are an error, not a silent truncation."""
     got = _list(name, default)
     if len(got) > 1:
-        raise ConfigError(f"{name} takes ONE value, not {len(got)}: {' '.join(got)}\n"
-                          f"  -> only the swept axis takes a list")
+        raise guards.refusal("one-value-not-a-list",
+            f"{name} takes ONE value, not {len(got)}: {' '.join(got)}\n"
+            f"  -> only the swept axis takes a list")
     return got[0] if got else ""
 
 

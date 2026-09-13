@@ -18,6 +18,7 @@ from .stacks import build_stacks, load_recon_energy, savings
 from .energy import collect
 from ..paths import Results
 from ..arch.workloads import layer_identities, load_workload, select, select_layers
+from ..settings import guards
 
 
 class Session:
@@ -183,7 +184,8 @@ class Session:
                 "  -> with ECC_REPLOT_ONLY=1 you need results/_raw/ populated by an "
                 "earlier in-container run",
                 "  -> otherwise check the mapper output under ecc_energy_study/outputs/"]
-            raise SystemExit("\n".join(msg))
+            raise guards.refusal("stacks-refused",
+                "\n".join(msg))
         return self.stacks
 
     # ---------------------------------------------------------------- reports

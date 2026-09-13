@@ -29,6 +29,7 @@ from ..toolchain import weight_stats
 from .common import Session
 
 from .placement_notes import stats_paths_for
+from ..settings import guards
 
 
 # --------------------------------------------------------- TASK 4: the second
@@ -104,7 +105,7 @@ def dilated_view(cfg, ses, arch, model, base_cats, ref_raw):
 
     site = capacity_mod.dilated_levels(arch, cfg)
     if site is None:
-        raise SystemExit(
+        raise guards.refusal("no-dilatable-level",
             f"RECON_OPTIMIZER=True on {arch}, which has no weight-carrying "
             f"storage level that a capacity dilation can touch (every weight "
             f"level it declares is a depth-1 latch).\n"
@@ -126,7 +127,7 @@ def dilated_view(cfg, ses, arch, model, base_cats, ref_raw):
     if raw_d is None:
         variant = fingerprint_mod.effective_variant(arch, dcfg)
         fp = fingerprint_mod.arch_fingerprint(arch, dcfg)
-        raise SystemExit(
+        raise guards.refusal("task4-cache-cold",
             f"RECON_OPTIMIZER=True needs the reconstruction arm's OWN mapping "
             f"for {arch}/{model} at weight capacity x{dil_scale:g}, and it is "
             f"not in the cache.\n"
@@ -142,7 +143,7 @@ def dilated_view(cfg, ses, arch, model, base_cats, ref_raw):
     if set(paths_d) != set(ref_paths):
         only_ref = sorted(set(ref_paths) - set(paths_d))
         only_dil = sorted(set(paths_d) - set(ref_paths))
-        raise SystemExit(
+        raise guards.refusal("task4-shapes-differ",
             f"the two arms of Task 4 are mapped on DIFFERENT layer shapes for "
             f"{arch}/{model}, so their totals are not comparable:\n"
             f"  only in the reference (x{cfg.weight_capacity_scale:g}): "
@@ -189,7 +190,7 @@ def dilated_view(cfg, ses, arch, model, base_cats, ref_raw):
     # prompt_6 6: the target is weight_bits/q -- exact for every code -- not N/K.
     want, q = capacity_mod.capacity_target(cfg)
     if cap_ref and abs(got - want) > 0.05 * want:
-        raise SystemExit(
+        raise guards.refusal("task4-capacity-not-dilated",
             f"the re-planned mapping of {arch} reports weight capacity "
             f"{cap_dil:,} against the reference's {cap_ref:,} -- a factor of "
             f"{got:.4f}, not the {cfg.weight_bits}/q = {cfg.weight_bits}/{q} = "

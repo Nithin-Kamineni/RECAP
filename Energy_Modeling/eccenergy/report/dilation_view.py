@@ -25,6 +25,7 @@ from ..physics import widths
 
 from ..study.dilation import render, survey, sweep
 from ..study.dilation_tables import DATASPACE_CSV_COLUMNS, convergence_gate, dataspace_table, level_table, utilisation_table
+from ..settings import guards
 
 
 def dataspace_to_csv(rows, path):
@@ -177,8 +178,9 @@ def main(argv=None):
 
     layer_names = (a.layers or " ".join(cfg.layers)).split()
     if not layer_names:
-        raise SystemExit("dilation: name the layers with --layers or ECC_LAYERS "
-                         "(this is a spot check by construction -- see --survey)")
+        raise guards.refusal("dilation-needs-layers",
+            "dilation: name the layers with --layers or ECC_LAYERS "
+            "(this is a spot check by construction -- see --survey)")
     k_over_n = cfg.code_k / cfg.code_n
 
     if a.gate:

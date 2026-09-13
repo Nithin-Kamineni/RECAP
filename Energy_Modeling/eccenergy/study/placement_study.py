@@ -82,6 +82,7 @@ from .dilated_view import TASK4_NOTE, dilated_view
 from .ert_view import ERT_NOTE, EXPERIMENT_ERT, _close, arm_plan_state, ert_aware_view, ert_checks
 from .placement_notes import CODEC_NOTE, DRAM_TERM_NOTE, EXPERIMENT, EXPERIMENT_TASK4, FIXED_MAPPING_NOTE, PARITY_KEY, stats_paths_for
 from .placement_tables import _report, _report_latency, _report_narrowing, latency_table
+from ..settings import guards
 
 
 # ------------------------------------------------------------------- evaluate
@@ -169,7 +170,7 @@ def evaluate(cfg, ses, prov, arch, model, raw):
         state, detail = arm_plan_state(cfg, ses, arch, model, a, list(paths))
         arm_states[a.key] = dict(detail, state=state)
         if state == "partial":
-            raise SystemExit(
+            raise guards.refusal("arm-half-mapped",
                 f"{arch}/{a.key}: {detail['shapes_solved']} of {detail['shapes_wanted']} "
                 f"shapes are mapped for this arm.\n"
                 f"  cache: {detail['cache']}\n"
@@ -182,7 +183,7 @@ def evaluate(cfg, ses, prov, arch, model, raw):
             solved.add(a.key)
     billing = arms_mod.plan_assignment(arch, solved, cfg) if aware else {}
     if aware and not solved:
-        raise SystemExit(
+        raise guards.refusal("no-boundary-mapped",
             f"ECC_RECON_ERT_AWARE=1 on {arch}/{model}, and NOT ONE boundary has a mapping "
             f"of its own: every bar would be the reference plan under a heading that says "
             f"otherwise, which is Task 3.\n"
@@ -273,7 +274,7 @@ def evaluate(cfg, ses, prov, arch, model, raw):
             for name, moved in (("access", v.split["access_toll_pJ"]),
                                 ("leak", v.split["stats_side_leak_pJ"])):
                 if not _close(moved, 0.0, abs_tol=1e-6):
-                    raise SystemExit(
+                    raise guards.refusal("boundary-declares-no-ert-row",
                         f"{arch}/{res.placement.key}: this boundary declares NO ERT row "
                         f"({v.split['why']}), so Timeloop billed no toll and nothing may "
                         f"be moved out of its bill -- but the {name} split says "
@@ -284,7 +285,7 @@ def evaluate(cfg, ses, prov, arch, model, raw):
                 ("access", c["reconstruction_energy_incremental_pJ"], v.split["access_toll_pJ"]),
                 ("leak", c["reconstruction_energy_idle_pJ"], v.split["stats_side_leak_pJ"])):
             if not _close(charged, moved):
-                raise SystemExit(
+                raise guards.refusal("ert-toll-mismatch",
                     f"{arch}/{res.placement.key}: the {name} term the evaluator charged "
                     f"({charged:.6f} pJ) is not the stats-side amount ({moved:.6f} pJ: "
                     f"{'moved out of ' + v.split['moved_out_of_category'] if name == 'access' else 'the leakage delta Timeloop printed'}); "

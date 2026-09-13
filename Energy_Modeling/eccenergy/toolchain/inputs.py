@@ -23,6 +23,7 @@ import shutil
 import subprocess
 
 from ..paths import ARCH_COMPONENTS, DESIGNS_DIR, EX_REPO, EXERCISES_URL, PROB_DIR, WORK
+from ..settings import guards
 
 
 #: Name of the sidecar written beside every mapping this code produces.
@@ -189,7 +190,7 @@ def load_timeloopfe():
 
 def require_container():
     if not shutil.which("timeloop-mapper"):
-        raise SystemExit(
+        raise guards.refusal("timeloop-mapper-not-on-path",
             "timeloop-mapper is not on PATH.\n"
             "  -> run inside the container:\n"
             '     docker run -it --rm -v "<project>":/home/workspace \\\n'
@@ -206,7 +207,8 @@ def ensure_exercises_repo():
         subprocess.run(["git", "clone", "--depth", "1", EXERCISES_URL, str(EX_REPO)],
                        check=True)
     if not DESIGNS_DIR.exists():
-        raise SystemExit(f"cloned the exercises repo but {DESIGNS_DIR} is missing")
+        raise guards.refusal("designs-dir-missing",
+            f"cloned the exercises repo but {DESIGNS_DIR} is missing")
     return True
 
 
@@ -258,7 +260,7 @@ def design_inputs(arch_yaml, problem_yaml, arch, cfg):
     """
     g = archs_globals_path(arch, cfg)
     if not g.exists():
-        raise SystemExit(
+        raise guards.refusal("design-inputs-not-written",
             f"design_inputs: {g} has not been written. `archs.write_globals(cfg, "
             f"{arch!r})` runs once per design in `experiments/common.Session.setup()`; "
             f"a caller that reaches Timeloop without it would map at the wrong clock.")

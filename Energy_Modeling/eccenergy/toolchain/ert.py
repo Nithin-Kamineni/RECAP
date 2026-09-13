@@ -35,6 +35,7 @@ import yaml
 
 from .cache import ShapeLock
 from .inputs import ART_NAME, ERT_DIR, ERT_NAME, ERT_RECORD, MAPPING_SIDECAR, design_inputs, load_timeloopfe, problem_path, tool_versions
+from ..settings import guards
 
 
 # ----------------------------------------------------- prompt_6: ERT tables
@@ -283,8 +284,9 @@ class ErtTables:
         erts = sorted(p for p in scratch.glob("*ERT.yaml") if "summary" not in p.name)
         arts = sorted(p for p in scratch.glob("*ART.yaml") if "summary" not in p.name)
         if not erts or not arts:
-            raise SystemExit(f"ErtTables: accelergy wrote no ERT/ART under {scratch}; "
-                             f"see {scratch / 'accelergy_console.log'}")
+            raise guards.refusal("accelergy-wrote-no-ert",
+                f"ErtTables: accelergy wrote no ERT/ART under {scratch}; "
+                f"see {scratch / 'accelergy_console.log'}")
         base_ert = yaml.safe_load(erts[0].read_text())
         base_art = yaml.safe_load(arts[0].read_text())
         prices = ert_prices(base_ert)
@@ -312,9 +314,10 @@ class ErtTables:
             level = self.bump["level"]
             for action in (self.bump["action"], "leak"):
                 if (level, action) not in prices:
-                    raise SystemExit(f"ErtTables: the generated ERT has no row "
-                                     f"{level}.{action}; it has "
-                                     f"{sorted(k for k in prices if k[0] == level)}")
+                    raise guards.refusal("ert-row-missing",
+                        f"ErtTables: the generated ERT has no row "
+                        f"{level}.{action}; it has "
+                        f"{sorted(k for k in prices if k[0] == level)}")
             patched = patched_ert(base_doc, ert_changes(self.bump))
             pprices = ert_prices(patched)
             record["base_pj"] = {a: base_prices[(level, a)]

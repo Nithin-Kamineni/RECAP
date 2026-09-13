@@ -28,6 +28,7 @@ from ..arch.load import install_local_archs
 from ..arch.validate import audit, audit_findings
 from .energy import load_raw, plot_cats
 from ..paths import DESIGNS_DIR, Results
+from ..settings import guards
 
 
 def diag_archs(cfg):
@@ -57,7 +58,8 @@ def static_audit(cfg):
             print(f"  [skip] {arch}: no arch.yaml found "
                   f"(looked in archs/ and example_designs/)")
     if not infos:
-        raise SystemExit("no architecture YAMLs found to audit")
+        raise guards.refusal("no-arch-yamls",
+            "no architecture YAMLs found to audit")
 
     _hr("STATIC AUDIT  --  what each arch.yaml declares")
     rows = {}

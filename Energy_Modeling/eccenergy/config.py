@@ -50,7 +50,11 @@ from .arch import design as design_mod
 from .arch import fingerprint as fingerprint_mod
 from .arch import placements
 from .arch.load import mac_candidates
-from .contracts.errors import ConfigError
+from .contracts.errors import ConfigError   # noqa: F401 -- RE-EXPORTED:
+#: `config.ConfigError` is what `__main__` catches and what five test
+#: modules import. Phase 6 moved every raise site in this file onto
+#: `guards.refusal()`, so nothing here references the name any more --
+#: it is kept because removing it would break those seven callers.
 from .physics import widths
 from .physics.embedded import EmbeddedLayout
 from .settings import arch as arch_settings
@@ -72,6 +76,7 @@ from .settings.recon import (RECON_DECODE_SITES, RECON_ENCODER_SITES,
 from .settings.run import (APPROACH_LABELS, APPROACH_TAGS, APPROACHES,
                            EXPERIMENTS, PHASES, SWEEP_ALIASES, SWEEP_STEMS,
                            SWEEPS, RunSettings)
+from .settings import guards
 
 #: WHICH DESIGNS EXIST IS DATA (phase 5). These three names are what every
 #: caller has always said; they are functions of `archs/<name>/design.yaml` now,
@@ -166,20 +171,24 @@ def _resolve(self):
     messages are unchanged, because each of them is a finding somebody paid for.
     """
     if self.experiment not in EXPERIMENTS:
-        raise ConfigError(f"ECC_EXPERIMENT={self.experiment!r}; choose one of "
-                          f"{', '.join(EXPERIMENTS)}")
+        raise guards.refusal("unknown-experiment",
+            f"ECC_EXPERIMENT={self.experiment!r}; choose one of "
+            f"{', '.join(EXPERIMENTS)}")
 
     self.sweep = SWEEP_ALIASES.get(self.sweep, self.sweep)
     if self.sweep not in SWEEPS:
-        raise ConfigError(f"ECC_SWEEP={self.sweep!r}; choose one of "
-                          f"{', '.join(SWEEPS)}")
+        raise guards.refusal("unknown-sweep",
+            f"ECC_SWEEP={self.sweep!r}; choose one of "
+            f"{', '.join(SWEEPS)}")
 
     bad = [a for a in self.approaches if a not in APPROACHES]
     if bad:
-        raise ConfigError(f"ECC_APPROACHES has unknown entries {bad}; choose from "
-                          f"{', '.join(APPROACHES)}")
+        raise guards.refusal("unknown-approach",
+            f"ECC_APPROACHES has unknown entries {bad}; choose from "
+            f"{', '.join(APPROACHES)}")
     if not self.approaches:
-        raise ConfigError("ECC_APPROACHES is empty -- nothing to compare")
+        raise guards.refusal("approaches-empty",
+            "ECC_APPROACHES is empty -- nothing to compare")
     # canonical left-to-right bar order, however it was typed
     self.approaches = [a for a in APPROACHES if a in self.approaches]
 
@@ -194,22 +203,26 @@ def _resolve(self):
 
     if self.sweep == "arch":
         if not self.sweep_archs:
-            raise ConfigError("ECC_SWEEP=arch but ECC_SWEEP_ARCHS is empty")
+            raise guards.refusal("sweep-archs-empty",
+                "ECC_SWEEP=arch but ECC_SWEEP_ARCHS is empty")
         self.archs = list(dict.fromkeys(self.sweep_archs))
     else:
         if not self.const_arch:
-            raise ConfigError(f"ECC_SWEEP={self.sweep} holds the architecture "
-                              f"fixed, but ECC_CONST_ARCH is empty")
+            raise guards.refusal("const-arch-empty",
+                f"ECC_SWEEP={self.sweep} holds the architecture "
+                f"fixed, but ECC_CONST_ARCH is empty")
         self.archs = [self.const_arch]
 
     if self.sweep == "model":
         if not self.sweep_models:
-            raise ConfigError("ECC_SWEEP=model but ECC_SWEEP_MODELS is empty")
+            raise guards.refusal("sweep-models-empty",
+                "ECC_SWEEP=model but ECC_SWEEP_MODELS is empty")
         self.models = list(dict.fromkeys(self.sweep_models))
     else:
         if not self.const_model:
-            raise ConfigError(f"ECC_SWEEP={self.sweep} holds the model fixed, "
-                              f"but ECC_CONST_MODEL is empty")
+            raise guards.refusal("const-model-empty",
+                f"ECC_SWEEP={self.sweep} holds the model fixed, "
+                f"but ECC_CONST_MODEL is empty")
         self.models = [self.const_model]
 
     # ---- the panel layout (ECC_EXPERIMENT=panels) ----------------------
@@ -219,13 +232,13 @@ def _resolve(self):
     # layout rather than a fourth axis.
     if self.experiment == "panels":
         if self.sweep not in ("arch", "model"):
-            raise ConfigError(
+            guards.refuse("panels-needs-arch-or-model-sweep",
                 f"ECC_EXPERIMENT=panels with ECC_SWEEP={self.sweep}: a panel "
                 f"per model would then vary the model AND the code between "
                 f"panels, which is two axes at once.\n"
                 f"  -> use ECC_SWEEP=arch (an architecture sweep per model)")
         if not self.panel_models:
-            raise ConfigError(
+            raise guards.refusal("panels-need-panel-models",
                 "ECC_EXPERIMENT=panels needs ECC_PANEL_MODELS, e.g.\n"
                 '  ECC_PANEL_MODELS="resnet18 mobilenet_v2"')
         self.panel_models = list(dict.fromkeys(self.panel_models))
@@ -233,48 +246,83 @@ def _resolve(self):
 
     if self.sweep == "bch":
         if not self.sweep_ks:
-            raise ConfigError("ECC_SWEEP=bch but ECC_SWEEP_KS is empty")
+            raise guards.refusal("sweep-ks-empty",
+                "ECC_SWEEP=bch but ECC_SWEEP_KS is empty")
         self.sweep_ks = list(dict.fromkeys(self.sweep_ks))
         bad_k = [k for k in self.sweep_ks if k >= self.code_n]
         if bad_k:
-            raise ConfigError(f"ECC_SWEEP_KS entries must be < N={self.code_n}: {bad_k}")
+            raise guards.refusal("sweep-k-lt-n",
+                f"ECC_SWEEP_KS entries must be < N={self.code_n}: {bad_k}")
     self.code_k = self.const_k
 
     if self.code_k >= self.code_n:
-        raise ConfigError(f"need K < N; got N={self.code_n} "
-                          f"K={self.code_k} (ECC_CONST_K)")
+        raise guards.refusal("need-k-lt-n",
+            f"need K < N; got N={self.code_n} "
+            f"K={self.code_k} (ECC_CONST_K)")
     if self.weight_bits <= 0:
-        raise ConfigError("ECC_WEIGHT_BITS must be positive")
+        raise guards.refusal("weight-bits-positive",
+            "ECC_WEIGHT_BITS must be positive")
 
     if self.activation_bits <= 0:
-        raise ConfigError("ECC_ACTIVATION_BITS must be positive")
+        raise guards.refusal("activation-bits-positive",
+            "ECC_ACTIVATION_BITS must be positive")
     if self.acc_bits_override is not None:
         # The SENSITIVITY STUDY only. The primary comparison keeps each
         # design's published accumulator width, because psum precision is
         # an architectural property (v1 truncates to 16b, v2 accumulates at
         # 20b, Simba at 24b) and equalising it equalises the architectures.
         if self.acc_bits_override < self.weight_bits:
-            raise ConfigError(
+            raise guards.refusal("acc-bits-not-narrower",
                 f"ECC_ACC_BITS={self.acc_bits_override} is narrower than "
                 f"ECC_WEIGHT_BITS={self.weight_bits}; an accumulator cannot "
                 f"be narrower than the operands it accumulates")
     if self.parity_grouping not in PARITY_GROUPINGS:
-        raise ConfigError(f"ECC_PARITY_GROUPING must be one of "
-                          f"{', '.join(PARITY_GROUPINGS)}")
+        raise guards.refusal("unknown-parity-grouping",
+            f"ECC_PARITY_GROUPING must be one of "
+            f"{', '.join(PARITY_GROUPINGS)}")
 
     # ---- Task 3: the placement study --------------------------------
     if self.recon_packing not in RECON_PACKINGS:
-        raise ConfigError(f"ECC_RECON_PACKING must be one of "
-                          f"{', '.join(RECON_PACKINGS)}")
+        raise guards.refusal("unknown-recon-packing",
+            f"ECC_RECON_PACKING must be one of "
+            f"{', '.join(RECON_PACKINGS)}")
     if self.recon_granularity not in RECON_GRANULARITIES:
-        raise ConfigError(f"ECC_RECON_ENCODER_GRANULARITY must be one of "
-                          f"{', '.join(RECON_GRANULARITIES)}")
-    if self.mac_pj_override is not None and self.mac_pj_override <= 0:
-        raise ConfigError(
-            f"ECC_MAC_PJ_OVERRIDE={self.mac_pj_override}: the per-MAC energy "
-            f"must be positive (pJ per 8-bit MAC), or empty for the ERT's value")
+        raise guards.refusal("unknown-encoder-granularity",
+            f"ECC_RECON_ENCODER_GRANULARITY must be one of "
+            f"{', '.join(RECON_GRANULARITIES)}")
+    # ---- the three PRICES. `>= 0`, not `> 0` -- ProjectRestructure Appendix B.
+    # A width must be positive; a PRICE need not be. Zero is the ablation "what
+    # if this term were free", which is the upper bound on how much the term was
+    # ever worth, and refusing it confused "impossible" with "not the value we
+    # used". Negative stays refused: that one really is impossible.
+    _prices = (("ECC_MAC_PJ_OVERRIDE", self.mac_pj_override,
+                "the per-MAC energy (pJ per 8-bit MAC), or empty for the ERT's "
+                "value"),
+               ("ECC_DRAM_PJ_PER_BIT", self.dram_pj_per_bit,
+                "the per-bit DRAM dynamic access energy (8 = Accelergy LPDDR4 as "
+                "modelled, 20 = Horowitz ISSCC 2014, 40 = this study's default)"),
+               ("ECC_BASELINE_DRAM_PJ_PER_BIT", self.baseline_dram_pj_per_bit,
+                "the baseline arm's per-bit DRAM dynamic access energy (70 = this "
+                "study's value for the bigger, indexed conventional-ECC array; "
+                "EMPTY = the pre-2026-09-10 parity-traffic model)"))
+    for _knob, _price, _what in _prices:
+        if _price is None:
+            continue
+        if _price < 0:
+            raise guards.refusal("negative-price",
+                f"{_knob}={_price}: {_what}. A price may be zero -- that is the "
+                f"ablation -- but it may not be NEGATIVE.")
+        if _price == 0:
+            # A guard message LEADS WITH ONE SHORT LINE: `recon_caveats()` puts
+            # that line, and only that line, on the figure.
+            guards.refuse("zero-price",
+                f"{_knob}=0 prices this term at NOTHING.\n"
+                f"     A legitimate ABLATION -- it measures how much the term was "
+                f"worth and is the upper bound on its importance -- but it is not a "
+                f"number this study has published, and every percentage computed "
+                f"against it means something different.")
     if self.recon_encoder_site not in RECON_ENCODER_SITES:
-        raise ConfigError(
+        raise guards.refusal("unknown-encoder-site",
             f"ECC_RECON_ENCODER_SITE must be one of "
             f"{', '.join(RECON_ENCODER_SITES)} -- `destination` is one "
             f"encoder per destination of a multicast network (the count is "
@@ -282,28 +330,17 @@ def _resolve(self):
             f"factor); `source` is one encoder before the fanout and is the "
             f"pre-2026-09-09 row, kept for the diff. See recon.ENCODER_SITES")
     if self.recon_decode_site not in RECON_DECODE_SITES:
-        raise ConfigError(
+        raise guards.refusal("unknown-decode-site",
             f"ECC_RECON_DECODE_SITE must be one of "
             f"{', '.join(RECON_DECODE_SITES)} (got {self.recon_decode_site!r}): "
             f"`ondie` puts the BCH decoder on the DRAM die, off the fetch "
             f"path, so only the k message bits cross the DRAM interface; "
             f"`controller` is the pre-2026-09-09 model kept for the diff")
-    if self.dram_pj_per_bit is not None and self.dram_pj_per_bit <= 0:
-        raise ConfigError(
-            f"ECC_DRAM_PJ_PER_BIT={self.dram_pj_per_bit}: the per-bit DRAM "
-            f"dynamic access energy must be > 0 (8 = Accelergy LPDDR4 as "
-            f"modelled, 20 = Horowitz ISSCC 2014, 40 = this study's default)")
-    if (self.baseline_dram_pj_per_bit is not None
-            and self.baseline_dram_pj_per_bit <= 0):
-        raise ConfigError(
-            f"ECC_BASELINE_DRAM_PJ_PER_BIT={self.baseline_dram_pj_per_bit}: the "
-            f"baseline arm's per-bit DRAM dynamic access energy must be > 0 "
-            f"(70 = this study's value for the bigger, indexed conventional-ECC "
-            f"array; EMPTY = the pre-2026-09-10 parity-traffic model)")
     for _n, _v in (("ECC_DRAM_BACKGROUND_PJ", self.dram_background_pj),
                    ("ECC_DRAM_REFRESH_PJ", self.dram_refresh_pj)):
         if _v < 0:
-            raise ConfigError(f"{_n}={_v} must be >= 0 (0 = term not modelled)")
+            raise guards.refusal("dram-static-terms-nonnegative",
+                f"{_n}={_v} must be >= 0 (0 = term not modelled)")
     if self.recon_optimizer:
         # TASK 4 IS IMPLEMENTED (2026-09-09), and the guarantee the old
         # placeholder existed to give is KEPT INTACT: a `True` here must
@@ -319,7 +356,7 @@ def _resolve(self):
         # What is refused here is the one combination that cannot mean
         # anything: a re-optimised mapping filed as a `Pre` result.
         if self.phase != "Post":
-            raise ConfigError(
+            guards.refuse("task4-is-post",
                 f"RECON_OPTIMIZER=True is TASK 4: the mapping itself is "
                 f"re-optimised for the reduced weight width, so the result "
                 f"is a `Post` result by construction -- not ECC_PHASE="
@@ -333,7 +370,7 @@ def _resolve(self):
         # The other half of the pair above. Caught HERE rather than only in
         # `report.recon_view.run()` so `--dry-run` reports it too: a
         # configuration this contradictory should never survive to a run.
-        raise ConfigError(
+        guards.refuse("task3-is-pre",
             f"ECC_PHASE={self.phase} but RECON_OPTIMIZER=False is Task 3, "
             f"which is a `Pre` result by construction: the mapping is "
             f"fixed and ECC-unaware, and the placement effect is applied "
@@ -343,7 +380,7 @@ def _resolve(self):
             f"the mapping itself is solved for the reduced width")
     if self.experiment == "recon":
         if not self.archs:
-            raise ConfigError(
+            raise guards.refusal("recon-needs-an-arch",
                 "the reconstruction placement study needs at least one "
                 "architecture.\n  -> set ECC_RECON_ARCHS (env.sh section 4)")
         # SEVERAL ARCHITECTURES ARE ONE PANEL EACH, NOT ONE AXIS. Each
@@ -359,12 +396,12 @@ def _resolve(self):
         # table and every panel heading names its design, so a typo that
         # collapses two panels into one is visible in the run.
         if len(self.models) != 1:
-            raise ConfigError(
+            raise guards.refusal("recon-one-model",
                 f"the reconstruction placement study runs on ONE model, not "
                 f"{len(self.models)} ({', '.join(self.models)}).\n"
                 f"  -> set ECC_RECON_MODEL (env.sh section 4)")
         if self.split_read_write:
-            raise ConfigError(
+            guards.refuse("recon-no-split-read-write",
                 "ECC_SPLIT_READ_WRITE=1 splits the on-chip categories in "
                 "proportion to their ACCESS COUNTS, but a reconstruction "
                 "placement changes the read and write bit-volumes by "
@@ -372,7 +409,8 @@ def _resolve(self):
                 "wrongly.\n  -> run the placement study with "
                 "ECC_SPLIT_READ_WRITE=0")
     if self.phase not in PHASES:
-        raise ConfigError(f"ECC_PHASE must be one of {', '.join(PHASES)}")
+        raise guards.refusal("unknown-phase",
+            f"ECC_PHASE must be one of {', '.join(PHASES)}")
 
     d = BCH63_KTOD.get(self.code_k) if self.code_n == 63 else None
     self.code_t = (d - 1) // 2 if d else max(1, (self.code_n - self.code_k) // 6)
@@ -381,7 +419,7 @@ def _resolve(self):
     cnn = [m for m in self.models if m in CNN_MODELS]
     tfm = [m for m in self.models if m in TRANSFORMER_MODELS]
     if cnn and tfm:
-        raise ConfigError(
+        raise guards.refusal("no-cnn-transformer-mix",
             "one sweep cannot mix CNNs and transformers -- they come from "
             f"different workload files.\n  CNNs        : {' '.join(cnn)}\n"
             f"  transformers: {' '.join(tfm)}")
@@ -393,24 +431,26 @@ def _resolve(self):
     if self.rerun_optimiser and (self.from_cache or self.replot_only):
         blocker = "ECC_FROM_CACHE=1 (--eval)" if self.from_cache \
             else "ECC_REPLOT_ONLY=1 (--replot)"
-        raise ConfigError(
+        guards.refuse("rerun-needs-the-mapper",
             f"ECC_RERUN_OPTIMISER=1 asks the mapper to re-solve every shape, "
             f"but {blocker} never invokes Timeloop at all.\n"
             f"  -> re-map with `bash run.sh map`, then evaluate with `--eval`")
 
     if self.weak_enabled and self.weak_k >= self.weak_n:
-        raise ConfigError(f"need WEAK_K < WEAK_N; got {self.weak_n}/{self.weak_k}")
+        raise guards.refusal("need-weak-k-lt-n",
+            f"need WEAK_K < WEAK_N; got {self.weak_n}/{self.weak_k}")
     if self.classify_mode not in ("instances", "name"):
-        raise ConfigError("ECC_CLASSIFY must be 'instances' or 'name'")
+        raise guards.refusal("unknown-classify",
+            "ECC_CLASSIFY must be 'instances' or 'name'")
     if self.weight_capacity_scale <= 0:
-        raise ConfigError(
+        raise guards.refusal("capacity-scale-positive",
             f"ECC_WEIGHT_CAPACITY_SCALE={self.weight_capacity_scale}: the "
             f"weight-capacity multiplier must be positive. 1.0 is the "
             f"declared design; N/K = {self.code_n / self.code_k:.4f} at "
             f"BCH({self.code_n},{self.code_k}) is the reconstruction arm's "
             f"effective capacity; below 1 shrinks the design")
     if self.weight_capacity_scope not in WEIGHT_CAPACITY_SCOPES:
-        raise ConfigError(
+        raise guards.refusal("unknown-capacity-scope",
             f"ECC_WEIGHT_CAPACITY_SCOPE must be one of "
             f"{', '.join(WEIGHT_CAPACITY_SCOPES)} -- `exclusive` dilates "
             f"only a level whose keep list is Weights alone, so the room "
@@ -419,13 +459,13 @@ def _resolve(self):
             f"mapper free capacity for that dataspace too. They bracket "
             f"one design and are quoted as a pair")
     if self.weight_depth_scale <= 0:
-        raise ConfigError(
+        raise guards.refusal("depth-scale-positive",
             f"ECC_WEIGHT_DEPTH_SCALE={self.weight_depth_scale}: the depth "
             f"multiplier must be positive. 1.0 is the declared design; "
             f"prompt_2's search grid is the sqrt(2) ladder "
             f"1 / 0.71 / 0.5 / 0.35 / 0.25 / 0.18 / 0.125")
     if self.weight_width_glb_mult < 1:
-        raise ConfigError(
+        raise guards.refusal("glb-width-mult-ge-1",
             f"ECC_WEIGHT_WIDTH_GLB_MULT={self.weight_width_glb_mult}: a "
             f"weight GLB's word is a positive multiple of the "
             f"scratchpad's. 4 is Eyeriss v1's published ratio.")
@@ -440,7 +480,7 @@ def _resolve(self):
     # holds by construction and there is nothing here to validate.
     # See eccenergy/widths.py.
     if self.weight_datawidth is not None and self.weight_datawidth < 1:
-        raise ConfigError(
+        raise guards.refusal("datawidth-positive",
             f"ECC_WEIGHT_DATAWIDTH={self.weight_datawidth}: the on-chip "
             f"weight datawidth must be a positive integer number of bits. "
             f"Leave it EMPTY for the 8-bit baseline/embedded arm; set it "
@@ -448,30 +488,36 @@ def _resolve(self):
             f"BCH(63,30)). Per-code values are tabulated in prompt_2.md.")
     if (self.weight_datawidth is not None
             and self.weight_datawidth > self.weight_bits):
-        raise ConfigError(
+        raise guards.refusal("datawidth-le-weight-bits",
             f"ECC_WEIGHT_DATAWIDTH={self.weight_datawidth} exceeds "
             f"ECC_WEIGHT_BITS={self.weight_bits}. The reconstruction arm "
             f"stores a REDUCED weight; a wider one is not a code rate.")
     if self.arch_fidelity not in ARCH_FIDELITIES:
-        raise ConfigError(f"ECC_ARCH_FIDELITY must be one of "
-                          f"{', '.join(ARCH_FIDELITIES)}")
+        raise guards.refusal("unknown-arch-fidelity",
+            f"ECC_ARCH_FIDELITY must be one of "
+            f"{', '.join(ARCH_FIDELITIES)}")
     if self.opt_metric not in OPT_METRICS:
-        raise ConfigError(f"ECC_OPT_METRIC={self.opt_metric!r}; choose one of "
-                          f"{', '.join(OPT_METRICS)}")
+        raise guards.refusal("unknown-opt-metric",
+            f"ECC_OPT_METRIC={self.opt_metric!r}; choose one of "
+            f"{', '.join(OPT_METRICS)}")
     if self.victory_scaling not in VICTORY_SCALINGS:
-        raise ConfigError(f"ECC_VICTORY_SCALING must be one of "
-                          f"{', '.join(VICTORY_SCALINGS)}")
+        raise guards.refusal("unknown-victory-scaling",
+            f"ECC_VICTORY_SCALING must be one of "
+            f"{', '.join(VICTORY_SCALINGS)}")
     if self.victory < 1:
-        raise ConfigError("ECC_VICTORY must be >= 1")
+        raise guards.refusal("victory-ge-1",
+            "ECC_VICTORY must be >= 1")
     if self.palette not in ("house", "cvd"):
-        raise ConfigError("ECC_PALETTE must be 'house' or 'cvd'")
+        raise guards.refusal("unknown-palette",
+            "ECC_PALETTE must be 'house' or 'cvd'")
     for fmt in self.formats:
         if fmt not in ("png", "pdf", "svg"):
-            raise ConfigError(f"ECC_FORMATS: unsupported format {fmt!r}")
+            raise guards.refusal("unknown-format",
+                f"ECC_FORMATS: unsupported format {fmt!r}")
 
     # ---- prompt_6: reconstruction-aware mapping ----------------------
     if self.recon_ert_aware and not (self.recon_optimizer and self.phase == "Post"):
-        raise ConfigError(
+        guards.refuse("ert-arm-needs-optimiser",
             f"ECC_RECON_ERT_AWARE=1 puts the encoder's energy into the mapper's "
             f"objective, so the ERT arms are RE-MAPPED: that is Task 4 extended, "
             f"and it needs RECON_OPTIMIZER=True and ECC_PHASE=Post (got "
@@ -489,25 +535,26 @@ def _resolve(self):
         # the arms that have one, so the bump and the `ert-` slug are
         # unchanged for every directory already on disk.
         if len(self.archs) != 1:
-            raise ConfigError(
+            raise guards.refusal("ert-arm-one-arch",
                 f"ECC_RECON_ERT_ARM={self.recon_ert_arm!r} names the arm of ONE "
                 f"mapper job on ONE architecture; this configuration has "
                 f"{len(self.archs)}: {', '.join(self.archs)}")
         try:
             spec = arms_mod.mapper_arm_spec(self.archs[0], self.recon_ert_arm, self)
         except (KeyError, ValueError) as exc:
-            raise ConfigError(f"ECC_RECON_ERT_ARM={self.recon_ert_arm!r}: {exc}") from None
+            raise guards.refusal("unknown-ert-arm",
+                f"ECC_RECON_ERT_ARM={self.recon_ert_arm!r}: {exc}") from None
         q = widths.declared_datawidth(self.code_n, self.code_k)
         if (self.weight_datawidth is not None and spec["narrow_levels"]
                 and self.weight_datawidth != q):
-            raise ConfigError(
+            guards.refuse("derived-datawidth",
                 f"ECC_RECON_ERT_ARM={self.recon_ert_arm} declares datawidth q = "
                 f"round({self.weight_bits}*{self.code_k}/{self.code_n}) = {q}, but "
                 f"ECC_WEIGHT_DATAWIDTH={self.weight_datawidth}. Leave it EMPTY: the arm "
                 f"sets it.")
         if (self.weight_datawidth_levels
                 and tuple(self.weight_datawidth_levels) != tuple(spec["narrow_levels"])):
-            raise ConfigError(
+            guards.refuse("derived-datawidth-levels",
                 f"ECC_RECON_ERT_ARM={self.recon_ert_arm} narrows "
                 f"{'+'.join(spec['narrow_levels']) or 'NOTHING on chip'} (the storage "
                 f"levels in its placement's reduced set), but "
@@ -583,7 +630,7 @@ class Config:
         """
         unknown = sorted(k for k in kw if k not in _OWNER)
         if unknown:
-            raise ConfigError(
+            raise guards.refusal("unknown-knob",
                 f"with_(): {', '.join(unknown)} is not a knob of any settings "
                 f"group. The groups are {', '.join(GROUPS)}.")
         return _build({**self.flat(), **kw})
@@ -1032,8 +1079,9 @@ class Config:
         if not mhz:
             return self.global_cycle_seconds
         if float(mhz) <= 0:
-            raise ConfigError(f"ECC_ARCH_CLOCK_MHZ[{arch}]={mhz}: a clock rate "
-                              f"must be positive")
+            raise guards.refusal("clock-positive",
+                f"ECC_ARCH_CLOCK_MHZ[{arch}]={mhz}: a clock rate "
+                f"must be positive")
         secs = 1.0 / (float(mhz) * 1e6)
         # A DESIGN THAT IS ALREADY AT THE STUDY DEFAULT KEEPS THE DEFAULT'S
         # EXACT SPELLING. Seven of the eight entries in `ECC_ARCH_CLOCK_MHZ`
@@ -1332,6 +1380,14 @@ class Config:
         if self.layers:
             lines.append(f"DEVELOPMENT RUN — {self.layer_scope} only: "
                          f"{', '.join(self.layers)}  (not a full-model result)")
+        # section 6.4 rule 2, the other half: an override travels with the FIGURE
+        # as well as the manifest, because a picture gets separated from its
+        # manifest the moment it is dropped into a slide. Nothing is appended on
+        # a run that overrides nothing, which is every run published so far.
+        for o in guards.overrides():
+            lines.append(f"ABLATION — guard `{o['guard']}` (tier {o['tier']} "
+                         f"{o['tier_name']}) was overridden by ECC_ALLOW: "
+                         f"{o['refused'].splitlines()[0]}")
         return lines
 
     def reporting_rules(self):

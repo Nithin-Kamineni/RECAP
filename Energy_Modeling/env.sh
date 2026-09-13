@@ -42,6 +42,41 @@
 #  1. THE FEW YOU CHANGE MOST OFTEN
 # =============================================================================
 
+# WHICH GUARDS YOU HAVE DELIBERATELY LIFTED. Empty on every published run.
+#
+# A guard runs on EVERY run -- including a SLURM job at 3am -- and stops it.
+# `GUARDS.md` lists all 135 of them with a stable id and a TIER, and the tier is
+# the only thing that matters here:
+#
+#   1 PARSE       "ECC_VICTORY=abc is not an integer"        NEVER liftable
+#   2 IMPOSSIBLE  "need K < N";  "a price may not be negative" NEVER liftable
+#   3 COUPLING    "ERT_AWARE=1 needs RECON_OPTIMIZER=True"   liftable, named here
+#   4 DERIVED     "the arm derives q; leave the knob EMPTY"  liftable, named here
+#
+# Tiers 3 and 4 are the ABLATION BLOCKERS. Name one and it becomes a loud warning
+# instead of a refusal -- and THE OVERRIDE IS RECORDED, on the run manifest as
+# `guard_overrides` and on the figure's caveat list, so an ablation cannot be
+# published as if it were the study's own number.
+#
+# NAME THE GUARD. There is deliberately no blanket "off": a blanket would be set
+# once, forgotten, and a wrong number would reach a figure with nothing saying so
+# (ProjectRestructure section 10). A value that matches no id lifts nothing.
+#
+#   ECC_ALLOW="zero-price"                what if this term were free?
+#   ECC_ALLOW="derived-datawidth"         test a hypothetical q against an arm
+#   ECC_ALLOW="zero-price,derived-datawidth"
+#
+# `zero-price` is the one ProjectRestructure Appendix B was written about: the
+# three price knobs (ECC_MAC_PJ_OVERRIDE, ECC_DRAM_PJ_PER_BIT and
+# ECC_BASELINE_DRAM_PJ_PER_BIT) used to demand `> 0`, which is the right rule for
+# a WIDTH and the wrong one for a PRICE. Zero is the ablation that measures what
+# the term was worth. Negative is still refused, and no ECC_ALLOW lifts that.
+#
+# NOT IN THE MAPPER FINGERPRINT: it changes what is REFUSED, never what is
+# mapped. Setting it does not cold a single cache.
+: "${ECC_ALLOW:=}"
+
+
 # Where this project lives. Derived from this file, so it is correct whatever
 # directory env.sh is sourced from.
 ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1850,7 +1885,7 @@ export ECC_PROJECT_ROOT ECC_SIF ECC_TASKFILE ECC_USE_CONTAINER ECC_PYTHON \
        ECC_DECODE ECC_DECODE_PJ_BASE ECC_DECODE_PJ_EMB ECC_RECON_CHARGES_DECODE \
        ECC_RECON_JSON ECC_RECON_PJ ECC_RECON_INCREMENTAL_PJ_LIST ECC_RECON_IDLE_PJ_LIST \
        ECC_WEAK ECC_WEAK_N ECC_WEAK_K ECC_BASELINE_INFLATES_ONCHIP \
-       ECC_SPLIT_READ_WRITE ECC_CLASSIFY \
+       ECC_SPLIT_READ_WRITE ECC_CLASSIFY ECC_ALLOW \
        ECC_ACCOUNT ECC_QOS ECC_PARTITION ECC_MAP_CPUS ECC_MAP_MEM ECC_MAP_TIME \
        ECC_CONCURRENCY ECC_EVAL_CPUS ECC_EVAL_MEM ECC_EVAL_TIME \
        ECC_RESULTS_DIR ECC_PALETTE ECC_FORMATS ECC_DPI ECC_NICE_LABELS \

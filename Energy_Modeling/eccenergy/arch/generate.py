@@ -19,6 +19,7 @@ import sys
 import traceback
 
 from ..paths import CNN_LAYERS, TRANSFORMER_LAYERS, WORK
+from ..settings import guards
 
 # ------------------------------------------------------------------ CNN models
 CNN_MODELS = {  # name -> (source, constructor)
@@ -184,7 +185,8 @@ def main(argv=None):
             include_lm_head=os.environ.get("ECC_INCLUDE_LM_HEAD", "1") not in ("0", "false"),
             include_embedding=os.environ.get("ECC_INCLUDE_EMBEDDING", "0") in ("1", "true"))
     else:
-        raise SystemExit("usage: python3 -m eccenergy.generate [models|transformers]")
+        raise guards.refusal("generate-usage",
+            "usage: python3 -m eccenergy.generate [models|transformers]")
     return 0
 
 

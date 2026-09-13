@@ -871,7 +871,7 @@ If gate 1 fails, **stop** — you are about to cold hours of compute.
 | **3** ✅ | **Split the big six** | Cut `recon.py`, `archs.py`, `experiments/recon.py`, `experiments/dilation.py` along their existing banners (§4.4). No function bodies change — only which file they live in. | no | 2 |
 | **4** ✅ | **Settings** | `Config` → six frozen dataclasses. **The import cycle dies here.** Update every signature to take what it needs. | **yes** | 2 |
 | **5** ✅ | **Architectures as data** | `WEIGHT_PATHS`/`PLACEMENTS` → `archs/<name>/weight_path.yaml` + `placements.yaml`; `KNOWN_ARCHS`/`ARCH_LABELS`/`MAPSPACE_FREE_LEVELS`/`BRACKET_PAIRS` → `design.yaml`; the three `startswith("eyeriss_v2")` branches (§5.1.1) → a declared field. Add the schema and `make arch`. | **yes** | 2 |
-| **6** | **Guards + GUARDS.md** | Assign tier and id to all 106; add `ECC_ALLOW`; re-tier the three price guards; generate `GUARDS.md`; record overrides in the manifest. | **yes** | 1 |
+| **6** ✅ | **Guards + GUARDS.md** | Assign tier and id to all 106; add `ECC_ALLOW`; re-tier the three price guards; generate `GUARDS.md`; record overrides in the manifest. **Done 2026-09-13: 136 invariants over 141 sites, not 106 — the audit predates phase 5, which added `arch/design.py`'s 23-check schema.** | **yes** | 1 |
 | **7** | **Backfill tests** | Write `tests/unit/` for the 69% that has none — ongoing, not a blocking phase. | no | ongoing |
 
 **Total: roughly 10 working sessions**, of which **phases 0–3 (4½ sessions) are pure motion

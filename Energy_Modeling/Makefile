@@ -13,6 +13,7 @@ PY ?= python3
 help:
 	@echo "make arch NEW=<name>   scaffold archs/<name>/ -- a design is a DIRECTORY"
 	@echo "make layers            the layer rule and the settings contract"
+	@echo "make guards            regenerate GUARDS.md -- every guard in one table"
 	@echo "make test              the whole suite (needs the container for pandas)"
 	@echo "make gate              ProjectRestructure's gate: fingerprints + totals"
 	@echo ""
@@ -32,6 +33,18 @@ arch:
 
 layers:
 	@$(PY) -m pytest tests/contract -q
+
+# -----------------------------------------------------------------------------
+#  GUARDS.md IS GENERATED, NEVER HAND-WRITTEN (ProjectRestructure section 6.5).
+#
+#  A guard runs on EVERY run -- including a SLURM job at 3am -- and stops it.
+#  There are ~135 of them and no list of either guards or tests existed before
+#  phase 6, which is the "impossible to know what is there" this answers.
+#  `tests/contract/test_guards.py` fails when the file is stale, so it cannot
+#  drift the way a hand-kept list would.
+# -----------------------------------------------------------------------------
+guards:
+	@$(PY) restructure/gen_guards.py
 
 test:
 	@$(PY) -m pytest eccenergy/tests tests -q

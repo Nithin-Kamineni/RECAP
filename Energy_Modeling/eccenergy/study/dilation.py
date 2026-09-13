@@ -62,6 +62,7 @@ import pathlib
 from ..arch import workloads as workloadsmod
 
 from .dilation_cache import MappedLayer, _dataspace_block, _grab, cache_for, load
+from ..settings import guards
 
 
 # ===========================================================================
@@ -270,7 +271,8 @@ def sweep(cfg, arch_list, layer_names, refs, model=None, k_over_n=None,
     by_name = {l.name: l for l in models[model]}
     missing = [n for n in layer_names if n not in by_name]
     if missing:
-        raise SystemExit(f"dilation: no such layer in {model}: {', '.join(missing)}")
+        raise guards.refusal("dilation-unknown-layer",
+            f"dilation: no such layer in {model}: {', '.join(missing)}")
     k_over_n = k_over_n if k_over_n is not None else cfg.code_k / cfg.code_n
 
     rows, gaps = [], []

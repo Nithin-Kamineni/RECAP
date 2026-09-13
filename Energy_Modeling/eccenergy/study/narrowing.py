@@ -19,6 +19,7 @@ ProjectRestructure phase 3 cut this out of `recon.py`.
 from __future__ import annotations
 
 from ..physics.packing import Packing
+from ..settings import guards
 
 
 # ===========================================================================
@@ -126,7 +127,8 @@ def assert_onchip_narrowing_once(cfg):
     """`onchip_narrowing_audit()` as a hard stop. Returns the audit."""
     audit = onchip_narrowing_audit(cfg)
     if not audit["ok"]:
-        raise ValueError(audit["problem"])
+        raise guards.refusal("narrow-once",
+            audit["problem"])
     return audit
 
 

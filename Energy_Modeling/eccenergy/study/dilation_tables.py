@@ -30,6 +30,7 @@ from ..arch import workloads as workloadsmod
 
 from .dilation import DilationRow, binding_level, capacity_verdict, sibling_fingerprints
 from .dilation_cache import load, read_mapped_layer, weight_levels_of
+from ..settings import guards
 
 
 # ===========================================================================
@@ -62,7 +63,8 @@ def utilisation_table(cfg, arch_list, layer_names, scales, model=None,
     by_name = {l.name: l for l in models[model]}
     missing = [n for n in layer_names if n not in by_name]
     if missing:
-        raise SystemExit(f"dilation: no such layer in {model}: {', '.join(missing)}")
+        raise guards.refusal("dilation-unknown-layer",
+            f"dilation: no such layer in {model}: {', '.join(missing)}")
     k_over_n = k_over_n if k_over_n is not None else cfg.code_k / cfg.code_n
     shapes = [by_name[n].shape_name for n in layer_names]
 
@@ -303,7 +305,8 @@ def level_table(cfg, arch_list, layer_names, scales, recon_datawidth,
     by_name = {l.name: l for l in models[model]}
     missing = [n for n in layer_names if n not in by_name]
     if missing:
-        raise SystemExit(f"dilation: no such layer in {model}: {', '.join(missing)}")
+        raise guards.refusal("dilation-unknown-layer",
+            f"dilation: no such layer in {model}: {', '.join(missing)}")
     k_over_n = cfg.code_k / cfg.code_n
     nk = 1.0 / k_over_n
 
@@ -545,7 +548,8 @@ def convergence_gate(cfg, arch_list, layer_names, victories, scales,
     by_name = {l.name: l for l in models[model]}
     missing = [n for n in layer_names if n not in by_name]
     if missing:
-        raise SystemExit(f"dilation: no such layer in {model}: {', '.join(missing)}")
+        raise guards.refusal("dilation-unknown-layer",
+            f"dilation: no such layer in {model}: {', '.join(missing)}")
 
     out, rows = [], []
     out.append("=" * 150)

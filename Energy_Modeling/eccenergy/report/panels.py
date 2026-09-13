@@ -38,6 +38,7 @@ from . import style
 from ..study.common import Session
 from .stacked import BAR_WIDTH, active_categories, draw_panel, write_table
 from .style import plt
+from ..settings import guards
 
 
 def stacked_panels(cfg, results, panels, title, stem, group_fontsize=17,
@@ -193,7 +194,7 @@ def run(cfg):
         panels.append((model, model, groups, stacks, labels))
 
     if not panels:
-        raise SystemExit(
+        raise guards.refusal("panels-nothing-to-plot",
             "nothing to plot: no panel model produced any group.\n"
             "  -> check the [skip] lines above; with ECC_REPLOT_ONLY=1 every "
             "point of every panel must already be in results/_raw/")

@@ -34,6 +34,7 @@ import pathlib
 
 from ..paths import ROOT
 from ..settings.energy import DC_MEASUREMENT_CLOCK_NS
+from ..settings import guards
 
 
 def _dc_entries(cfg):
@@ -124,7 +125,7 @@ def _recon_terms_at_dc_clock(cfg, k=None):
         # rescaling from the wrong base -- refuse rather than guess.
         got = (e.get("measurement") or {}).get("clock_period_ns")
         if got is not None and abs(float(got) - DC_MEASUREMENT_CLOCK_NS) > 1e-9:
-            raise SystemExit(
+            raise guards.refusal("dc-clock-mismatch",
                 f"{path.name} [{e.get('configuration_id')}] was measured at "
                 f"{got} ns, but DC_MEASUREMENT_CLOCK_NS is "
                 f"{DC_MEASUREMENT_CLOCK_NS}. The idle term is pJ PER CYCLE "

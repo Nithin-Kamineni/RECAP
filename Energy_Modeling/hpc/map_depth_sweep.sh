@@ -173,7 +173,7 @@ read -r -a GATE_LAYERS <<< "${ECC_LAYERS}"
 # fingerprints.
 read -r -a PERLEVEL <<< "$(python3 -c "
 from eccenergy import config
-from eccenergy.report import dilation_view as dilation
+from eccenergy.study import dilation_cache as dilation
 cfg = config.load_config()
 levels = dilation.weight_levels_of(cfg.archs[0], cfg)
 print(' '.join(levels) if len(levels) > 1 else '')")"

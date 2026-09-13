@@ -41,7 +41,7 @@ from eccenergy.physics import baseline_dram as baseline_dram_mod
 from eccenergy.physics import widths
 from eccenergy.study import energy as energy_mod
 from eccenergy.arch import workloads as workloads_mod
-from eccenergy.report import dilation_view as dilation                              # noqa: E402
+from eccenergy.study import dilation_tables as dilation                          # noqa: E402
 
 CODES = [int(x) for x in os.environ.get("KN_CODES", "57 45 39 30").split()]
 #: The depth scale to read. 1.0 is prompt_5's point (the YAML as it stands).

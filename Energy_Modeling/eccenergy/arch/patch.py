@@ -37,6 +37,7 @@ from ..physics import widths
 from . import design
 
 from .load import BANKED_SRAM_CLASS, PLAIN_SRAM_CLASS, _inject_noc, _node_blocks, arch_source
+from ..settings import guards
 
 
 # --------------------------------------------------------------------- patching
@@ -780,8 +781,9 @@ def _bitaware_onchip_bandwidth(text, levels, factor, arch="?", quiet=False):
     where = _component_attr_lines(text)
     missing = [n for n in levels if n not in where]
     if missing:
-        raise ValueError(f"{arch}: cannot make {', '.join(missing)} bit-aware; "
-                         f"no such component with attributes")
+        raise guards.refusal("datawidth-levels-unknown",
+            f"{arch}: cannot make {', '.join(missing)} bit-aware; "
+            f"no such component with attributes")
     lines, out, touched = text.split("\n"), [], []
     current = None
     starts = {idx: name for name, (idx, _ind) in where.items()}
@@ -1260,7 +1262,7 @@ def assert_pair_geometry(arch, cfg_ref, cfg_arm, ref_name="embedded",
                 f"{level}.depth: {ref_name}={a[level]['depth']} "
                 f"{arm_name}={b[level]['depth']}")
     if problems and not disabled:
-        raise ValueError(
+        raise guards.refusal("pair-geometry",
             f"{arch}: the two arms do NOT hold the same amount of silicon -- "
             + "; ".join(problems) + ".\n"
             f"  prompt_2's fairness rule is that both arms declare the same "

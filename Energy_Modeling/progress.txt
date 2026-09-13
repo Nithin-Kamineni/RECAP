@@ -1816,3 +1816,96 @@ reaches CACTI).
 
 pytest is not in the image; installed with `python3 -m pip install --user pytest`
 and run as `bash hpc/tl.sh python3 -m pytest eccenergy/tests/ -q`.
+
+================================================================================
+RESTRUCTURE PHASE 6 -- the guards get ids, tiers, and a generated list (2026-09-13)
+================================================================================
+
+GATE: PASSED. 302 fingerprint rows byte-identical, every evaluated total and
+every guard report identical, suite 272 -> 301 passing with 10 skipped and
+nothing lost (recorded via --accept-tests; reason in golden/pytest.log).
+
+1. GUARDS.md EXISTS, AND IS GENERATED. `make guards` walks the package and
+   writes it from `eccenergy/settings/guards.py`; `tests/contract/test_guards.py`
+   fails when it is stale, so it cannot drift the way a hand-kept list would.
+   136 invariants over 141 refusal sites: tier 1 PARSE 26, tier 2 IMPOSSIBLE 99,
+   tier 3 COUPLING 8, tier 4 DERIVED 3.
+
+   THE COUNT IS 136, NOT ProjectRestructure section 6.2's 106, and the audit was
+   not wrong: it was taken 2026-09-12, and PHASE 5 then added `arch/design.py`
+   with 23 schema checks of its own. Recounted, not re-scoped.
+
+2. THE SITE TELLS YOU THE TIER. Two spellings, and reading one is enough:
+       raise guards.refusal("need-k-lt-n", ...)   tiers 1-2, always fatal
+       guards.refuse("zero-price", ...)           tiers 3-4, lifts under ECC_ALLOW
+   `refusal()` BUILDS the exception (the `raise` at the site is the truth);
+   `refuse()` ACTS, and returns when the id is allowed. Each refuses to be used
+   at the other's tier, at runtime and in the contract test.
+
+3. THE EXCEPTION TYPE IS DECLARED IN THE REGISTRY, NOT AT THE SITE, so giving a
+   site an id cannot quietly turn a SystemExit into a ConfigError. That was not
+   theoretical: `task3-is-pre` is checked twice -- once while resolving the
+   config so `--dry-run` reports it, once before the figure is drawn -- and the
+   two sites raised DIFFERENT types. Folding them onto one id silently changed
+   `report/recon_view.py`. Caught by diffing every converted site's type against
+   HEAD; split into `task3-is-pre` and `task3-is-pre-figure`. All 137 converted
+   sites now keep the exception they raised before.
+
+4. APPENDIX B: THE THREE PRICES ARE `>= 0` NOW. ECC_MAC_PJ_OVERRIDE,
+   ECC_DRAM_PJ_PER_BIT and ECC_BASELINE_DRAM_PJ_PER_BIT demanded `> 0`, which is
+   the right rule for a WIDTH and the wrong one for a PRICE. Zero is the ablation
+   "what if this term were free" -- the upper bound on what the term was worth.
+   Now: negative -> `negative-price`, tier 2, never liftable. Zero ->
+   `zero-price`, tier 4, refused UNLESS ECC_ALLOW names it. All three measured
+   working, and all three still refuse -1. test_baseline_dram's deliberately
+   invalid -70 still fires, through `negative-price`.
+
+5. AN OVERRIDE IS RECORDED, in two places, because a picture gets separated from
+   its manifest the moment it is dropped into a slide: `guard_overrides` on the
+   manifest (`paths.write_manifest`) and an `ABLATION -- guard ...` line on the
+   caveat list (`Config.recon_caveats`). WRITTEN ONLY WHEN SOMETHING FIRED -- an
+   always-present `"overrides": []` would have rewritten every manifest on disk
+   without changing one number, and the gate would have been right to refuse it.
+   A guard message now LEADS WITH ONE SHORT LINE; the caveat carries that line.
+
+6. ECC_ALLOW IS IN env.sh SECTION 1, EMPTY, exported. Not in the mapper
+   fingerprint -- it changes what is REFUSED, never what is mapped, so setting it
+   colds nothing. There is deliberately no blanket `ECC_GUARDS=off`
+   (ProjectRestructure section 10): a value matching no id lifts nothing.
+
+7. THE GATE'S BLIND SPOT IS CLOSED -- `tests/contract/test_out_of_package.py`.
+   `hpc/*.sh` and `tools_bch_sweep_tables.py` are in neither the gate nor the
+   suite, and four of them were broken from phase 2 until phase 3 found them BY
+   HAND. What makes it silent is `2>/dev/null | tail -1`: an ImportError becomes
+   an empty variable and the script prints "no cache directory at this
+   fingerprint yet", which is a sentence a HEALTHY run also prints.
+   The audit extracts every embedded Python block (heredocs and `python3 -c`),
+   parses it, and resolves every eccenergy import AND every attribute used on one
+   against the package on disk. It never executes anything.
+
+   IT FOUND THREE MORE, still broken after phase 3's hand-check, all from the
+   phase-3 SPLIT rather than the phase-2 move -- the import still resolved and
+   the function had gone:
+     * hpc/map_depth_sweep.sh      dilation_view.weight_levels_of
+                                     -> study.dilation_cache
+     * tools_bch_sweep_tables.py   dilation_view.arm_configs, ._load_arm
+                                     -> study.dilation_tables
+   Both repointed. Mutation-tested: reintroducing `from eccenergy import archs`
+   fails the audit with the exact phase-2 message.
+
+WHAT PHASE 6 DID NOT DO, on purpose:
+  * The three price guards stay in `config.py`'s `_resolve()`, not in
+    `settings/energy.py` as section 6.5's `where` column sketches. That column
+    describes the target layout; moving validation into the frozen settings
+    dataclasses is a bigger change than this phase needs, and `to_dict()`'s key
+    order is pinned by a contract test. GUARDS.md reports where they RUN.
+  * `pair-geometry` keeps `ECC_DISABLE_ASSERT_PAIR_GEOMETRY=1`, its own override
+    predating the tiers. It is tier 2 per section 6.5 and the bespoke knob is
+    recorded as a note in GUARDS.md rather than folded into ECC_ALLOW -- that
+    would have changed behaviour, which this phase may not do.
+  * `arm-phase-is-pre` is COUPLING by kind and tier 2 by necessity: its other
+    site is in the FROZEN `study/baseline.py`, which cannot be taught to consult
+    ECC_ALLOW. A guard liftable at one of its two sites and not the other is
+    worse than either. The frozen sites are registered by `frozen_match=`, a
+    substring the contract test greps for, so the file is never edited and the
+    registry still cannot drift from it.

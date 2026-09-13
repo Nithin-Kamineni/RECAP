@@ -62,6 +62,7 @@ from ..toolchain.results_store import ResultBuilder, Variant
 from . import audit
 from .baseline import RECONSTRUCTION_PLACEMENTS
 from .common import Session
+from ..settings import guards
 
 EXPERIMENT = "task2_embedded_ecc_dram_only"
 
@@ -330,7 +331,7 @@ def evaluate(cfg, ses, prov, arch, model, raw):
 
 def run(cfg):
     if cfg.phase != "Pre":
-        raise SystemExit(
+        raise guards.refusal("arm-phase-is-pre",
             f"ECC_PHASE={cfg.phase} but the Task 2 embedded-ECC result is a `Pre` "
             f"result by construction: the embedded arm changes nothing the mapper "
             f"sees, so no mapping could have been optimised for it.")
@@ -344,7 +345,8 @@ def run(cfg):
             written.append(evaluate(cfg, ses, prov, arch, model, raw))
 
     if not written:
-        raise SystemExit("nothing was evaluated; see the [skip] lines above")
+        raise guards.refusal("nothing-evaluated",
+            "nothing was evaluated; see the [skip] lines above")
 
     print("\n" + "=" * 78)
     print(f"Task 2 embedded ECC: {len(written)} result file(s) written under "

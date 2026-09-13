@@ -12,6 +12,7 @@ import sys
 import traceback
 
 from .config import ConfigError, EXPERIMENTS, SWEEPS, banner, load_config
+from .settings import guards
 
 
 def _parse_args(argv):
@@ -77,7 +78,8 @@ def _apply_overrides(args):
                "arch": "ECC_SWEEP_ARCHS", "archs": "ECC_SWEEP_ARCHS",
                "architecture": "ECC_SWEEP_ARCHS"}.get(sweep)
         if not var:
-            raise SystemExit(f"--values: unknown sweep {sweep!r}")
+            raise guards.refusal("values-unknown-sweep",
+                f"--values: unknown sweep {sweep!r}")
         os.environ[var] = args.values
 
 

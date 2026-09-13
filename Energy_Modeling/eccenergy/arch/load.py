@@ -30,6 +30,7 @@ import shutil
 import yaml
 
 from ..paths import ARCH_NOC, ARCH_PROVENANCE, ARCH_SRC, ARCH_SRC_RESERVED, ARCH_STANDARD, DESIGNS_DIR
+from ..settings import guards
 
 
 #: Files in a design directory that are the STUDY's, not Timeloop's, and are
@@ -80,7 +81,7 @@ def load_noc():
     """
     if not _NOC:
         if not ARCH_NOC.exists():
-            raise SystemExit(
+            raise guards.refusal("noc-file-missing",
                 f"missing {ARCH_NOC}.\n"
                 "  -> that file supplies the only non-zero interconnect "
                 "coefficients this study has; without it Timeloop's wire model "
@@ -92,7 +93,7 @@ def load_noc():
 def _noc_entry(arch):
     entry = (load_noc().get("architectures") or {}).get(arch)
     if entry is None:
-        raise SystemExit(
+        raise guards.refusal("noc-no-entry",
             f"{arch} has no entry in {ARCH_NOC}.\n"
             "  -> add one (with its citation) rather than letting it map with "
             "a free interconnect while every other design pays for one.")
@@ -387,7 +388,7 @@ def load_standard():
     """`archs/_shared/standard.yaml` -- what must be identical across designs."""
     if not _STANDARD:
         if not ARCH_STANDARD.exists():
-            raise SystemExit(
+            raise guards.refusal("standard-file-missing",
                 f"missing {ARCH_STANDARD}.\n"
                 "  -> that file IS the apples-to-apples contract; without it there "
                 "is nothing to validate the architectures against.")

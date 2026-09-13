@@ -41,6 +41,7 @@ import yaml
 
 from ..contracts.errors import ConfigError
 from ..paths import ARCH_SRC
+from ..settings import guards
 
 #: The files a design directory may declare, and whether one is required.
 DESIGN_FILE = "design.yaml"
@@ -64,7 +65,8 @@ def _read(path):
     try:
         return yaml.safe_load(path.read_text()) or {}
     except yaml.YAMLError as exc:
-        raise ConfigError(f"{path}: not valid YAML -- {exc}") from None
+        raise guards.refusal("design-yaml-parse",
+            f"{path}: not valid YAML -- {exc}") from None
 
 
 @functools.lru_cache(maxsize=None)
@@ -95,7 +97,7 @@ def design(name):
     path = ARCH_SRC / name / DESIGN_FILE
     doc = _read(path)
     if doc is None:
-        raise ConfigError(
+        raise guards.refusal("design-dir-missing",
             f"{name}: no {DESIGN_FILE} in {ARCH_SRC / name}.\n"
             f"  -> a design is a directory: arch_paper.yaml, design.yaml, README.md,\n"
             f"     plus weight_path.yaml and placements.yaml if it declares boundaries.\n"
@@ -180,29 +182,36 @@ def placements_doc(name):
 # ------------------------------------------------------------------- the schema
 def _validate_design(name, doc, path):
     if not isinstance(doc, dict):
-        raise ConfigError(f"{path}: expected a mapping of fields, got {type(doc).__name__}")
+        raise guards.refusal("design-not-a-mapping",
+            f"{path}: expected a mapping of fields, got {type(doc).__name__}")
     if doc.get("name", name) != name:
-        raise ConfigError(f"{path}: declares name {doc['name']!r} but sits in {name}/")
+        raise guards.refusal("design-name-mismatch",
+            f"{path}: declares name {doc['name']!r} but sits in {name}/")
     if not str(doc.get("label", "")).strip():
-        raise ConfigError(f"{path}: `label:` is what a figure axis says; it may not be empty")
+        raise guards.refusal("design-label-empty",
+            f"{path}: `label:` is what a figure axis says; it may not be empty")
     free = doc.get("mapspace_free_levels")
     if free is not None and not isinstance(free, dict):
-        raise ConfigError(f"{path}: `mapspace_free_levels:` must be dimension -> [levels]")
+        raise guards.refusal("design-free-levels-shape",
+            f"{path}: `mapspace_free_levels:` must be dimension -> [levels]")
     if doc.get("order") is not None:
         try:
             int(doc["order"])
         except (TypeError, ValueError):
-            raise ConfigError(f"{path}: `order:` must be an integer") from None
+            raise guards.refusal("design-order-not-integer",
+                f"{path}: `order:` must be an integer") from None
     band = doc.get("noc_published_share")
     if band is not None:
         if not isinstance(band, dict) or "low" not in band or "high" not in band:
-            raise ConfigError(f"{path}: `noc_published_share:` needs `low:` and `high:`")
+            raise guards.refusal("noc-share-needs-band",
+                f"{path}: `noc_published_share:` needs `low:` and `high:`")
         if not band.get("citation"):
-            raise ConfigError(
+            raise guards.refusal("noc-share-needs-citation",
                 f"{path}: `noc_published_share:` is a claim about a PUBLISHED design "
                 f"and must carry its citation")
         if float(band["low"]) > float(band["high"]):
-            raise ConfigError(f"{path}: noc_published_share low > high")
+            raise guards.refusal("noc-share-low-gt-high",
+                f"{path}: noc_published_share low > high")
 
 
 def _refuse_todo(where, field, value):
@@ -214,7 +223,7 @@ def _refuse_todo(where, field, value):
     would report savings against a path that was invented for it.
     """
     if "TODO" in str(value):
-        raise ConfigError(
+        raise guards.refusal("design-todo",
             f"{where}: `{field}:` still says TODO.\n"
             f"  -> this design is scaffolded, not written. Every stage needs its "
             f"evidence and every boundary its description, or the numbers it "
@@ -225,27 +234,31 @@ def validate_weight_path(name, doc, path):
     """The stages: shape, kinds, unique keys, and a reducible DRAM stage first."""
     stages = (doc or {}).get("stages")
     if not stages:
-        raise ConfigError(f"{path}: `stages:` is the weight path and may not be empty")
+        raise guards.refusal("weight-path-empty",
+            f"{path}: `stages:` is the weight path and may not be empty")
     seen = set()
     for i, s in enumerate(stages):
         where = f"{path} stage {i} ({s.get('key', '?')})"
         for req in ("key", "label", "kind", "prefixes", "reducible"):
             if req not in s:
-                raise ConfigError(f"{where}: missing `{req}:`")
+                raise guards.refusal("weight-path-missing-field",
+                    f"{where}: missing `{req}:`")
         if s["key"] in seen:
-            raise ConfigError(f"{where}: duplicate stage key")
+            raise guards.refusal("weight-path-duplicate-stage",
+                f"{where}: duplicate stage key")
         seen.add(s["key"])
         if s["kind"] not in STAGE_KINDS:
-            raise ConfigError(f"{where}: kind {s['kind']!r}; one of {STAGE_KINDS}")
+            raise guards.refusal("weight-path-unknown-kind",
+                f"{where}: kind {s['kind']!r}; one of {STAGE_KINDS}")
         if not s["prefixes"]:
-            raise ConfigError(
+            raise guards.refusal("weight-path-stage-no-prefixes",
                 f"{where}: `prefixes:` names the Timeloop levels that ARE this stage; "
                 f"a stage that matches no level can never be measured")
         _refuse_todo(where, "evidence", s.get("evidence", ""))
         _refuse_todo(where, "prefixes", s["prefixes"])
         _refuse_todo(where, "key", s["key"])
     if stages[0]["kind"] != "dram":
-        raise ConfigError(
+        raise guards.refusal("weight-path-starts-at-dram",
             f"{path}: the first stage must be the DRAM -- the path is written OUTER TO "
             f"INNER and every placement's `reduced` set is a prefix of it")
     return stages
@@ -255,7 +268,7 @@ def validate_placements(name, doc, stages, path):
     """The boundaries, against the stages they name."""
     places = (doc or {}).get("placements")
     if not places:
-        raise ConfigError(
+        raise guards.refusal("placements-empty",
             f"{path}: `placements:` may not be empty. A design that declares NO "
             f"boundaries declares no {PLACEMENTS_FILE} and no {WEIGHT_PATH_FILE} "
             f"at all -- three designs are in that state today.")
@@ -266,21 +279,23 @@ def validate_placements(name, doc, stages, path):
         for req in ("key", "variant", "label", "short", "reduced",
                     "site_stage", "site_counter", "description"):
             if req not in p:
-                raise ConfigError(f"{where}: missing `{req}:`")
+                raise guards.refusal("placement-missing-field",
+                    f"{where}: missing `{req}:`")
         if p["key"] in seen:
-            raise ConfigError(f"{where}: duplicate placement key")
+            raise guards.refusal("placement-duplicate-key",
+                f"{where}: duplicate placement key")
         seen.add(p["key"])
         unknown = [r for r in (p["reduced"] or ()) if r not in keys]
         if unknown:
-            raise ConfigError(
+            raise guards.refusal("placement-prefix",
                 f"{where}: `reduced:` names {unknown}, which {WEIGHT_PATH_FILE} does "
                 f"not declare. The two files are edited together.")
         if p["site_stage"] not in keys:
-            raise ConfigError(
+            raise guards.refusal("placement-site-stage-unknown",
                 f"{where}: `site_stage: {p['site_stage']}` is not a stage of this "
                 f"design's weight path")
         if p["site_counter"] not in SITE_COUNTERS:
-            raise ConfigError(
+            raise guards.refusal("placement-site-counter-unknown",
                 f"{where}: site_counter {p['site_counter']!r}; one of {SITE_COUNTERS}")
         _refuse_todo(where, "description", p["description"])
         _refuse_todo(where, "rating", p.get("rating", ""))

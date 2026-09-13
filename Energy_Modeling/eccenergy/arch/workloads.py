@@ -24,6 +24,7 @@ import json
 from dataclasses import dataclass
 
 from ..paths import CNN_LAYERS, TRANSFORMER_LAYERS, require
+from ..settings import guards
 
 
 @dataclass(frozen=True)
@@ -79,7 +80,7 @@ def _layer(d, fallback_name):
         # The generator stores C per group and M in total (see the module
         # docstring). Timeloop wants both per group.
         if m_total % groups:
-            raise SystemExit(
+            raise guards.refusal("workload-groups-indivisible",
                 f"{name}: out_channels={m_total} is not divisible by "
                 f"groups={groups}; the workload file is inconsistent")
         m_total //= groups
@@ -122,7 +123,8 @@ def select(workload, wanted):
         print(f"  [skip] not in the workload file: {', '.join(missing)}")
         print(f"         available: {', '.join(sorted(workload))}")
     if not have:
-        raise SystemExit("none of the requested models exist in the workload file")
+        raise guards.refusal("workload-no-models",
+            "none of the requested models exist in the workload file")
     return have
 
 
@@ -152,7 +154,7 @@ def select_layers(models, wanted, verbose=True):
         missing = [w for w in wanted if w not in by_name]
         if missing:
             available = ", ".join(l.name for l in layers)
-            raise SystemExit(
+            raise guards.refusal("layers-not-in-model",
                 "ECC_LAYERS names layers that are not in {0}: {1}\n"
                 "  -> layer selection is by the STABLE layer name, not by index.\n"
                 "  -> available in {0}: {2}".format(model, ", ".join(missing), available))
