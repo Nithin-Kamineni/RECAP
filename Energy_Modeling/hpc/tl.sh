@@ -54,6 +54,42 @@ fi
 # A SIF is read-only; bind just that scratch directory to writable /blue storage.
 CACTI_SCRATCH="$PROJ/hpc/.runtime/cacti_inputs_outputs"
 mkdir -p "$CACTI_SCRATCH"
+
+# NEUROSIM needs the same treatment, and not having it has been costing real
+# numbers (legacy/FINDINGS_detail_2026-09-11.md defect 7; prompt_7 section 11b).
+# Accelergy asks every plug-in to bid on each component and takes the most
+# confident answer. For the `intadder` inside every smartbuffer's address
+# generator, Neurosim ties Aladdin at accuracy 70 and sometimes wins -- but it
+# writes `neurosim_input_<pid>.cfg` into its OWN plug-in directory, which is
+# read-only in a SIF. It dies with `OSError: [Errno 30] Read-only file system`,
+# reports 0 pJ at accuracy 70%, and Accelergy accepts that as the price. The
+# damage is visible in any cached ERT: the same adder costs 0.0853 pJ on a
+# write and 0 pJ on a read.
+#
+# Unlike CACTI there is no separate scratch subdirectory to bind -- the file
+# lands in the plug-in root -- so bind a writable COPY of the whole directory,
+# extracted from the image once. If the copy is missing or empty we bind
+# NOTHING rather than masking the plug-in with an empty directory, which would
+# turn a wrong number into no plug-in at all.
+NEUROSIM_IN_SIF="/usr/local/share/accelergy/estimation_plug_ins/accelergy-neurosim-plugin"
+NEUROSIM_RW="$PROJ/hpc/.runtime/neurosim-plugin"
+if [ ! -e "$NEUROSIM_RW/.populated" ]; then
+    mkdir -p "$NEUROSIM_RW"
+    if apptainer exec "$SIF" test -d "$NEUROSIM_IN_SIF" 2>/dev/null; then
+        apptainer exec --bind "$NEUROSIM_RW:/mnt/out" "$SIF" \
+            cp -a "$NEUROSIM_IN_SIF/." /mnt/out/ 2>/dev/null \
+            && touch "$NEUROSIM_RW/.populated"
+    fi
+fi
+NEUROSIM_BIND=()
+if [ -e "$NEUROSIM_RW/.populated" ]; then
+    NEUROSIM_BIND=(--bind "$NEUROSIM_RW:$NEUROSIM_IN_SIF")
+else
+    echo "tl.sh: WARNING -- Neurosim plug-in not made writable; its address-generator" >&2
+    echo "       estimates will be 0 pJ (prompt_7 section 11b)." >&2
+fi
+
 exec apptainer exec --bind /blue \
     --bind "$CACTI_SCRATCH:/usr/local/share/accelergy/estimation_plug_ins/accelergy-cacti-plug-in/cacti_inputs_outputs" \
+    "${NEUROSIM_BIND[@]}" \
     --pwd "$PROJ" "$SIF" "$@"

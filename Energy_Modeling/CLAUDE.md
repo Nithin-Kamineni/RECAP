@@ -5,17 +5,39 @@ Accelergy. The question: **if ECC parity does not have to be stored in DRAM, how
 much inference energy does that save, and does the answer depend on the
 accelerator?**
 
-**The live plan is `prompt_6.md`** — reconstruction-aware mapping: put the
-encoder's energy into the mapper's objective via the ERT. Read it before starting
-work; where it and this file differ on what to do next, it wins. It also carries
-`prompt_3.md`'s constrained mapspace, which every mapper job now runs under.
+**The live plan is `prompt_7.md`** (since 2026-09-12) — modelling TIME, and what
+that does to the energy answer: the off-chip speed limit, clock gating of the
+reconstruction engines, and component standby power. Read it before starting
+work; where it and this file differ on what to do next, it wins. **Its §9 is the
+PHASE PLAN — one phase per working session, each with a gate you can run** — its
+§0 is how a new session picks up, its §12 the reporting rules that must travel
+with every figure, and its §13 what is already fixed and what is deliberately
+left alone. The old numbered issue list is gone; Issue 9 is resolved into §12's
+rule R-3.
+
+**`prompt_6.md` is still in force** for the four RULES that stop the model
+double-counting itself (one owner per effect, one charging site, two terms on two
+denominators, one plan per bar) — prompt_7 extends RULE 3 rather than replacing
+it. `prompt_7.1.md` is a later buffer-size sweep, to be run after prompt_7.
+`prompt_3.md`'s constrained mapspace is carried by both and every mapper job runs
+under it.
+
 Phase-by-phase status lives in `progress.txt`, not here.
 
 **No empirical claims in this file.** Numbers live in `FINDINGS.md`; the live
 caveat list is `bash run.sh diagnose`, computed from the architectures as they
 stand. A prose copy here went stale once and then contradicted the code.
 
-**prompt_6 phases 1–9 are DONE (2026-09-11).** The placement study's numbers in
+**PROTECTED SECTIONS — do not delete or shorten when condensing this file.**
+A section headed `<!-- PROTECTED -->` records a mistake that has already been
+made more than once and costs a debugging session and a wave of compute each
+time. Condensing this file is fine; those sections are not part of it. **If you
+believe one must be cut or shortened, ASK THE USER FIRST and say which one and
+why** — do not decide it yourself, and never drop one as a side effect of "make
+this shorter". Today that is: THE WIDTH TABLE.
+
+**prompt_6 phases 1–9 are DONE (2026-09-11); prompt_7's Phase 0 is DONE
+(2026-09-12); its Phases A, B, C, D and E are NOT.** The placement study's numbers in
 FINDINGS §2.9 were produced under RULE 3 (two encoder terms, two denominators)
 from `bash hpc/map_ert_arms.sh`. The three sweep figures were regenerated only as
 far as their caches reach (FINDINGS §6.1); `ModelSweep.png` is stale on disk.
@@ -107,11 +129,12 @@ was unfair besides (Accelergy priced the deeper array 1.18–1.46× dearer, so t
 optimiser had a reason to leave the room unused). FINDINGS §2.4 has the cause: the
 capacity mechanism moves in 2× steps and N/K = 1.6154 sits below the step.
 
-The live mechanism is **`datawidth: q` on the weight levels at FIXED `width` and
-`depth`**. CACTI receives `depth` and `width` only — `datawidth` never reaches the
-energy model — and Timeloop bills `vector_access_energy / block_size` per weight,
-`block_size = width/datawidth`. So the reconstruction arm gets more effective
-capacity at **byte-identical** per-access read/write/leak.
+The live mechanism is **`datawidth: q` on the weight levels at a FIXED `depth`**,
+with each level's `width` taken from THE WIDTH TABLE below. CACTI receives `depth`
+and `width` only — `datawidth` never reaches the energy model — and Timeloop bills
+`vector_access_energy / block_size` per weight, `block_size = width/datawidth`. So
+the reconstruction arm gets more effective capacity on an array within 2 % of the
+reference's per-access read/write/leak.
 
 **`q = round(8·K/N)`.** Two places used to say `ceil`; they agree everywhere except
 BCH(63,57) (ceil 8, round 7) and BCH(63,51) (ceil 7, round 6) — and at q=8 the
@@ -121,22 +144,73 @@ itself and reports an effect of exactly zero. `hpc/map_depth_sweep.sh` and
 `Packing` still uses `ceil`** — it is Task 3's physical packing model — so Task 3
 narrows those two codes less than the mapping study does.
 
-**HARD CONSTRAINT: `width % datawidth == 0`, or `timeloop-mapper` aborts**
-(`buffer.cpp:302`, measured `exit=134`). `block_size` defaults to 1 and is then
-checked, so there is **no floor path** — a partially-filled word cannot be
-modelled. A width must divide BOTH `q` AND `ECC_WEIGHT_BITS`, since both arms
-share one declared width.
+<!-- PROTECTED -->
+## THE WIDTH TABLE — read this before touching a width
 
-**`ECC_WEIGHT_WIDTH=auto` makes every BCH configuration runnable.**
-`eccenergy/code_widths.py` holds the width table keyed by `(N, K)` and returns
-`lcm(q, ECC_WEIGHT_BITS)`, or `None` where the published widths already admit `q`.
-EMPTY still means the published widths, so no existing cache colds — BCH(63,30)
-fingerprints identically under EMPTY and `auto`. Read it with
-`python3 -m eccenergy.code_widths`; `tests/test_code_widths.py` asserts every entry.
+*(PROTECTED: see the top of this file. Do not cut or condense without asking.)*
+
+**THE ARMS DO NOT SHARE A DECLARED WIDTH. Each arm declares the width that suits
+ITS OWN `datawidth`, and no arm has to be legal for any other arm's `datawidth`.**
+This has been got wrong in five separate sessions. It is prompt_2.md's table and it
+is applied automatically, on every run, by `archs._set_weight_geometry()` from
+`eccenergy/code_widths.py`:
+
+| arm | q | spad `width` | GLB `width` (×4) | weights/word | eff. capacity |
+|---|---:|---:|---:|---:|---:|
+| Baseline / Embedded | 8 | **96** | 384 | 12 | 1.0000× |
+| BCH(63,57) | 7 | **98** | 392 | 14 | 1.1667× |
+| BCH(63,45), BCH(63,51) | 6 | **96** | 384 | 16 | 1.3333× |
+| BCH(63,39), BCH(63,36) | 5 | **95** | 380 | 19 | 1.5833× |
+| BCH(63,30) | 4 | **96** | 384 | 24 | 2.0000× |
+
+**BCH(63,39) runs at width 95 because `95 % 5 == 0`. `95 % 8 = 7` IS IRRELEVANT** —
+the baseline/embedded arm is never mapped at width 95; it is mapped at 96, where
+`96 % 8 == 0`. Same for 98 at q=7. `timeloop-mapper`'s constraint
+(`width % (word_bits * block_size) == 0`, `buffer.cpp:302`, `block_size` defaults
+to 1, **no floor path**, measured `exit=134`) is **per level, per mapper run**, and
+one mapper run maps **one arm**. It never sees two arms at once and imposes no
+constraint between them. Do not "fix" 95 or 98.
+
+This is what the mapper actually sees on `eyeriss_like_wglb`, with no knob set
+anywhere — every level legal for the datawidth **it** stores, and for nothing else:
+
+    Baseline/Embedded   q=8  filter_glb 43x384b / 8b = 48 weights/word   (384 % 8 == 0)
+    BCH(63,57)          q=7  filter_glb 43x392b / 7b = 56 weights/word   (392 % 7 == 0)
+    BCH(63,45)          q=6  filter_glb 43x384b / 6b = 64 weights/word   (384 % 6 == 0)
+    BCH(63,39)          q=5  filter_glb 43x380b / 5b = 76 weights/word   (380 % 5 == 0)
+    BCH(63,30)          q=4  filter_glb 43x384b / 4b = 96 weights/word   (384 % 4 == 0)
+
+Depth 43 on every row — that is the shared quantity. The width moves, the
+datawidth moves, and each row's `%` is the only divisibility that exists.
+
+**WITHDRAWN 2026-09-12: the `lcm(q, 8)` scheme** (56 / 24 / 40), which came from
+reading the rule as "both arms share one width". It was wrong on the premise AND it
+**made the 8-bit reference arm move between codes**, so the reference held 35/33/30
+weights per PE at q = 7/6/5, fell off a tiling cliff at q=5, and reported
+BCH(63,39) as a 37.69 % win that was really the reference breaking (FINDINGS
+§2.4b). Under this table the 8-bit arm is width 96 at **every** code: one arm,
+mapped once.
+
+**There is no `ECC_WEIGHT_WIDTH`.** The table is not a knob — a knob is what let
+the lookup ship on 2026-09-11 and sit unused until `map_ert_arms.sh` died on it at
+K=39 (all 24 arm jobs on `filter_glb: width 64 % datawidth 5 != 0`, dependent eval
+parked on `DependencyNeverSatisfied`). It is applied **per level**: at
+`ECC_WEIGHT_DATAWIDTH_LEVELS=filter_glb` the GLB stores 5-bit weights at width 380
+while `weights_spad` keeps 8-bit weights at width 96. Read it with
+`python3 -m eccenergy.code_widths`.
+
+**DEPTH is shared and is the only thing `assert_pair_geometry()` checks.**
+`depth' = round(depth × width / 96)` is computed at the BASE width, not the arm's
+own, so every arm declares the same depth — which is what makes the `eff. capacity`
+column above come out as `(W_arm/q)/(96/8)`, and what leaves the depth check
+something real to check. `ECC_DISABLE_ASSERT_PAIR_GEOMETRY=1` (env.sh §5, default
+`0`) turns that depth check off for a study that varies depth between the arms on
+purpose. It is the only thing that knob disables — **there is no width check for it
+to disable**.
 
 Three assertions, each with a mutation test (`test_dilation.py`):
-`archs.assert_pair_geometry()` (both arms declare the same width and depth at every
-level, or the comparison is void), `recon.assert_onchip_narrowing_once()` (the
+`archs.assert_pair_geometry()` (both arms declare the same LEVELS at the same
+DEPTH — never the same width, see above), `recon.assert_onchip_narrowing_once()` (the
 mapper and the evaluator can both narrow, and doing both SQUARES the saving —
 hence `ECC_RECON_PACKING=aligned`, the default), and the level table's own
 row-level re-check.
@@ -176,6 +250,17 @@ Nothing but `results_store.py` writes one. Schema: `docs/RESULTS_SCHEMA.md`.
 Anything that changes what the mapper sees or optimises gets its own cache
 subdirectory. **So anything touching env.sh §2/§5, or an arch YAML, takes the
 whole matrix cold at once** — budget for it.
+
+**The fingerprint hashes the ARCHITECTURE, not the price list Accelergy derives
+from it.** So fixing an ENERGY ESTIMATOR changes every number in the cache while
+leaving the directory it is stored under identical, and the stale entries are
+reused with nothing to say so. That is not hypothetical: the Neurosim plug-in
+answered 0 pJ for every smartbuffer address generator until 2026-09-12 (it
+crashed writing scratch into the read-only SIF and Accelergy accepted the 0;
+`hpc/tl.sh` now binds it a writable copy). **`ECC_ENERGY_MODEL_REV` is the
+deliberate cold**: any non-empty value re-fingerprints the whole matrix, EMPTY
+hashes byte-identically to every fingerprint that predates the knob. Bump it when
+an estimator changes, not before — and expect to re-map.
 
 **A comparison across two `fp-<hash>` directories is a comparison of two
 ARCHITECTURES**, not two settings. `sibling_fingerprints()` enumerates every
@@ -320,10 +405,21 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   measured guard sits in `build_stacks()`'s recon column.
 - **Reconstruction is two terms on two denominators** (RULE 3): `incremental x
   events + idle_per_cycle x cycles x N_engines`; `load_recon_energy()` returns
-  them separately and nothing adds them. Cycles come from the billed plan's own
+  them separately and nothing adds them. **Since prompt_7 (2026-09-12) both terms
+  are CLOCK-GATED** by `ECC_RECON_CLOCK_GATING_PCT` (default 99.5): the engine
+  burns `incremental + idle` while it works and `idle x (1 - g)` while it is
+  gated off, because the DC "idle" constant is 99.48% clock power and only 0.52%
+  true leakage. `PCT=0` reproduces the ungated model to the pJ and is what every
+  pre-gating assertion is pinned to. **The ERT bump carries the SAME gated
+  numbers** (`incremental + idle x g` per access, `idle x (1 - g)` per cycle), so
+  the mapper and the evaluator price one engine and RULE 5.3's "a split, not an
+  addition" still holds. Cycles come from the billed plan's own
   record (`Raw.cycles`, re-gathered if absent, never charged zero); the idle
   denominator is `StageStats.engine_cycles` = sum over layers of (engines that
-  leak x that layer's cycles): 1 at DRAM, fanout x instances at a network, and
+  leak x that layer's cycles): 1 at DRAM, THAT LAYER'S OWN fanout x instances at
+  a network (prompt_7 Issue 3, fixed 2026-09-12 -- it used to charge the widest
+  layer's fanout over the whole run, which over-billed mobilenet_v2 by x1.3336
+  because its depthwise layers broadcast 2-12 wide, not 14), and
   at a storage level the UTILIZED instances of that layer's plan -- Timeloop
   power-gates each unused instance and bills `leak x utilized x cycles`
   (`buffer.cpp FinalizeBufferEnergy`, verified 2026-09-11 on 43 shapes of two
@@ -335,6 +431,13 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   each number cited), the name in `KNOWN_ARCHS` and `ARCH_LABELS` in `config.py`,
   entries in `standard.yaml` and `provenance.yaml`, then `bash run.sh validate` and
   `diagnose` before committing to a long sweep.
+  **Declare each weight level's PUBLISHED `width`/`depth`/`datawidth` and stop
+  there** — do not hand-pick a width to suit a code, and do not check one against
+  another arm's datawidth. `archs._set_weight_geometry()` reshapes every weight
+  level per arm from THE WIDTH TABLE (above) and renormalises depth to hold your
+  declared total bits, so `width % datawidth == 0` is satisfied by construction at
+  every code. If a `width 64 % datawidth 5 != 0` ever reaches you, the fix is in
+  `code_widths.WIDTH_TABLE`, never in the arch YAML and never in the config.
 - **Adding a model**: add to `CNN_MODELS` or `TRANSFORMER_MODELS` in `config.py`,
   then `python3 -m eccenergy.generate models <name>` in the container.
 - **Adding an architecture to the placement study**: `WEIGHT_PATHS[<name>]` and
@@ -367,7 +470,10 @@ Everything not listed here is what its name says; `eccenergy/` module docstrings
 carry the rest.
 
     env.sh              THE knob file        run.sh    one stage, no knobs
-    prompt_6.md         THE LIVE PLAN        FINDINGS.md   what was learned
+    prompt_7.md         THE LIVE PLAN        FINDINGS.md   what was learned
+    prompt_6.md         the four RULES, still in force
+    prompt_7.1.md       buffer-size sweep, AFTER prompt_7
+    Claude-sandbox/     throwaway experiments; never writes to the caches
     hpc/                run_all.sh, map.sbatch, tl.sh (apptainer wrapper),
                         map_by_shape.sh, map_ert_arms.sh (prompt_6: one job per
                         arm x shape, one dependent eval), map_capacity_sweep.sh,

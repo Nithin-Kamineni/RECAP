@@ -63,6 +63,10 @@ def _cfg(**env):
         ECC_CONST_K="30", ECC_CODE_N="63", ECC_LAYERS="layer3.0.conv1",
         ECC_DRAM_PJ_PER_BIT="40", ECC_MAC_PJ_OVERRIDE="0.23",
         ECC_MAPPER_THREADS="18", ECC_VICTORY="4000", ECC_FROM_CACHE="1",
+        # prompt_7 Issue 4: these assertions state the UNGATED idle formula,
+        # which PCT=0 reproduces exactly. The gated path is tested in
+        # test_recon.test_clock_gating_is_exact_at_zero_and_scales_the_idle_term.
+        ECC_RECON_CLOCK_GATING_PCT="0",
     )
     base.update(env)
     for k in list(os.environ):

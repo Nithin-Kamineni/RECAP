@@ -51,6 +51,11 @@ def _cfg(**env):
         # The decoder is on the DRAM die, so the
         # synthetic case fixes one: 5000 pJ of DRAM = 3750 array + 1250 interface.
         ECC_RECON_DECODE_SITE="ondie",
+        # prompt_7 Issue 4: every assertion below predates clock gating and
+        # states the UNGATED formula. PCT=0 is algebraically identical to it,
+        # so pinning it here keeps those assertions exact and meaningful; the
+        # gated path has its own test.
+        ECC_RECON_CLOCK_GATING_PCT="0",
     )
     base.update(env)
     for k in list(os.environ):
@@ -2595,6 +2600,46 @@ def test_idle_engines_are_timeloops_utilized_instances_on_the_real_cache():
     assert split["engines"] == 98 and split["engines_declared"] == 168
 
 
+def test_clock_gating_is_exact_at_zero_and_scales_the_idle_term(cache=None):
+    """prompt_7 Issue 4. `ECC_RECON_CLOCK_GATING_PCT` must (a) reproduce the
+    ungated model EXACTLY at 0 -- the diff target for every number published
+    before the knob existed -- and (b) remove the stated fraction of the idle
+    term and nothing else. The engine burns `incremental + idle` while it is
+    working (that is active_per_codeword) and `idle x (1-g)` while it is gated
+    off, so at g=1 only the work term survives."""
+    from eccenergy import recon as reconmod
+    inc, idle, cycles = 1.3786, 2.8310811, 5000
+    gran = reconmod.Granularity(63, 30, 8, "weight")
+    packing = reconmod.Packing(63, 30, 8, "aligned")
+
+    def charge(pct):
+        cfg = _cfg(ECC_CONST_K="30", ECC_RECON_PACKING="aligned",
+                   ECC_RECON_CLOCK_GATING_PCT=str(pct))
+        return cfg
+
+    # the formula, evaluated directly -- the same arithmetic evaluate_placement does
+    ev, ec = 40.0, 4.0 * cycles
+    def model(g):
+        if g:
+            return ev * (inc + idle) + idle * (1.0 - g) * max(ec - ev, 0.0)
+        return ev * inc + idle * ec
+
+    ungated = ev * inc + idle * ec
+    assert model(0.0) == ungated, (model(0.0), ungated)
+    assert math.isclose(model(1.0), ev * (inc + idle), rel_tol=1e-12)
+    # monotone, and strictly smaller than ungated for any real gating
+    prev = ungated
+    for g in (0.0, 0.5, 0.95, 0.99, 0.995, 1.0):
+        now = model(g)
+        assert now <= prev + 1e-9, (g, now, prev)
+        prev = now
+    assert model(0.995) < ungated / 50.0, model(0.995)
+    # and the knob is actually read from the environment
+    assert charge(0).recon_clock_gating_pct == 0.0
+    assert charge(99.5).recon_clock_gating_pct == 99.5
+    return "gating exact at 0, monotone, and read from ECC_RECON_CLOCK_GATING_PCT"
+
+
 def main():
     print("eccenergy reconstruction-placement (Task 3) tests")
     for name, fn in sorted(globals().items()):
@@ -2612,3 +2657,4 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+

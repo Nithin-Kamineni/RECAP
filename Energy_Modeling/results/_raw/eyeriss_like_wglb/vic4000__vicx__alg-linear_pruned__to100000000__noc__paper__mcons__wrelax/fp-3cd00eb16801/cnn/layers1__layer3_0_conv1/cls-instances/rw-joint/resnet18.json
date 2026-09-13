@@ -44,7 +44,7 @@
    "grouped": false,
    "repeat_count": 1,
    "mapping_id": "a8de944a99d12f49",
-   "mapping_cached": true,
+   "mapping_cached": false,
    "total_energy_pJ": 240465655.43679997,
    "dram_weight_reads": 294912.0,
    "dram_weight_energy_pJ": 18874368.0,

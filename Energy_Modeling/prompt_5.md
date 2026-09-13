@@ -250,25 +250,27 @@ says: **depth 37 at width 96**, 444 weights/PE against the paper's 448. On the
 **depth 3**, which is +12.5 % in bits and barely a reuse level. **Run the BCH
 sweep on the published spad, not on the depth-16 one.**
 
-## `ECC_WEIGHT_WIDTH=auto` is a DIFFERENT scheme — do not mix them
+## `ECC_WEIGHT_WIDTH=auto` — WITHDRAWN 2026-09-12, there is only one scheme
 
-`eccenergy/code_widths.py` (2026-09-11) resolves a width per code that divides
-BOTH `q` and 8 (56 / 24 / 24 / 40 / 40 / published), so that BOTH arms can share
-it and `assert_pair_geometry` passes unrelaxed. It exists because the strict
-guard was in force. It is the conservative scheme, and it has a real cost this
-prompt's scheme does not: **the 8-bit reference moves between codes** (35 / 33 /
-30 weights per PE on the depth-16 spad), which is what produced BCH(63,39)'s
-spurious -37.69 % (FINDINGS 2.4b). The two schemes answer the same question
-differently:
+This section used to present `eccenergy/code_widths.py`'s `lcm(q, 8)` widths
+(56 / 24 / 24 / 40 / 40 / published) as a conservative ALTERNATIVE to prompt_2's
+WIDTH TABLE, to be picked per study. **It was not an alternative. It was a
+misreading, and it is gone** — along with the `ECC_WEIGHT_WIDTH` knob itself.
 
-|  | prompt_2 WIDTH TABLE (this section) | `ECC_WEIGHT_WIDTH=auto` |
-|---|---|---|
-| 8-bit arm | ONE arm, width 96, mapped once | re-declared per code |
-| widths | 96 / 98 / 96 / 95 / 96 | 56 / 24 / 24 / 40 / published |
-| pair silicon | differs by <= 2.08 % | identical |
-| `assert_pair_geometry` | must be relaxed on `width` | passes as-is |
-| baseline bars | **one** | one per code |
-| jobs, 4 codes | **5** | 8 |
+It rested on "both arms of a pair share ONE declared width", which is false.
+`timeloop-mapper` asserts `width % (word_bits * block_size) == 0` per level, per
+mapper run, and **one mapper run maps one arm**. The arms are never mapped on
+one another's silicon, so prompt_2's 98 (q=7) and 95 (q=5) are correct exactly
+as written and the fact that they do not divide 8 is not a property of anything.
 
-**Pick one per study and say which.** Do not read a number produced under one
-scheme beside a number produced under the other.
+The table above already named the price, and it was paid: under lcm the **8-bit
+reference arm moves between codes** (35 / 33 / 30 weights per PE on the depth-16
+spad), which is what produced BCH(63,39)'s spurious −37.69 % (FINDINGS 2.4b, now
+withdrawn). prompt_2's table has the 8-bit arm at width 96 at every code — ONE
+arm, mapped ONCE — which is the whole reason its five widths sit within 3 % of
+each other.
+
+What is in force is prompt_2.md's WIDTH TABLE, applied automatically per level
+and per arm by `archs._set_weight_geometry()`; `python3 -m eccenergy.code_widths`
+prints it. `archs.assert_pair_geometry()` checks the LEVEL SET and the DEPTH and
+does **not** check width or datawidth.

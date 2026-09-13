@@ -544,14 +544,28 @@ class ErtArmView:
     stats_paths: dict
 
 
-def ert_split(bump, st, cycles):
+def ert_split(bump, st, cycles, billed_vectors=None):
     """prompt_6 5.3 -- the two amounts an ERT arm's Timeloop run carries because
     of the toll, from THAT bar's own counts and cycles, on the action that was
     bumped (RULE 2), never a level total or a blended average:
 
-        access   scalar <counter> x E_w      (= vector accesses x E_w x block_size)
+        access   billed vector accesses x (E_w x block_size)
         leak     idle x engine_cycles  (= sum over shapes of idle x UTILIZED
                  instances x cycles -- what Timeloop bills, buffer.cpp)
+
+    THE ACCESS TERM IS COUNTED IN WHOLE WORDS. Timeloop bills
+    `ceil(scalar_accesses / block_size)` vector accesses -- a partially filled
+    last word costs a whole word -- so `billed_vectors` is that ceiling summed
+    over shapes (x utilized instances x repeats), measured from the arm's own
+    stats by the caller. It used to be `scalar_accesses x E_w`, i.e. the same
+    quantity with the ceiling dropped, which is right ONLY when the block size
+    divides every count. It did while `filter_glb` was 64 b / 4 b = block 16
+    and every weight count was a multiple of 16; prompt_2's WIDTH TABLE makes
+    it 380 b / 5 b = block 76 (and 96, 56, 64 at the other codes), 8192 / 76 =
+    107.79, and the partial word appears on EVERY shape. The 1e-6
+    reconciliation below then failed by 825 pJ in 6.89 uJ (2026-09-12).
+    `billed_vectors=None` falls back to the scalar form for a caller that has
+    no per-shape counts.
 
     The ACCESS amount sits INSIDE the level's per-dataspace `Energy (total)`,
     i.e. inside the bill's category, and is MOVED into `Reconstruction`. The
@@ -565,10 +579,18 @@ def ert_split(bump, st, cycles):
     count = float(st.counter(bump["counter"]))
     engine_cycles = float(st.engine_cycles or 0.0)
     engines = (engine_cycles / float(cycles)) if cycles else 0.0
-    access = count * float(bump["e_w_pj"])
+    if billed_vectors is None:
+        access = count * float(bump["e_w_pj"])
+    else:
+        access = float(billed_vectors) * float(bump["access_delta_pj"])
     leak = float(bump["leak_delta_pj"]) * engine_cycles
     return {"level": bump["level"], "action": bump["action"], "counter": bump["counter"],
             "scalar_accesses": count, "e_w_pj": float(bump["e_w_pj"]),
+            "billed_vector_accesses": (None if billed_vectors is None
+                                       else float(billed_vectors)),
+            "billed_weights": (None if billed_vectors is None
+                               else float(billed_vectors) * float(bump["block_size"])),
+            "access_delta_pj": float(bump["access_delta_pj"]),
             "access_toll_pJ": access, "engines": engines, "cycles": float(cycles),
             "engine_cycles": engine_cycles,
             "engines_declared": float(st.declared_instances or 0.0),
@@ -645,15 +667,29 @@ def ert_aware_view(cfg, ses, arch, model, base_cats, ref_raw, ref_paths, placeme
             f"  only in {placement.key}: {', '.join(sorted(set(paths_a) - set(ref_paths))) or 'none'}\n"
             f"  -> finish the missing maps before evaluating")
 
-    # RULE 4.4.5, defence 3: every entry's stored ERT, read back against the
-    # reference entry's un-bumped table (Accelergy is deterministic and the
-    # datawidth does not enter it, FINDINGS 3.5).
+    # RULE 4.4.5, defence 3: every entry's stored ERT, read back against THIS
+    # ARM'S OWN un-bumped table -- `<arm cache>/fp-*/_ert/base.ERT.yaml`, which
+    # `ErtTables` wrote from this arm's own patched arch (Accelergy is
+    # deterministic, FINDINGS 3.5, so one base serves every shape).
+    #
+    # NOT the reference entry's table. It used to be, on the stated grounds
+    # that "the datawidth does not enter Accelergy" -- true, but WIDTH does,
+    # and since prompt_2's WIDTH TABLE went in (2026-09-12) the arms declare
+    # DIFFERENT widths: recon2's `filter_glb` is 380 b against the reference's
+    # 384 b, which CACTI prices at 13.4921 pJ/read against 13.591. Comparing
+    # the two stopped every ERT-aware eval with
+    #   read_back_ert: ... recorded base filter_glb.read = 13.4921
+    #                      but the un-bumped table says 13.591
+    # -- the guard was right that two tables disagreed and wrong about which
+    # table the arm should be held to. Its OWN base is the one that makes
+    # "stored == base + delta, every other row untouched" mean anything.
     read_back = {}
     for shape, path in paths_a.items():
-        ref_ert = pathlib.Path(ref_paths[shape]).parent / tlmod.ERT_NAME
-        base_prices = (tlmod.ert_prices(yaml.safe_load(ref_ert.read_text()))
-                       if ref_ert.exists() else None)
-        read_back[shape] = tlmod.read_back_ert(pathlib.Path(path).parent, bump,
+        shape_dir = pathlib.Path(path).parent
+        own_base = shape_dir.parent / tlmod.ERT_DIR / "base.ERT.yaml"
+        base_prices = (tlmod.ert_prices(yaml.safe_load(own_base.read_text()))
+                       if own_base.exists() else None)
+        read_back[shape] = tlmod.read_back_ert(shape_dir, bump,
                                                base_prices=base_prices)
 
     # ---- per-shape guards, off the arm's OWN stats -------------------------
@@ -662,6 +698,7 @@ def ert_aware_view(cfg, ses, arch, model, base_cats, ref_raw, ref_paths, placeme
         counts_by_shape[layer.shape_name] = counts_by_shape.get(layer.shape_name, 0) \
             + float(getattr(layer, "count", 1) or 1)
     nests, rows, problems = {}, [], []
+    billed_vectors = 0.0
     stats_access = stats_leak = 0.0
     for shape, path in paths_a.items():
         a = pathlib.Path(ref_paths[shape]).parent / "timeloop-mapper.map.txt"
@@ -678,50 +715,73 @@ def ert_aware_view(cfg, ses, arch, model, base_cats, ref_raw, ref_paths, placeme
         updates = float(w.get("updates") or 0.0)
         other = sorted(d for d in L["ds"] if d != "Weights")
         cyc_a, cyc_r = sm["cycles"] or 0, rsm["cycles"] or 0
-        # The arm's leakage at this level is (base + idle) x utilized_a x
-        # cycles_a; the reference's is base x utilized_r x cycles_r. The base
-        # is the same per instance-cycle in both (Accelergy is deterministic,
-        # FINDINGS 3.5), so the toll is the arm's leakage minus the
-        # reference's rescaled by BOTH ratios -- cycles AND utilized
-        # instances. Rescaling by cycles alone assumed the two plans use the
-        # same PEs; on mobilenet_v2's G576 depthwise layer (126 PEs on the
-        # reference, 42 on recon4) that left base x 84 x cycles in the
-        # residual and read as a multiplier of 41.99996 (2026-09-11).
         n_inst = float(w.get("utilized_instances") or L["instances"] or 1)
         n_inst_r = float((R["ds"].get("Weights") or {}).get("utilized_instances")
                          or R["instances"] or 1)
+        # the arm's OWN stored table, and the un-bumped prices under it
+        prices = tlmod.ert_prices(
+            yaml.safe_load((pathlib.Path(path).parent / tlmod.ERT_NAME).read_text()))
+        base_p = {a_: prices[(bump["level"], a_)] for a_ in ("read", "write", "update")
+                  if (bump["level"], a_) in prices}
+        base_p[bump["action"]] = base_p[bump["action"]] - bump["access_delta_pj"]
+        base_leak = prices.get((bump["level"], "leak"))
+        if base_leak is not None:
+            base_leak = base_leak - bump["leak_delta_pj"]
+        # RULE 3, ARM-LOCALLY: Timeloop bills `leak x UTILIZED instances x
+        # cycles` (buffer.cpp FinalizeBufferEnergy), and this arm's stored leak
+        # price is its own base plus the bump. So the toll is the level's
+        # printed leakage minus `base_arm x utilized_a x cycles_a`, with no
+        # reference anywhere in it.
+        #
+        # It USED to be the reference's leakage rescaled by the cycle and
+        # instance ratios, on the stated grounds that the base is the same per
+        # instance-cycle in both arms (Accelergy is deterministic, FINDINGS
+        # 3.5). Determinism was never the issue -- the arms stopped being the
+        # same memory. Since prompt_2's WIDTH TABLE went in (2026-09-12)
+        # recon2's `filter_glb` is 380 b against the reference's 384 b, and
+        # CACTI leaks 7.32555e-05 against 7.39799e-05 pJ/instance/cycle. That
+        # 7.244e-07 gap is 5.19e-05 of the intended bump, so every shape
+        # reported a multiplier of 0.99995 instead of 1 and the run stopped.
+        # Deriving the base from the arm's own table removes the reference
+        # from the identity being checked, which is what RULE 3 was always
+        # about.
         leak_mult = None
         leak_delta_pJ = None
-        if L.get("leakage_pJ") is not None and R.get("leakage_pJ") is not None and cyc_a and cyc_r:
-            ref_base_here = R["leakage_pJ"] * (cyc_a / cyc_r) * (n_inst / n_inst_r)
-            leak_delta_pJ = L["leakage_pJ"] - ref_base_here
+        if L.get("leakage_pJ") is not None and base_leak is not None and cyc_a:
+            leak_delta_pJ = L["leakage_pJ"] - base_leak * n_inst * cyc_a
             leak_mult = leak_delta_pJ / (bump["leak_delta_pj"] * cyc_a)
         mac_a = next((k for k in lv if "Compute" in lv[k]["ds"]), None)
         mac_r = next((k for k in rlv if "Compute" in rlv[k]["ds"]), None)
         pes_a = lv[mac_a]["utilized_instances"] if mac_a else None
         pes_r = rlv[mac_r]["utilized_instances"] if mac_r else None
         dram_wb = (lv.get("DRAM") or {}).get("word_bits")
-        # the stats-side split: the level's printed Weights energy minus what
-        # the same counts cost at the UN-bumped prices (5.3), x repeat count
-        prices = tlmod.ert_prices(
-            yaml.safe_load((pathlib.Path(path).parent / tlmod.ERT_NAME).read_text()))
-        base_p = {a_: prices[(bump["level"], a_)] for a_ in ("read", "write", "update")
-                  if (bump["level"], a_) in prices}
-        base_p[bump["action"]] = base_p[bump["action"]] - bump["access_delta_pj"]
-        # The multiplier is judged in pJ, against the two printed leakage
-        # totals' precision: Timeloop prints `Leakage energy (total)` to 0.01
-        # pJ, so on a small depthwise layer (42 PEs x 60k cycles) the quotient
-        # lands at 41.99996 and a bare 1e-6 relative test refuses a multiplier
-        # that IS the utilized count (mobilenet_v2 G576, 2026-09-11).
+        # The multiplier is judged in pJ, against the printed leakage total's
+        # precision: Timeloop prints `Leakage energy (total)` to 0.01 pJ, so on
+        # a small depthwise layer (42 PEs x 60k cycles) the quotient lands at
+        # 41.99996 and a bare 1e-6 relative test refuses a multiplier that IS
+        # the utilized count (mobilenet_v2 G576, 2026-09-11).
         leak_ok = (leak_delta_pJ is not None and _close(
             leak_delta_pJ, bump["leak_delta_pj"] * n_inst * cyc_a,
-            abs_tol=0.01 * (1.0 + cyc_a / cyc_r)))
+            abs_tol=0.01 * (1.0 + (cyc_a / cyc_r if cyc_r else 1.0))))
         bs = float(L["block_size"] or 1)
-        at_base = ((float(w.get("reads") or 0.0) * base_p.get("read", 0.0)
-                    + float(w.get("fills") or 0.0) * base_p.get("write", 0.0)
-                    + updates * base_p.get("update", 0.0)) * n_inst / bs)
+        # WHOLE WORDS, as Timeloop bills them: `ceil(scalar / block_size)`
+        # vector accesses per instance (buffer.cpp), not `scalar / block_size`.
+        # Dropping the ceiling under-counts the level's own energy by up to one
+        # word per dataspace, which cancelled while the block size divided every
+        # count (64 b / 4 b = 16) and stopped cancelling under prompt_2's WIDTH
+        # TABLE (380 b / 5 b = 76): 0.195 % of the printed energy on EVERY
+        # shape, on the reference arm as much as on this one.
+        vec = {a_: math.ceil(float(w.get(a_ if a_ != "write" else "fills") or 0.0) / bs)
+               for a_ in ("read", "write", "update")}
+        vec["read"] = math.ceil(float(w.get("reads") or 0.0) / bs)
+        vec["update"] = math.ceil(updates / bs)
+        at_base = ((vec["read"] * base_p.get("read", 0.0)
+                    + vec["write"] * base_p.get("write", 0.0)
+                    + vec["update"] * base_p.get("update", 0.0)) * n_inst)
         rep = counts_by_shape.get(shape, 1.0)
         stats_access += (float(w["energy_pJ"]) - at_base) * rep
+        billed_vectors += vec[{"read": "read", "write": "write",
+                               "update": "update"}[bump["action"]]] * n_inst * rep
         if leak_delta_pJ is not None:
             stats_leak += leak_delta_pJ * rep
         edp_a = float(sm["energy_uJ"] or 0.0) * float(cyc_a or 0)
@@ -812,7 +872,7 @@ def ert_aware_view(cfg, ses, arch, model, base_cats, ref_raw, ref_paths, placeme
     stage_def = next(s_ for s_ in reconmod.stages_for(arch, acfg)
                      if s_.key == placement.site_stage)
     st = wpath_a.stages[placement.site_stage]
-    split = ert_split(bump, st, wpath_a.cycles)
+    split = ert_split(bump, st, wpath_a.cycles, billed_vectors=billed_vectors)
     for name, stats_side, evaluator in (("access", stats_access, split["access_toll_pJ"]),
                                         ("leak", stats_leak, split["leak_toll_pJ"])):
         if not _close(stats_side, evaluator):
@@ -1142,9 +1202,15 @@ def evaluate(cfg, ses, prov, arch, model, raw):
         n_cw_p = p_raw.dram_w_reads / gran.weights_per_codeword
         decode_p = ((n_cw_p * cfg.decode_pj_emb)
                     if (cfg.decode_enabled and cfg.recon_placement_charges_decode) else 0.0)
+        # An ERT bar charges the WORDS Timeloop billed inside its own level
+        # (`billed_weights`); every other bar charges Timeloop's scalar count.
+        v_p = views.get(p.key)
         results.append(reconmod.evaluate_placement(
             cfg, arch, p, p_wpath, p_base_w, p_base_series, recon_pj, gran,
-            packing, decode_pj=decode_p, recon_idle_pj=recon_idle_pj, cycles=p_cycles))
+            packing, decode_pj=decode_p, recon_idle_pj=recon_idle_pj,
+            cycles=p_cycles,
+            accesses_override=(v_p.split.get("billed_weights")
+                               if v_p is not None else None)))
     # 5.3: what the evaluator charged as Reconstruction on an ERT bar must be
     # exactly what was moved out of the level -- a split, not an addition.
     for res in results:

@@ -25,6 +25,7 @@ import shutil
 
 import yaml
 
+from . import code_widths
 from .paths import (ARCH_COMPONENTS, ARCH_NOC, ARCH_PROVENANCE, ARCH_SRC, ARCH_SRC_RESERVED,
                     ARCH_STANDARD, DESIGNS_DIR, WORK)
 
@@ -716,7 +717,7 @@ def _scale_weight_capacity(text, scale, scope="exclusive", arch="?", quiet=False
 def _weight_level_parts(text, scope="exclusive"):
     """Split `text` into `!Node` parts, tagging which ones hold WEIGHTS on chip.
 
-    Shared by `_set_weight_datawidth` and `_scale_weight_depth` so the two
+    Shared by `_set_weight_geometry` and `_scale_weight_depth` so the two
     prompt_2 knobs can never disagree about which levels they are talking
     about -- if one narrowed a level the other did not shrink, the two arms of
     a pair would stop declaring the same geometry and the comparison would be
@@ -756,187 +757,133 @@ def _weight_level_parts(text, scope="exclusive"):
         yield part, name, True, None
 
 
-def _set_weight_width(text, spad_width, glb_mult, scope="exclusive", arch="?",
-                      quiet=False):
-    """PROMPT_2's WIDTH TABLE: declare a physical word width the code's `q`
-    divides, holding each level's TOTAL BITS at the published value.
+def _set_weight_geometry(text, bits, levels=(), glb_mult=4, scope="exclusive",
+                         arch="?", quiet=False,
+                         weight_bits=code_widths.DEFAULT_WEIGHT_BITS):
+    """PROMPT_2's WIDTH TABLE, applied PER LEVEL and PER ARM in one pass.
 
-    WHY A WIDTH KNOB EXISTS AT ALL. `timeloop-mapper` asserts
-    `width % (word_bits * block_size) == 0` (`buffer.cpp:302`) with
-    `block_size` defaulting to 1, and there is NO floor path -- a width the
-    datawidth does not divide ABORTS the mapper (measured, `exit=134, core
-    dumped`), it does not fall back to `floor(width/q)`. So a code whose
-    `q = round(8*K/N)` does not divide the published word needs a declared
-    width that it does. prompt_2 tabulates one per code, all five within 3 % of
-    each other so the arms stay comparable across codes.
+    THE ARMS DO NOT SHARE A DECLARED WIDTH. Each weight level declares the
+    width that suits ITS OWN datawidth, and no level has to be legal for any
+    other arm's datawidth:
 
-    BCH(63,30) NEEDS NONE, which is why it is the code this study starts from:
-    q = 4 divides Eyeriss v1's published 16-bit scratchpad word and its 64-bit
-    GLB word already, so the arms run on the UNTOUCHED published geometry.
-    Leave this EMPTY for that case; it is not a no-op that costs nothing, it is
-    a no-op that keeps the published silicon.
+        a level storing 8-bit weights    -> width  96 (spad) / 384 (GLB)
+        a level storing 7-bit weights    -> width  98 / 392
+        a level storing 6-bit weights    -> width  96 / 384
+        a level storing 5-bit weights    -> width  95 / 380
+        a level storing 4-bit weights    -> width  96 / 384
 
-    THE WIDTH TABLE IS QUOTED FOR THE SCRATCHPAD. A weight level ABOVE the PE
-    array declares `glb_mult` times that width -- 4x, which is the ratio
-    Eyeriss v1's published geometry already has (the filter spad is a 224 x
-    16-b SRAM, the filter GLB two 512-b x 64-b banks). The rule also preserves
-    the divisibility the mapper demands: if `q` divides W it divides 4W, so one
-    scratchpad width settles every weight level at once.
+    **95 never has to divide 8.** The baseline/embedded arm is never mapped at
+    width 95; it is mapped at 96. The only rule `timeloop-mapper` imposes is
+    `width % (word_bits * block_size) == 0` (`buffer.cpp:302`, `block_size`
+    defaults to 1, NO floor path, `exit=134` on a violation) -- and each width
+    here is a multiple of the datawidth it is chosen for, by construction, so
+    that abort is unreachable for every q. The lcm(q, 8) scheme of
+    2026-09-11/12 is WITHDRAWN; `eccenergy/code_widths.py` records why.
 
-    DEPTH IS RENORMALISED TO HOLD THE DECLARED BITS. `depth' = round(depth *
-    width / width')`, so the level is the same amount of silicon at a different
-    word shape rather than a bigger array smuggled in as a width change -- and
-    CACTI is handed `depth` and `width`, so that is exactly the quantity that
-    must not move. It reproduces prompt_2's own table: `weights_spad`
-    224 x 16 b = 3,584 b -> depth 37 at width 96; `filter_glb` 1024 x 64 b =
-    65,536 b -> depth 171 at width 384.
+    PER LEVEL, because an ERT arm narrows only the storage levels in its
+    placement's `reduced` set: at `ECC_WEIGHT_DATAWIDTH_LEVELS=filter_glb` the
+    GLB stores 5-bit weights at width 380 while `weights_spad` keeps 8-bit
+    weights at width 96. One width for the whole design cannot express that.
 
-    This runs BEFORE `_scale_weight_depth`, so the swept ladder multiplies the
-    renormalised depth, not the published one.
+    DEPTH IS COMMON TO EVERY ARM and holds the published TOTAL BITS:
+    `depth' = round(depth * width / BASE_WIDTH)`, computed at the BASE width
+    (96, x glb_mult above the PE array) rather than at this arm's own width.
+    So the arms differ ONLY in `width` (by <= 2 %) and `datawidth`, which is
+    what makes `capacity_ratio` reproduce prompt_2's `eff. capacity` column
+    -- 1.1667 / 1.3333 / 1.5833 / 2.0000 -- and what leaves
+    `assert_pair_geometry`'s depth check something real to check. It
+    reproduces prompt_2's own depths: `weights_spad` 224 x 16 b = 3,584 b ->
+    depth 37 at width 96; `filter_glb` 1024 x 64 b = 65,536 b -> depth 171 at
+    width 384.
+
+    `bits` is the reduced datawidth (`q`) or None for an all-8-bit arm;
+    `levels` restricts WHICH levels take it (empty = every weight level).
+    Every weight level is reshaped either way -- the reference arm reshapes
+    too, or its depths would not match the arm it is compared with.
+
+    DRAM IS NEVER TOUCHED: `recon.py` owns the DRAM K/N term, and narrowing
+    DRAM here as well would charge the same reduction twice.
+
+    Runs BEFORE `_scale_weight_depth`, so the swept ladder multiplies the
+    renormalised depth rather than the published one.
     """
-    if not spad_width:
-        return text
-    # The INNERMOST weight level is the scratchpad; everything above it is a
-    # GLB and takes `glb_mult` times the width. Innermost = last in file order,
-    # which is the order Timeloop reads levels in (outer to inner).
+    want_levels = set(levels or ())
     names = [name for _p, name, is_w, _why
              in _weight_level_parts(text, scope) if is_w]
     if not names:
         return text
     spad = names[-1]
-    out, touched, skipped = [], [], []
-    for part, name, is_weight, why_not in _weight_level_parts(text, scope):
-        if not is_weight:
-            if why_not:
-                skipped.append(why_not)
-            out.append(part)
-            continue
-        want = int(spad_width) if name == spad else int(spad_width) * int(glb_mult)
-        w = re.search(r"\bwidth:\s*(\d+)", part)
-        d = re.search(r"\bdepth:\s*(\d+)", part)
-        if not w:
-            skipped.append(f"{name} declares no width:")
-            out.append(part)
-            continue
-        w0, d0 = int(w.group(1)), int(d.group(1))
-        if w0 == want:
-            skipped.append(f"{name} already declares width {want}")
-            out.append(part)
-            continue
-        nd = max(1, int(round(d0 * w0 / want)))
-        part = re.sub(r"\bwidth:\s*\d+", f"width: {want}", part, count=1)
-        part = re.sub(r"\bdepth:\s*\d+", f"depth: {nd}", part, count=1)
-        touched.append(f"{name} {d0}x{w0}b -> {nd}x{want}b "
-                       f"({d0 * w0:,} -> {nd * want:,} bits)")
-        out.append(part)
-    if not quiet and arch:
-        note = (f"  [weight-width] {arch}: scratchpad {spad_width}b, GLB "
-                f"{int(spad_width) * int(glb_mult)}b ({glb_mult}x) on "
-                + (", ".join(touched) if touched else "NOTHING"))
-        if skipped:
-            note += "; skipped " + "; ".join(skipped)
-        print(note)
-    return "".join(out)
-
-
-def _set_weight_datawidth(text, bits, levels=(), scope="exclusive", arch="?",
-                          quiet=False):
-    """PROMPT_2: express the reduced representation as `datawidth:` on the
-    on-chip weight levels, at FIXED `width:` and `depth:`.
-
-    `levels` restricts the rewrite to the named weight levels (prompt_6
-    phase 2, mirroring `_scale_weight_depth`). Empty means every
-    weight-carrying level -- byte-for-byte what this did before the
-    parameter existed, so no cached fingerprint moves. An ERT arm names only
-    the storage levels in its placement's `reduced` set: the narrow weights
-    stop AT the boundary, so `recon2`/`recon4` narrow `filter_glb` and leave
-    `weights_spad` at 8. A name that matches no weight level is an error,
-    not a silent no-op -- a typo would quietly narrow every level and file
-    the result as a per-boundary architecture.
-
-    WHY THIS AND NOT `_scale_weight_capacity`. Verified in this repo
-    2026-09-10 from `timeloop-mapper.accelergy.log:97` (`Calculated
-    storage."width" as "width" = 16`): CACTI receives `depth` and `width`
-    ONLY -- `datawidth` never reaches the energy model. Timeloop then bills
-    `vector_access_energy / block_size` per weight, `block_size =
-    width / datawidth`. So halving `datawidth` at fixed geometry exactly
-    halves per-weight energy and exactly doubles effective capacity, with
-    IDENTICAL per-access read/write/leak. That is the "same energies, more
-    effective capacity" condition, and it holds exactly -- which is the
-    fairness condition depth-dilation could never meet (it priced the
-    reconstruction arm's array 1.18-1.46x dearer and gave the optimiser a
-    reason to leave the room unused; FINDINGS 7.8).
-
-    HARD CONSTRAINT, and it ABORTS rather than degrades. `timeloop-mapper`
-    asserts `width % (word_bits * block_size) == 0` (`buffer.cpp:302`) with
-    `block_size` defaulting to 1: measured at `width: 16, datawidth: 5` it
-    dies with `exit=134, core dumped`. There is NO floor path -- Timeloop does
-    not attempt `floor(16/5) = 3`, so a partially-filled word cannot be
-    modelled at all. This raises here, before the YAML is written, so a bad
-    combination fails once instead of aborting every layer of a wave.
-
-    WHAT IS NOT REWRITTEN: DRAM (`recon.py` owns its K/N scaling; narrowing it
-    here as well would double-count), any level holding no Weights, a level
-    holding Weights beside another dataspace unless `scope=shared`, and a
-    declared `depth: 1` latch.
-    """
-    want = set(levels or ())
-    out, touched, skipped, bad, seen = [], [], [], [], set()
-    for part, name, is_weight, why_not in _weight_level_parts(text, scope):
-        if not is_weight:
-            if why_not:
-                skipped.append(why_not)
-            out.append(part)
-            continue
-        seen.add(name)
-        if want and name not in want:
-            skipped.append(f"{name} (not in ECC_WEIGHT_DATAWIDTH_LEVELS)")
-            out.append(part)
-            continue
-        width = re.search(r"\bwidth:\s*(\d+)", part)
-        dw = re.search(r"\bdatawidth:\s*(\d+)", part)
-        if not dw:
-            skipped.append(f"{name} declares no datawidth:")
-            out.append(part)
-            continue
-        if width is not None and int(width.group(1)) % bits != 0:
-            bad.append(f"{name}: width {width.group(1)} % datawidth {bits} != 0")
-            out.append(part)
-            continue
-        if int(dw.group(1)) == bits:
-            skipped.append(f"{name} already declares datawidth {bits}")
-            out.append(part)
-            continue
-        touched.append(f"{name} {dw.group(1)}->{bits}b "
-                       f"({int(width.group(1)) // bits} weights/word)"
-                       if width else f"{name} {dw.group(1)}->{bits}b")
-        out.append(re.sub(r"\bdatawidth:\s*\d+", f"datawidth: {bits}", part,
-                          count=1))
-    unknown = want - seen
+    unknown = want_levels - set(names)
     if unknown:
         raise ValueError(
             f"ECC_WEIGHT_DATAWIDTH_LEVELS names {', '.join(sorted(unknown))}, "
             f"which {arch} has no weight-carrying level called. It has: "
-            f"{', '.join(sorted(seen)) or 'none'}. Refusing rather than "
+            f"{', '.join(sorted(names)) or 'none'}. Refusing rather than "
             f"narrowing every level and reporting it as a per-boundary "
             f"architecture.")
+
+    out, touched, skipped, bad = [], [], [], []
+    for part, name, is_weight, why_not in _weight_level_parts(text, scope):
+        if not is_weight:
+            if why_not:
+                skipped.append(why_not)
+            out.append(part)
+            continue
+        w = re.search(r"\bwidth:\s*(\d+)", part)
+        d = re.search(r"\bdepth:\s*(\d+)", part)
+        dw = re.search(r"\bdatawidth:\s*(\d+)", part)
+        if not w or not dw:
+            skipped.append(f"{name} declares no "
+                           + ("width:" if not w else "datawidth:"))
+            out.append(part)
+            continue
+        # WHICH datawidth this level ends up storing -- the arm's q only where
+        # the arm says so, the payload width everywhere else.
+        narrowed = bits is not None and (not want_levels or name in want_levels)
+        q = int(bits) if narrowed else int(weight_bits)
+        is_spad = name == spad
+        want_w = code_widths.level_width(q, is_spad, glb_mult, weight_bits)
+        w0, d0, dw0 = int(w.group(1)), int(d.group(1)), int(dw.group(1))
+        want_d = code_widths.renormalised_depth(d0, w0, is_spad, glb_mult,
+                                                weight_bits)
+        if want_w % q != 0:                      # unreachable; a guard, not a path
+            bad.append(f"{name}: width {want_w} % datawidth {q} != 0")
+            out.append(part)
+            continue
+        if (w0, d0, dw0) == (want_w, want_d, q):
+            skipped.append(f"{name} already declares {d0}x{w0}b/{dw0}b")
+            out.append(part)
+            continue
+        part = re.sub(r"\bwidth:\s*\d+", f"width: {want_w}", part, count=1)
+        part = re.sub(r"\bdepth:\s*\d+", f"depth: {want_d}", part, count=1)
+        part = re.sub(r"\bdatawidth:\s*\d+", f"datawidth: {q}", part, count=1)
+        touched.append(
+            f"{name} {d0}x{w0}b/{dw0}b -> {want_d}x{want_w}b/{q}b "
+            f"({want_w // q} weights/word, {d0 * w0:,} -> {want_d * want_w:,} bits)"
+            + ("" if narrowed or bits is None else " [not in "
+               "ECC_WEIGHT_DATAWIDTH_LEVELS: keeps the payload width]"))
+        out.append(part)
     if bad:
         raise ValueError(
-            f"ECC_WEIGHT_DATAWIDTH={bits} on {arch}: " + "; ".join(bad) + ".\n"
+            f"{arch}: THE WIDTH TABLE produced a width its own datawidth does "
+            f"not divide -- " + "; ".join(bad) + ".\n"
             f"  timeloop-mapper asserts `width % (word_bits * block_size) == 0` "
-            f"(buffer.cpp:302) and ABORTS -- there is no floor path, so a\n"
-            f"  partially-filled word cannot be modelled. Declare a `width:` "
-            f"the datawidth divides. prompt_2.md's WIDTH TABLE gives one per\n"
-            f"  code: BCH(63,57) q=7 width 98; BCH(63,45) q=6 width 96; "
-            f"BCH(63,39) q=5 width 95; BCH(63,30) q=4 needs NO width change.")
+            f"(buffer.cpp:302) and ABORTS; there is no floor path.\n"
+            f"  Every entry of eccenergy/code_widths.WIDTH_TABLE is a multiple "
+            f"of its own q, so this is a table edit, not a configuration\n"
+            f"  problem. Run `python3 -m eccenergy.code_widths` and fix the "
+            f"entry; do NOT reach for a width that suits a DIFFERENT arm.")
     if not quiet and arch:
-        note = f"  [weight-datawidth] {arch}: {bits}b on " + (
-            ", ".join(touched) if touched else "NOTHING")
+        note = (f"  [weight-geometry] {arch}: THE WIDTH TABLE (base "
+                f"{code_widths.base_width(weight_bits)}b, GLB {glb_mult}x"
+                + (f", q={bits} on "
+                   + ("+".join(sorted(want_levels)) if want_levels else "every level")
+                   if bits is not None else ", 8-bit arm")
+                + ") on " + (", ".join(touched) if touched else "NOTHING"))
         if skipped:
             note += "; skipped " + "; ".join(skipped)
         print(note)
     return "".join(out)
-
 
 def _scale_weight_depth(text, scale, levels=(), scope="exclusive", arch="?",
                         quiet=False):
@@ -1325,23 +1272,41 @@ def patched_weight_geometry(arch, cfg):
 
 def assert_pair_geometry(arch, cfg_ref, cfg_arm, ref_name="embedded",
                          arm_name="recon"):
-    """PROMPT_2 FAIRNESS RULE, mechanically: the two arms of a pair must
-    declare the SAME `width` and the SAME `depth` on every weight level.
+    """PROMPT_2 FAIRNESS RULE, mechanically: the two arms of a pair must hold
+    the same LEVELS at the same DEPTH.
 
-    WHY IT IS AN ASSERTION AND NOT A CONVENTION. This is the exact defect that
-    made the previous sweep prove nothing: capacity was expressed as
-    `depth x N/K`, so Accelergy priced the reconstruction arm's array
-    1.18-1.46x dearer per access and the optimiser had a REASON to leave the
-    room unused (FINDINGS 7.8). Under prompt_2 the arms share one hardware
-    YAML and differ only in `datawidth`, which CACTI never sees -- so if a
-    width or a depth ever differs between them, the comparison is void and
-    must stop rather than be corrected afterwards.
+    **IT DOES NOT CHECK `width` AND IT DOES NOT CHECK `datawidth`.** Under
+    prompt_2's WIDTH TABLE the arms declare DIFFERENT widths on purpose -- each
+    one the width that suits its own datawidth, 96 / 98 / 96 / 95 / 96 -- and
+    neither has to be legal for the other's datawidth, because neither is ever
+    mapped on the other's silicon. Asserting a shared width is what produced
+    the withdrawn `lcm(q, 8)` scheme (56 / 24 / 40) and, through it,
+    BCH(63,39)'s spurious 37.69 %: see `eccenergy/code_widths.py`. Do not
+    reintroduce that check.
 
-    `datawidth` (and the `weights_per_word` it derives) is EXPECTED to differ;
-    that is the treatment.
+    WHAT IT STILL CHECKS, AND WHY IT IS AN ASSERTION AND NOT A CONVENTION.
+    DEPTH. This is the exact defect that made the earlier sweep prove nothing:
+    capacity was expressed as `depth x N/K`, so Accelergy priced the
+    reconstruction arm's array 1.18-1.46x dearer per access and the optimiser
+    had a REASON to leave the room unused (FINDINGS 7.8). A depth difference is
+    real silicon one arm does not have. `_set_weight_geometry` renormalises
+    every arm's depth at the BASE width precisely so this stays true while the
+    widths differ, which is what makes the check meaningful rather than
+    vacuous.
+
+    `ECC_DISABLE_ASSERT_PAIR_GEOMETRY=1` turns the depth check off, for a study
+    that deliberately varies depth between the reconstruction and embedded arms.
+    It is the ONLY thing that knob disables -- there is no width check for it
+    to disable. Default 0: a depth difference nobody asked for is still a void
+    comparison.
+
+    Returns the per-level record either way, so a caller that disabled the
+    assertion can still print what differs.
     """
     a = patched_weight_geometry(arch, cfg_ref)
     b = patched_weight_geometry(arch, cfg_arm)
+    disabled = bool(getattr(cfg_arm, "disable_pair_geometry_assert", False)
+                    or getattr(cfg_ref, "disable_pair_geometry_assert", False))
     problems = []
     if set(a) != set(b):
         problems.append(
@@ -1349,22 +1314,31 @@ def assert_pair_geometry(arch, cfg_ref, cfg_arm, ref_name="embedded",
             f"{', '.join(sorted(a)) or 'none'}; {arm_name} has "
             f"{', '.join(sorted(b)) or 'none'}")
     for level in sorted(set(a) & set(b)):
-        for field in ("depth", "width"):
-            if a[level][field] != b[level][field]:
-                problems.append(
-                    f"{level}.{field}: {ref_name}={a[level][field]} "
-                    f"{arm_name}={b[level][field]}")
-    if problems:
+        # DEPTH ONLY. `width` and `datawidth` are the treatment.
+        if a[level]["depth"] != b[level]["depth"]:
+            problems.append(
+                f"{level}.depth: {ref_name}={a[level]['depth']} "
+                f"{arm_name}={b[level]['depth']}")
+    if problems and not disabled:
         raise ValueError(
-            f"{arch}: the two arms do NOT declare the same silicon -- "
+            f"{arch}: the two arms do NOT hold the same amount of silicon -- "
             + "; ".join(problems) + ".\n"
-            f"  prompt_2's fairness rule is that both arms of a pair share one "
-            f"hardware YAML and differ ONLY in `datawidth:`, which CACTI never\n"
-            f"  sees. A width or depth difference is priced by Accelergy as "
-            f"real silicon one arm does not have, which is the defect that\n"
-            f"  invalidated the previous sweep (FINDINGS 7.8). The comparison "
-            f"is void; fix the configuration rather than correcting the energy.")
-    return {level: {"shared": {k: a[level][k] for k in ("depth", "width")},
+            f"  prompt_2's fairness rule is that both arms declare the same "
+            f"LEVELS at the same DEPTH; only `width:` (from THE WIDTH TABLE,\n"
+            f"  per arm) and `datawidth:` differ, and CACTI never sees "
+            f"`datawidth`. A DEPTH difference is priced by Accelergy as real\n"
+            f"  silicon one arm does not have, which is the defect that "
+            f"invalidated the previous sweep (FINDINGS 7.8). The comparison\n"
+            f"  is void; fix the configuration rather than correcting the "
+            f"energy. A study that varies depth between the arms on purpose\n"
+            f"  sets ECC_DISABLE_ASSERT_PAIR_GEOMETRY=1 (env.sh section 5), "
+            f"which disables THIS check and nothing else.")
+    if problems and disabled:
+        print(f"  [pair-geometry] {arch}: ECC_DISABLE_ASSERT_PAIR_GEOMETRY=1 -- "
+              f"depth differs and is ALLOWED: " + "; ".join(problems))
+    return {level: {"depth": a[level]["depth"],
+                    f"{ref_name}_width": a[level]["width"],
+                    f"{arm_name}_width": b[level]["width"],
                     ref_name: a[level]["datawidth"],
                     arm_name: b[level]["datawidth"],
                     f"{ref_name}_weights": a[level]["weights"],
@@ -1372,7 +1346,6 @@ def assert_pair_geometry(arch, cfg_ref, cfg_arm, ref_name="embedded",
                     "capacity_ratio": (b[level]["weights"] / a[level]["weights"]
                                        if a[level]["weights"] else 0.0)}
             for level in sorted(set(a) & set(b), key=list(a).index)}
-
 
 def _patched_text(arch, cfg, apply_per_arch=True, quiet=False):
     text = arch_source(arch, cfg).read_text()
@@ -1383,26 +1356,33 @@ def _patched_text(arch, cfg, apply_per_arch=True, quiet=False):
         text = _force_datawidth(text, cfg.force_datawidth, None if quiet else arch)
     if apply_per_arch and cfg.acc_bits_override is not None:
         text = _force_acc_bits(text, cfg.acc_bits_override, arch, quiet)
+    # prompt_2: THE WIDTH TABLE (width + depth + datawidth together), then the
+    # depth ladder. Together because a level's width is chosen FROM the
+    # datawidth that level ends up storing -- they are one decision, and the
+    # `width % datawidth == 0` constraint is then satisfied by construction
+    # instead of being checked after the fact. UNCONDITIONAL: the table is a
+    # property of the study, not a knob, so the 8-bit reference arm is
+    # reshaped too (and must be, or its depths would not match the arm it is
+    # compared with). The ladder runs after, so it multiplies the renormalised
+    # depth rather than the published one.
+    if apply_per_arch:
+        text = _set_weight_geometry(text, getattr(cfg, "weight_datawidth", None),
+                                    getattr(cfg, "weight_datawidth_levels", ()),
+                                    cfg.weight_width_glb_mult,
+                                    cfg.weight_capacity_scope, arch, quiet,
+                                    weight_bits=cfg.weight_bits)
+    # BOTH depth knobs run AFTER the reshape, on the renormalised depth. They
+    # used to straddle it (capacity before, ladder after), which was harmless
+    # only while the reshape was usually a no-op: once THE WIDTH TABLE applies
+    # to every run, scaling before renormalising rounds twice and the two
+    # knobs stop meaning the same thing at the same scale.
     if apply_per_arch and cfg.weight_capacity_scale != 1.0:
         text = _scale_weight_capacity(text, cfg.weight_capacity_scale,
                                       cfg.weight_capacity_scope, arch, quiet)
-    # prompt_2: WIDTH, then DEPTH, then DATAWIDTH.
-    # WIDTH first because it renormalises `depth:` to hold the declared bits,
-    # so the swept ladder must multiply the renormalised depth rather than the
-    # published one. DATAWIDTH last because its hard constraint
-    # (`width % datawidth == 0`) has to be checked against the FINAL width.
-    if apply_per_arch and getattr(cfg, "weight_width", None):
-        text = _set_weight_width(text, cfg.weight_width,
-                                 cfg.weight_width_glb_mult,
-                                 cfg.weight_capacity_scope, arch, quiet)
     if apply_per_arch and getattr(cfg, "weight_depth_scale", 1.0) != 1.0:
         text = _scale_weight_depth(text, cfg.weight_depth_scale,
                                    cfg.weight_depth_levels,
                                    cfg.weight_capacity_scope, arch, quiet)
-    if apply_per_arch and getattr(cfg, "weight_datawidth", None) is not None:
-        text = _set_weight_datawidth(text, cfg.weight_datawidth,
-                                     getattr(cfg, "weight_datawidth_levels", ()),
-                                     cfg.weight_capacity_scope, arch, quiet)
     if apply_per_arch and cfg.weight_factor_relax:
         text = _relax_weight_factors(text, arch, quiet)
     # AFTER the relax, deliberately. The relax frees M/C/R/S on the weight
@@ -1432,7 +1412,12 @@ def ert_bump(arch, cfg):
         leak            delta = idle_per_cycle      Timeloop x instances x cycles
 
     The level, counter and action come from the Placement (`recon.ert_arm_spec`),
-    the two DC terms from `ecc.load_recon_terms`, E_w from `recon.ert_deltas`.
+    the two DC terms from `ecc.load_recon_energy`, E_w from `recon.ert_deltas`.
+    `load_recon_energy`, NOT `load_recon_terms`: the toll the mapper optimises
+    against has to be the toll the evaluator bills, so `ECC_RECON_PJ` must reach
+    both or the two disagree. It is therefore hashed into the fingerprint like
+    every other ERT input, so changing a recon energy invalidates the mapper
+    cache and the arm is re-solved instead of being read back at the old toll.
     The result is what `arch_fingerprint()` hashes (RULE 4.4.5, defence 2),
     what `timeloop.ErtTables` patches into the base table, and what the
     read-back assertion compares a cache entry against.
@@ -1453,10 +1438,11 @@ def ert_bump(arch, cfg):
     block_size = g["width"] // g["datawidth"]
     from . import ecc as _ecc            # lazily: ecc needs pandas, the reference arm does not
     from . import recon as _recon
-    inc, idle, prov = _ecc.load_recon_terms(cfg)
+    inc, idle, prov = _ecc.load_recon_energy(cfg)
     gran = _recon.Granularity(cfg.code_n, cfg.code_k, cfg.weight_bits,
                               cfg.recon_granularity)
-    d = _recon.ert_deltas(inc, idle, gran, block_size)
+    d = _recon.ert_deltas(inc, idle, gran, block_size,
+                          getattr(cfg, "recon_clock_gating_pct", 0.0))
     d.update(placement=arm["key"], level=level, counter=arm["counter"],
              action=arm["action"], narrow_levels=list(arm["narrow_levels"]),
              level_width=g["width"], level_datawidth=g["datawidth"],
@@ -1560,29 +1546,33 @@ def effective_variant(arch, cfg):
         # is NOT dilated, and must keep reading the undilated cache rather
         # than paying for a fresh map of an unchanged architecture -- the same
         # trap `_patch_dram_depth`'s docstring records.
-        base = arch_source(arch, cfg).read_text()
+        base = _set_weight_geometry(arch_source(arch, cfg).read_text(),
+                                    getattr(cfg, "weight_datawidth", None),
+                                    getattr(cfg, "weight_datawidth_levels", ()),
+                                    getattr(cfg, "weight_width_glb_mult", 4),
+                                    cfg.weight_capacity_scope, arch, quiet=True,
+                                    weight_bits=cfg.weight_bits)
         if _scale_weight_capacity(base, cfg.weight_capacity_scale,
                                   cfg.weight_capacity_scope, arch,
                                   quiet=True) != base:
             parts.append(f"wcap{cfg.weight_capacity_scale:g}"
                          + ("-shared" if cfg.weight_capacity_scope == "shared" else ""))
-    if getattr(cfg, "weight_width", None):
-        # Same no-op rule: a design already declaring that width keeps its
-        # existing cache rather than paying for a fresh map of an unchanged
-        # architecture.
-        base = arch_source(arch, cfg).read_text()
-        if _set_weight_width(base, cfg.weight_width, cfg.weight_width_glb_mult,
-                             cfg.weight_capacity_scope, arch,
-                             quiet=True) != base:
-            parts.append(f"ww{cfg.weight_width}"
-                         + (f"x{cfg.weight_width_glb_mult}"
-                            if cfg.weight_width_glb_mult != 4 else ""))
+    # THE WIDTH TABLE is applied to every run, so it is in every slug -- no
+    # no-op rule, because there is no configuration in which it is off. It
+    # marks the boundary in `ls`: a directory without it predates 2026-09-12
+    # and was mapped on the published word shape.
+    parts.append(f"wt{code_widths.base_width(cfg.weight_bits)}"
+                 + (f"x{cfg.weight_width_glb_mult}"
+                    if cfg.weight_width_glb_mult != 4 else ""))
     if getattr(cfg, "weight_depth_scale", 1.0) != 1.0:
-        # Same no-op rule as the capacity scale.
-        base = _set_weight_width(arch_source(arch, cfg).read_text(),
-                                 getattr(cfg, "weight_width", None),
-                                 getattr(cfg, "weight_width_glb_mult", 4),
-                                 cfg.weight_capacity_scope, arch, quiet=True)
+        # Same no-op rule as the capacity scale, measured on the RESHAPED text
+        # -- the ladder multiplies the renormalised depth.
+        base = _set_weight_geometry(arch_source(arch, cfg).read_text(),
+                                    getattr(cfg, "weight_datawidth", None),
+                                    getattr(cfg, "weight_datawidth_levels", ()),
+                                    getattr(cfg, "weight_width_glb_mult", 4),
+                                    cfg.weight_capacity_scope, arch, quiet=True,
+                                    weight_bits=cfg.weight_bits)
         if _scale_weight_depth(base, cfg.weight_depth_scale,
                                cfg.weight_depth_levels,
                                cfg.weight_capacity_scope, arch,
@@ -1591,24 +1581,23 @@ def effective_variant(arch, cfg):
                          + ("-" + "+".join(cfg.weight_depth_levels)
                             if cfg.weight_depth_levels else ""))
     if getattr(cfg, "weight_datawidth", None) is not None:
-        # Same no-op rule again: the BASELINE/EMBEDDED arm may legitimately be
-        # spelled `ECC_WEIGHT_DATAWIDTH=8` on a design already declaring 8, and
-        # that arm must then READ THE SAME CACHE as leaving the knob empty --
-        # otherwise the two arms of a pair would be compared across two mapper
-        # caches of one identical architecture.
-        base = _set_weight_width(arch_source(arch, cfg).read_text(),
-                                 getattr(cfg, "weight_width", None),
-                                 getattr(cfg, "weight_width_glb_mult", 4),
-                                 cfg.weight_capacity_scope, arch, quiet=True)
-        # depth first, so the no-op test sees the geometry the arm really has
-        base_d = _scale_weight_depth(base, cfg.weight_depth_scale,
-                                     cfg.weight_depth_levels,
-                                     cfg.weight_capacity_scope, arch, quiet=True) \
-            if getattr(cfg, "weight_depth_scale", 1.0) != 1.0 else base
+        # No-op rule: the BASELINE/EMBEDDED arm may legitimately be spelled
+        # `ECC_WEIGHT_DATAWIDTH=8` on a design whose levels already store 8-bit
+        # weights, and that arm must then READ THE SAME CACHE as leaving the
+        # knob empty -- otherwise the two arms of a pair would be compared
+        # across two mapper caches of one identical architecture. Measured by
+        # diffing the arm's geometry against the 8-bit arm's.
+        src_text = arch_source(arch, cfg).read_text()
+        eight = _set_weight_geometry(src_text, None, (),
+                                     getattr(cfg, "weight_width_glb_mult", 4),
+                                     cfg.weight_capacity_scope, arch, quiet=True,
+                                     weight_bits=cfg.weight_bits)
         dw_levels = tuple(getattr(cfg, "weight_datawidth_levels", ()) or ())
-        if _set_weight_datawidth(base_d, cfg.weight_datawidth, dw_levels,
-                                 cfg.weight_capacity_scope, arch,
-                                 quiet=True) != base_d:
+        armed = _set_weight_geometry(src_text, cfg.weight_datawidth, dw_levels,
+                                     getattr(cfg, "weight_width_glb_mult", 4),
+                                     cfg.weight_capacity_scope, arch, quiet=True,
+                                     weight_bits=cfg.weight_bits)
+        if armed != eight:
             # Same spelling as `wdepth<scale>-<levels>`: an arm narrowing
             # only `filter_glb` is a different architecture from one
             # narrowing every weight level, and the directory name says so.

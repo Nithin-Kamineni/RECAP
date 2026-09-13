@@ -955,7 +955,7 @@ def ert_arm_spec(arch, key, cfg=None):
             "narrow_levels": narrow}
 
 
-def ert_deltas(incremental_pj, idle_pj, gran, block_size):
+def ert_deltas(incremental_pj, idle_pj, gran, block_size, clock_gating_pct=0.0):
     """prompt_6 5.1 -- the two ERT deltas of one arm, from the DC numbers.
 
         access action   delta = E_w x block_size     E_w = incremental / weights per codeword
@@ -971,10 +971,30 @@ def ert_deltas(incremental_pj, idle_pj, gran, block_size):
     """
     if block_size is None or int(block_size) < 1:
         raise ValueError(f"block_size must be a positive integer, got {block_size!r}")
-    e_w = float(incremental_pj) * gran.codewords(1.0)
+    # prompt_7 Issue 15: THE MAPPER AND THE EVALUATOR MUST PRICE THE SAME ENGINE.
+    # Under clock gating the engine burns `active` while it works and
+    # `idle x (1-g)` while it is gated off. Timeloop can only express that as
+    # (per-access toll) + (per-cycle leak), and the split is exact:
+    #
+    #   per access : incremental + idle x g     (active MINUS the leak already
+    #                                            charged for that same cycle)
+    #   per cycle  : idle x (1 - g)
+    #
+    # which expands to EXACTLY what evaluate_placement charges --
+    #   (inc + idle*g)*events + idle*(1-g)*engine_cycles
+    #   == (inc + idle)*events + idle*(1-g)*(engine_cycles - events)
+    # -- so prompt_6 RULE 5.3's "a split, not an addition" is restored and the
+    # gating credit is zero. At g = 0 both rows are prompt_6 Table 5.1 exactly.
+    g = max(0.0, min(1.0, float(clock_gating_pct) / 100.0))
+    inc_eff = float(incremental_pj) + float(idle_pj) * g
+    idle_eff = float(idle_pj) * (1.0 - g)
+    e_w = inc_eff * gran.codewords(1.0)
     return {"e_w_pj": e_w,
             "access_delta_pj": e_w * int(block_size),
-            "leak_delta_pj": float(idle_pj),
+            "leak_delta_pj": idle_eff,
+            "clock_gating_pct": g * 100.0,
+            "incremental_pj_per_codeword_gated": inc_eff,
+            "idle_pj_per_cycle_gated": idle_eff,
             "block_size": int(block_size),
             "incremental_pj_per_codeword": float(incremental_pj),
             "idle_pj_per_cycle": float(idle_pj),
@@ -1445,6 +1465,11 @@ def read_weight_path(cfg, arch, layer, stats_path):
             engines = 1.0
         elif st.kind == "network":
             engines = max(1.0, float(round(float(st.fanout) * float(st.instances or 1))))
+            # prompt_7: a network stage never recorded a "declared" count, so the
+            # result read "14 engines, of 0 declared". Its declared count is the
+            # WIDEST broadcast the design does -- the reference the utilised mean
+            # is compared against, exactly as a storage level's `Instances` is.
+            st.declared_instances = max(st.declared_instances, engines)
         else:
             engines = float(util_by_stage.get(st.key, st.instances) or 1)
         st.engine_cycles = engines * float(cycles or 0) * scale
@@ -2376,9 +2401,22 @@ def engine_cycles_for(placement, wpath, stage_defs, cycles=None):
     if site.kind == "dram":
         return 1.0 * cyc, 1.0, "one engine at the chip ingress"
     if site.kind == "network":
-        n = max(1, int(round(float(st.fanout) * float(st.instances or 1))))
-        return n * cyc, float(n), (f"one engine per destination of the network: fanout "
-                                   f"{st.fanout:g} x {st.instances:g} network instance(s)")
+        # prompt_7 Issue 3, fixed 2026-09-12. This used to charge
+        # `max fanout x max instances x TOTAL RUN CYCLES`, throwing away the
+        # per-layer fanout that `weight_path` had already computed and
+        # `_aggregate` had already summed. On a workload whose layers all
+        # multicast the same width (resnet18: 14 everywhere) that is exact; on
+        # one with a mix (mobilenet_v2: 2,3,4,7,10,12,14 -- depthwise layers
+        # broadcast narrowly) it over-billed the standby term by x1.3336.
+        # Now identical in form to the storage branch below.
+        ec = float(st.engine_cycles or 0.0)
+        if own and cyc != own:
+            ec *= cyc / own
+        declared = max(1.0, float(round(float(st.fanout) * float(st.instances or 1))))
+        eff = (ec / cyc) if cyc else declared
+        return ec, eff, (f"one engine per destination of the network, PER LAYER "
+                         f"(fanout x instances, summed over layers); widest layer "
+                         f"{declared:g}, cycle-weighted mean {eff:.2f}")
     ec = float(st.engine_cycles or 0.0)
     if own and cyc != own:
         ec *= cyc / own
@@ -2411,7 +2449,7 @@ class PlacementResult:
 
 def evaluate_placement(cfg, arch, placement, wpath, base_w_by_cat, base_by_cat,
                        recon_pj, gran, packing, decode_pj=0.0, recon_idle_pj=0.0,
-                       cycles=None):
+                       cycles=None, accesses_override=None):
     """Cost one boundary. Fixed mapping: every access count is Timeloop's.
 
     prompt_6 RULE 3: `recon_pj` is the INCREMENTAL term (pJ per codeword
@@ -2488,6 +2526,19 @@ def evaluate_placement(cfg, arch, placement, wpath, base_w_by_cat, base_by_cat,
     # ---- 2. what reconstruction costs --------------------------------------
     st_site = wpath.stages[placement.site_stage]
     accesses = st_site.counter(placement.site_counter)
+    if accesses_override is not None:
+        # AN ERT-AWARE BAR IS BILLED ON THE WORDS TIMELOOP BILLED. Timeloop
+        # charges `ceil(scalar / block_size)` vector accesses -- a partially
+        # filled last word costs a whole word, and the encoder rebuilds that
+        # whole word -- so the toll sitting inside the level covers
+        # `ceil(scalar/bs) x bs` weights, slightly more than `scalar`. RULE
+        # 5.3 is "a split, not an addition": what the evaluator charges must
+        # be what it moved OUT of the level, to the pJ, so an ERT arm counts
+        # the padded weights and every other bar counts Timeloop's scalars.
+        # On resnet18/BCH(63,39) the padding is 876 weights in 12,817,664
+        # (0.0068 %, 471 pJ in 6.89 uJ) -- immaterial to any bar, fatal to a
+        # 1e-6 reconciliation. `ert_aware_view()` measures it per shape.
+        accesses = float(accesses_override)
     n_cw = gran.codewords(accesses)
     e_incremental = n_cw * recon_pj
     if cycles is None:
@@ -2499,15 +2550,56 @@ def evaluate_placement(cfg, arch, placement, wpath, base_w_by_cat, base_by_cat,
             f"{arch}/{placement.key}: the idle term is {recon_idle_pj:g} pJ per cycle "
             f"per engine but the plan carries no cycle count (RULE 3: refusing to "
             f"charge it as zero; the stats file has no `Cycles:` line)")
-    e_idle = float(recon_idle_pj or 0.0) * engine_cycles
+    # prompt_7 Issue 4 -- CLOCK GATING. `recon_idle_pj` is the DC idle-window
+    # TOTAL, which is ~99.5% clock/dynamic power and ~0.5% true leakage. An
+    # engine that is clock-gated when no weight is arriving does not burn the
+    # dynamic part, so:
+    #
+    #   E = (incremental + idle) x events                      <- working
+    #     + idle x (1 - g) x (engine_cycles - events)          <- gated off
+    #
+    # `incremental + idle` is active_per_codeword, so no new constant is
+    # needed. At g = 0 this is ALGEBRAICALLY IDENTICAL to the ungated model
+    # (incremental x events + idle x engine_cycles), which is what
+    # test_gating_reproduces_ungated asserts to the pJ.
+    #
+    # IT IS BOOKED IN THE EQUIVALENT REGROUPED FORM, because prompt_6 RULE 5.3
+    # compares the ACCESS term alone against what the ERT bump moved out of the
+    # level, and `archs.ert_bump()` splits the same energy the other way:
+    #
+    #   n x (incremental + idle) + idle x (1-g) x (ec - n)
+    #     == n x (incremental + idle x g) + idle x (1-g) x ec       [exactly]
+    #
+    # The TOTAL is identical to the last bit -- this moves nothing between the
+    # bars, it decides which of the two terms each piece is booked under. The
+    # first grouping put `n x idle x (1-g)` in the ACCESS term that the ERT
+    # bump had priced per CYCLE, so 5.3 failed by exactly that amount: 22,698
+    # pJ in 6.91 uJ at BCH(63,39) (3.3e-3, tolerance 1e-6), and 907 pJ under
+    # the DC table in force before 2026-09-12. It also made the access term
+    # discontinuous at g -> 0; the regrouped form matches the ungated branch
+    # below continuously.
+    # EVALUATOR-SIDE ONLY: the ERT toll an ERT-aware arm was MAPPED under still
+    # carries the ungated idle, so such a mapping was chosen against a
+    # pessimistic standby assumption. Stated, not silently corrected -- fixing
+    # it would cold every mapper cache.
+    idle_pj = float(recon_idle_pj or 0.0)
+    gate = max(0.0, min(1.0, float(getattr(cfg, "recon_clock_gating_pct", 0.0)) / 100.0))
+    if gate:
+        e_incremental = n_cw * (recon_pj + idle_pj * gate)
+        e_idle = idle_pj * (1.0 - gate) * engine_cycles
+    else:
+        e_idle = idle_pj * engine_cycles
     recon_energy = e_incremental + e_idle
 
     # No reconstruction boundary carries a reuse register any more (R4b was
     # removed 2026-09-10: consecutive weight reuse is 1 on 20 of 21 resnet18
     # layers, so a latch catches nothing, and a register that DOES pay has to
     # hold the whole inner tile -- up to 384 weights, the entire scratchpad).
-    # `Recon overhead` is kept as a category so the stacks, the legend and the
-    # result schema are unchanged; it is structurally zero.
+    # `Recon overhead` is structurally zero. It is kept ONLY so the result
+    # schema and the CSV columns are unchanged -- `plots.stacked.active_categories`
+    # already drops any category that is zero across every bar, so it reaches
+    # neither the stacks nor the legend (prompt_7 Issue 10, checked 2026-09-12:
+    # a sliver on an R bar is `Reconstruction`, a different, non-zero category).
     overhead = 0.0
 
     # ---- 3. assemble the stack ---------------------------------------------
@@ -2540,6 +2632,14 @@ def evaluate_placement(cfg, arch, placement, wpath, base_w_by_cat, base_by_cat,
         "reconstruction_granularity": gran.to_dict(),
         "reconstruction_counts": {
             "weights_reconstructed": accesses,
+            # prompt_7 Issue 4: what gating removed. On an ERT-aware bar the
+            # level was billed the UNGATED leak toll and the split moves all of
+            # it out, so prompt_6 RULE 5.3 becomes "moved out == charged +
+            # gating_credit_pJ". The credit is the real saving from gating and
+            # must be visible, never silently dropped.
+            "clock_gating_pct": gate * 100.0,
+            "gating_credit_pJ": (idle_pj * engine_cycles + n_cw * recon_pj
+                                 - recon_energy),
             "counter": placement.site_counter,
             "counter_meaning": {
                 "reads": "one reconstruction per weight read out of the stage",

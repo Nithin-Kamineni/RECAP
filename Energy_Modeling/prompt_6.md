@@ -430,6 +430,44 @@ cycles being recorded, refuse rather than charge zero. `tests/test_baseline_dram
 
 ---
 
+#### 4.3.5 UNRESOLVED, added 2026-09-11 — is the idle number the right number?
+
+**RULE 3's idle term is under review. Nothing here has changed; this records the open
+question so it is not lost.** The full write-up, with the evidence, is **`prompt_7.md` §11
+Q1**; this is a pointer, not a second copy.
+
+The term is `E_idle = idle_per_cycle x engine_cycles`, with `idle_per_cycle = 2.8310811 pJ`
+for BCH(63,30) taken from `data/dc/BCH_N63_results.json`. That constant is the Design
+Compiler **idle-window total** power at 1 GHz, and the same JSON decomposes it as:
+
+| field | value | share |
+|---|---:|---:|
+| `power_uW.idle.dynamic` | 2816.4 uW | 99.48% |
+| `power_uW.idle.leakage` | 14.6811 uW | 0.52% |
+
+So the model charges a free-running clock for every cycle of the whole inference, on engines
+measured to be busy **0.62%** of the time at the `recon4` boundary. Because nothing can
+stall the pipeline today, `engine_cycles` at a scratchpad boundary is **exactly the MAC
+count** (measured: 1,814,073,344 both) — i.e. the term is arithmetically 2.83 pJ per MAC,
+**12.3x the energy of the entire 168-MAC array**.
+
+**Do not change this without verification.** Needed first: the DC report's internal /
+switching / leakage split, how much of the internal term is clock-network power that gating
+would actually remove, whether the synthesised RTL already contained clock gating, and
+whether clock gating is even the right technique at a 0.62% duty cycle. **The reports the
+JSON names (`results/report_snapshots/BCH_63_30_t6/`) are not in this repository, nor in
+`ECC-CODE-Engine` or `RECC`.**
+
+The stake: under a clock-gated model `recon4` would move from **-33.96%** to **+9.28%** vs
+embedded — from the worst boundary to the best. A change that large needs more evidence
+than one field of one JSON file.
+
+Separately, and independently of the above, `prompt_7.md` §4.2 documents that the
+accelerator's own standby power is charged to **no arm at all**, so this term is currently
+compared against zero.
+
+---
+
 ### RULE 4 — one plan per BAR, not one plan per run
 
 #### 4.4.1 Why the code subtracts instead of calculating

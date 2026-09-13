@@ -18,7 +18,7 @@
 #  `depth:` values to write into a new arch YAML.
 #
 #  TWO MAPPER CONFIGS PER DEPTH, NOT THREE. Baseline and Embedded both store
-#  8-bit weights, so they share one hardware YAML and one mapping -- only the
+#  8-bit weights, so they share one DEPTH and one mapping -- only the
 #  evaluator separates them. Recon is the only arm with a different
 #  `datawidth`. So each depth costs 2 maps: ECC_WEIGHT_DATAWIDTH empty (the
 #  8-bit arm) and ECC_WEIGHT_DATAWIDTH=<q> (the reduced arm), on IDENTICAL
@@ -219,7 +219,7 @@ for arch in cfg.archs:
             print(f"  REFUSED  {arch} x{s:g}: {e}", file=sys.stderr)
             sys.exit(1)
         cells = "  ".join(
-            f"{lvl} d{v['shared']['depth']}xw{v['shared']['width']} "
+            f"{lvl} d{v['depth']} w{v['embedded_width']}/{v['recon_width']} "
             f"{v['embedded_weights']}->{v['recon_weights']} "
             f"({v['capacity_ratio']:.4f}x)" for lvl, v in info.items())
         print(f"  {arch:<20} x{s:<7g} {cells}")

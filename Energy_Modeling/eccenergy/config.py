@@ -326,6 +326,16 @@ class Config:
     recon_pj_override: Optional[float]
     recon_incremental_fallback_pj: float
     recon_idle_fallback_pj: float
+    #: prompt_7 Issue 4. Percentage of the reconstruction engine's
+    #: CLOCKED-IDLE energy that clock gating removes. 0 reproduces the
+    #: pre-gating model exactly; 99.5 is the measured clock/dynamic share.
+    recon_clock_gating_pct: float
+    #: prompt_7, 2026-09-12. Free-text revision of the ENERGY MODEL itself --
+    #: the Accelergy plug-in stack, its configs, anything that changes what a
+    #: component COSTS without changing the architecture YAML. EMPTY means
+    #: 'whatever the image shipped', and is hashed as if the field did not
+    #: exist, so every fingerprint predating this knob is preserved exactly.
+    energy_model_rev: str
 
     # ---- Task 3: the reconstruction PLACEMENT study (env.sh section 4) -----
     #: The placement study runs on ONE architecture, ONE model and ONE code,
@@ -471,26 +481,25 @@ class Config:
     #: to undo. Separate knob, separate cache slug (`wdepth<scale>`), no
     #: correction.
     weight_depth_scale: float
-    #: PROMPT_2's WIDTH TABLE. The declared physical word `width:` of the
-    #: INNERMOST weight level -- the scratchpad -- chosen so the code's
-    #: `q = round(8*K/N)` divides it, because `timeloop-mapper` ABORTS on
-    #: `width % datawidth != 0` and has no floor path. A weight level ABOVE the
-    #: PE array takes `weight_width_glb_mult` times that width, which is the
-    #: ratio Eyeriss v1's published geometry already has (16-b spad word,
-    #: 64-b GLB word) and which preserves the divisibility (q | W implies
-    #: q | 4W). Each level's DEPTH is renormalised to hold its declared TOTAL
-    #: BITS, so this reshapes the word without resizing the array -- and CACTI
-    #: is handed depth and width, so that is exactly what must not move.
-    #: None = leave the published widths alone, which is what BCH(63,30) needs.
-    weight_width: Optional[int]
+    #: PROMPT_2's WIDTH TABLE is NOT A KNOB and has no field here. Every
+    #: weight level's `width:` is chosen by `code_widths.level_width()` from
+    #: the datawidth THAT LEVEL ends up storing, and `archs`
+    #: `_set_weight_geometry()` applies it to every run: 96 b for an 8-bit
+    #: level, 98 / 96 / 95 / 96 for q = 7 / 6 / 5 / 4, x this multiplier above
+    #: the PE array. THE ARMS DO NOT SHARE A WIDTH -- each one's width suits
+    #: its own datawidth and no other arm's, which is why 95 at q=5 is correct
+    #: and does not have to divide 8. Depth is renormalised at the BASE width
+    #: (96), so it IS shared, and that is what `assert_pair_geometry` checks.
+    #: 4x is Eyeriss v1's published 16-b spad / 64-b GLB ratio, and
+    #: `q | W` implies `q | 4W`, so one table settles every weight level.
     weight_width_glb_mult: int
-    #: `ECC_WEIGHT_WIDTH=auto`: look the width up from the code instead of
-    #: typing it in. `__post_init__` resolves it into `weight_width` above
-    #: (see `code_widths.WIDTH_TABLE`) before anything else reads it, so this
-    #: flag itself is NOT in `fingerprint()` -- the resolved integer is, and a
-    #: hand-typed 56 and an auto-resolved 56 are the same silicon and share one
-    #: mapper cache, which is the whole point.
-    weight_width_auto: bool
+    #: `ECC_DISABLE_ASSERT_PAIR_GEOMETRY=1`: let the reconstruction and
+    #: embedded arms declare DIFFERENT `depth:` on a weight level, for a study
+    #: that varies depth between them on purpose. It disables the DEPTH check
+    #: in `archs.assert_pair_geometry()` and nothing else -- there is no width
+    #: check to disable, because the arms are SUPPOSED to differ in width.
+    #: Default False: a depth difference nobody asked for is a void comparison.
+    disable_pair_geometry_assert: bool
     #: Which weight levels `weight_depth_scale` may rewrite. Empty = all of
     #: them, which is the default and the limitation prompt_2 records: one
     #: scale moves `weights_spad` and `filter_glb` TOGETHER, so it locates the
@@ -645,21 +654,6 @@ class Config:
         if self.weight_bits <= 0:
             raise ConfigError("ECC_WEIGHT_BITS must be positive")
 
-        # ECC_WEIGHT_WIDTH=auto -- resolve THE WIDTH TABLE from the code. Here,
-        # after `code_k` is set and before the width is validated below, so the
-        # resolved integer is what every later check, the fingerprint and the
-        # cache slug all see. A code whose q divides ECC_WEIGHT_BITS resolves
-        # to None and keeps the published silicon; that is BCH(63,30), and its
-        # cache stays bit-identical to every run made before this knob existed.
-        # UNCONDITIONAL, so it is IDEMPOTENT: `dataclasses.replace()` re-runs
-        # __post_init__ on an already-resolved Config, and both
-        # `dilation.arm_configs()` and hpc/map_depth_sweep.sh's geometry check
-        # build their two arms that way. Refusing a width that is already the
-        # table's own answer would make the knob work from the shell and fail
-        # inside the tools that use it.
-        if self.weight_width_auto:
-            self.weight_width = code_widths.declared_width(
-                self.code_n, self.code_k, self.weight_bits)
         if self.activation_bits <= 0:
             raise ConfigError("ECC_ACTIVATION_BITS must be positive")
         if self.acc_bits_override is not None:
@@ -838,46 +832,21 @@ class Config:
                 f"multiplier must be positive. 1.0 is the declared design; "
                 f"prompt_2's search grid is the sqrt(2) ladder "
                 f"1 / 0.71 / 0.5 / 0.35 / 0.25 / 0.18 / 0.125")
-        if self.weight_width is not None and self.weight_width < 1:
-            raise ConfigError(
-                f"ECC_WEIGHT_WIDTH={self.weight_width}: the declared word "
-                f"width must be a positive integer number of bits. Leave it "
-                f"EMPTY to keep each design's published widths -- BCH(63,30) "
-                f"needs no width change at all.")
         if self.weight_width_glb_mult < 1:
             raise ConfigError(
                 f"ECC_WEIGHT_WIDTH_GLB_MULT={self.weight_width_glb_mult}: a "
                 f"weight GLB's word is a positive multiple of the "
                 f"scratchpad's. 4 is Eyeriss v1's published ratio.")
-        if (self.weight_width is not None
-                and self.weight_width % self.weight_bits != 0):
-            # THE WIDTH MUST SUIT *BOTH* ARMS. prompt_2's fairness rule is that
-            # baseline/embedded and recon share ONE width, and the 8-bit arm
-            # declares datawidth = ECC_WEIGHT_BITS. So a width chosen only to
-            # divide the code's q aborts the OTHER arm.
-            # Measured against prompt_2's own WIDTH TABLE: 98 (BCH(63,57),
-            # q=7) and 95 (BCH(63,39), q=5) both divide their q but leave
-            # remainders 2 and 7 against 8 -- the embedded arm would abort at
-            # buffer.cpp:302 on every layer. Only the width-96 rows
-            # (BCH(63,45) q=6 and BCH(63,30) q=4) are legal for both arms,
-            # which is the same set prompt_2 identifies as "literally the same
-            # silicon as Embedded's".
-            raise ConfigError(
-                f"ECC_WEIGHT_WIDTH={self.weight_width} is not a multiple of "
-                f"ECC_WEIGHT_BITS={self.weight_bits}. Both arms share ONE "
-                f"declared width and the baseline/embedded arm stores "
-                f"{self.weight_bits}-bit weights, so that arm's mapper run "
-                f"would abort on `width % datawidth == 0` "
-                f"(buffer.cpp:302). A width must divide BOTH "
-                f"{self.weight_bits} and the code's q.")
-        if (self.weight_width is not None and self.weight_datawidth is not None
-                and self.weight_width % self.weight_datawidth != 0):
-            raise ConfigError(
-                f"ECC_WEIGHT_WIDTH={self.weight_width} is not a multiple of "
-                f"ECC_WEIGHT_DATAWIDTH={self.weight_datawidth}. "
-                f"timeloop-mapper asserts width % datawidth == 0 "
-                f"(buffer.cpp:302) and ABORTS -- there is no floor path. "
-                f"prompt_2's WIDTH TABLE gives a width per code.")
+        # NO "the width must also divide ECC_WEIGHT_BITS" CHECK LIVES HERE.
+        # It used to, and it was wrong: it asserted that both arms share one
+        # declared width, which made prompt_2's 98 (q=7) and 95 (q=5) look
+        # illegal and got them replaced by lcm(q, 8). The arms do NOT share a
+        # width -- each declares the one that suits its OWN datawidth, and
+        # neither is ever mapped on the other's silicon. THE WIDTH TABLE is
+        # applied per level by `archs._set_weight_geometry()`, which picks a
+        # multiple of that level's own datawidth, so `width % datawidth == 0`
+        # holds by construction and there is nothing here to validate.
+        # See eccenergy/code_widths.py.
         if self.weight_datawidth is not None and self.weight_datawidth < 1:
             raise ConfigError(
                 f"ECC_WEIGHT_DATAWIDTH={self.weight_datawidth}: the on-chip "
@@ -1134,11 +1103,22 @@ class Config:
     def emb_weights_per_cw(self):
         """Weights per codeword used to COUNT embedded-arm decodes.
 
-        Defaults to the shared-codeword model (identical to the baseline). The
-        older two-arm scripts charged the embedded arm on a smaller word; set
-        ECC_EMB_WEIGHTS_PER_CW=8 to reproduce those.
+        The EMBEDDED layout, `n / weight_bits` = 7.875 at BCH(63,*) over 8-bit
+        weights -- FRACTIONAL, because the embedding pipeline cuts the weight
+        bit stream into n-bit chunks and weights straddle codeword boundaries
+        by design (`embedded.EmbeddedLayout.weights_per_codeword`).
+
+        It used to default to the BASELINE's `k // weight_bits` (3 at K=30),
+        which is right for the baseline -- whose codeword is stored separately
+        and packs only WHOLE weights -- and wrong here. prompt_7, 2026-09-12:
+        the two layouts are different and their counts must be too.
+        `ECC_EMB_WEIGHTS_PER_CW=8` still reproduces the older two-arm scripts.
         """
-        return self.emb_weights_per_cw_override or self.weights_per_codeword
+        if self.emb_weights_per_cw_override:
+            return self.emb_weights_per_cw_override
+        from .embedded import EmbeddedLayout
+        return EmbeddedLayout(self.code_n, self.code_k,
+                              self.weight_bits).weights_per_codeword
 
     @property
     def parity_frac(self):
@@ -1264,14 +1244,16 @@ class Config:
             # the scale rewrites nothing.
             parts.append(f"wcap{self.weight_capacity_scale:g}"
                          + ("-shared" if self.weight_capacity_scope == "shared" else ""))
-        if self.weight_depth_scale != 1.0:
-            # prompt_2's swept variable. Its own slug, NOT `wcap`: the two
-            # rewrite the same YAML field but mean different things, and a
-            # shared directory would let a corrected run be read as an
-            # uncorrected one.
-            parts.append(f"wdepth{self.weight_depth_scale:g}"
-                         + ("-" + "+".join(self.weight_depth_levels)
-                            if self.weight_depth_levels else ""))
+        # THE WIDTH TABLE is in every slug because it is applied to every run
+        # -- it is a property of the study, not a knob, so there is no
+        # configuration in which it is off and nothing to make conditional.
+        # MUST stay in step with `archs.effective_variant()`, same part, same
+        # spelling, same POSITION. It also marks the boundary in `ls`: a
+        # directory without it predates 2026-09-12 and was mapped on the
+        # published word shape.
+        parts.append(f"wt{code_widths.base_width(self.weight_bits)}"
+                     + (f"x{self.weight_width_glb_mult}"
+                        if self.weight_width_glb_mult != 4 else ""))
         if self.weight_datawidth is not None:
             # A narrower on-chip weight IS a different architecture to the
             # mapper -- more values per word, so a different block size and a
@@ -1647,14 +1629,24 @@ class Config:
                 "mapspace_constrain",
                 "weight_datawidth", "weight_datawidth_levels", "recon_ert_arm",
                 "weight_depth_scale", "weight_depth_levels",
-                "weight_width", "weight_width_glb_mult",
+                "weight_width_glb_mult",
                 "dram_depth", "global_cycle_seconds",
                 "noc_enabled", "noc_wire_pj_per_bit_mm", "noc_router_pj",
                 "noc_pe_latch_pj", "noc_scale",
                 "opt_metric", "victory", "victory_scaling", "mapper_algorithm",
                 "mapper_seed", "mapper_timeout", "mapper_search_size",
                 "mapper_max_permutations")
-        blob = json.dumps({k: self.to_dict()[k] for k in keep}, sort_keys=True)
+        # prompt_7: the fingerprint hashes the ARCHITECTURE, not the price list
+        # Accelergy derives from it. So a corrected estimator -- the Neurosim
+        # plug-in that returned 0 pJ for every address generator, say -- changes
+        # every energy in the cache while leaving the path it is stored under
+        # identical, and the stale entries are reused with nothing to say so.
+        # `ECC_ENERGY_MODEL_REV` closes that: set it to any non-empty string and
+        # the whole matrix colds DELIBERATELY. It is appended only when set, so
+        # EMPTY hashes byte-identically to every fingerprint that predates it.
+        d = self.to_dict()
+        keys = keep + (("energy_model_rev",) if self.energy_model_rev else ())
+        blob = json.dumps({k: d[k] for k in keys}, sort_keys=True)
         return hashlib.sha1(blob.encode()).hexdigest()[:8]
 
 
@@ -1691,6 +1683,8 @@ def load_config():
         recon_pj_override=_of("ECC_RECON_PJ"),
         recon_incremental_fallback_pj=_f("ECC_RECON_INCREMENTAL_FALLBACK_PJ", 1.8995),
         recon_idle_fallback_pj=_f("ECC_RECON_IDLE_FALLBACK_PJ", 2.2301273),
+        recon_clock_gating_pct=_f("ECC_RECON_CLOCK_GATING_PCT", 99.5),
+        energy_model_rev=_s("ECC_ENERGY_MODEL_REV", ""),
 
         recon_modeling=_b("ECC_RECON_MODELING", False),
         # env.sh spells this `RECON_OPTIMIZER` as well, and mirrors it into the
@@ -1741,16 +1735,12 @@ def load_config():
         weight_datawidth=_oi("ECC_WEIGHT_DATAWIDTH"),
         weight_datawidth_levels=tuple(_list("ECC_WEIGHT_DATAWIDTH_LEVELS")),
         mapspace_constrain=_b("ECC_MAPSPACE_CONSTRAIN", False),
-        # ECC_WEIGHT_WIDTH takes a number, EMPTY, or the word `auto`.
-        # `auto` is resolved from the code by `__post_init__` (THE WIDTH
-        # TABLE, eccenergy/code_widths.py) so every BCH configuration has a
-        # width that both arms can declare; EMPTY still means "keep each
-        # design's published widths", which is what every pre-2026-09-11 run
-        # was made under and what BCH(63,30) needs.
-        weight_width=None if _s("ECC_WEIGHT_WIDTH").lower() == "auto"
-                     else _oi("ECC_WEIGHT_WIDTH"),
-        weight_width_auto=_s("ECC_WEIGHT_WIDTH").lower() == "auto",
+        # There is NO ECC_WEIGHT_WIDTH. THE WIDTH TABLE is automatic and
+        # unconditional (eccenergy/code_widths.py): every weight level takes
+        # the width that suits the datawidth it stores, on every run, so there
+        # is nothing to set and nothing that can be set wrong.
         weight_width_glb_mult=int(_f("ECC_WEIGHT_WIDTH_GLB_MULT", 4)),
+        disable_pair_geometry_assert=_b("ECC_DISABLE_ASSERT_PAIR_GEOMETRY", False),
         depth_sweep_gate_victories=tuple(
             _list("ECC_DEPTH_SWEEP_GATE_VICTORIES", "2000 4000 10000")),
         depth_sweep_gate_scales=tuple(

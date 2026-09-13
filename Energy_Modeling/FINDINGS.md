@@ -155,11 +155,33 @@ capacity dilation to N/K = 1.6154 could never work: it sits below the step.
 `weights_held` identical across arms while fill falls is the "extra room not
 spent" signature — not a win, however the energy column reads.
 
-### 2.4b The measured BCH sweep, and the one number in it that must not be quoted
+### 2.4b The measured BCH sweep — WITHDRAWN 2026-09-12, wrong widths
 
-**2026-09-11**, `eyeriss_like_wglb`, `layer3.0.conv1`, no depth scaling, one
-mapper PAIR per code on identical declared silicon. Gate PASSES on every row at
-residual **0.00 %**. `results/tables/EyerissV1_bch_sweep_spad16.csv`.
+**EVERY NUMBER IN THIS SECTION WAS PRODUCED UNDER THE `lcm(q, 8)` WIDTH SCHEME
+AND MUST NOT BE QUOTED.** That scheme read prompt_2's fairness rule as "both
+arms share one declared width", concluded that prompt_2's 98 (q=7) and 95 (q=5)
+were illegal because they do not divide 8, and substituted `lcm(q, 8)` —
+56 / 24 / 40. **The premise is false.** The arms are never mapped on one
+another's silicon: `timeloop-mapper`'s `width % datawidth == 0` is per level,
+per mapper run, and one run maps one arm. BCH(63,39)'s arm runs at width 95
+because `95 % 5 == 0`; `95 % 8 = 7` says nothing about it.
+
+The cost is visible in the table below and is the reason it is withdrawn rather
+than merely relabelled: **the lcm scheme made the 8-bit REFERENCE arm move
+between codes** (spad 56 / 24 / 40), so the reference, not the treatment, is
+what the `spad/GLB W` column is really sweeping. Under prompt_2's actual table
+the 8-bit arm is width 96 at every code — one arm, mapped once — and the
+`BCH(63,39) = 37.69 %` artifact dissected below cannot arise at all.
+
+**Re-run required** before any BCH-sweep number is quoted. The three arms are
+cold at every code but BCH(63,30)… which is also cold, because the 8-bit arm
+moved from the published 16 b/64 b to 96 b/384 b.
+
+Original text, kept for the diff:
+
+> **2026-09-11**, `eyeriss_like_wglb`, `layer3.0.conv1`, no depth scaling, one
+> mapper PAIR per code on identical declared silicon. Gate PASSES on every row at
+> residual **0.00 %**. `results/tables/EyerissV1_bch_sweep_spad16.csv`.
 
 | code | q | spad/GLB W | baseline µJ | embedded µJ | recon, map only | recon, +DRAM K/N | rec vs emb, map | rec vs emb, +DRAM |
 |---|---:|---|---:|---:|---:|---:|---:|---:|
@@ -175,7 +197,10 @@ so **the whole usable saving at the weak codes is the DRAM K/N fetch term** —
 plus 128.451 µJ of mapping saving on top.
 
 **BCH(63,39)'s 37.69 % is the REFERENCE arm falling off a tiling cliff, and that
-is measured.** Reconstruction's own total is flat across all three weak codes
+is measured** — a cliff the reference only reached because the withdrawn lcm
+scheme kept changing its width. Under prompt_2's table the 8-bit arm is width 96
+at every code and cannot move at all; this paragraph is the diagnosis of a
+defect, not a finding about BCH(63,39). Reconstruction's own total is flat across all three weak codes
 (480.529 / 481.387 / 480.197 µJ); the 8-bit arm is what moves
 (480.737 / 482.161 / **770.654**). On the depth-16 scratchpad the width table's
 depth renormalisation leaves the 8-bit reference holding **35 / 33 / 30

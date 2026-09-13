@@ -1,115 +1,110 @@
-"""THE WIDTH TABLE as a LOOKUP: one declared word width per BCH code.
+"""PROMPT_2's WIDTH TABLE: one declared word width PER ARM, keyed by that arm's
+own `datawidth`. Automatic, unconditional, and not a knob.
 
-    ECC_WEIGHT_WIDTH=auto      # env.sh section 5 -- resolve it from (N, K)
+    python3 -m eccenergy.code_widths        # print the table
 
-WHY THIS MODULE EXISTS
-----------------------
-`timeloop-mapper` asserts `width % (word_bits * block_size) == 0`
-(`buffer.cpp:302`) with `block_size` defaulting to 1, and there is NO floor
-path: a width the datawidth does not divide ABORTS the mapper (`exit=134, core
-dumped`), it does not fall back to `floor(width/q)`. So every BCH code whose
-`q = round(8*K/N)` does not divide the published word needs a declared width
-that it does, and until now that width had to be typed in by hand per run --
-which is why only BCH(63,30) (q=4, divides every published width in the study)
-was ever runnable without thinking about it.
+THE ONE THING TO GET RIGHT, BECAUSE IT HAS BEEN GOT WRONG REPEATEDLY
+--------------------------------------------------------------------
+**THE ARMS DO NOT SHARE A DECLARED WIDTH.** Each arm declares the width that
+suits ITS OWN datawidth, and no arm has to be legal for another arm's
+datawidth. The baseline/embedded arm stores 8-bit weights and runs at width 96
+(96 % 8 == 0). The BCH(63,39) reconstruction arm stores 5-bit weights and runs
+at width 95 (95 % 5 == 0). **95 never has to divide 8**, because the
+baseline/embedded arm is never mapped at width 95 -- it is mapped at 96.
 
-This module makes the choice once, keyed by the code, so **every** BCH
-configuration runs. `archs._set_weight_width()` does the rewriting; this only
-decides the number.
+    arm                  q    spad W   GLB W (4x)   weights/word   eff. capacity
+    Baseline / Embedded  8      96        384            12           1.0000x
+    BCH(63,57)           7      98        392            14           1.1667x
+    BCH(63,45)           6      96        384            16           1.3333x
+    BCH(63,39)           5      95        380            19           1.5833x
+    BCH(63,30)           4      96        384            24           2.0000x
 
-THE TWO CONSTRAINTS, AND WHY prompt_2's TABLE FAILS ONE OF THEM
----------------------------------------------------------------
-Both arms of a pair share ONE declared width (`archs.assert_pair_geometry`),
-and the baseline/embedded arm stores `ECC_WEIGHT_BITS`-bit weights. So a legal
-width must divide **both**:
+That is prompt_2.md's WIDTH TABLE verbatim, and its `eff. capacity` column is
+`(W_arm/q) / (96/8)` -- which only reconciles if the arms declare DIFFERENT
+widths at a COMMON depth. The table is self-checking in that sense.
 
-    W % q == 0              or the RECONSTRUCTION arm aborts
-    W % ECC_WEIGHT_BITS == 0    or the BASELINE/EMBEDDED arm aborts
+A PREVIOUS IMPLEMENTATION (2026-09-11 to 2026-09-12) read prompt_2's rule as
+"both arms share ONE width", concluded that 98 and 95 were illegal because they
+do not divide 8, and substituted `lcm(q, 8)` -- 56 / 24 / 40. That is WITHDRAWN
+and must not be reintroduced. It was wrong twice over:
 
-prompt_2.md's WIDTH TABLE was written against the first constraint alone and
-two of its five rows violate the second:
+  * the premise is false (see above), and
+  * it made the 8-BIT REFERENCE ARM MOVE BETWEEN CODES (width 56, 24, 40), so
+    the reference held 35 / 33 / 30 weights per PE at q = 7 / 6 / 5 and fell
+    off a tiling cliff at q=5, which is where BCH(63,39)'s spurious 37.69 %
+    came from (FINDINGS 2.4b). Under this table the 8-bit arm is width 96 at
+    EVERY code: ONE arm, mapped ONCE, and that artifact cannot occur.
 
-    BCH(63,57) q=7  W=98  ->  98 % 8 = 2   embedded arm ABORTS
-    BCH(63,45) q=6  W=96  ->  96 % 8 = 0   legal
-    BCH(63,39) q=5  W=95  ->  95 % 8 = 7   embedded arm ABORTS
-    BCH(63,30) q=4  W=96  ->  96 % 8 = 0   legal
+`archs.assert_pair_geometry()` does NOT check `width` or `datawidth` for this
+reason. It checks the LEVEL SET and the DEPTH, which the arms really do share.
 
-so 98 and 95 are NOT usable and are replaced here. `config.py` has refused them
-at validate time since 2026-09-10; this module is what stops a run needing them
-in the first place.
+THE RULE, AND WHY IT REPRODUCES THE TABLE
+-----------------------------------------
+`declared_width(q)` is **the multiple of `q` nearest to `BASE_WIDTH` (96)**:
 
-WHY THE MINIMUM LEGAL WIDTH, NOT prompt_2's ~96-BIT FAMILY
+    q=8 -> 12x8 = 96     q=7 -> 14x7 = 98     q=6 -> 16x6 = 96
+    q=5 -> 19x5 = 95     q=4 -> 24x4 = 96     q<=3 -> 96
+
+which is prompt_2's table exactly, and is why all five widths sit within 3 % of
+each other: per-access energy stays comparable ACROSS codes, and the three
+width-96 arms are byte-identical silicon (1.48668 / 2.37439 pJ, measured).
+
+The only constraint the mapper imposes is `width % datawidth == 0`
+(`buffer.cpp:302`, `block_size` defaults to 1 and there is NO floor path -- a
+partially-filled word ABORTS with `exit=134`). A multiple of `q` satisfies it
+by construction, for every `q`, so no configuration can reach that abort.
+
+DEPTH IS COMMON TO EVERY ARM, AND HOLDS THE PUBLISHED BITS
 -----------------------------------------------------------
-prompt_2 chose all five widths within 3 % of each other (96 / 98 / 96 / 95 /
-96) so per-access energy stayed comparable ACROSS codes. Under the legality
-rule above the nearest legal members of that family are 112 (q=7) and 80
-(q=5) -- ±17 %, not ±3 %, so the family's whole point is already gone.
+`depth' = round(depth * width / BASE_WIDTH)` -- computed at the BASE width, so
+it is the SAME for every arm. Two consequences, both wanted:
 
-What replaces it is `lcm(q, ECC_WEIGHT_BITS)`, the SMALLEST legal width, and
-the reason is `_set_weight_width`'s invariant: each level's depth is
-renormalised as `round(depth * width / W)` to hold the published TOTAL BITS,
-because CACTI is handed depth and width and that is the quantity that must not
-move. Integer depth makes that renormalisation lossy, and the loss shrinks as
-the declared width shrinks. On the CURRENT `eyeriss_like_wglb` scratchpad
-(16 x 16 b = 256 bits) the difference is not academic:
+  * the level is the same silicon at a different word shape rather than a
+    bigger array smuggled in as a width change, and CACTI is handed `depth`
+    and `width`, so that is exactly the quantity that must not move;
+  * the arms differ ONLY in `width` (by <= 2 %) and `datawidth`, so
+    `capacity_ratio` is `(W_arm/q)/(96/8)` and reproduces prompt_2's
+    `eff. capacity` column to the digit.
 
-    q=7   W=56  -> depth 5  (280 b, +9.4 %)  |  W=112 -> depth 2 (224 b, -12.5 %)
-    q=5   W=40  -> depth 6  (240 b, -6.2 %)  |  W=80  -> depth 3 (240 b,  -6.2 %)
-    q=6   W=24  -> depth 11 (264 b, +3.1 %)  |  W=96  -> depth 3 (288 b, +12.5 %)
+It reproduces prompt_2's own depths: `weights_spad` 224 x 16 b = 3,584 b ->
+depth 37 at width 96; `filter_glb` 1024 x 64 b = 65,536 b -> depth 171 at
+width 384.
 
-A width that leaves a 2- or 3-entry scratchpad is also barely a reuse level at
-all, and `_weight_level_parts` drops a `depth: 1` level entirely as a pipeline
-latch -- so the large-width family can silently stop narrowing the thing the
-study is about. prompt_2's table was calibrated on the 224 x 16 b scratchpad of
-the day (3,584 bits), where depth granularity was fine; it is not fine at 256.
-
-`WIDTH_TABLE` is still an explicit, reviewable dict rather than a formula, so a
-code can be given a hand-picked width without touching the rule -- but every
-entry is checked against the rule by `audit()` and by
-`tests/test_code_widths.py`, so a typo cannot pass as a design decision.
-
-None MEANS "KEEP THE PUBLISHED SILICON"
-----------------------------------------
-A `None` entry is not "no data", it is a decision: when `q` divides
-`ECC_WEIGHT_BITS` (q in 1, 2, 4, 8) it divides every width in the study, since
-every weight level in `archs/` declares a multiple of 8 bits (8, 16, 24, 64,
-512 -- verified 2026-09-11). Those codes run on the UNTOUCHED published
-geometry, which is what prompt_2, prompt_3 and env.sh all require of
-BCH(63,30) and what keeps its cache bit-identical to the prompt_5 run.
-
-THE GLB TAKES `ECC_WEIGHT_WIDTH_GLB_MULT` TIMES THIS
------------------------------------------------------
-The table is quoted for the SCRATCHPAD -- the innermost weight level. A weight
-level above the PE array declares `glb_mult` (4, Eyeriss v1's published 16 b /
-64 b ratio) times it, and divisibility survives: q | W implies q | 4W. So one
-scratchpad width settles every weight level at once. `archs._set_weight_width`
-owns that half; `glb_width()` below is the same arithmetic for a caller that
-needs to print it.
+THE GLB TAKES `ECC_WEIGHT_WIDTH_GLB_MULT` TIMES THE SCRATCHPAD WIDTH
+---------------------------------------------------------------------
+4x -- Eyeriss v1's published 16 b / 64 b ratio. Divisibility survives, since
+`q | W` implies `q | 4W`, so one scratchpad width settles every weight level.
+`archs._set_weight_geometry()` applies all of this; this module only decides
+the numbers.
 """
 from __future__ import annotations
 
-import math
-
-#: The study's payload width. Only a default -- callers pass `cfg.weight_bits`.
+#: The study's payload width, and the baseline/embedded arm's datawidth.
 DEFAULT_WEIGHT_BITS = 8
 
-#: THE WIDTH TABLE. (N, K) -> declared SCRATCHPAD width in bits, or None to
-#: keep the architecture's published widths.
-#:
-#: Every value is `lcm(q, 8)` and every None is a code with `q` in {1,2,4,8};
-#: `audit()` re-derives both and `tests/test_code_widths.py` asserts them, so
-#: this dict is a record of the decision, not a second source of truth that can
-#: drift from it. The six keys are `config.BCH63_KTOD`'s codes -- the ones with
-#: a published minimum distance in this study. Any other (N, K) falls back to
-#: the same rule via `declared_width()`.
+#: The declared scratchpad width of the BASELINE/EMBEDDED arm, and the width
+#: every other arm's width is chosen nearest to. prompt_2's "declare width"
+#: column for the 8-bit arm; also the depth denominator, so it is the one
+#: number that fixes how much silicon each weight level is.
+BASE_WIDTH = 96
+
+#: THE WIDTH TABLE, keyed by the arm's own `q` (NOT by the code). prompt_2.md
+#: tabulates it per code, but the width depends on the code only through
+#: `q = round(8*K/N)`, so two codes with one `q` are one arm -- BCH(63,45) and
+#: BCH(63,51) both declare 96, BCH(63,39) and BCH(63,36) both declare 95.
+#: Every value is re-derived by `audit()` and asserted by
+#: `tests/test_code_widths.py`, so this dict records the decision rather than
+#: being a second source of truth that can drift from the rule.
 WIDTH_TABLE = {
-    #  code          q     W     why
-    (63, 57):  56,  # 7    56    published 16/24/64 all fail 7
-    (63, 51):  24,  # 6    24    published 16/64 fail 6 (24 already legal)
-    (63, 45):  24,  # 6    24    same q as K=51, same width
-    (63, 39):  40,  # 5    40    published 16/24/64 all fail 5
-    (63, 36):  40,  # 5    40    same q as K=39, same width
-    (63, 30): None, # 4    --    q | 8, published geometry untouched
+    # q   width   weights/word   prompt_2 row
+    8:  96,     # 12            Baseline / Embedded
+    7:  98,     # 14            BCH(63,57)
+    6:  96,     # 16            BCH(63,45), BCH(63,51)
+    5:  95,     # 19            BCH(63,39), BCH(63,36)
+    4:  96,     # 24            BCH(63,30)
+    3:  96,     # 32            no published code in this study
+    2:  96,     # 48
+    1:  96,     # 96
 }
 
 
@@ -138,110 +133,115 @@ def declared_datawidth(n, k, weight_bits=DEFAULT_WEIGHT_BITS):
     # exact .5 goes to the EVEN neighbour and two adjacent codes could round in
     # opposite directions. No BCH(63,K) lands on .5, but the rule has to be
     # stated or the next N makes it a bug.
-    q = int(math.floor(weight_bits * k / n + 0.5))
+    q = int((weight_bits * k / n) + 0.5)
     return max(1, min(weight_bits, q))
 
 
-def minimum_legal_width(q, weight_bits=DEFAULT_WEIGHT_BITS):
-    """The smallest word width BOTH arms of a pair can declare: `lcm(q, bits)`.
+def nearest_multiple(q, base=BASE_WIDTH):
+    """The multiple of `q` nearest to `base`; ties go UP.
 
-    The reconstruction arm needs `W % q == 0`, the baseline/embedded arm needs
-    `W % weight_bits == 0`, and they share one declared width -- so the legal
-    widths are exactly the multiples of the least common multiple.
+    This is the whole width rule. `round()` is avoided for the same
+    banker's-rounding reason as above.
     """
-    q, weight_bits = int(q), int(weight_bits)
-    if q < 1 or weight_bits < 1:
-        raise ValueError(f"q={q}, weight_bits={weight_bits}: both must be positive")
-    return q * weight_bits // math.gcd(q, weight_bits)
+    q = int(q)
+    if q < 1:
+        raise ValueError(f"q={q}: a datawidth must be at least 1 bit")
+    n = int((int(base) / q) + 0.5)
+    return max(q, n * q)
 
 
-def is_legal_width(width, q, weight_bits=DEFAULT_WEIGHT_BITS):
-    """Does `width` suit BOTH arms? See `minimum_legal_width`."""
-    return width % int(q) == 0 and width % int(weight_bits) == 0
-
-
-def needs_width_change(q, weight_bits=DEFAULT_WEIGHT_BITS):
-    """Does this code need a declared width at all?
-
-    False when `q` divides `weight_bits` -- then q divides every width in
-    `archs/`, all of which are multiples of 8, and the published silicon runs
-    as published. That is the BCH(63,30) case the whole study is calibrated on.
-    """
-    return int(weight_bits) % int(q) != 0
-
-
-def declared_width(n, k, weight_bits=DEFAULT_WEIGHT_BITS):
-    """The declared SCRATCHPAD width for BCH(n, k), or None to keep published.
+def declared_width(q, weight_bits=DEFAULT_WEIGHT_BITS):
+    """The declared SCRATCHPAD width for an arm storing `q`-bit weights.
 
     `WIDTH_TABLE` first, so a hand-picked width wins; otherwise the rule. A
-    table entry that is not legal for its own code raises rather than being
-    quietly rounded up -- prompt_2's 98 and 95 are exactly that failure, and
-    discovering it at validate time is the point.
+    table entry that `q` does not divide raises rather than being quietly
+    rounded -- a width the datawidth does not divide ABORTS `timeloop-mapper`
+    (`buffer.cpp:302`), and discovering that at import time is the point.
+
+    `weight_bits` is accepted so a study at a payload other than 8 bits gets a
+    consistent base, and is deliberately NOT used to constrain the answer: an
+    arm's width must suit the arm's OWN datawidth and nothing else.
     """
-    q = declared_datawidth(n, k, weight_bits)
-    key = (int(n), int(k))
-    if key in WIDTH_TABLE:
-        w = WIDTH_TABLE[key]
-        if w is None:
-            if needs_width_change(q, weight_bits):
-                raise ValueError(
-                    f"WIDTH_TABLE[{key}] is None, but BCH({n},{k}) declares "
-                    f"q={q}, which does not divide weight_bits={weight_bits}. "
-                    f"None means 'the published widths already admit q'; this "
-                    f"code needs a declared width of "
-                    f"{minimum_legal_width(q, weight_bits)} or a multiple.")
-            return None
-        if not is_legal_width(w, q, weight_bits):
-            raise ValueError(
-                f"WIDTH_TABLE[{key}] = {w} is not legal for BCH({n},{k}): "
-                f"q={q} leaves {w % q}, weight_bits={weight_bits} leaves "
-                f"{w % weight_bits}. Both arms share ONE width and "
-                f"timeloop-mapper aborts on `width % datawidth != 0` "
-                f"(buffer.cpp:302). Legal widths are multiples of "
-                f"{minimum_legal_width(q, weight_bits)}.")
-        return int(w)
-    if not needs_width_change(q, weight_bits):
-        return None
-    return minimum_legal_width(q, weight_bits)
+    q = int(q)
+    if q < 1:
+        raise ValueError(f"q={q}: a datawidth must be at least 1 bit")
+    w = WIDTH_TABLE.get(q)
+    if w is None:
+        return nearest_multiple(q, base_width(weight_bits))
+    if int(w) % q != 0:
+        raise ValueError(
+            f"WIDTH_TABLE[{q}] = {w} is not a multiple of {q} (remainder "
+            f"{int(w) % q}). timeloop-mapper asserts "
+            f"`width % (word_bits * block_size) == 0` (buffer.cpp:302) and "
+            f"ABORTS -- there is no floor path. The rule gives "
+            f"{nearest_multiple(q, base_width(weight_bits))}.")
+    return int(w)
 
 
-def glb_width(n, k, glb_mult=4, weight_bits=DEFAULT_WEIGHT_BITS):
-    """What a weight level ABOVE the PE array declares, or None.
+def base_width(weight_bits=DEFAULT_WEIGHT_BITS):
+    """The width the 8-bit arm declares, and the depth denominator.
 
-    `archs._set_weight_width` applies this itself; this is for printing.
+    At the study's 8-bit payload this is `BASE_WIDTH` (96) exactly. At any
+    other payload it is the multiple of that payload nearest 96, so the base
+    arm is always legal for itself.
     """
-    w = declared_width(n, k, weight_bits)
-    return None if w is None else w * int(glb_mult)
+    return nearest_multiple(int(weight_bits), BASE_WIDTH)
 
 
-def renormalised_depth(depth, width, declared):
-    """`_set_weight_width`'s own arithmetic, exposed so a caller can report the
-    bit error BEFORE queueing a wave rather than reading it out of a log."""
-    return max(1, int(round(int(depth) * int(width) / int(declared))))
+def level_width(q, is_scratchpad, glb_mult=4, weight_bits=DEFAULT_WEIGHT_BITS):
+    """What ONE weight level declares: the table width, x `glb_mult` above the
+    PE array. `q | W` implies `q | 4W`, so the divisibility survives."""
+    w = declared_width(q, weight_bits)
+    return w if is_scratchpad else w * int(glb_mult)
 
 
-def audit(codes=None, weight_bits=DEFAULT_WEIGHT_BITS, glb_mult=4):
-    """A printable table of every code: q, declared width, GLB width, legality.
+def renormalised_depth(depth, width, is_scratchpad, glb_mult=4,
+                       weight_bits=DEFAULT_WEIGHT_BITS):
+    """The depth EVERY arm declares for this level: the published total bits
+    divided by the BASE width, not by the arm's own width.
 
-    Re-derives the rule instead of trusting `WIDTH_TABLE`, so running this is
-    what makes the dict reviewable.
+    Computed at the base so the arms share a depth and differ only in `width`
+    (by <= 2 %) and `datawidth` -- which is what makes `capacity_ratio`
+    reproduce prompt_2's `eff. capacity` column, and what leaves
+    `assert_pair_geometry`'s depth check meaningful.
     """
-    codes = codes or sorted(WIDTH_TABLE, key=lambda kv: (-kv[0], -kv[1]))
-    lines = [f"  {'code':<12} {'K/N':>7} {'8K/N':>7} {'q':>3} "
-             f"{'spad W':>7} {'GLB W':>7} {'min legal':>10}  note"]
-    lines.append("  " + "-" * 74)
+    base = base_width(weight_bits)
+    if not is_scratchpad:
+        base *= int(glb_mult)
+    return max(1, int((int(depth) * int(width) / base) + 0.5))
+
+
+def audit(weight_bits=DEFAULT_WEIGHT_BITS, glb_mult=4, codes=None):
+    """A printable table of every arm: q, declared widths, weights per word,
+    effective capacity. Re-derives the rule instead of trusting `WIDTH_TABLE`,
+    so running this is what makes the dict reviewable."""
+    codes = codes or [(63, 57), (63, 51), (63, 45), (63, 39), (63, 36), (63, 30)]
+    base = base_width(weight_bits)
+    per_word_base = base // int(weight_bits)
+    lines = [f"  PROMPT_2 WIDTH TABLE -- base width {base} b, "
+             f"GLB {glb_mult}x, payload {weight_bits} b",
+             "",
+             f"  {'arm':<20} {'q':>3} {'spad W':>7} {'GLB W':>7} "
+             f"{'w/word':>7} {'eff. cap':>9}  legal",
+             "  " + "-" * 68]
+    rows = [("Baseline / Embedded", int(weight_bits))]
+    seen = {int(weight_bits)}
     for n, k in codes:
         q = declared_datawidth(n, k, weight_bits)
-        w = declared_width(n, k, weight_bits)
-        g = glb_width(n, k, glb_mult, weight_bits)
+        rows.append((f"BCH({n},{k})", q))
+        seen.add(q)
+    for label, q in rows:
+        w = declared_width(q, weight_bits)
+        g = level_width(q, False, glb_mult, weight_bits)
+        per_word = w // q
         lines.append(
-            f"  BCH({n},{k})".ljust(14)
-            + f"{k / n:>7.4f} {weight_bits * k / n:>7.3f} {q:>3} "
-            + f"{(str(w) if w else 'published'):>7} "
-            + f"{(str(g) if g else 'published'):>7} "
-            + f"{minimum_legal_width(q, weight_bits):>10}  "
-            + ("published geometry admits q" if w is None
-               else f"q|{w} and {weight_bits}|{w}"))
+            f"  {label:<20} {q:>3} {w:>7} {g:>7} {per_word:>7} "
+            f"{per_word / per_word_base:>8.4f}x  "
+            + (f"{w} % {q} == 0" if w % q == 0 else f"!! {w} % {q} != 0"))
+    lines.append("")
+    lines.append("  Each arm's width suits its OWN datawidth. No arm has to be")
+    lines.append("  legal for another arm's datawidth -- they are never mapped")
+    lines.append("  on one another's silicon. Depth is common (base width).")
     return "\n".join(lines)
 
 

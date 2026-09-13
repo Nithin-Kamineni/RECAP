@@ -172,7 +172,7 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #    then improves it 8.5% to 3.974. Two adjacent budgets agreeing proves
 #    nothing. Only a bound on the UNSEARCHED mapspace does.
 # 4000 is the DEVELOPMENT setting: ~4x cheaper than 10000 and no less converged.
-: "${ECC_VICTORY:=4000}"
+: "${ECC_VICTORY:=2000}"
 
 # ...scaled by loop-nest depth, because the candidate count grows
 # combinatorially with depth: a flat number searches a deep hierarchy less
@@ -450,7 +450,7 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # : "${ECC_RECON_LAYER:=layer3.0.conv1}"
 : "${ECC_RECON_LAYER:=all}"
 : "${ECC_RECON_CODE_N:=63}"               # ONE code geometry
-: "${ECC_RECON_K:=30}"                      # 54 51 45 39 36 30   # ONE code rate, from section 3's list
+: "${ECC_RECON_K:=39}"                      # 54 51 45 39 36 30   # ONE code rate, from section 3's list
                                           # 30 is prompt_2's code -- see section 3.
 
 # The placements explored, per architecture: one bar per entry, left to right.
@@ -691,7 +691,7 @@ declare -A ECC_RECON_PLACEMENTS=(
 #   EMPTY the pre-2026-09-10 model -- baseline priced at ECC_DRAM_PJ_PER_BIT and
 #         charged the external-parity TRAFFIC as a separate component. Keeps the
 #         old numbers reproducible for the diff.
-: "${ECC_BASELINE_DRAM_PJ_PER_BIT:=40}"
+: "${ECC_BASELINE_DRAM_PJ_PER_BIT:=22}"
 
 # The other two terms of E_total(DRAM) = E_dynamic + E_background + E_refresh.
 # BOTH ARE DELIBERATELY 0 FOR NOW (2026-09-09): the study's question is on-chip
@@ -702,6 +702,90 @@ declare -A ECC_RECON_PLACEMENTS=(
 # pJ per bit-second and pJ per bit per refresh window; 0 disables the term.
 : "${ECC_DRAM_BACKGROUND_PJ:=0}"
 : "${ECC_DRAM_REFRESH_PJ:=0}"
+
+# ---- off-chip bandwidth (the latency model) --------------------------------
+# THE SPEED LIMIT ON THE DRAM INTERFACE, IN MB/s.  Until this existed the DRAM
+# level declared no bandwidth at all, Timeloop skipped its throughput check
+# entirely (buffer.cpp:2575 gates on IsSpecified()), and off-chip traffic cost
+# ZERO cycles -- so reconstruction's K/N traffic saving could never show up as
+# latency.  That is prompt_7.md's Defect 1.
+#
+# 480 MB/s is the default Eyeriss-v1 configuration = 3.84 bits per 1 GHz model
+# cycle = 0.48 8-bit words/cycle.  Timeloop wants words/cycle, so section 10
+# converts:  words_per_cycle = MBps * 1e6 * ECC_GLOBAL_CYCLE_SECONDS / (ECC_WEIGHT_BITS/8)
+# Set 240 or 120 to halve/quarter it; EMPTY restores the old unlimited model.
+#
+# CAVEAT worth knowing: the model clock is 1 GHz while Eyeriss v1 silicon runs
+# at 200 MHz, so pairing the real chip's absolute MB/s with a 5x faster clock
+# makes the modelled chip ~5x more memory-starved than the real one.  At
+# 480 MB/s the design is off-chip-bound for ~89% of its run time.  See
+# prompt_7.md section 11 Q2.
+: "${ECC_DRAM_BANDWIDTH_MBPS:=480}"
+
+# ---- component standby (leakage) power -------------------------------------
+# prompt_7 Issue 5. The study charges NO standby power to the accelerator: the
+# `leak` row exists in Accelergy's price list but is never parsed into a total,
+# and the prices themselves are not credible (DRAM and two scratchpad types
+# come out EXACTLY 0; a 52 kB SRAM is priced at 1.36 uW, ~1000x low, because
+# the CACTI config is pinned to the least-leaky transistor recipe there is).
+#
+# These are the replacement densities, in nW. SRAM is CACTI 45nm `itrs-lop`
+# measured on this design's own 52 kB array; RF is the 40nm register number
+# from accelergy-aladdin-plug-in's reg.csv that a later reformat dropped; MAC
+# is the ERT's own leak row. LOP is the right recipe for an EDGE accelerator --
+# `itrs-hp` would be 59.37 nW/bit and is the wrong physics here.
+#
+# WHY THIS IS A KNOB AND NOT A CONSTANT: standby energy = power x TIME, so once
+# reconstruction finishes sooner than embedded it pays proportionally less of
+# it. With equal cycles more leakage SHRINKS the saving slightly; with
+# reconstruction ahead on latency more leakage GROWS it. Sweep it.
+declare -A ECC_LEAKAGE_NW=(
+    [sram_bit]=2.693        # per stored bit   (CACTI 45nm itrs-lop; itrs-hp = 59.37)
+    [rf_bit]=70.0           # per stored bit   (aladdin reg.csv, 40nm)
+    [mac_instance]=7844.9 ) # per MAC          (ERT leak row, 0.00784449 pJ/cycle @1GHz)
+: "${ECC_STATIC_ENERGY:=0}"          # 1 = charge the above to ALL THREE arms
+
+# ---- clock rate, per architecture ------------------------------------------
+# prompt_7 Issue 14. ECC_GLOBAL_CYCLE_SECONDS (section 5) is ONE number for every
+# design and it was 1 GHz, while Eyeriss v1 silicon runs at 200 MHz. Pairing the
+# real chip's ABSOLUTE off-chip MB/s with a 5x faster model clock makes the
+# modelled chip ~5x more memory-starved than the real one (at 480 MB/s it would
+# wait on DRAM ~89% of the run, against ~44% for silicon).
+#
+# UNITS ARE MHz. 1000 = 1 GHz, 200 = the JSSC 2017 rate. Section 10 resolves the
+# design in play into ECC_GLOBAL_CYCLE_SECONDS = 1 / (MHz x 1e6).
+#
+# WHAT THIS DOES NOT CHANGE: when a design is fully off-chip-bound its wall-clock
+# time is set by bandwidth alone, so BOTH clocks give the same absolute run time
+# and the SAME percentage saving. The saving stays at its ceiling for any clock
+# above ~131 MHz at 480 MB/s. The clock buys defensibility, not a better number.
+declare -A ECC_ARCH_CLOCK_MHZ=(
+    [eyeriss_like_wglb]=200     # Eyeriss v1, JSSC 2017 core clock
+    [eyeriss_like]=200          # the retired v1 variant, same silicon
+    [eyeriss_v2_like]=1000      [eyeriss_v2_like_wglb]=1000   # no cited rate; model default
+    [simba_like]=1000           [simple_weight_stationary]=1000
+    [simple_input_stationary]=1000  [simple_output_stationary]=1000 )
+
+# TRAP 1 -- THIS COLDS THE CACHE, ON PURPOSE. `global_cycle_seconds` is in the
+# mapper fingerprint (config.py, `fingerprint()`), so changing a design's rate
+# re-maps that design. Accepted: it is batched into prompt_7.md's Phase C with
+# the other architecture changes, not paid separately.
+#
+# TRAP 2 -- EVERY PER-CYCLE CONSTANT MUST BE CONVERTED WITH THE SAME PERIOD, or
+# standby energy silently moves by 5x. Two live cases, handled differently:
+#
+#   ECC_RECON_IDLE_PJ   is pJ PER CYCLE, measured by DC at a 1 ns clock
+#                       (data/dc/BCH_N63_results.json, measurement.clock_period_ns
+#                       = 1.0). At any other period it MUST be rescaled:
+#                           idle_pJ_per_cycle(T) = idle_pJ_per_cycle(1ns) x T/1ns
+#                       equivalently: use power_uW.idle.total x T. At 200 MHz the
+#                       BCH(63,30) idle is 2.8310811 x 5 = 14.1554055 pJ/cycle.
+#   ECC_LEAKAGE_NW      is POWER (nW), not energy, so it needs NO rescaling --
+#                       energy per cycle = nW x T. That is why it is declared in
+#                       nW and not in pJ/cycle.
+#
+# The wiring must apply the first rule in config.py where the DC tables are read,
+# NOT at the point of use, so no caller can forget it.
 
 
 # =============================================================================
@@ -892,14 +976,17 @@ declare -A ECC_RECON_PLACEMENTS=(
 #   4        the reconstruction arm at BCH(63,30): round(8*30/63) = 4 bits per
 #            stored weight, 2.000x the weights per word on the SAME silicon.
 #
-# HARD CONSTRAINT: `width % datawidth == 0` on every level it rewrites, or
+# HARD CONSTRAINT: `width % datawidth == 0` on the level that declares it, or
 # timeloop-mapper ABORTS -- `buffer.cpp:302`, measured at width 16 /
 # datawidth 5 as `exit=134, core dumped`. block_size defaults to 1 and is then
 # checked, so there is NO floor path and a partially-filled word cannot be
-# modelled. archs._set_weight_datawidth raises before the YAML is written, so
-# a bad combination fails once instead of aborting every layer of a wave.
-# Per-code widths are tabulated in prompt_2.md; BCH(63,30) needs none, which
-# is why it is the code this study starts from.
+# modelled.
+# YOU NEVER SATISFY THIS BY HAND AND CANNOT VIOLATE IT. THE WIDTH TABLE below
+# gives every level a width that is a MULTIPLE OF THE DATAWIDTH THAT LEVEL
+# STORES -- 96 at q=8, 98 at q=7, 96 at q=6, 95 at q=5, 96 at q=4 -- applied
+# automatically on every run. The constraint is per level and per mapper run;
+# it says nothing about what any OTHER arm declares, so 95 at q=5 is correct
+# and the fact that 95 % 8 = 7 is irrelevant.
 # DRAM IS NEVER REWRITTEN. recon.py owns the DRAM K/N scaling; narrowing DRAM
 # here as well would double-count it there.
 : "${ECC_WEIGHT_DATAWIDTH:=}"
@@ -915,68 +1002,89 @@ declare -A ECC_RECON_PLACEMENTS=(
 #   : "${ECC_WEIGHT_DATAWIDTH_LEVELS:=filter_glb}"
 : "${ECC_WEIGHT_DATAWIDTH_LEVELS:=}"
 
-# PROMPT_2'S WIDTH TABLE -- the declared physical word width, when the code's
-# q does not divide the published one. EMPTY keeps each design's published
-# widths, and BCH(63,30) NEEDS NOTHING ELSE: q = 4 divides Eyeriss v1's 16-bit
-# scratchpad word and its 64-bit GLB word already, so the arms run on the
-# UNTOUCHED published geometry at exactly 2.000x. That is why 30 is the code
-# this study starts from.
+# PROMPT_2'S WIDTH TABLE -- AUTOMATIC, UNCONDITIONAL, AND NOT A KNOB.
 #
-# THE TABLE IS QUOTED FOR THE SCRATCHPAD. A weight level ABOVE the PE array
-# declares ECC_WEIGHT_WIDTH_GLB_MULT times that width -- 4x, which is the
-# ratio Eyeriss v1's published geometry already has (filter spad 224 x 16 b,
-# filter GLB two 512-b x 64-b banks) and which preserves divisibility, since
-# q dividing W implies q dividing 4W. So one scratchpad width settles every
-# weight level at once.
+# There is no ECC_WEIGHT_WIDTH. There was one until 2026-09-12 and it caused
+# the exact failure it was supposed to prevent, so the width is now derived,
+# on every run, from the datawidth each weight level stores:
 #
-# EACH LEVEL'S DEPTH IS RENORMALISED to hold its declared TOTAL BITS
-# (depth' = round(depth * width / width')), so this reshapes the word without
-# resizing the array -- and CACTI is handed depth and width, so that is
-# exactly the quantity that must not move. It reproduces prompt_2's own
-# numbers: weights_spad 224 x 16 b = 3,584 b -> depth 37 at width 96.
+#   arm                  q    spad W   GLB W (4x)   weights/word   eff. capacity
+#   Baseline / Embedded  8      96        384            12           1.0000x
+#   BCH(63,57)           7      98        392            14           1.1667x
+#   BCH(63,45)           6      96        384            16           1.3333x
+#   BCH(63,39)           5      95        380            19           1.5833x
+#   BCH(63,30)           4      96        384            24           2.0000x
 #
-# A WIDTH MUST DIVIDE BOTH q AND ECC_WEIGHT_BITS, and prompt_2's table has two
-# rows that do not. Both arms share ONE declared width and the
-# baseline/embedded arm stores 8-bit weights, so a width chosen only to divide
-# q aborts the OTHER arm at buffer.cpp:302:
-#   BCH(63,57) q=7 W=98 -> 98 % 8 = 2   embedded arm ABORTS
-#   BCH(63,45) q=6 W=96 -> 96 % 8 = 0   both arms OK
-#   BCH(63,39) q=5 W=95 -> 95 % 8 = 7   embedded arm ABORTS
-#   BCH(63,30) q=4 W=96 -> 96 % 8 = 0   both arms OK  (and no change needed)
-# config.py refuses the illegal ones at validate time. Only the width-96 rows
-# are runnable as a pair, which is the same set prompt_2 identifies as
-# "literally the same silicon as Embedded's".
+# BCH(63,51) shares q=6 with BCH(63,45) and BCH(63,36) shares q=5 with
+# BCH(63,39), so they take the same widths. Read the live table with
+#   python3 -m eccenergy.code_widths
 #
-# `auto` IS THE ANSWER TO THAT, AND IT MAKES EVERY BCH CONFIGURATION RUNNABLE
-# (2026-09-11). eccenergy/code_widths.py holds THE WIDTH TABLE as a dict keyed
-# by (N, K), replaces the published width when that code comes up, and returns
-# nothing at all when the published width already admits q. It fixes both of
-# prompt_2's illegal rows by taking the smallest width BOTH arms can declare,
-# lcm(q, ECC_WEIGHT_BITS) -- not prompt_2's ~96-bit family, whose nearest legal
-# members (112 and 80) are +-17% apart anyway and leave a 2-3 entry scratchpad
-# on the current depth-16 spad, where `_set_weight_width` renormalises depth to
-# hold the published total bits and integer depth makes that lossy:
-#   BCH(63,57) q=7 -> spad  56b, GLB 224b    depth 5, 280 b  (+9.4%)
-#   BCH(63,51) q=6 -> spad  24b, GLB  96b    depth 11, 264 b (+3.1%)
-#   BCH(63,45) q=6 -> spad  24b, GLB  96b    depth 11, 264 b (+3.1%)
-#   BCH(63,39) q=5 -> spad  40b, GLB 160b    depth 6, 240 b  (-6.2%)
-#   BCH(63,36) q=5 -> spad  40b, GLB 160b    depth 6, 240 b  (-6.2%)
-#   BCH(63,30) q=4 -> published geometry, untouched, exactly 2.000x
-# Read the table with `python3 -m eccenergy.code_widths`.
+# THE ARMS DO NOT SHARE A DECLARED WIDTH. THIS IS THE POINT, AND IT HAS BEEN
+# GOT WRONG REPEATEDLY. Each arm declares the width that suits ITS OWN
+# datawidth, and no arm has to be legal for another arm's datawidth:
 #
-#   EMPTY   keep each design's published widths. THE DEFAULT, and what every
-#           run before 2026-09-11 was made under -- so leaving it empty keeps
-#           every existing mapper cache valid (BCH(63,30) fingerprints
-#           identically under EMPTY and under `auto`, verified).
-#   auto    look the width up from (ECC_CODE_N, ECC_CONST_K). Set it for a
-#           mapping study at any code other than BCH(63,30); a Task 1/2/3 BCH
-#           sweep does NOT want it, because those arms never declare a reduced
-#           datawidth and a width change there would cold every cache for
-#           nothing.
-#   <bits>  a hand-typed width, which still wins and is still validated.
-#   : "${ECC_WEIGHT_WIDTH:=96}"    # BCH(63,45) or BCH(63,30)
-: "${ECC_WEIGHT_WIDTH:=}"
+#   BCH(63,39) runs at width 95 because 95 % 5 == 0.
+#   95 % 8 = 7 IS IRRELEVANT: the baseline/embedded arm is never mapped at
+#   width 95. It is mapped at 96, where 96 % 8 == 0.
+#
+# Same for BCH(63,57) at width 98 (98 % 7 == 0; 98 % 8 = 2 is irrelevant).
+# `timeloop-mapper` asserts `width % (word_bits * block_size) == 0`
+# (buffer.cpp:302, block_size defaults to 1, NO floor path, exit=134 on a
+# violation) PER DESIGN, per mapper run -- one arm at a time. It never sees
+# two arms at once and there is no constraint between them.
+#
+# WITHDRAWN 2026-09-12: the lcm(q, 8) scheme (56 / 24 / 24 / 40 / 40), which
+# came from reading the rule as "both arms share one width". It made the 8-BIT
+# REFERENCE ARM MOVE BETWEEN CODES, so the reference held 35 / 33 / 30 weights
+# per PE at q = 7 / 6 / 5, fell off a tiling cliff at q=5, and reported
+# BCH(63,39) as a 37.69% win that was really the reference breaking
+# (FINDINGS 2.4b). Under THIS table the 8-bit arm is width 96 at every code:
+# ONE arm, mapped ONCE, and that artifact cannot occur.
+#
+# PER LEVEL, not per design. An ERT arm narrows only the storage levels in its
+# placement's reduced set, so at ECC_WEIGHT_DATAWIDTH_LEVELS=filter_glb the
+# GLB stores 5-bit weights at width 380 while weights_spad keeps 8-bit weights
+# at width 96. Both are legal for what they hold; neither is legal for the
+# other, and neither has to be.
+#
+# EACH LEVEL'S DEPTH IS RENORMALISED AT THE BASE WIDTH (96, x4 above the PE
+# array), NOT at the arm's own width -- depth' = round(depth x width / 96) --
+# so it holds the published TOTAL BITS and is THE SAME FOR EVERY ARM. CACTI is
+# handed depth and width, so that is the quantity that must not move; and a
+# shared depth is what makes `eff. capacity` come out as (W_arm/q)/(96/8),
+# reproducing prompt_2's column to the digit. It reproduces prompt_2's own
+# depths too: weights_spad 224 x 16 b = 3,584 b -> depth 37 at width 96;
+# filter_glb 1024 x 64 b = 65,536 b -> depth 171 at width 384.
+#
+# DRAM IS NEVER REWRITTEN. recon.py owns the DRAM K/N scaling; narrowing DRAM
+# here as well would double-count it there.
+#
+# The GLB multiplier below is the one number left to set: 4x is Eyeriss v1's
+# published 16-b spad / 64-b GLB ratio, and q dividing W implies q dividing
+# 4W, so one scratchpad width settles every weight level at once.
 : "${ECC_WEIGHT_WIDTH_GLB_MULT:=4}"
+
+# LET THE TWO ARMS DECLARE DIFFERENT `depth:` ON A WEIGHT LEVEL.
+# archs.assert_pair_geometry() checks that the reconstruction arm and the
+# embedded arm hold the SAME LEVELS AT THE SAME DEPTH -- and nothing else.
+# It does NOT check `width:` and it does NOT check `datawidth:`, because under
+# THE WIDTH TABLE above the arms are SUPPOSED to differ there (96 vs 95 vs 98,
+# 8 vs 5 vs 7). Asserting a shared width is what produced the withdrawn
+# lcm(q, 8) scheme; that check is gone and must not come back.
+#
+# DEPTH is the one thing left to assert, and it is worth asserting: a depth
+# difference is real silicon one arm does not have, priced by Accelergy, which
+# is the defect that invalidated the pre-prompt_2 sweep (capacity dilation,
+# FINDINGS 7.8 -- the dilated array cost 1.18-1.46x more per access, so the
+# optimiser had a reason to leave the room unused).
+#
+#   0   assert it. THE DEFAULT: a depth difference nobody asked for is a void
+#       comparison and the run stops rather than reporting it.
+#   1   allow it, and print what differs instead of raising. For a study that
+#       varies depth between the reconstruction and the embedded arm ON
+#       PURPOSE -- several different depth variations per arm, which is what
+#       this knob exists for.
+: "${ECC_DISABLE_ASSERT_PAIR_GEOMETRY:=0}"
 
 # THE ONLY SWEPT VARIABLE: `depth:` of the on-chip weight levels. Explicitly
 # NOT swept: width, datawidth, DRAM (ECC_DRAM_DEPTH), any level not holding
@@ -1125,16 +1233,30 @@ declare -A ECC_RECON_PLACEMENTS=(
 # cycle count of the plan that is being billed (build_stacks: the sweep's
 # recon arm reconstructs at the chip ingress, one engine; the placement
 # study: 1 / 14 / 168 engines derived from the site stage). The two tables
-# below are the DC numbers the JSON holds, keyed by configuration; they are
-# read when the JSON has no entry for the (N,K) in play, BEFORE the fallback
-# constants. Bash cannot export an associative array, so section 10 flattens
-# them into ECC_RECON_INCREMENTAL_PJ_LIST / ECC_RECON_IDLE_PJ_LIST.
+# below are the DC numbers, keyed by configuration, and they are read FIRST --
+# before ECC_RECON_JSON, which is the synthesis archive behind them. Edit a
+# value here and it is what the run prices the datapath at. BOTH tables must
+# carry the (N,K) for them to win; if either lacks it the pair falls through to
+# the JSON, so the two terms can never come from different sources. Changing
+# either one moves the ERT toll, which is hashed into the mapper fingerprint,
+# so the affected arms re-map by themselves on the next run. Bash cannot export
+# an associative array, so section 10 flattens them into
+# ECC_RECON_INCREMENTAL_PJ_LIST / ECC_RECON_IDLE_PJ_LIST.
+
+# declare -A ECC_RECON_INCREMENTAL_PJ=(   # pJ per codeword
+#     [BCH_63_57_t1]=1.6574   [BCH_63_51_t2]=1.8995   [BCH_63_45_t3]=1.6383
+#     [BCH_63_39_t4]=1.4561   [BCH_63_36_t5]=1.5082   [BCH_63_30_t6]=1.3786 )
+# declare -A ECC_RECON_IDLE_PJ=(          # pJ per CYCLE per ENGINE
+#     [BCH_63_57_t1]=1.9359672  [BCH_63_51_t2]=2.2301273  [BCH_63_45_t3]=2.4120856
+#     [BCH_63_39_t4]=2.7891299  [BCH_63_36_t5]=2.8358254  [BCH_63_30_t6]=2.8310811 )
+
 declare -A ECC_RECON_INCREMENTAL_PJ=(   # pJ per codeword
     [BCH_63_57_t1]=1.6574   [BCH_63_51_t2]=1.8995   [BCH_63_45_t3]=1.6383
     [BCH_63_39_t4]=1.4561   [BCH_63_36_t5]=1.5082   [BCH_63_30_t6]=1.3786 )
 declare -A ECC_RECON_IDLE_PJ=(          # pJ per CYCLE per ENGINE
     [BCH_63_57_t1]=1.9359672  [BCH_63_51_t2]=2.2301273  [BCH_63_45_t3]=2.4120856
     [BCH_63_39_t4]=2.7891299  [BCH_63_36_t5]=2.8358254  [BCH_63_30_t6]=2.8310811 )
+
 : "${ECC_RECON_PJ:=}"                # overrides the INCREMENTAL term only (pJ per
                                      # codeword); idle has no override
 # Used ONLY when the JSON has no entry for the (N,K) in play -- the BCH(63,51)
@@ -1142,6 +1264,47 @@ declare -A ECC_RECON_IDLE_PJ=(          # pJ per CYCLE per ENGINE
 # If you see these in a result's provenance, the table is missing a code.
 : "${ECC_RECON_INCREMENTAL_FALLBACK_PJ:=1.8995}"
 : "${ECC_RECON_IDLE_FALLBACK_PJ:=2.2301273}"
+
+# ---- clock gating of the reconstruction engines ---------------------------
+# THE IDLE NUMBER ABOVE IS A FREE-RUNNING CLOCK. `ECC_RECON_IDLE_PJ` is the DC
+# idle-window TOTAL, and for BCH(63,30) that is 2.8310811 pJ/cycle of which
+# 2.8164 pJ (99.48%) is CLOCK/dynamic power and only 0.0147 pJ (0.52%) is true
+# leakage (data/dc/BCH_N63_results.json, power_uW.idle.{dynamic,leakage}).
+# An engine that is clock-gated when no weight is arriving does not burn the
+# dynamic part.  This knob is the percentage of the idle-cycle energy that
+# gating removes:
+#
+#   E_recon = (incremental + idle) x events                      <- engine working
+#           + idle x (1 - PCT/100) x (engine_cycles - events)     <- engine gated off
+#
+#   PCT=0     reproduces the pre-gating model EXACTLY, to the pJ.  Use it to
+#             diff against any number published before this knob existed.
+#   PCT=99.5  the default: the measured clock/dynamic share.
+#   PCT=100   fully power-gated -- the optimistic bound, no standby at all.
+#
+# Measured duty cycles are 0.62% (recon4) to 14.3% (recon1), so this term is
+# 93.5-99.7% of the reconstruction energy and the knob moves the headline
+# result.  ALWAYS report PCT=0 beside whatever you choose.  See prompt_7.md
+# section 11 Q1 for the verification this setting still needs.
+: "${ECC_RECON_CLOCK_GATING_PCT:=99.5}"
+
+# ---- energy-model revision (what invalidates the cache) ---------------------
+# THE MAPPER FINGERPRINT HASHES THE ARCHITECTURE, NOT THE PRICE LIST. Accelergy
+# derives the price list FROM the architecture, so fixing an estimator changes
+# every energy in the cache while leaving the directory it is stored under
+# identical -- the stale entries are then reused and nothing says so.
+#
+# That is not hypothetical: the Neurosim plug-in answered 0 pJ for every
+# smartbuffer address generator until 2026-09-12 (it crashed writing scratch
+# into a read-only SIF and Accelergy accepted the 0). hpc/tl.sh now gives it a
+# writable directory, but THAT FIX CANNOT LAND UNTIL THE CACHE IS REGENERATED.
+#
+# Set this to any non-empty string and the whole matrix colds deliberately;
+# EMPTY hashes byte-identically to every fingerprint made before the knob
+# existed, so Phase A can keep reading today's cache. Bump it in Phase C, when
+# the caches are being rebuilt anyway. Suggested form: a date plus what changed.
+#     ECC_ENERGY_MODEL_REV="2026-09-12-neurosim-adders"
+: "${ECC_ENERGY_MODEL_REV:=}"
 
 # ---- weak ECC overlay ------------------------------------------------------
 # A light SRAM-side code on top of the strong one. Weights pay it under every
@@ -1424,16 +1587,17 @@ export ECC_PROJECT_ROOT ECC_SIF ECC_TASKFILE ECC_USE_CONTAINER ECC_PYTHON \
        ECC_RECON_PACKING \
        ECC_RECON_ENCODER_GRANULARITY \
        ECC_RECON_ONCHIP_FRACTION ECC_RECON_PLACEMENT_CHARGES_DECODE \
-       ECC_RECON_DECODE_SITE ECC_RECON_ENCODER_SITE \
+       ECC_RECON_DECODE_SITE ECC_RECON_ENCODER_SITE ECC_RECON_CLOCK_GATING_PCT ECC_ENERGY_MODEL_REV \
        ECC_DRAM_PJ_PER_BIT ECC_BASELINE_DRAM_PJ_PER_BIT \
-       ECC_DRAM_BACKGROUND_PJ ECC_DRAM_REFRESH_PJ \
+       ECC_DRAM_BACKGROUND_PJ ECC_DRAM_REFRESH_PJ ECC_DRAM_BANDWIDTH_MBPS \
+       ECC_STATIC_ENERGY \
        ECC_WEIGHT_BITS ECC_ACTIVATION_BITS ECC_ACC_BITS ECC_ARCH_FIDELITY \
        ECC_FORCE_DATAWIDTH ECC_FORCE_TECHNOLOGY ECC_DRAM_DEPTH ECC_MAC_PJ_OVERRIDE \
        ECC_WEIGHT_CAPACITY_SCALE ECC_WEIGHT_CAPACITY_SCOPE \
        ECC_WEIGHT_FACTOR_RELAX ECC_MAPSPACE_CONSTRAIN \
        ECC_WEIGHT_DATAWIDTH ECC_WEIGHT_DATAWIDTH_LEVELS \
        ECC_WEIGHT_DEPTH_SCALE ECC_WEIGHT_DEPTH_LEVELS \
-       ECC_WEIGHT_WIDTH ECC_WEIGHT_WIDTH_GLB_MULT \
+       ECC_WEIGHT_WIDTH_GLB_MULT ECC_DISABLE_ASSERT_PAIR_GEOMETRY \
        ECC_DEPTH_SWEEP_SCALES ECC_DEPTH_SWEEP_RECON_DW \
        ECC_DEPTH_SWEEP_GATE_VICTORIES ECC_DEPTH_SWEEP_GATE_SCALES \
        ECC_GLOBAL_CYCLE_SECONDS ECC_NOC ECC_NOC_WIRE_PJ_PER_BIT_MM \

@@ -78,6 +78,7 @@ cd Energy_Modeling
 module load apptainer
 bash hpc/tl.sh bash run.sh validate         # optional 5-second contract check
 bash hpc/run_all.sh                         # map (SLURM array), then evaluate + plot
+ECC_RECON_ERT_AWARE=1 bash hpc/map_ert_arms.sh
 ```
 
 ---

@@ -33,6 +33,8 @@ how to add a model or an architecture). This file is the operating manual.
 cd /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling
 module load apptainer
 bash hpc/run_all.sh
+
+ECC_RERUN_OPTIMISER=1 ECC_RECON_ERT_AWARE=1 bash hpc/map_ert_arms.sh
 ```
 
 That reads `env.sh`, writes the `<arch> <model>` task list from

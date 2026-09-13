@@ -83,8 +83,9 @@ def _with_env(**kw):
 
 
 def load_code(k):
+    # No ECC_WEIGHT_WIDTH: THE WIDTH TABLE is automatic (code_widths.py).
     saved = _with_env(ECC_CODE_N=63, ECC_CONST_K=k, ECC_KS=k,
-                      ECC_WEIGHT_WIDTH="auto", RECON_OPTIMIZER="False")
+                      RECON_OPTIMIZER="False")
     try:
         cfg = config.load_config()
         q = code_widths.declared_datawidth(cfg.code_n, cfg.code_k, cfg.weight_bits)
@@ -122,9 +123,15 @@ def load_code(k):
 def _derive(cfg, k, q, raws, geo):
     emb, rec = raws["embedded"], raws["recon"]
     d = {"K": k, "q": q, "N": cfg.code_n, "scale": SCALE, "k_over_n": k / cfg.code_n,
-         "spad_width": cfg.weight_width or "published",
-         "glb_width": (cfg.weight_width * cfg.weight_width_glb_mult
-                       if cfg.weight_width else "published"),
+         # PER ARM: the reconstruction arm's width comes from ITS q, the
+         # 8-bit arm's from 8. They are NOT the same number and do not have
+         # to be -- see eccenergy/code_widths.py.
+         "spad_width": code_widths.declared_width(q, cfg.weight_bits),
+         "glb_width": code_widths.level_width(q, False,
+                                              cfg.weight_width_glb_mult,
+                                              cfg.weight_bits),
+         "emb_spad_width": code_widths.declared_width(cfg.weight_bits,
+                                                      cfg.weight_bits),
          "capacity_ratio": cfg.weight_bits / q,
          "dram_pj_per_bit": cfg.dram_pj_per_bit,
          "baseline_dram_pj_per_bit": cfg.baseline_dram_pj_per_bit,
@@ -274,8 +281,9 @@ def _print(rows):
 
     print("\n" + "=" * 134)
     print("TABLE 2 -- THE SILICON EACH PAIR DECLARED, and the mapping it bought.")
-    print("           Both arms of a pair share ONE width and ONE depth; only "
-          "`datawidth` differs (archs.assert_pair_geometry).")
+    print("           The arms share ONE DEPTH (assert_pair_geometry checks it). Each")
+    print("           declares the WIDTH ITS OWN datawidth needs -- 96 at q=8, 98 at q=7,")
+    print("           95 at q=5 -- and neither has to be legal for the other's.")
     print("=" * 134)
     _rule(f"  {'code':<11} {'spad W':>8} {'GLB W':>8} {'cap':>7} "
           f"{'emb held/room (fill)':>25} {'rec held/room (fill)':>25} "

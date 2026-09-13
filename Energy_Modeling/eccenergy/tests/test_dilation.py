@@ -29,10 +29,13 @@ everything would be as useless as no guard at all.
 """
 from __future__ import annotations
 
+import os
 import pathlib
 import sys
 import tempfile
 import traceback
+
+from .. import config
 
 FAILURES = []
 SKIPPED = []
@@ -520,12 +523,17 @@ def test_the_two_arms_declare_identical_silicon_at_every_swept_depth():
             assert v["embedded"] == 8 and v["recon"] == 4, (s, level, v)
 
 
-def test_a_width_or_depth_mismatch_between_the_arms_is_refused():
-    """The fairness assertion is a STOP, not an annotation.
+def test_a_depth_mismatch_between_the_arms_is_refused_but_a_width_one_is_not():
+    """The fairness assertion is a STOP, not an annotation -- FOR DEPTH.
 
-    Deliberately break it the way the previous sweep did -- give the
-    reconstruction arm a deeper array -- and check the comparison is refused
-    rather than corrected afterwards.
+    Deliberately break it the way the previous sweep did (give the
+    reconstruction arm a deeper array) and check the comparison is refused
+    rather than corrected afterwards. Then check the thing it must NOT refuse:
+    a WIDTH difference, which under prompt_2's WIDTH TABLE is the treatment.
+    Each arm declares the width that suits its own datawidth -- 96 at q=8,
+    95 at q=5 -- and neither has to be legal for the other's, because neither
+    is ever mapped on the other's silicon. Asserting a shared width is what
+    produced the withdrawn lcm(q, 8) scheme; see eccenergy/code_widths.py.
     """
     try:
         from eccenergy import archs
@@ -537,11 +545,36 @@ def test_a_width_or_depth_mismatch_between_the_arms_is_refused():
     try:
         archs.assert_pair_geometry(_P2_ARCH, emb, dilated)
     except ValueError as e:
-        assert "same silicon" in str(e) and "depth" in str(e), str(e)
+        assert "depth" in str(e) and "silicon" in str(e), str(e)
     else:
         raise AssertionError(
             "a reconstruction arm with 2x the DEPTH was accepted as a fair "
             "pair. That is exactly the geometry FINDINGS 7.8 withdrew.")
+    # ... and the knob that lets a deliberate depth study through.
+    allowed = dataclasses.replace(dilated, disable_pair_geometry_assert=True)
+    archs.assert_pair_geometry(_P2_ARCH, emb, allowed)          # must not raise
+
+    # A WIDTH DIFFERENCE IS NOT A DEFECT. BCH(63,39) declares 95 against the
+    # 8-bit arm's 96 and the pair is legal.
+    saved = dict(os.environ)
+    try:
+        os.environ["ECC_KS"] = os.environ["ECC_CONST_K"] = "39"
+        os.environ["ECC_RECON_K"] = "39"
+        cfg39 = config.load_config()
+        e39 = dataclasses.replace(cfg39, weight_datawidth=None)
+        r39 = dataclasses.replace(cfg39, weight_datawidth=5)
+        info = archs.assert_pair_geometry(_P2_ARCH, e39, r39)   # must not raise
+    finally:
+        os.environ.clear()
+        os.environ.update(saved)
+    differing = {lvl: (v["embedded_width"], v["recon_width"])
+                 for lvl, v in info.items()
+                 if v["embedded_width"] != v["recon_width"]}
+    assert differing, (
+        f"BCH(63,39)'s arms declare identical widths -- then prompt_2's table "
+        f"is not being applied: {info}")
+    for lvl, (we, wr) in differing.items():
+        assert we % 8 == 0 and wr % 5 == 0, (lvl, we, wr)
 
 
 def test_the_reduced_arm_gets_exactly_two_times_the_capacity_at_bch_63_30():
@@ -692,12 +725,12 @@ def test_datawidth_levels_empty_reproduces_the_unfiltered_rewrite_byte_for_byte(
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"archs unavailable: {exc}")
     text = archs.arch_source(_P2_ARCH, _p2_cfgs()[0]).read_text()
-    plain = archs._set_weight_datawidth(text, 4, scope="exclusive",
-                                        arch=_P2_ARCH, quiet=True)
-    empty = archs._set_weight_datawidth(text, 4, (), "exclusive", _P2_ARCH,
-                                        quiet=True)
-    both = archs._set_weight_datawidth(text, 4, ("filter_glb", "weights_spad"),
-                                       "exclusive", _P2_ARCH, quiet=True)
+    plain = archs._set_weight_geometry(text, 4, scope="exclusive",
+                                       arch=_P2_ARCH, quiet=True)
+    empty = archs._set_weight_geometry(text, 4, (), 4, "exclusive", _P2_ARCH,
+                                       quiet=True)
+    both = archs._set_weight_geometry(text, 4, ("filter_glb", "weights_spad"),
+                                      4, "exclusive", _P2_ARCH, quiet=True)
     assert plain == empty, "levels=() changed the patched YAML"
     assert plain == both, "naming every weight level differs from naming none"
     assert plain != text, "the rewrite did nothing at all"
@@ -718,8 +751,13 @@ def test_naming_filter_glb_narrows_filter_glb_and_leaves_the_spad_at_eight():
     geo = archs.patched_weight_geometry(_P2_ARCH, glb_only)
     assert geo["filter_glb"]["datawidth"] == 4, geo["filter_glb"]
     assert geo["weights_spad"]["datawidth"] == 8, geo["weights_spad"]
-    assert geo["filter_glb"]["weights_per_word"] == 16, geo["filter_glb"]
-    assert geo["weights_spad"]["weights_per_word"] == 2, geo["weights_spad"]
+    # THE WIDTH TABLE: the narrowed GLB is 96 x 4 = 384 b at datawidth 4, the
+    # spad 96 b at datawidth 8. Both counts are width/datawidth, and both
+    # widths come from the datawidth the level actually stores.
+    assert geo["filter_glb"]["width"] == 384, geo["filter_glb"]
+    assert geo["filter_glb"]["weights_per_word"] == 96, geo["filter_glb"]
+    assert geo["weights_spad"]["width"] == 96, geo["weights_spad"]
+    assert geo["weights_spad"]["weights_per_word"] == 12, geo["weights_spad"]
     text = archs._patched_text(_P2_ARCH, glb_only, quiet=True)
     dram = [p for p in text.split("\n- !") if "class: DRAM" in p or "name: DRAM" in p]
     assert dram and all("datawidth: 8" in p for p in dram), "DRAM moved"
@@ -761,11 +799,53 @@ def test_a_misspelt_datawidth_level_is_refused():
 
 
 def _ert_cfgs():
-    """`(reference, recon2, recon4)` configurations on Eyeriss v1 at BCH(63,30)."""
+    """`(reference, recon2, recon4)` configurations on Eyeriss v1 at BCH(63,30).
+
+    The two DC tables are EMPTIED first, so the toll below comes from the DC
+    JSON and nothing else. `ecc.load_recon_terms` reads env.sh section 6 BEFORE
+    the JSON, and section 10 rebuilds the flattened lists from the `declare -A`
+    tables on every source -- an unconditional assignment, so the environment
+    cannot override them. Without this, a value typed into section 6 while
+    working would silently become the number these tests assert against, and
+    prompt_6 5.1's published table would stop being what they check.
+    """
     import dataclasses
     cfg, _, _ = _p2_cfgs()
+    # prompt_7 Issue 15: prompt_6 Table 5.1 is the UNGATED table, so these
+    # assertions are pinned to PCT=0. The gated rows are checked in
+    # test_recon.test_clock_gating_is_exact_at_zero_and_scales_the_idle_term.
+    cfg = dataclasses.replace(cfg, recon_incremental_table={}, recon_idle_table={},
+                              recon_clock_gating_pct=0.0)
     return (cfg, dataclasses.replace(cfg, recon_ert_arm="recon2"),
             dataclasses.replace(cfg, recon_ert_arm="recon4"))
+
+
+def test_the_energy_model_revision_colds_only_when_set():
+    """prompt_7, 2026-09-12. The fingerprint hashes the ARCHITECTURE, not the
+    price list Accelergy derives from it, so a corrected estimator changes every
+    cached energy without moving the directory it lives in.
+    `ECC_ENERGY_MODEL_REV` closes that hole, and it must do so WITHOUT
+    disturbing anything: EMPTY has to hash byte-identically to every fingerprint
+    made before the knob existed, or Phase A loses the cache it reads."""
+    import dataclasses
+    try:
+        from eccenergy import config
+    except Exception as exc:                       # pragma: no cover
+        raise _Skip(f"config unavailable: {exc}")
+    cfg, _, _ = _p2_cfgs()
+    base = dataclasses.replace(cfg, energy_model_rev="")
+    same = dataclasses.replace(cfg, energy_model_rev="")
+    assert base.fingerprint() == same.fingerprint()
+    # the deliberate breakage: any non-empty value must move it, and two
+    # different values must not collide
+    a = dataclasses.replace(cfg, energy_model_rev="2026-09-12-neurosim-adders")
+    b = dataclasses.replace(cfg, energy_model_rev="something-else")
+    assert a.fingerprint() != base.fingerprint(), "a set revision must cold the cache"
+    assert b.fingerprint() != base.fingerprint()
+    assert a.fingerprint() != b.fingerprint(), "two revisions must not share a cache"
+    # and it must be the ONLY thing that moved -- an empty string is not a value
+    assert dataclasses.replace(cfg, energy_model_rev="").fingerprint() == base.fingerprint()
+    return f"empty preserves {base.fingerprint()}; set -> {a.fingerprint()}"
 
 
 def test_the_wrong_sibling_guard_two_arms_identical_yaml_different_fingerprints():
@@ -814,23 +894,42 @@ def test_the_wrong_sibling_guard_two_arms_identical_yaml_different_fingerprints(
 
 def test_the_ert_bump_is_recomputed_from_the_patched_arch_and_the_dc_table():
     """prompt_6 5.1's table, recomputed: recon2 bumps filter_glb.read by
-    E_w x 16 = 2.80096 pJ, recon4 bumps weights_spad.write by E_w x 2 =
-    0.350120 pJ, both bump leak by 2.8310811 pJ/instance/cycle."""
+    E_w x block_size, recon4 bumps weights_spad.write likewise, both bump leak
+    by 2.8310811 pJ/instance/cycle.
+
+    The BLOCK SIZES are read off the patched YAML, not pinned, because they
+    move with THE WIDTH TABLE: at BCH(63,30) the narrowed `filter_glb` is
+    384 b / 4 b = 96 weights per word and `weights_spad` 96 b / 8 b = 12.
+    Pinning them made this test assert one arch revision rather than the rule.
+    """
     try:
         from eccenergy import archs
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"archs unavailable: {exc}")
     _, r2, r4 = _ert_cfgs()
     b2, b4 = archs.ert_bump(_P2_ARCH, r2), archs.ert_bump(_P2_ARCH, r4)
-    assert (b2["level"], b2["action"], b2["counter"], b2["block_size"]) == ("filter_glb", "read", "reads", 16), b2
-    assert (b4["level"], b4["action"], b4["counter"], b4["block_size"]) == ("weights_spad", "write", "fills", 2), b4
-    assert abs(b2["access_delta_pj"] - 2.80096) < 1e-5, b2["access_delta_pj"]
-    assert abs(b4["access_delta_pj"] - 0.350120) < 1e-6, b4["access_delta_pj"]
+    geo2 = archs.patched_weight_geometry(_P2_ARCH, r2)
+    geo4 = archs.patched_weight_geometry(_P2_ARCH, r4)
+    assert (b2["level"], b2["action"], b2["counter"], b2["block_size"]) == (
+        "filter_glb", "read", "reads",
+        geo2["filter_glb"]["weights_per_word"]), (b2, geo2["filter_glb"])
+    assert (b4["level"], b4["action"], b4["counter"], b4["block_size"]) == (
+        "weights_spad", "write", "fills",
+        geo4["weights_spad"]["weights_per_word"]), (b4, geo4["weights_spad"])
+    # THE RULE, not the literals: the toll is E_w x the level's own block size.
+    assert abs(b2["access_delta_pj"]
+               - b2["e_w_pj"] * geo2["filter_glb"]["weights_per_word"]) < 1e-9, b2
+    assert abs(b4["access_delta_pj"]
+               - b4["e_w_pj"] * geo4["weights_spad"]["weights_per_word"]) < 1e-9, b4
     assert b2["leak_delta_pj"] == b4["leak_delta_pj"] == 2.8310811
     assert abs(b2["e_w_pj"] - 0.175060) < 1e-6 and b2["e_w_pj"] == b4["e_w_pj"]
     assert b2["narrow_levels"] == b4["narrow_levels"] == ["filter_glb"]
-    assert (b2["level_width"], b2["level_datawidth"]) == (64, 4)
-    assert (b4["level_width"], b4["level_datawidth"]) == (16, 8), "weights_spad must stay 8-bit on recon4"
+    # THE WIDTH TABLE, per level: the NARROWED GLB takes the q=4 width (96 x 4)
+    # and the spad keeps the 8-bit width (96). Each is legal for what IT holds;
+    # neither has to be legal for the other.
+    assert (b2["level_width"], b2["level_datawidth"]) == (384, 4)
+    assert (b4["level_width"], b4["level_datawidth"]) == (96, 8), \
+        "weights_spad must stay 8-bit on recon4"
 
 
 def _fake_ert_entry(tmp, bump, base_pj=None, tamper=0.0):
@@ -955,9 +1054,15 @@ def test_patching_the_real_cached_ert_moves_only_the_two_rows():
     assert moved == {("filter_glb", "read"), ("filter_glb", "leak")}, moved
     assert abs((got[("filter_glb", "read")] - base[("filter_glb", "read")]) - b2["access_delta_pj"]) < 1e-9
     assert abs((got[("filter_glb", "leak")] - base[("filter_glb", "leak")]) - b2["leak_delta_pj"]) < 1e-9
-    # the real table prices filter_glb.read at 2.75566 (prompt_6 5.1), so the
-    # arm roughly doubles it
-    assert 1.9 < got[("filter_glb", "read")] / base[("filter_glb", "read")] < 2.1
+    # THE RULE, not a literal band. The toll is `E_w x block_size` and the
+    # block size comes from THE WIDTH TABLE, so a band pinned to one arch
+    # revision ("prices filter_glb.read at 2.75566, so the arm roughly doubles
+    # it") asserts the revision, not the rule -- it broke when the level went
+    # from 64 b/4 b to 384 b/4 b (2026-09-12).
+    geo = archs.patched_weight_geometry(_P2_ARCH, r2)
+    assert abs(b2["access_delta_pj"]
+               - b2["e_w_pj"] * geo["filter_glb"]["weights_per_word"]) < 1e-9, b2
+    assert got[("filter_glb", "read")] > base[("filter_glb", "read")] > 0, (base, got)
     try:
         tl.patched_ert(doc, {("filter_glb", "no_such_action"): ("add", 1.0)})
     except ValueError:
@@ -1126,75 +1231,81 @@ def test_ecc_recon_layer_seeds_the_scope_and_the_optimiser_stem_stays_fixed():
 
 
 def test_the_width_table_holds_total_bits_and_puts_the_glb_at_four_times():
-    """PROMPT_2'S WIDTH TABLE, and the two things that make it legal.
+    """PROMPT_2'S WIDTH TABLE, and the three things that make it right.
 
+    * Each arm's width suits ITS OWN datawidth: 96 b for an 8-bit level,
+      95 b at q=5, 98 b at q=7. No arm has to be legal for another arm's
+      datawidth, because no arm is ever mapped on another arm's silicon.
     * The GLB word is 4x the scratchpad's -- the ratio Eyeriss v1's published
       geometry already has (224 x 16 b spad, 512-b x 64-b GLB banks).
-    * Each level's DEPTH is renormalised so its TOTAL BITS do not move. CACTI
-      is handed depth and width, so a width change that grew the array would
-      be a bigger array smuggled in as a word reshape. Checked to within one
-      word of rounding.
+    * Each level's DEPTH is renormalised AT THE BASE WIDTH so its TOTAL BITS
+      do not move AND every arm shares it. CACTI is handed depth and width, so
+      a width change that grew the array would be a bigger array smuggled in
+      as a word reshape. Checked to within one word of rounding.
 
-    It reproduces prompt_2's own number: weights_spad 224 x 16 b = 3,584 b
-    becomes depth 37 at width 96.
+    It is AUTOMATIC: no knob is set anywhere in this test, because there is no
+    knob. That is the regression -- the lookup existed from 2026-09-11 and
+    nothing reached for it until `map_ert_arms.sh` died on it at K=39.
     """
     try:
-        from eccenergy import archs
+        from eccenergy import archs, code_widths
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"archs unavailable: {exc}")
     import dataclasses
-    cfg, _, _ = _p2_cfgs()
-    base = archs.patched_weight_geometry(_P2_ARCH, cfg)
-    wide = dataclasses.replace(cfg, weight_width=96, weight_width_glb_mult=4)
-    got = archs.patched_weight_geometry(_P2_ARCH, wide)
-    assert got["weights_spad"]["width"] == 96, got["weights_spad"]
-    assert got["filter_glb"]["width"] == 96 * 4, got["filter_glb"]
-    # DERIVED, not hard-coded. prompt_2's table quotes depth 37 for the
-    # PUBLISHED 224 x 16 b scratchpad (3,584 b / 96 = 37.3), but the declared
-    # geometry is a design variable in this study -- it was reconfigured
-    # 2026-09-10 -- so pinning the literal made this test assert a property of
-    # one arch revision rather than a property of the renormalisation.
-    want = round(base["weights_spad"]["depth"] * base["weights_spad"]["width"] / 96)
-    assert got["weights_spad"]["depth"] == want, (
-        f"depth should renormalise to {want} at width 96 "
-        f"({base['weights_spad']['depth']} x {base['weights_spad']['width']} b); "
-        f"got {got['weights_spad']['depth']}")
-    for level in base:
-        before = base[level]["depth"] * base[level]["width"]
-        after = got[level]["depth"] * got[level]["width"]
-        assert abs(after - before) <= got[level]["width"], (
+    cfg, emb, rec = _p2_cfgs()
+    src_geom = archs.weight_capacity_levels(_P2_ARCH, cfg)
+    published = {r["level"]: r for r in src_geom}
+    got = archs.patched_weight_geometry(_P2_ARCH, emb)
+    base = code_widths.BASE_WIDTH
+    spad = list(got)[-1]
+    for level, v in got.items():
+        want_w = base if level == spad else base * 4
+        assert v["width"] == want_w, (level, v, want_w)
+        assert v["datawidth"] == 8, (level, v)
+        assert v["width"] % v["datawidth"] == 0, (level, v)
+    # the q=4 arm keeps the SAME depth and takes its own width (96 at q=4)
+    narrow = archs.patched_weight_geometry(_P2_ARCH, rec)
+    for level in got:
+        assert narrow[level]["depth"] == got[level]["depth"], (
+            f"{level}: the arms must share a depth -- "
+            f"{got[level]['depth']} vs {narrow[level]['depth']}")
+        assert narrow[level]["width"] % narrow[level]["datawidth"] == 0, narrow[level]
+    # TOTAL BITS held, to within one word of rounding, against the SOURCE yaml
+    for level, v in got.items():
+        p = published.get(level)
+        if not p:
+            continue
+        before = p["depth"] * p["weights_per_word"] * 8
+        after = v["depth"] * v["width"]
+        assert abs(after - before) <= v["width"], (
             f"{level}: {before:,} bits became {after:,} -- a width change must "
             f"reshape the word, not resize the array")
 
+def test_the_cross_arm_width_rule_is_withdrawn_and_must_not_come_back():
+    """WITHDRAWN 2026-09-12, and this is its headstone.
 
-def test_a_width_that_only_divides_q_is_refused_because_it_aborts_the_other_arm():
-    """BOTH ARMS SHARE ONE WIDTH, so it must divide 8 AS WELL AS q.
+    There used to be a test here asserting that a width must divide BOTH the
+    code's `q` AND `ECC_WEIGHT_BITS`, on the grounds that both arms share one
+    declared width. THE ARMS DO NOT SHARE A WIDTH. prompt_2's 98 (q=7) and 95
+    (q=5) are correct exactly as written; `98 % 8 = 2` and `95 % 8 = 7` are
+    irrelevant, because the 8-bit arm is mapped at 96 and never at 98 or 95.
+    `timeloop-mapper`'s assertion is per level, per mapper run, and one mapper
+    run maps one arm.
 
-    prompt_2's WIDTH TABLE has two rows that do not: 98 (BCH(63,57), q=7) and
-    95 (BCH(63,39), q=5) divide their own q but leave remainders 2 and 7
-    against the 8-bit arm's datawidth. `timeloop-mapper` asserts
-    `width % (word_bits * block_size) == 0` (buffer.cpp:302) and ABORTS -- so
-    the EMBEDDED arm would core-dump on every layer of that wave. Only the
-    width-96 rows are runnable as a pair, which is the same set prompt_2
-    identifies as "literally the same silicon as Embedded's".
+    The rule cost a real wave: it replaced the table with `lcm(q, 8)`
+    (56 / 24 / 40), which made the 8-BIT REFERENCE move between codes, and
+    that is where BCH(63,39)'s spurious 37.69 % came from (FINDINGS 2.4b).
     """
     try:
-        from eccenergy import config
+        from eccenergy import code_widths
     except Exception as exc:                       # pragma: no cover
-        raise _Skip(f"config unavailable: {exc}")
-    import dataclasses
-    cfg, _, _ = _p2_cfgs()
-    for w, legal in ((96, True), (98, False), (95, False), (384, True)):
-        try:
-            dataclasses.replace(cfg, weight_width=w)
-        except Exception:
-            ok = False
-        else:
-            ok = True
-        assert ok is legal, (
-            f"width {w}: expected {'accepted' if legal else 'refused'}; both "
-            f"arms share one width and the 8-bit arm needs width % 8 == 0")
-
+        raise _Skip(f"code_widths unavailable: {exc}")
+    assert code_widths.declared_width(7) == 98, "prompt_2's q=7 row moved"
+    assert code_widths.declared_width(5) == 95, "prompt_2's q=5 row moved"
+    assert code_widths.declared_width(8) == 96, "the 8-bit arm moved"
+    # There is no knob to get this wrong with any more, either.
+    assert not hasattr(config.load_config(), "weight_width"), \
+        "Config carries a weight_width field again"
 
 def test_the_onchip_narrowing_is_applied_exactly_once():
     """Both the mapper and the evaluator can narrow an on-chip weight now.

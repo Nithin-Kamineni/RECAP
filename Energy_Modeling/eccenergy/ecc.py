@@ -101,12 +101,21 @@ def load_recon_terms(cfg, k=None):
     delta, idle sets the `leak` delta -- and `build_stacks()` /
     `recon.evaluate_placement()` charge them on their own denominators.
 
-    Lookup order: the DC JSON matched on (n, k); env.sh section 6's two tables
-    (the same synthesis runs, keyed by configuration id); the fallback
-    constants, with a warning. `ECC_RECON_PJ` is not applied here -- see
-    `load_recon_energy`.
+    Lookup order: env.sh section 6's two tables, matched on (n, k); the DC JSON,
+    matched the same way; the fallback constants, with a warning. env.sh is
+    FIRST so that the run's own configuration is what prices the datapath: the
+    JSON is the synthesis archive, and a value typed into section 6 is a
+    deliberate statement about this run that a file on disk must not silently
+    outrank. Both terms must be present in the tables to win -- a half-populated
+    table falls through to the JSON rather than mixing the two sources.
+    `ECC_RECON_PJ` is not applied here -- see `load_recon_energy`.
     """
     k = cfg.code_k if k is None else k
+    inc, key_i = _env_table_entry(getattr(cfg, "recon_incremental_table", {}), cfg.code_n, k)
+    idle, key_d = _env_table_entry(getattr(cfg, "recon_idle_table", {}), cfg.code_n, k)
+    if inc is not None and idle is not None:
+        return inc, idle, (f"env.sh DC tables [{key_i}]: incremental={inc:.7f} "
+                           f"pJ/codeword, idle={idle:.7f} pJ/cycle/engine")
     entries, path = _dc_entries(cfg)
     for e in entries:
         if int(e.get("n", -1)) != cfg.code_n or int(e.get("k", -1)) != k:
@@ -117,11 +126,6 @@ def load_recon_terms(cfg, k=None):
                            f"n={e['n']} k={e['k']} t={e.get('t')}: "
                            f"incremental={inc:.7f} pJ/codeword, "
                            f"idle={idle:.7f} pJ/cycle/engine")
-    inc, key_i = _env_table_entry(getattr(cfg, "recon_incremental_table", {}), cfg.code_n, k)
-    idle, key_d = _env_table_entry(getattr(cfg, "recon_idle_table", {}), cfg.code_n, k)
-    if inc is not None and idle is not None:
-        return inc, idle, (f"env.sh DC tables [{key_i}]: incremental={inc:.7f} "
-                           f"pJ/codeword, idle={idle:.7f} pJ/cycle/engine")
     print(f"  [warn] no reconstruction energy for BCH({cfg.code_n},{k}); "
           f"using the fallback constants")
     return (cfg.recon_incremental_fallback_pj, cfg.recon_idle_fallback_pj,
@@ -409,8 +413,24 @@ def build_stacks(cfg, raw, recon_pj, code_k=None, recon_pj_by_k=None,
                       + (base_w[c] - already) * sram_scale * weak)
         charges = cfg.decode_enabled and cfg.recon_charges_decode
         col["ECC decode"] = n_cw_emb * cfg.decode_pj_emb if charges else 0.0
-        col["Reconstruction"] = (n_cw_base * recon_pj
-                                 + float(recon_idle_pj) * float(cycles or 0) * recon_engines)
+        # prompt_7 Issue 4 -- CLOCK GATING, the same model the placement study
+        # uses (recon.py evaluate_placement). g = 0 is algebraically identical
+        # to the ungated `incremental x events + idle x engine_cycles`.
+        # prompt_7, 2026-09-12: the recon arm stores DRAM exactly as the
+        # embedded arm does, so it reconstructs on the EMBEDDED codeword count
+        # (n/weight_bits = 7.875), not the baseline's whole-weight count
+        # (k//weight_bits = 3). recon.py's placement study already counts this
+        # way; using n_cw_base here made the sweep arm's incremental term
+        # 2.625x too large and the two figure families disagree.
+        _n_cw = n_cw_emb
+        _idle = float(recon_idle_pj)
+        _ec = float(cycles or 0) * recon_engines
+        _g = max(0.0, min(1.0, float(getattr(cfg, "recon_clock_gating_pct", 0.0)) / 100.0))
+        if _g:
+            col["Reconstruction"] = (_n_cw * (recon_pj + _idle)
+                                     + _idle * (1.0 - _g) * max(_ec - _n_cw, 0.0))
+        else:
+            col["Reconstruction"] = _n_cw * recon_pj + _idle * _ec
         columns["recon"] = col
 
     df = pd.DataFrame({a: columns[a] for a in cfg.approaches})
