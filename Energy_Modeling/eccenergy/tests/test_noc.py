@@ -253,6 +253,13 @@ def test_calibrated_ingress_follows_the_wire_constant():
 
 
 def test_unknown_arch_is_a_hard_error_not_a_free_noc():
+    """A design with no `noc.yaml` entry must STOP, never be charged zero NoC.
+
+    IT FAILS THROUGH THE LAST LINE -- `raise AssertionError` when no `SystemExit`
+    arrives. ProjectRestructure section 7.1 counted this as having "zero
+    assertions"; its AST audit does not see a raised `AssertionError`. Measured
+    2026-09-13: one test in the suite has no failure mechanism, not three.
+    """
     from .. import archs as A
     cfg = _cfg(ECC_ARCH_FIDELITY="paper", ECC_NOC="1")
     try:

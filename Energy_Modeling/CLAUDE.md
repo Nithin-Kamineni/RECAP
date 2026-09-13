@@ -32,7 +32,7 @@ must reproduce today's numbers exactly**, and §9.1's gate is one command --
 model) and every evaluated total is unchanged to the pJ. Run it BEFORE touching
 anything, so a red gate is never ambiguous. `restructure/README.md` says what the gate
 covers and what it cannot; ProjectRestructure §10 is what not to do.
-**Phase 0 is DONE.**
+**Phases 0 and 1 are DONE.**
 
 Phase-by-phase status lives in `progress.txt`, not here.
 
@@ -168,7 +168,13 @@ asserts both halves with mutations.
 skip. Before it the suite showed 64 failures at a cold cache with nothing wrong
 in the code; it is now green, and the data-backed properties come back as they
 are mapped. `bash hpc/tl.sh python3 -m pytest eccenergy/tests/ -q` runs it
-(pytest is a `--user` install, not in the image).
+(pytest is a `--user` install, not in the image). Since 2026-09-13 conftest also
+offers **`cfg()`, one config fixture pinned to a STATED design** rather than to
+whatever env.sh points at this week (nine modules carry a near-copy of it), and
+`test_plumbing.py` mutation-tests all three pieces of plumbing -- break the
+restore, the `_Skip` translation or the pin, and a test goes red. **A test
+function returns None**: `check()` in the pre-pytest modules discards the value
+and pytest warns on it.
 
 **A cold map is hours.** Narrow before widening
 (`ECC_ARCHS=<one> ECC_MODELS=<one> bash hpc/run_all.sh --map-only`) and watch the

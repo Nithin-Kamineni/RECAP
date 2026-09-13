@@ -80,3 +80,63 @@ def pytest_runtest_call(item):
         if type(exc).__name__ == "_Skip":
             pytest.skip(f"no cached data for this property: {exc}")
         raise
+
+
+#: The point every `cfg()` starts from. STATED HERE, NOT INHERITED.
+#:
+#: env.sh is the study's configuration and it moves -- the live code was
+#: BCH(63,30) in September and is BCH(63,39) now, and section 4 reassigns the
+#: architecture outright under `ECC_RECON_MODELING=1`. A test that reads its
+#: design from the environment therefore tests a different chip depending on
+#: when it is run, which is the third of the three causes in this file's header.
+#:
+#: `eyeriss_like_wglb` at BCH(63,39) on resnet18 is chosen because it is the one
+#: corner with a WARM mapper cache (CLAUDE.md, "EVERY MAPPER CACHE IS COLD, ON
+#: PURPOSE"): a data-backed property written against this fixture can actually
+#: find a solved mapping to check itself against. `ECC_FROM_CACHE=1` is in here
+#: so that no test can invoke Timeloop by accident.
+PINNED_ENV = {
+    "ECC_CONST_ARCH": "eyeriss_like_wglb",
+    "ECC_SWEEP_ARCHS": "eyeriss_like_wglb",
+    "ECC_RECON_ARCHS": "eyeriss_like_wglb",
+    "ECC_CONST_MODEL": "resnet18",
+    "ECC_SWEEP_MODELS": "resnet18",
+    "ECC_CODE_N": "63",
+    "ECC_CONST_K": "39",
+    "ECC_FROM_CACHE": "1",
+}
+
+
+@pytest.fixture
+def cfg():
+    """Build a `Config` from `PINNED_ENV`, overridden by whatever you pass.
+
+        def test_something(cfg):
+            c = cfg(ECC_DRAM_PJ_PER_BIT="40")
+
+    WHY A FIXTURE AND NOT A HELPER. Nine test modules each carry their own
+    `_cfg()`, six of which delete every `ECC_*` variable before building one.
+    That is correct in isolation and was catastrophic in one pytest process
+    until `_ecc_env` above started putting the environment back -- and it is
+    still nine near-copies of the same twenty lines, each free to drift onto a
+    different design. This is the one copy, and the design it pins is stated in
+    `PINNED_ENV` rather than inherited from env.sh.
+
+    The wipe is kept, because a knob left set by env.sh is exactly the kind of
+    thing that makes a test pass on one machine and fail on another. It is safe
+    here for the same reason: `_ecc_env` restores the environment afterwards.
+
+    Pass `None` for a knob to leave it UNSET rather than setting it to the
+    string "None" -- `ECC_DRAM_PJ_PER_BIT=None` means "there is no price", which
+    several refusal tests need.
+    """
+    def _build(**knobs):
+        env = dict(PINNED_ENV)
+        env.update(knobs)
+        for key in list(os.environ):
+            if key.startswith("ECC_"):
+                del os.environ[key]
+        os.environ.update({k: str(v) for k, v in env.items() if v is not None})
+        from .. import config
+        return config.load_config()
+    return _build

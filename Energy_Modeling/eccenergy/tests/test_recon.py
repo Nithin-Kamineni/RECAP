@@ -2690,7 +2690,6 @@ def test_clock_gating_is_exact_at_zero_and_scales_the_idle_term(cache=None):
     # and the knob is actually read from the environment
     assert charge(0).recon_clock_gating_pct == 0.0
     assert charge(99.5).recon_clock_gating_pct == 99.5
-    return "gating exact at 0, monotone, and read from ECC_RECON_CLOCK_GATING_PCT"
 
 
 def main():

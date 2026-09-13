@@ -10,6 +10,65 @@ Rules for this file: newest entry at the top, one short block per day of work,
 no tables, no pasted output. Anything worth keeping longer than a week belongs
 in FINDINGS.md; anything that says what to do next belongs in the live plan.
 
+2026-09-13  RESTRUCTURE PHASE 1 -- TEST PLUMBING, AND A MISCOUNT CORRECTED
+-----------------------------------------------------------------------
+ProjectRestructure.md section 9.2, phase 1. NO PRODUCTION CODE TOUCHED -- the
+diff is five files, all under eccenergy/tests/. Gate: fingerprints identical,
+every evaluated total identical, suite 220 -> 227 passing, 0 failed.
+
+TWO OF THE THREE FIXES WERE ALREADY IN (the conftest env restore and the _Skip
+translation, both from the 2026-09-13 entry below). What was left:
+
+1. cfg(), THE THIRD FIX. One config fixture in conftest, pinned by PINNED_ENV
+   to eyeriss_like_wglb / resnet18 / BCH(63,39) with ECC_FROM_CACHE=1. The
+   design is STATED, not inherited: env.sh moves (the live code was BCH(63,30)
+   in September and section 4 reassigns the architecture outright under
+   ECC_RECON_MODELING=1), so a test that reads its design from the environment
+   tests a different chip depending on when it runs. That corner is also the
+   one with a WARM mapper cache, so a data-backed property written on the
+   fixture can find a solved mapping. Nine modules still carry their own
+   _cfg(); none was rewritten -- that is migration, not plumbing.
+
+2. test_plumbing.py: 7 tests, and the plumbing had none of its own. All three
+   pieces are MUTATION-tested and all three mutations were run: delete the
+   environment restore -> 2 red; disable the _Skip translation -> 1 red; drift
+   the pinned design onto eyeriss_v2_like -> 1 red. A silent regression here
+   does not fail loudly, it makes some OTHER suite fail for a reason nobody can
+   see; that cost 64 failures once.
+
+3. Two dead `return "<message>"` at the end of test bodies removed
+   (test_dilation, test_recon). check() discards the value and pytest warns on
+   it -- soon errors. The suite now runs with zero warnings.
+
+THE ZERO-ASSERTION COUNT IS 1, NOT 3 (measured 2026-09-13). Section 7.1 says
+three tests "cannot fail" and section 10 says they are the only things free to
+delete. Two of them DO fail -- test_the_knob_must_be_positive and
+test_unknown_arch_is_a_hard_error_not_a_free_noc both refuse through a
+try/except/else whose else branch is `raise AssertionError`. The audit's AST
+detector looks for `assert` statements and pytest.* calls and does not see a
+raised AssertionError. THEY WERE NOT DELETED: deleting a test that catches a
+regression to satisfy a miscount is the opposite of the point. Both got the
+docstring they lacked, saying how they fail and why they stayed.
+
+The third, test_both_reports_render_under_both_models, genuinely had no failure
+mechanism -- a report that printed NOTHING passed it. It now captures stdout
+through redirect_stdout (not capsys: main() calls every test with no arguments)
+and asserts each report is non-empty and names the design and the model it was
+handed. Zero tests in the suite now have no way to fail.
+
+GATE ITEM 6 IS "NO WORSE", NOT BYTE-IDENTICAL, and gate.sh now implements that
+rather than diffing pytest.txt: it refuses a FAILURE, refuses a silent DROP in
+the number passing, and accepts growth. A deliberate drop is a recorded
+override -- `--accept-tests "<why>"` rewrites golden/pytest.txt ALONE and logs
+the reason to golden/pytest.log, leaving every energy in the snapshot untouched.
+That branch is mutation-tested: a golden claiming 999 passing against a fresh
+227 exits 1. THE FIRST VERSION OF IT DID NOT -- the count regex required a
+non-digit before the number and the summary line starts with one, so both
+counts parsed as 0 and compared equal. A gate is only worth what it has been
+caught failing to catch.
+
+NEXT: phase 2 (layers). Run the gate first.
+
 2026-09-13  RESTRUCTURE PHASE 0 -- THE GOLDEN SNAPSHOT AND ITS GATE
 -----------------------------------------------------------------------
 ProjectRestructure.md section 9.2, phase 0. No production code touched, no

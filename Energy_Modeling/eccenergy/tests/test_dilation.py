@@ -845,7 +845,6 @@ def test_the_energy_model_revision_colds_only_when_set():
     assert a.fingerprint() != b.fingerprint(), "two revisions must not share a cache"
     # and it must be the ONLY thing that moved -- an empty string is not a value
     assert dataclasses.replace(cfg, energy_model_rev="").fingerprint() == base.fingerprint()
-    return f"empty preserves {base.fingerprint()}; set -> {a.fingerprint()}"
 
 
 def test_the_wrong_sibling_guard_two_arms_identical_yaml_different_fingerprints():

@@ -418,7 +418,19 @@ def test_a_repriced_baseline_with_a_stale_ratio_is_caught():
 
 def test_both_reports_render_under_both_models():
     """The console reports are format strings over the pricing record; a typo in
-    one of them only shows up when it is actually printed."""
+    one of them only shows up when it is actually printed.
+
+    THE OUTPUT IS CAPTURED AND CHECKED, not just produced (ProjectRestructure
+    section 7.1). Rendering into the terminal proves only that the call did not
+    raise -- a report that printed NOTHING, because someone put it behind a
+    verbosity flag, passed this test just as happily. Each report must now emit
+    the design and the model it was handed. `redirect_stdout` rather than
+    `capsys`, because `main()` below calls every test with no arguments and a
+    pytest fixture would break it.
+    """
+    import contextlib
+    import io
+
     from eccenergy.ecc import embedded_dram
     from eccenergy.experiments import baseline as baseline_exp
     from eccenergy.experiments import embedded as embedded_exp
@@ -427,11 +439,26 @@ def test_both_reports_render_under_both_models():
         raw = _real_raw(cfg)
         base, emb, e_parity, pricing, pdetail = _arms(cfg, raw)
         _, edetail = embedded_dram(cfg, raw)
-        baseline_exp._report(cfg, "eyeriss_like_wglb", "resnet18", raw,
-                             float(sum(base.values())), pdetail, pricing)
-        embedded_exp._report(cfg, "eyeriss_like_wglb", "resnet18", raw,
-                             float(sum(base.values())), float(sum(emb.values())),
-                             pdetail, edetail, pricing)
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            baseline_exp._report(cfg, "eyeriss_like_wglb", "resnet18", raw,
+                                 float(sum(base.values())), pdetail, pricing)
+        task1 = out.getvalue()
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            embedded_exp._report(cfg, "eyeriss_like_wglb", "resnet18", raw,
+                                 float(sum(base.values())), float(sum(emb.values())),
+                                 pdetail, edetail, pricing)
+        task2 = out.getvalue()
+
+        for label, text in (("Task 1", task1), ("Task 2", task2)):
+            assert text.strip(), (
+                f"{label} report printed NOTHING at "
+                f"ECC_BASELINE_DRAM_PJ_PER_BIT={knob!r}")
+            assert "eyeriss_like_wglb" in text, (label, knob, text[:200])
+            assert "resnet18" in text, (label, knob, text[:200])
 
 
 # ------------------------------------------------------------- refusals
@@ -456,6 +483,19 @@ def test_an_unpriceable_record_is_refused_not_guessed():
 
 
 def test_the_knob_must_be_positive():
+    """A zero or negative baseline DRAM price is refused by `Config`.
+
+    IT FAILS THROUGH THE `else:` BRANCH -- `raise AssertionError` when the bad
+    value is ACCEPTED. ProjectRestructure section 7.1 counted this among three
+    tests with "zero assertions"; the AST audit behind that number looked for
+    `assert` statements and `pytest.*` calls and does not see a raised
+    `AssertionError`, so the count was 1, not 3 (measured 2026-09-13). Left as
+    it is: this module predates pytest and `main()` below runs it too.
+
+    Appendix B will re-tier this guard in phase 6 -- zero is the "what if the
+    baseline's DRAM were free" ablation and the invariant is `>= 0`. When that
+    lands, this test keeps `-70` and drops `0`.
+    """
     from eccenergy.config import ConfigError
     for bad in ("0", "-70"):
         try:

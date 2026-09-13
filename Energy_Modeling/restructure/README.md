@@ -7,6 +7,7 @@ phase plan is finished it can be deleted in one line.
     module load apptainer
     bash hpc/tl.sh bash restructure/gate.sh            # check a phase
     bash hpc/tl.sh bash restructure/gate.sh --update   # re-take the golden snapshot
+    bash hpc/tl.sh bash restructure/gate.sh --accept-tests "<why>"
 
 | file | what it is |
 |---|---|
@@ -24,6 +25,21 @@ phase plan is finished it can be deleted in one line.
 
 `--update` is for the START of a phase, before any code moves. A golden snapshot
 re-taken after a change is not a safety net; it is a record of the change.
+
+## Item 6 is the one that is not byte equality
+
+§9.1 asks for the test suite to be **no worse**, not identical — phase 1 fixes
+tests and phase 7 adds them, and a suite that grew is not a suite that broke. So
+gate 6 refuses a **failure**, refuses a **silent drop** in the number passing,
+and accepts growth. A deliberate drop is a recorded override:
+`--accept-tests "<why>"` rewrites `golden/pytest.txt` **alone** and appends the
+reason to `golden/pytest.log`. Every energy in the golden snapshot stays put.
+
+That branch is mutation-tested too: a golden claiming 999 passing against a fresh
+227 exits 1 with `tests were LOST, and nothing says why`. The first version of it
+did not — the count regex needed a non-digit before the number and the summary
+line begins with one, so both counts parsed as 0 and compared equal. Which is the
+argument for testing the gate and not only with it.
 
 ## What the snapshot covers, and what it cannot
 
