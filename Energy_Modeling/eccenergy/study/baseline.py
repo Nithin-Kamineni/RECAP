@@ -27,6 +27,7 @@ optimisation it did not perform.
 """
 from __future__ import annotations
 
+from ..arch import design
 from ..physics import baseline_dram
 from ..arch.load import accumulator_bits, arch_source, load_provenance, noc_terms
 from ..arch.validate import validate_arch
@@ -205,15 +206,22 @@ def run(cfg):
                                       {"*": {"router_pj": terms.get("router"),
                                              "ingress_pj": terms.get("ingress")}}),
                            "source": "archs/_shared/noc.yaml"})
-            if cfg.noc_enabled and arch.startswith("eyeriss_v2_like"):
+            band = design.flag(arch, "noc_published_share")
+            if cfg.noc_enabled and band:
                 # JETCAS 2019 Sec. V / Fig. 18: the hierarchical mesh is
                 # "6%-10% of the total energy consumption". The published band
                 # is for the paper's own workloads, so a miss on one model is a
                 # prompt to look, not proof the constants are wrong -- but a
                 # miss on EVERY model is.
+                # THE KEY KEEPS THE DESIGN IN ITS NAME on purpose: it identifies a
+                # check in every result file already written, and a renamed key
+                # reads as a check that was deleted. The BAND is the design's own
+                # declaration (archs/<name>/design.yaml) since phase 5.
                 builder.check("noc_share_within_published_band_eyeriss_v2",
-                              0.06 <= noc_share <= 0.10,
-                              {"modelled_share": noc_share, "published_band": [0.06, 0.10],
+                              float(band["low"]) <= noc_share <= float(band["high"]),
+                              {"modelled_share": noc_share,
+                               "published_band": [float(band["low"]),
+                                                  float(band["high"])],
                                "source": "arXiv:1807.07928 Sec. V, Fig. 18",
                                "read_as": "published share is for SPARSE runs at 65nm; this "
                                           "model is dense (pushes the share up) at 45nm "

@@ -1,0 +1,40 @@
+# THE WEIGHT PATH of this design: the stages a weight crosses from DRAM to
+# the MAC, OUTER TO INNER, and the Timeloop levels that ARE each of them.
+#
+# It is half of the placement space; `placements.yaml` beside it is the other
+# half, and the two are loaded together or not at all -- which is what makes
+# "the two tables must be edited together" a property of the directory instead
+# of a warning in CLAUDE.md.
+#
+# kind:      dram | storage | network
+# prefixes:  level names as TIMELOOP PRINTS THEM. A network is named after the
+#            two levels it joins (`NoC: <outer> <==> <inner>`), so the outer
+#            level's name is the stable half and the prefix stops there.
+# reducible: can this stage ever carry the REDUCED representation?
+# evidence:  why this stage exists, with its citation. Not decoration: it is
+#            what a reader checks the model against.
+stages:
+  - key: "dram"
+    label: "DRAM (dynamic access, whole term reducible)"
+    kind: "dram"
+    prefixes: ["DRAM"]
+    reducible: true
+    evidence: "the decoder is on the DRAM die and off the fetch path, so only the k message bits of each n-bit codeword are read out and driven off the die: the whole per-bit DYNAMIC access constant carries k of every n bits under every boundary (01_project_context Sec. 1 and Sec. 4). The DRAM access is designed to fetch only the message bits of each codeword. The f_if array/interface split was removed 2026-09-09."
+  - key: "inter_cluster_mesh"
+    label: "Inter-cluster mesh (HM-NoC)"
+    kind: "network"
+    prefixes: ["NoC: inter_PE_cluster_spatial"]
+    reducible: true
+    evidence: "JETCAS 2019 Sec. III-C: the hierarchical mesh joins the GLB clusters to the PE clusters through the router clusters. Timeloop's PE_cluster fanout level (meshX 16)."
+  - key: "cluster_local"
+    label: "Cluster-local distribution to PE rows"
+    kind: "network"
+    prefixes: ["NoC: inter_PE_spatial"]
+    reducible: true
+    evidence: "JETCAS 2019 Sec. III-C: each router 'connects to one row of PEs within the cluster'. Timeloop's PE fanout level (meshY 12)."
+  - key: "weight_spad"
+    label: "PE weight scratchpad"
+    kind: "storage"
+    prefixes: ["weights_spad"]
+    reducible: true
+    evidence: "JETCAS 2019 Table IV: 'weight data: 288B (SRAM)' per PE."

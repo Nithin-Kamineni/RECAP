@@ -1,0 +1,32 @@
+# ONE DESIGN, DECLARED. ProjectRestructure phase 5: a new architecture is
+# this directory and nothing else -- no Python anywhere names it.
+#
+# `arch_paper.yaml` is the CHIP (every number cited); this file is what the
+# study needs to know ABOUT the chip that the chip's own YAML does not say.
+#
+# The design's CLOCK is deliberately NOT here: env.sh section 7's
+# ECC_ARCH_CLOCK_MHZ table owns it, because it is a knob a run may override
+# and env.sh is the one file a user edits (CLAUDE.md).
+name: eyeriss_like_wglb
+
+# Where this design sits on a default axis, and nothing more: `KNOWN_ARCHS` is
+# this file's order, so a figure that sweeps every declared design reads
+# left to right in it. A new design may OMIT it and lands after the ordered
+# ones, alphabetically -- it is a presentation choice, not a registration.
+order: 1
+label: "Eyeriss v1\n(+filter GLB)"
+
+# prompt_3's CONSTRAINED MAPSPACE: for each loop dimension, the levels it
+# may be split across. Every level not named here is pinned to 1, which is
+# what collapses the index-factorization space to something the mapper can
+# search exhaustively. A design with no entry is searched unconstrained --
+# and a systematic walk of an unconstrained space is the wrong regime
+# (FINDINGS 2.2), so write this before mapping a new design.
+mapspace_free_levels:
+  C: ["DRAM", "PE", "weights_spad"]
+  M: ["ifmap_glb", "PE_column", "weights_spad", "psum_spad"]
+  R: ["psum_glb"]
+  S: ["PE"]
+  P: ["ifmap_glb", "psum_glb"]
+  Q: ["filter_glb", "PE_column"]
+  N: []

@@ -46,6 +46,7 @@ import json
 from dataclasses import asdict, dataclass
 
 from .arch import arms as arms_mod
+from .arch import design as design_mod
 from .arch import fingerprint as fingerprint_mod
 from .arch import placements
 from .arch.load import mac_candidates
@@ -59,8 +60,7 @@ from .settings import energy as energy_settings
 from .settings import mapper as mapper_settings
 from .settings import recon as recon_settings
 from .settings import run as run_settings
-from .settings.arch import (ARCH_FIDELITIES, ARCH_LABELS, BRACKET_PAIRS,
-                            CNN_MODELS, KNOWN_ARCHS, TRANSFORMER_MODELS,
+from .settings.arch import (ARCH_FIDELITIES, CNN_MODELS, TRANSFORMER_MODELS,
                             WEIGHT_CAPACITY_SCOPES, ArchSettings)
 from .settings.code import BCH63_KTOD, PARITY_GROUPINGS, CodeSettings
 from .settings.energy import DC_MEASUREMENT_CLOCK_NS, EnergySettings
@@ -72,6 +72,15 @@ from .settings.recon import (RECON_DECODE_SITES, RECON_ENCODER_SITES,
 from .settings.run import (APPROACH_LABELS, APPROACH_TAGS, APPROACHES,
                            EXPERIMENTS, PHASES, SWEEP_ALIASES, SWEEP_STEMS,
                            SWEEPS, RunSettings)
+
+#: WHICH DESIGNS EXIST IS DATA (phase 5). These three names are what every
+#: caller has always said; they are functions of `archs/<name>/design.yaml` now,
+#: evaluated at import so a caller that iterates them still gets a plain tuple
+#: or dict. A design added to `archs/` is in all three the moment it declares a
+#: `design.yaml`, and in no Python file at all.
+KNOWN_ARCHS = design_mod.known_archs()
+ARCH_LABELS = design_mod.arch_labels()
+BRACKET_PAIRS = design_mod.bracket_pairs()
 
 #: The six groups, in the order a flat record lists them.
 GROUPS = ("run", "code", "arch", "mapper", "recon", "energy")
@@ -175,6 +184,14 @@ def _resolve(self):
     self.approaches = [a for a in APPROACHES if a in self.approaches]
 
     # ---- resolve the three axes ----------------------------------------
+    # ECC_SWEEP_ARCHS defaults to EVERY DECLARED DESIGN. The default is applied
+    # here and not in `settings/` because which designs exist is read out of
+    # `archs/<name>/design.yaml`, and the knobs sit below the layer that may
+    # read a design (phase 5). The resolved list is what it always was, in
+    # `design.yaml`'s declared `order:`.
+    if self.sweep_archs is None:
+        self.sweep_archs = list(design_mod.known_archs())
+
     if self.sweep == "arch":
         if not self.sweep_archs:
             raise ConfigError("ECC_SWEEP=arch but ECC_SWEEP_ARCHS is empty")

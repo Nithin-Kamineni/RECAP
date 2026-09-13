@@ -15,8 +15,9 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from ..contracts.errors import ConfigError
-from .arch import CNN_MODELS, KNOWN_ARCHS, TRANSFORMER_MODELS
-from .env import _b, _f, _i, _list, _of, _oi, _one, _s, _table
+from .arch import CNN_MODELS, TRANSFORMER_MODELS
+from .env import (_b, _f, _i, _list, _list_or_none, _of, _oi, _one, _s,
+                  _table)
 
 # ------------------------------------------------------------------ registries
 EXPERIMENTS = ("sweep", "diagnose", "baseline", "embedded", "recon", "validate", "dilation",
@@ -123,7 +124,11 @@ class RunSettings:
         return RunSettings(
             experiment=_s("ECC_EXPERIMENT", "sweep").lower(),
             sweep=_s("ECC_SWEEP", "bch").lower(),
-            sweep_archs=_list("ECC_SWEEP_ARCHS", " ".join(KNOWN_ARCHS)),
+            # UNSET (None) means "every declared design" and is filled in by
+            # `config._resolve()`: `settings/` may not read `archs/`. SET but
+            # empty is still refused there -- asking for no design at all is an
+            # error, and a plain default could not tell the two apart.
+            sweep_archs=_list_or_none("ECC_SWEEP_ARCHS"),
             sweep_models=_list("ECC_SWEEP_MODELS", " ".join(CNN_MODELS)),
             sweep_ks=[int(k) for k in _list("ECC_SWEEP_KS", "57 51 45 39 36 30")],
             panel_models=_list("ECC_PANEL_MODELS"),

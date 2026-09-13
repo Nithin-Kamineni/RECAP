@@ -1,0 +1,62 @@
+# THE RECONSTRUCTION BOUNDARIES of this design: which stages of
+# `weight_path.yaml` keep the REDUCED representation, and where the encoder
+# that rebuilds the rest sits.
+#
+# `reduced` must be a PREFIX of the path's reducible stages in path order, and
+# every reducible stage must be reached by some boundary --
+# `arch.arms.validate_placement_space()` refuses anything else, because a stage
+# nobody reaches leaves every boundary below it reporting a saving that the
+# whole list understates.
+#
+# site_counter: reads | fills | ingresses | deliveries.  A NETWORK boundary's
+# encoders run once per ARRIVAL, not once per injection: `deliveries` is
+# `ingresses x multicast factor`. ECC_RECON_ENCODER_SITE=source swaps it back.
+#
+# `rating` is the source discussion's HYPOTHESIS, carried so the result can be
+# read against it. It is not a result.
+placements:
+  - key: "recon1"
+    variant: "recon_source_noc_ingress"
+    label: "R1 - reconstruct at chip ingress, before the weight buffer"
+    short: "R1\n@ chip ingress"
+    rating: "control"
+    reduced: ["dram"]
+    site_stage: "dram"
+    site_counter: "reads"
+    description: "The die drives only the k message bits across the DRAM interface and an encoder at chip ingress restores them before the global operand buffer, so nothing on chip carries the reduced form. Sec. 6.2 does not list this row -- its own R1 is at the buffer OUTPUT -- and it is drawn here as the control that separates the DRAM-interface saving every boundary shares from any on-chip saving. It pays one reconstruction per codeword fetched from DRAM and has nothing but that interface saving against it."
+  - key: "recon2"
+    variant: "recon_global_buffer_output"
+    label: "R2 - reconstruct at the global weight-buffer output"
+    short: "R2\n@ buffer output"
+    rating: "3/5"
+    reduced: ["dram", "weight_glb"]
+    site_stage: "weight_glb"
+    site_counter: "reads"
+    description: "Sec. 6.2's R1, rated 3/5: the 36 kB weight buffer holds weight tiles in the reduced form, so its weight capacity and its weight access bit-volume both fall, and one encoder at its read port restores full width before the distribution network. Since 2026-09-13 this level keeps Weights alone, so the whole level moves and the input activations -- now `input_glb` -- are a separate array that nothing here touches. Downstream -- network, scratchpad, register -- is full width."
+  - key: "recon3"
+    variant: "recon_noc_output_pe_input"
+    label: "R3 - reconstruct at the weight-NoC output / PE input"
+    short: "R3\n@ PE input"
+    rating: "4/5"
+    reduced: ["dram", "weight_glb", "weight_noc"]
+    site_stage: "pe_spad"
+    site_counter: "fills"
+    description: "Sec. 6.2's R2, rated 4/5: the weight buffer AND the 256-PE distribution network carry the reduced form, and an encoder at each PE input restores it before the scratchpad. The encoder runs once per weight FILLED into a PE, so a broadcast that reaches many PEs replicates the encoder rather than the reconstruction count of any one of them. The scratchpad keeps its full width and its read cost."
+  - key: "recon4"
+    variant: "recon_pe_rf_output"
+    label: "R4a - reconstruct on every weight-RF read"
+    short: "R4a\n@ RF output"
+    rating: "2/5"
+    reduced: ["dram", "weight_glb", "weight_noc", "pe_spad"]
+    site_stage: "pe_spad"
+    site_counter: "reads"
+    description: "Sec. 6.2's R3a, rated 2/5 and the one row of the WS table rated BELOW the early boundaries. The scratchpad stores the reduced form, so its capacity and its bit-volume fall, but the encoder sits at its read port and a weight-stationary inner loop reads each resident weight hundreds of times: Sec. 6.1's illustrative '100 reduced-width RF reads and 100 reconstructions'. The design's own depth-1 stationary register does not amortize this -- the mapping fills it once per read (Timeloop's own counts), so it is a pipeline latch here, not a reuse register."
+  - key: "recon5"
+    variant: "recon_mac_input"
+    label: "R5 - reconstruct at the MAC input (stationary register reduced too)"
+    short: "R5\n@ MAC input"
+    rating: "2/5"
+    reduced: ["dram", "weight_glb", "weight_noc", "pe_spad", "weight_reg"]
+    site_stage: "weight_reg"
+    site_counter: "reads"
+    description: "Sec. 6.2's MAC row, rated 2/5: the latest boundary the design admits, with even the stationary register holding the reduced form and the encoder on the MAC's operand path. It is evaluated rather than argued away, and `feasibility()` is expected to reject it: rebuilding one weight needs the retained bits of G_rec = 9 co-resident weights and this register holds ONE, so the bits the rebuild depends on are not there. The rejection names the layers and the resident count, which is the answer to Sec. 6.2's row -- not a number produced by pretending the register is wider than the design declares."

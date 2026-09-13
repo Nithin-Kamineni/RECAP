@@ -1,0 +1,17 @@
+# ONE DESIGN, DECLARED. ProjectRestructure phase 5: a new architecture is
+# this directory and nothing else -- no Python anywhere names it.
+#
+# `arch_paper.yaml` is the CHIP (every number cited); this file is what the
+# study needs to know ABOUT the chip that the chip's own YAML does not say.
+#
+# The design's CLOCK is deliberately NOT here: env.sh section 7's
+# ECC_ARCH_CLOCK_MHZ table owns it, because it is a knob a run may override
+# and env.sh is the one file a user edits (CLAUDE.md).
+name: simple_output_stationary
+
+# Where this design sits on a default axis, and nothing more: `KNOWN_ARCHS` is
+# this file's order, so a figure that sweeps every declared design reads
+# left to right in it. A new design may OMIT it and lands after the ordered
+# ones, alphabetically -- it is a presentation choice, not a registration.
+order: 5
+label: "Output stationary"

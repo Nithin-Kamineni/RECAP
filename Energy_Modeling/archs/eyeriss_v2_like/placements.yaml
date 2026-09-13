@@ -1,0 +1,53 @@
+# THE RECONSTRUCTION BOUNDARIES of this design: which stages of
+# `weight_path.yaml` keep the REDUCED representation, and where the encoder
+# that rebuilds the rest sits.
+#
+# `reduced` must be a PREFIX of the path's reducible stages in path order, and
+# every reducible stage must be reached by some boundary --
+# `arch.arms.validate_placement_space()` refuses anything else, because a stage
+# nobody reaches leaves every boundary below it reporting a saving that the
+# whole list understates.
+#
+# site_counter: reads | fills | ingresses | deliveries.  A NETWORK boundary's
+# encoders run once per ARRIVAL, not once per injection: `deliveries` is
+# `ingresses x multicast factor`. ECC_RECON_ENCODER_SITE=source swaps it back.
+#
+# `rating` is the source discussion's HYPOTHESIS, carried so the result can be
+# read against it. It is not a result.
+placements:
+  - key: "recon1"
+    variant: "recon_source_noc_ingress"
+    label: "R1 - reconstruct at the source / weight-NoC ingress"
+    short: "R1\n@ NoC source"
+    rating: "2/5"
+    reduced: ["dram"]
+    site_stage: "dram"
+    site_counter: "reads"
+    description: "The die drives only the k message bits of each codeword across the DRAM interface and one (or a few) encoders at the weight-NoC ingress put the missing bits straight back before the weight enters the network. Nothing on chip carries the reduced form, so nothing on chip gets cheaper; the encoder runs once per codeword fetched from DRAM. It is no longer the zero-saving control: it isolates the DRAM-interface saving, which every boundary shares, from any on-chip saving, and pays the reconstruction cost with nothing but that interface saving to set against it."
+  - key: "recon2"
+    variant: "recon_destination_cluster"
+    label: "R2 - reconstruct at the destination-cluster boundary"
+    short: "R2\n@ cluster edge"
+    rating: "4/5"
+    reduced: ["dram", "inter_cluster_mesh"]
+    site_stage: "inter_cluster_mesh"
+    site_counter: "deliveries"
+    description: "The long-distance hierarchical mesh carries the reduced form and an encoder at each destination cluster restores it before the cluster-local fanout. One encoder per cluster rather than one per PE, and the mesh -- the expensive hop -- moves fewer bits. The encoders run once per word ARRIVING at a cluster, not once per word injected into the mesh: the mesh multicasts, so those two counts differ by its multicast factor, and only the arrival count is consistent with the mesh carrying reduced-width data at all (an encoder before the fanout is R1). Sec. 7.1's multicast tradeoff; `ECC_RECON_ENCODER_SITE` is the experiment variable it asks for."
+  - key: "recon3"
+    variant: "recon_pe_spad_input"
+    label: "R3 - reconstruct at the PE weight-SPad input"
+    short: "R3\n@ SPad input"
+    rating: "4/5"
+    reduced: ["dram", "inter_cluster_mesh", "cluster_local"]
+    site_stage: "weight_spad"
+    site_counter: "fills"
+    description: "Both networks carry the reduced form; the encoder sits at the scratchpad write port, so the SPad itself stays full width and keeps its capacity and read cost. The encoder runs once per weight FILLED into a PE, which is the smallest count of any boundary below the network."
+  - key: "recon4"
+    variant: "recon_pe_spad_output"
+    label: "R4a - reconstruct on every weight-SPad read"
+    short: "R4a\n@ SPad output"
+    rating: "3/5"
+    reduced: ["dram", "inter_cluster_mesh", "cluster_local", "weight_spad"]
+    site_stage: "weight_spad"
+    site_counter: "reads"
+    description: "The scratchpad stores the reduced form, so its write and read bit-volume fall too, and the encoder sits at its read port. The risk the source discussion names is the whole story here: the encoder now runs once per weight DELIVERED to the datapath, and a weight-stationary inner loop delivers each resident weight thousands of times."

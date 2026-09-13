@@ -10,6 +10,70 @@ Rules for this file: newest entry at the top, one short block per day of work,
 no tables, no pasted output. Anything worth keeping longer than a week belongs
 in FINDINGS.md; anything that says what to do next belongs in the live plan.
 
+2026-09-13  RESTRUCTURE PHASE 5 -- A DESIGN IS A DIRECTORY
+-----------------------------------------------------------------------
+ProjectRestructure.md section 9.2, phase 5 -- "your main ask". Gate: 302
+fingerprints BYTE-IDENTICAL, every evaluated total identical to the pJ,
+240 -> 272 passing.
+
+ADDING AN ARCHITECTURE WAS 14 EDITS ACROSS 6 FILES IN 3 LANGUAGES. It is now one
+directory:
+
+    archs/<name>/ arch_paper.yaml  design.yaml  weight_path.yaml
+                  placements.yaml  README.md
+
+`make arch NEW=<name>` writes it. Nothing else in the project is edited, and
+`tests/contract/test_designs_are_data.py` holds that at zero: it walks the AST of
+every production module and fails on a comparison against a design NAME.
+
+WHAT MOVED OUT OF PYTHON:
+  * WEIGHT_PATHS and PLACEMENTS (five tuples and four, ~900 lines of cited
+    prose) -> weight_path.yaml + placements.yaml per design. Every string moved
+    byte for byte; the emitter is restructure/emit_design_data.py.
+  * KNOWN_ARCHS, ARCH_LABELS, BRACKET_PAIRS -> design.yaml, read by
+    arch/design.py. `config.KNOWN_ARCHS` still answers, and is now a function of
+    the directory.
+  * MAPSPACE_FREE_LEVELS (prompt_3's constrained search) -> design.yaml.
+  * THE THREE `arch.startswith("eyeriss_v2")` BRANCHES -> two declared fields.
+    `weights_stored_compressed` carries the CSC caveat onto every result;
+    `noc_published_share` (with its citation, and REFUSED without one) is the
+    band audit/baseline check the modelled share against. The check KEY keeps
+    the design in its name on purpose -- it identifies a check in every result
+    file already written.
+
+THE TWO HALVES ARE ONE DIRECTORY, which is what makes "the two tables must be
+edited together" structural instead of a warning in CLAUDE.md. A design declares
+both files or neither: three designs (simba_like, simple_input_stationary,
+simple_output_stationary) declare no boundaries and the schema says so rather
+than inventing a weight path that was never cited.
+
+THE SCHEMA IS A REFUSAL AND IT NAMES THE FILE: a stage of an unknown kind, a
+boundary naming a stage that does not exist, a `noc_published_share` with no
+citation, and -- the one that makes the scaffold safe -- a `TODO` left in an
+`evidence:` or a `description:`. A stub that VALIDATED would be a design whose
+weight path nobody wrote, and the placement study would report savings against
+it. Proven by running `make arch` and watching the load refuse.
+
+WHAT IS NOT CHECKED AT LOAD, ON PURPOSE: the prefix rule and the reachability
+rule. `arch.arms.validate_placement_space()` states both over the stages a
+CONFIGURATION resolves (ECC_RECON_DECODE_SITE=controller makes the DRAM stage
+irreducible), and checking the declared file instead would refuse
+`eyeriss_v2_like_wglb` AT IMPORT -- its weight_glb stage is reducible and no
+boundary reaches it, a known documented gap. It is refused when the study asks
+for it, with the reason, and does not stop every other design from loading.
+
+TWO THINGS THE DIRECTORY DOES NOT OWN. The design's CLOCK stays in env.sh
+section 7 (a knob a run may override; one file a user edits). And `order:` --
+where a design sits on a default axis -- is optional and declared, because
+KNOWN_ARCHS is the default value of ECC_SWEEP_ARCHS and the resolved arch list
+is in the mapper fingerprint: an alphabetical directory listing would have
+silently reordered it.
+
+ONE BEHAVIOUR PRESERVED DELIBERATELY: ECC_SWEEP_ARCHS UNSET means "every
+declared design" and is filled in by config._resolve(); ECC_SWEEP_ARCHS=" " is
+still REFUSED. A plain default could not tell those apart once the design list
+stopped living at L0, so `settings/env.py` grew `_list_or_none()`.
+
 2026-09-13  RESTRUCTURE PHASE 4 -- THE KNOBS FROZEN, AND THE CYCLE IS DEAD
 -----------------------------------------------------------------------
 ProjectRestructure.md section 9.2, phase 4. Gate: 302 fingerprints

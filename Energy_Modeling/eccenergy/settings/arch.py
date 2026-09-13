@@ -26,72 +26,15 @@ from .env import _b, _f, _i, _list, _of, _oi, _one, _s, _table
 #:             pre-correction figure.
 ARCH_FIDELITIES = ("paper", "stock")
 
-#: Architectures this dense CNN/transformer problem can map onto. eyeriss_v2_like
-#: is authored in this repo (archs/); the rest ship with
-#: timeloop-accelergy-exercises' example_designs.
-KNOWN_ARCHS = (
-    "eyeriss_like",
-    "eyeriss_like_wglb",
-    "eyeriss_v2_like",
-    "eyeriss_v2_like_wglb",
-    "simple_weight_stationary",
-    "simple_output_stationary",
-    "simple_input_stationary",
-    "simba_like",
-)
-
-#: Designs whose number is a BOUND, not a measurement, unless the partner named
-#: here is plotted beside them.
+#: WHICH DESIGNS EXIST IS NOT A KNOB. `KNOWN_ARCHS`, `ARCH_LABELS` and
+#: `BRACKET_PAIRS` lived here until ProjectRestructure phase 5 and are now
+#: `arch/design.py`, reading `archs/<name>/design.yaml` -- one directory per
+#: design, and nothing in Python names one.
 #:
-#: A pair differs in ONE modelling judgement that the design's paper does not
-#: settle, and `Session.setup()` writes the caveat into the run manifest
-#: whenever a design appears without its partner, because a caveat that lives
-#: only in a README does not travel with the numbers.
-#:
-#: THE EYERISS v1 PAIR IS RETIRED (2026-09-10, prompt_2.md / CLAUDE.md).
-#: `eyeriss_like_wglb` IS Eyeriss v1: JSSC 2017 Sec. V-A publishes a
-#: filter-weight allocation inside the 108 kB GLB, so the file that models it
-#: as a reuse level is the design and `eyeriss_like` -- which declares
-#: `!Nothing` where that allocation sits -- is retired rather than bracketed.
-#: (The paper's allocation is 8 kB; this study declares 2 kB deliberately --
-#: see the divergence table at the top of the arch YAML. What makes the file
-#: the design is that the LEVEL EXISTS, not what size it is.) Collapsing the two
-#: files to ONE design makes an entry here self-referential: it would ask the
-#: run to plot a retired file beside the live one and stamp every manifest
-#: with a caveat that is no longer true.
-#:
-#: The mechanism is kept, not deleted: it is how any future undecided
-#: modelling judgement is carried onto the numbers, and CLAUDE.md's bracket
-#: rule still holds for `eyeriss_v2_like_wglb`, whose extra weight level is
-#: NOT in its paper -- that pair has never been registered here and is not
-#: registered now, because prompt_2 does not ask for it.
-BRACKET_PAIRS = {}
-
-#: Human-facing names for figure axes.
-#:
-#: A LABEL MAY NAME A STRUCTURE, NEVER A CAPACITY (2026-09-13, prompt_7 C1.7).
-#: `eyeriss_like_wglb` was labelled "(+8kB filter GLB)" after JSSC 2017's
-#: allocation, but the file declares `depth: 256` = 2 kB -- confirmed and kept
-#: deliberately, with the divergence recorded in the arch YAML's own header and
-#: in `archs/_shared/provenance.yaml`. A figure title is the last place a reader
-#: meets the design, so it must not be the one place that still quotes a number
-#: the file does not declare. The label now says WHICH LEVEL EXISTS, which is
-#: the real difference from the retired `eyeriss_like`, and the capacity travels
-#: in the manifest where it can carry its divergence with it.
-ARCH_LABELS = {
-    "eyeriss_like": "Eyeriss v1",
-    "eyeriss_like_wglb": "Eyeriss v1\n(+filter GLB)",
-    "eyeriss_v2_like": "Eyeriss v2",
-    "eyeriss_v2_like_wglb": "Eyeriss v2\n(+weight NoC)",
-    "simple_weight_stationary": "Weight stationary",
-    "simple_output_stationary": "Output stationary",
-    "simple_input_stationary": "Input stationary",
-    # NOT "Simba". The exercises' reference design has 256 MACs, which cannot
-    # deliver the paper's published 4 TOPS at its published clock (that needs
-    # ~1024), and its PE buffers are 4-21x the published PE geometry. See
-    # archs/_shared/provenance.yaml.
-    "simba_like": "Simba-like\n(reference design)",
-}
+#: This package may not reach up into `arch/`, so the DEFAULT list for
+#: `ECC_SWEEP_ARCHS` is left empty here and filled in by `config._resolve()`,
+#: which is above both. The resolved list is identical; what moved is where the
+#: default comes from.
 
 #: Which levels a Task 4 capacity dilation may rewrite.
 #: `archs.WEIGHT_CAPACITY_SCOPES` must stay in step with this tuple.

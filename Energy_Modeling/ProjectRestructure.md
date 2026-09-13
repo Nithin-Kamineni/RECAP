@@ -14,7 +14,7 @@ tests into categories you can actually see.**
 | **Prerequisite** | **None.** `prompt_7.md` is fully implemented, so there is no cold pass to schedule around and no sequencing constraint — this plan can start immediately. |
 | **Measured** | Every number in §2 and Appendix A was measured on this repository on 2026-09-12, not estimated. §5.1.1 was measured 2026-09-13. |
 | **Written** | 2026-09-12 |
-| **Status** | Phases 0-4 are DONE (2026-09-13); phase 5 is next. §9.2 carries the marks. |
+| **Status** | Phases 0-5 are DONE (2026-09-13). Phases 6 (guards) and 7 (backfill tests) remain. §9.2 carries the marks. |
 | **Revised** | 2026-09-13 — §4.2 now carries the COMPLETE tree including every per-architecture directory; §5.1.1 adds the measured case against per-architecture CODE; the `prompt_7` sequencing section is gone because prompt_7 is implemented. |
 
 ---
@@ -870,7 +870,7 @@ If gate 1 fails, **stop** — you are about to cold hours of compute.
 | **2** ✅ | **Layers** | Create `contracts/ physics/ arch/ toolchain/ study/ report/`. `git mv` modules in. Fix imports. Add `tests/contract/test_layer_rule.py`. | no | 1 |
 | **3** ✅ | **Split the big six** | Cut `recon.py`, `archs.py`, `experiments/recon.py`, `experiments/dilation.py` along their existing banners (§4.4). No function bodies change — only which file they live in. | no | 2 |
 | **4** ✅ | **Settings** | `Config` → six frozen dataclasses. **The import cycle dies here.** Update every signature to take what it needs. | **yes** | 2 |
-| **5** | **Architectures as data** | `WEIGHT_PATHS`/`PLACEMENTS` → `archs/<name>/weight_path.yaml` + `placements.yaml`; `KNOWN_ARCHS`/`ARCH_LABELS`/`MAPSPACE_FREE_LEVELS`/`BRACKET_PAIRS` → `design.yaml`; the three `startswith("eyeriss_v2")` branches (§5.1.1) → a declared field. Add the schema and `make arch`. | **yes** | 2 |
+| **5** ✅ | **Architectures as data** | `WEIGHT_PATHS`/`PLACEMENTS` → `archs/<name>/weight_path.yaml` + `placements.yaml`; `KNOWN_ARCHS`/`ARCH_LABELS`/`MAPSPACE_FREE_LEVELS`/`BRACKET_PAIRS` → `design.yaml`; the three `startswith("eyeriss_v2")` branches (§5.1.1) → a declared field. Add the schema and `make arch`. | **yes** | 2 |
 | **6** | **Guards + GUARDS.md** | Assign tier and id to all 106; add `ECC_ALLOW`; re-tier the three price guards; generate `GUARDS.md`; record overrides in the manifest. | **yes** | 1 |
 | **7** | **Backfill tests** | Write `tests/unit/` for the 69% that has none — ongoing, not a blocking phase. | no | ongoing |
 

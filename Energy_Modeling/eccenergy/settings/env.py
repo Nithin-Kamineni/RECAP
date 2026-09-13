@@ -107,3 +107,16 @@ def _one(name, default=""):
                           f"  -> only the swept axis takes a list")
     return got[0] if got else ""
 
+
+def _list_or_none(name, sep=None):
+    """`None` if the variable is UNSET, a list if it is set -- empty or not.
+
+    The distinction matters for exactly one knob: `ECC_SWEEP_ARCHS` unset means
+    "every declared design" and is filled in by `config._resolve()`, while
+    `ECC_SWEEP_ARCHS=" "` means the user asked for NOTHING and is refused. A
+    plain default cannot say both, and this package may not read `archs/` to
+    apply the first one itself.
+    """
+    if name not in os.environ:
+        return None
+    return _list(name, sep=sep)

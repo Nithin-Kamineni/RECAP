@@ -54,7 +54,13 @@ placement without importing a study module.
 """
 from __future__ import annotations
 
+import functools
+
 from dataclasses import dataclass, replace
+
+from ..contracts.errors import ConfigError
+from ..paths import ARCH_SRC
+from . import design, weight_path
 
 from .weight_path import DECODE_SITES, ENCODER_SITES, WEIGHT_PATHS
 
@@ -96,347 +102,83 @@ class Placement:
     description: str
 
 
-_V2_PLACEMENTS = (
-    Placement(
-        "recon1", "recon_source_noc_ingress",
-        "R1 - reconstruct at the source / weight-NoC ingress",
-        "R1\n@ NoC source", "2/5",
-        reduced=("dram",), site_stage="dram",
-        site_counter="reads",
-        description=(
-            "The die drives only the k message bits of each codeword across "
-            "the DRAM interface and one (or a few) encoders at the weight-NoC "
-            "ingress put the missing bits straight back before the weight "
-            "enters the network. Nothing on chip carries the reduced form, so "
-            "nothing on chip gets cheaper; the encoder runs once per codeword "
-            "fetched from DRAM. It is no longer the zero-saving control: it "
-            "isolates the DRAM-interface saving, which every boundary shares, "
-            "from any on-chip saving, and pays the reconstruction cost with "
-            "nothing but that interface saving to set against it."),
-    ),
-    Placement(
-        "recon2", "recon_destination_cluster",
-        "R2 - reconstruct at the destination-cluster boundary",
-        "R2\n@ cluster edge", "4/5",
-        reduced=("dram", "inter_cluster_mesh"),
-        site_stage="inter_cluster_mesh",
-        site_counter="deliveries",
-        description=(
-            "The long-distance hierarchical mesh carries the reduced form and "
-            "an encoder at each destination cluster restores it before the "
-            "cluster-local fanout. One encoder per cluster rather than one per "
-            "PE, and the mesh -- the expensive hop -- moves fewer bits. The "
-            "encoders run once per word ARRIVING at a cluster, not once per "
-            "word injected into the mesh: the mesh multicasts, so those two "
-            "counts differ by its multicast factor, and only the arrival count "
-            "is consistent with the mesh carrying reduced-width data at all "
-            "(an encoder before the fanout is R1). Sec. 7.1's multicast "
-            "tradeoff; `ECC_RECON_ENCODER_SITE` is the experiment variable it "
-            "asks for."),
-    ),
-    Placement(
-        "recon3", "recon_pe_spad_input",
-        "R3 - reconstruct at the PE weight-SPad input",
-        "R3\n@ SPad input", "4/5",
-        reduced=("dram", "inter_cluster_mesh", "cluster_local"),
-        site_stage="weight_spad", site_counter="fills",
-        description=(
-            "Both networks carry the reduced form; the encoder sits at the "
-            "scratchpad write port, so the SPad itself stays full width and "
-            "keeps its capacity and read cost. The encoder runs once per weight "
-            "FILLED into a PE, which is the smallest count of any boundary "
-            "below the network."),
-    ),
-    Placement(
-        "recon4", "recon_pe_spad_output",
-        "R4a - reconstruct on every weight-SPad read",
-        "R4a\n@ SPad output", "3/5",
-        reduced=("dram", "inter_cluster_mesh", "cluster_local",
-                 "weight_spad"),
-        site_stage="weight_spad", site_counter="reads",
-        description=(
-            "The scratchpad stores the reduced form, so its write and read "
-            "bit-volume fall too, and the encoder sits at its read port. The "
-            "risk the source discussion names is the whole story here: the "
-            "encoder now runs once per weight DELIVERED to the datapath, and a "
-            "weight-stationary inner loop delivers each resident weight "
-            "thousands of times."),
-    ),
-)
-
-#: Eyeriss v1, Sec. 7.1/7.2. The same five-boundary shape as v2 -- two network
-#: stages then the PE scratchpad -- so the two eyeriss panels of one figure read
-#: left to right as the same story about a different design. Ratings are Sec.
-#: 7.2's and Sec. 11's HYPOTHESES, carried so the result can be read against
-#: them; they are not results.
-_EYERISS_V1_PLACEMENTS = (
-    Placement(
-        "recon1", "recon_source_noc_ingress",
-        "R1 - reconstruct at the source, before the array network",
-        "R1\n@ source", "3/5",
-        reduced=("dram",), site_stage="dram",
-        site_counter="reads",
-        description=(
-            "Sec. 7.1's source-side reconstruction. The die drives only the k "
-            "message bits across the DRAM interface and an encoder at the chip "
-            "source restores them before the array network, so nothing on chip "
-            "carries the reduced form. It is the control that isolates the "
-            "DRAM-interface saving -- which every boundary shares -- from every "
-            "on-chip saving, and it pays one reconstruction per codeword "
-            "fetched from DRAM with nothing but that interface saving against "
-            "it."),
-    ),
-    Placement(
-        "recon2", "recon_after_array_multicast",
-        "R2 - reconstruct after the array multicast, at the column edge",
-        "R2\n@ column edge", "4/5",
-        reduced=("dram", "array_multicast"),
-        site_stage="array_multicast", site_counter="deliveries",
-        description=(
-            "Sec. 7.1's multicast tradeoff, resolved in favour of reduced-width "
-            "shared transport: the 14-way column multicast carries the reduced "
-            "form and one encoder per column restores it before the column's "
-            "own fanout. Fewer encoders than one per PE, and the long half of "
-            "the array network moves fewer bits. The encoders run once per word "
-            "ARRIVING at a column, which on this design's own mappings is up to "
-            "7x the number injected -- that multiplicity is the cost side of "
-            "the tradeoff and `ECC_RECON_ENCODER_SITE=source` prices the other "
-            "side (one encoder, full-width network) for comparison."),
-    ),
-    Placement(
-        "recon3", "recon_pe_spad_input",
-        "R3 - reconstruct at the PE filter-spad input",
-        "R3\n@ spad input", "4/5",
-        reduced=("dram", "array_multicast", "pe_local_multicast"),
-        site_stage="weights_spad", site_counter="fills",
-        description=(
-            "Both halves of the array network carry the reduced form and the "
-            "encoder sits at the scratchpad write port, so the spad keeps its "
-            "published 224 x 16b capacity and its full-width read cost. The "
-            "encoder runs once per weight FILLED into a PE, the smallest count "
-            "of any boundary below the network. Sec. 7.2's PE-FIFO boundary "
-            "would sit between R2 and R3; the model has no FIFO level, so this "
-            "is the first boundary after the whole network."),
-    ),
-    Placement(
-        "recon4", "recon_pe_spad_output",
-        "R4a - reconstruct on every filter-spad read",
-        "R4a\n@ spad output", "3/5",
-        reduced=("dram", "array_multicast", "pe_local_multicast",
-                 "weights_spad"),
-        site_stage="weights_spad", site_counter="reads",
-        description=(
-            "The scratchpad stores the reduced form, so its write and read "
-            "bit-volume fall with its capacity, and the encoder sits at its "
-            "read port. Row-stationary reuse is what makes this expensive: the "
-            "MAC reads the spad directly, once per MAC, so the encoder runs "
-            "once per weight DELIVERED rather than once per weight stored."),
-    ),
-)
-
-#: Weight-stationary, Sec. 6.1/6.2. SIX boundaries: this design is the only one
-#: in the study with both a weight global buffer above the network and a
-#: stationary weight register below the scratchpad, so it has a boundary at
-#: each. Sec. 6.2's own list starts at the buffer OUTPUT (3/5); the chip-ingress
-#: control below is this study's addition, and it exists for the reason the
-#: 2026-09-09 revision gives R1 on every design -- with the decoder on the DRAM
-#: die, a boundary that reduces nothing on chip still saves the interface, so it
-#: is what isolates that saving from the on-chip ones. It is labelled `control`
-#: rather than given a rating the source discussion does not state for WS.
-_WS_PLACEMENTS = (
-    Placement(
-        "recon1", "recon_source_noc_ingress",
-        "R1 - reconstruct at chip ingress, before the weight buffer",
-        "R1\n@ chip ingress", "control",
-        reduced=("dram",), site_stage="dram",
-        site_counter="reads",
-        description=(
-            "The die drives only the k message bits across the DRAM interface "
-            "and an encoder at chip ingress restores them before the global "
-            "operand buffer, so nothing on chip carries the reduced form. Sec. "
-            "6.2 does not list this row -- its own R1 is at the buffer OUTPUT "
-            "-- and it is drawn here as the control that separates the "
-            "DRAM-interface saving every boundary shares from any on-chip "
-            "saving. It pays one reconstruction per codeword fetched from DRAM "
-            "and has nothing but that interface saving against it."),
-    ),
-    Placement(
-        "recon2", "recon_global_buffer_output",
-        "R2 - reconstruct at the global weight-buffer output",
-        "R2\n@ buffer output", "3/5",
-        reduced=("dram", "weight_glb"),
-        site_stage="weight_glb", site_counter="reads",
-        description=(
-            "Sec. 6.2's R1, rated 3/5: the 36 kB weight buffer holds weight "
-            "tiles in the reduced form, so its weight capacity and its weight "
-            "access bit-volume both fall, and one encoder at its read port "
-            "restores full width before the distribution network. Since "
-            "2026-09-13 this level keeps Weights alone, so the whole level "
-            "moves and the input activations -- now `input_glb` -- are a "
-            "separate array that nothing here touches. Downstream -- network, "
-            "scratchpad, register -- is full width."),
-    ),
-    Placement(
-        "recon3", "recon_noc_output_pe_input",
-        "R3 - reconstruct at the weight-NoC output / PE input",
-        "R3\n@ PE input", "4/5",
-        reduced=("dram", "weight_glb", "weight_noc"),
-        site_stage="pe_spad", site_counter="fills",
-        description=(
-            "Sec. 6.2's R2, rated 4/5: the weight buffer AND the 256-PE "
-            "distribution network carry the reduced form, and an encoder at "
-            "each PE input "
-            "restores it before the scratchpad. The encoder runs once per "
-            "weight FILLED into a PE, so a broadcast that reaches many PEs "
-            "replicates the encoder rather than the reconstruction count of any "
-            "one of them. The scratchpad keeps its full width and its read "
-            "cost."),
-    ),
-    Placement(
-        "recon4", "recon_pe_rf_output",
-        "R4a - reconstruct on every weight-RF read",
-        "R4a\n@ RF output", "2/5",
-        reduced=("dram", "weight_glb", "weight_noc", "pe_spad"),
-        site_stage="pe_spad", site_counter="reads",
-        description=(
-            "Sec. 6.2's R3a, rated 2/5 and the one row of the WS table rated "
-            "BELOW the early boundaries. The scratchpad stores the reduced "
-            "form, so its capacity and its bit-volume fall, but the encoder "
-            "sits at its read port and a weight-stationary inner loop reads "
-            "each resident weight hundreds of times: Sec. 6.1's illustrative "
-            "'100 reduced-width RF reads and 100 reconstructions'. The design's "
-            "own depth-1 stationary register does not amortize this -- the "
-            "mapping fills it once per read (Timeloop's own counts), so it is a "
-            "pipeline latch here, not a reuse register."),
-    ),
-    Placement(
-        "recon5", "recon_mac_input",
-        "R5 - reconstruct at the MAC input (stationary register reduced too)",
-        "R5\n@ MAC input", "2/5",
-        reduced=("dram", "weight_glb", "weight_noc", "pe_spad",
-                 "weight_reg"),
-        site_stage="weight_reg", site_counter="reads",
-        description=(
-            "Sec. 6.2's MAC row, rated 2/5: the latest boundary the design "
-            "admits, with even the stationary register holding the reduced form "
-            "and the encoder on the MAC's operand path. It is evaluated rather "
-            "than argued away, and `feasibility()` is expected to reject it: "
-            "rebuilding one weight needs the retained bits of G_rec = 9 "
-            "co-resident weights and this register holds ONE, so the bits the "
-            "rebuild depends on are not there. The rejection names the layers "
-            "and the resident count, which is the answer to Sec. 6.2's row -- "
-            "not a number produced by pretending the register is wider than the "
-            "design declares."),
-    ),
-)
+#: The boundaries themselves are `archs/<name>/placements.yaml` since
+#: ProjectRestructure phase 5 -- four tuples of cited prose became four files
+#: beside the designs they describe. `eyeriss_v2_like` and `eyeriss_v2_like_wglb`
+#: shared one table here and now each declare their own: a copy that is DATA can
+#: be diffed, and the schema checks both against their own weight path.
 
 
-#: `eyeriss_like_wglb` -- Eyeriss v1's boundaries WITH the published filter
-#: GLB. Five, not four: the GLB is a reducible storage stage above the array
-#: network, so it admits a boundary at its output that `eyeriss_like` has
-#: nowhere to put. The numbering follows `simple_weight_stationary`'s, the
-#: other design in the study with a weight buffer above its network -- recon2
-#: is the global weight buffer's output on both -- rather than shifting
-#: `eyeriss_like`'s keys, which name different boundaries anyway.
-#:
-#: `validate_placement_space()` enforces both invariants this list has to
-#: satisfy: each `reduced` set is a PREFIX of the path's reducible stages in
-#: path order, and every reducible stage is reached by some boundary. Without
-#: the second, adding `filter_glb` to `WEIGHT_PATHS` and forgetting it here
-#: would leave every boundary below it reporting its own saving while the GLB
-#: stayed at full width -- the whole list understated, with nothing saying so.
-_EYERISS_V1_WGLB_PLACEMENTS = (
-    Placement(
-        "recon1", "recon_source_noc_ingress",
-        "R1 - reconstruct at chip ingress, before the filter GLB",
-        "R1\n@ source", "3/5",
-        reduced=("dram",), site_stage="dram", site_counter="reads",
-        description=(
-            "Sec. 7.1's source-side reconstruction. The die drives only the k "
-            "message bits across the DRAM interface and an encoder at the chip "
-            "source restores them before anything on chip stores them, so "
-            "nothing on chip carries the reduced form -- not even the filter "
-            "GLB. It is the control that isolates the DRAM-interface saving, "
-            "which every boundary shares, from every on-chip saving, and it "
-            "pays one reconstruction per codeword fetched from DRAM with "
-            "nothing but that interface saving against it."),
-    ),
-    Placement(
-        "recon2", "recon_weight_glb_output",
-        "R2 - reconstruct at the filter-GLB output",
-        "R2\n@ filter GLB", "3/5",
-        reduced=("dram", "filter_glb"),
-        site_stage="filter_glb", site_counter="reads",
-        description=(
-            "The 8 kB filter GLB stores the reduced form, so it holds N/K more "
-            "weights per bank and its per-weight read cost falls with the bit "
-            "count; the encoder sits at its read port, before the array "
-            "network. This is the boundary `eyeriss_like` has nowhere to put, "
-            "and it is the one FINDINGS 7.8 predicts matters: refetch on v1 is "
-            "set by the DRAM-level loop order over P and Q, a weight tile "
-            "cannot index either, and only a weight level ABOVE the PE array "
-            "can absorb those loops. Its cost side is that the GLB is read "
-            "once per weight DELIVERED into the array, not once per weight "
-            "stored."),
-    ),
-    Placement(
-        "recon3", "recon_after_array_multicast",
-        "R3 - reconstruct after the array multicast, at the column edge",
-        "R3\n@ column edge", "4/5",
-        reduced=("dram", "filter_glb", "array_multicast"),
-        site_stage="array_multicast", site_counter="deliveries",
-        description=(
-            "Sec. 7.1's multicast tradeoff, resolved in favour of reduced-width "
-            "shared transport: the GLB and the 14-way column multicast both "
-            "carry the reduced form and one encoder per column restores it "
-            "before the column's own fanout. Fewer encoders than one per PE, "
-            "and the long half of the array network moves fewer bits. The "
-            "encoders run once per word ARRIVING at a column, which on this "
-            "design's own mappings is up to 7x the number injected; "
-            "`ECC_RECON_ENCODER_SITE=source` prices the other side of the "
-            "tradeoff (one encoder, full-width network)."),
-    ),
-    Placement(
-        "recon4", "recon_pe_spad_input",
-        "R4 - reconstruct at the PE filter-spad input",
-        "R4\n@ spad input", "4/5",
-        reduced=("dram", "filter_glb", "array_multicast", "pe_local_multicast"),
-        site_stage="weights_spad", site_counter="fills",
-        description=(
-            "The GLB and both halves of the array network carry the reduced "
-            "form and the encoder sits at the scratchpad write port, so the "
-            "spad keeps its published 224 x 16b capacity and its full-width "
-            "read cost. The encoder runs once per weight FILLED into a PE, the "
-            "smallest count of any boundary below the network. Sec. 7.2's "
-            "PE-FIFO boundary would sit between R3 and R4; the model has no "
-            "FIFO level, so this is the first boundary after the whole "
-            "network."),
-    ),
-    Placement(
-        "recon5", "recon_pe_spad_output",
-        "R5a - reconstruct on every filter-spad read",
-        "R5a\n@ spad output", "3/5",
-        reduced=("dram", "filter_glb", "array_multicast", "pe_local_multicast",
-                 "weights_spad"),
-        site_stage="weights_spad", site_counter="reads",
-        description=(
-            "Every weight-carrying stage holds the reduced form, so the spad's "
-            "write and read bit-volume fall with its capacity too, and the "
-            "encoder sits at its read port. Row-stationary reuse is what makes "
-            "this expensive: the MAC reads the spad directly, once per MAC, so "
-            "the encoder runs once per weight DELIVERED rather than once per "
-            "weight stored."),
-    ),
-)
+@functools.lru_cache(maxsize=None)
+def _declared_placements(arch):
+    """This design's `placements.yaml`, as `Placement` records, or `()`."""
+    doc = design.placements_doc(arch)
+    if doc is None:
+        return ()
+    path = ARCH_SRC / arch / design.PLACEMENTS_FILE
+    stages = weight_path.stages_of(arch)
+    if not stages:
+        raise ConfigError(
+            f"{path}: this design declares boundaries but no "
+            f"{design.WEIGHT_PATH_FILE}. The two are loaded together or not at "
+            f"all -- a boundary is a cut through a weight path.")
+    rows = design.validate_placements(
+        arch, doc, [{"key": s.key, "reducible": s.reducible} for s in stages], path)
+    return tuple(Placement(key=r["key"], variant=r["variant"], label=r["label"],
+                           short=r["short"], rating=str(r.get("rating", "")),
+                           reduced=tuple(r["reduced"] or ()),
+                           site_stage=r["site_stage"],
+                           site_counter=r["site_counter"],
+                           description=r["description"])
+                 for r in rows)
 
 
-PLACEMENTS = {
-    "eyeriss_v2_like": _V2_PLACEMENTS,
-    "eyeriss_v2_like_wglb": _V2_PLACEMENTS,
-    "eyeriss_like": _EYERISS_V1_PLACEMENTS,
-    "eyeriss_like_wglb": _EYERISS_V1_WGLB_PLACEMENTS,
-    "simple_weight_stationary": _WS_PLACEMENTS,
-}
+class _Placements(dict):
+    """`PLACEMENTS[arch]`, filled from `archs/<name>/placements.yaml` on first
+    use. An entry assigned into it wins -- see `_WeightPaths` beside it."""
+
+    def __missing__(self, arch):
+        got = _declared_placements(arch)
+        if not got:
+            raise KeyError(arch)
+        self[arch] = got
+        return got
+
+    def __contains__(self, arch):
+        try:
+            self[arch]
+        except KeyError:
+            return False
+        return True
+
+    def get(self, arch, default=None):
+        try:
+            return self[arch]
+        except KeyError:
+            return default
+
+    def keys(self):
+        declared = [a for a in design.known_archs() if a in self]
+        return tuple(declared) + tuple(k for k in dict.keys(self)
+                                       if k not in declared)
+
+    def __iter__(self):
+        return iter(self.keys())
+
+    def values(self):
+        return tuple(self[a] for a in self.keys())
+
+    def items(self):
+        return tuple((a, self[a]) for a in self.keys())
+
+
+def placements_of(arch):
+    """This design's boundaries, or `()` if it declares none."""
+    return PLACEMENTS.get(arch) or ()
+
+
+#: design -> its boundaries, read from `archs/<name>/placements.yaml`.
+PLACEMENTS = _Placements()
 
 #: Reference bars every placement is read against. They are not placements;
 #: they are Task 1's and Task 2's numbers, produced by Task 1's and Task 2's own

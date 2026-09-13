@@ -1,0 +1,33 @@
+# ONE DESIGN, DECLARED. ProjectRestructure phase 5: a new architecture is
+# this directory and nothing else -- no Python anywhere names it.
+#
+# `arch_paper.yaml` is the CHIP (every number cited); this file is what the
+# study needs to know ABOUT the chip that the chip's own YAML does not say.
+#
+# The design's CLOCK is deliberately NOT here: env.sh section 7's
+# ECC_ARCH_CLOCK_MHZ table owns it, because it is a knob a run may override
+# and env.sh is the one file a user edits (CLAUDE.md).
+name: eyeriss_v2_like_wglb
+
+# Where this design sits on a default axis, and nothing more: `KNOWN_ARCHS` is
+# this file's order, so a figure that sweeps every declared design reads
+# left to right in it. A new design may OMIT it and lands after the ordered
+# ones, alphabetically -- it is a presentation choice, not a registration.
+order: 3
+label: "Eyeriss v2\n(+weight NoC)"
+
+# The published design stores weights COMPRESSED and this study models it
+# DENSE. Every result carries the caveat; before phase 5 this was an
+# `arch.startswith("eyeriss_v2")` in study/placement_study.py.
+weights_stored_compressed: true
+compression_note: "the published PE stores weights CSC-compressed with a separate address scratchpad (JETCAS 2019 Table IV: weight data 288B, weight address 16x7b); this study models the design DENSE"
+
+# The share of TOTAL energy the design's own paper reports for its
+# interconnect. `study/audit.py` and `study/baseline.py` check the modelled
+# share against it -- a miss on one model is a prompt to look, a miss on
+# EVERY model is a broken constant. Before phase 5 this band was two
+# `arch.startswith("eyeriss_v2_like")` branches.
+noc_published_share:
+  low: 0.06
+  high: 0.1
+  citation: "JETCAS 2019 Sec. V / Fig. 18: the hierarchical mesh is \"6%-10% of the total energy consumption\""

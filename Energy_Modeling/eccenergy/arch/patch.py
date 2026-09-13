@@ -34,6 +34,7 @@ from __future__ import annotations
 import re
 
 from ..physics import widths
+from . import design
 
 from .load import BANKED_SRAM_CLASS, PLAIN_SRAM_CLASS, _inject_noc, _node_blocks, arch_source
 
@@ -998,18 +999,36 @@ def _relax_weight_factors(text, arch="?", quiet=False):
 #: run together with `ECC_WEIGHT_FACTOR_RELAX=1` -- that relaxation exists to
 #: let the weight TILE grow into the room a shallower/narrower array leaves,
 #: and pinning M back at that level here would undo it.
-MAPSPACE_FREE_LEVELS = {
-    "eyeriss_like_wglb": {
-        # dimension: the levels it may be split across. Pinned to 1 elsewhere.
-        "C": ("DRAM", "PE", "weights_spad"),
-        "M": ("ifmap_glb", "PE_column", "weights_spad", "psum_spad"),
-        "R": ("psum_glb",),
-        "S": ("PE",),
-        "P": ("ifmap_glb", "psum_glb"),
-        "Q": ("filter_glb", "PE_column"),
-        "N": (),                      # N = 1 in every workload here
-    },
-}
+#: prompt_3's constrained mapspace, per design -- `archs/<name>/design.yaml`
+#: `mapspace_free_levels:` since ProjectRestructure phase 5. It used to be a
+#: literal here, which meant a new design's search space was declared three
+#: files away from the design.
+#:
+#: `MAPSPACE_FREE_LEVELS[arch]` still answers the same question and
+#: `MAPSPACE_FREE_LEVELS.get(arch)` is still empty for a design that declares
+#: none -- which is what leaves it searched UNCONSTRAINED, the wrong regime for
+#: a systematic walk (FINDINGS 2.2).
+
+
+class _MapspaceFreeLevels(dict):
+    def __missing__(self, arch):
+        got = design.mapspace_free_levels(arch)
+        if not got:
+            raise KeyError(arch)
+        self[arch] = got
+        return got
+
+    def get(self, arch, default=None):
+        try:
+            return design.mapspace_free_levels(arch) or default
+        except Exception:
+            return default              # an undeclared design is unconstrained
+
+    def __contains__(self, arch):
+        return bool(self.get(arch))
+
+
+MAPSPACE_FREE_LEVELS = _MapspaceFreeLevels()
 
 #: Every loop dimension the constraint reasons about.
 MAPSPACE_DIMENSIONS = ("N", "C", "M", "R", "S", "P", "Q")

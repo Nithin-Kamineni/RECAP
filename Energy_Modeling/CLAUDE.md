@@ -32,7 +32,7 @@ must reproduce today's numbers exactly**, and §9.1's gate is one command --
 model) and every evaluated total is unchanged to the pJ. Run it BEFORE touching
 anything, so a red gate is never ambiguous. `restructure/README.md` says what the gate
 covers and what it cannot; ProjectRestructure §10 is what not to do.
-**Phases 0, 1, 2, 3 and 4 are DONE.**
+**Phases 0-5 are DONE.** Phases 6 (guards) and 7 (backfill tests) are not.
 
 Phase-by-phase status lives in `progress.txt`, not here.
 
@@ -606,10 +606,20 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   between an ERT arm's own plan and the reference is REPORTED per shape (both
   counts, cycles, Timeloop EDP ratio; manifest `title_caveats`), never refused.
   The DC tables live in env.sh §6.
-- **Adding an architecture**: `archs/<name>/arch.yaml` (plus `arch_paper.yaml` with
-  each number cited), the name in `KNOWN_ARCHS` and `ARCH_LABELS` in `config.py`,
-  entries in `standard.yaml` and `provenance.yaml`, then `bash run.sh validate` and
-  `diagnose` before committing to a long sweep.
+- **Adding an architecture**: **one directory, and nothing else** (phase 5).
+  `make arch NEW=<name>` scaffolds `archs/<name>/` with five files —
+  `arch_paper.yaml` (the chip, every number cited), `design.yaml` (label, axis
+  order, the constrained mapspace, and any per-design modelling fact), plus
+  `weight_path.yaml` and `placements.yaml` if it declares reconstruction
+  boundaries, and `README.md`. **The stub is deliberately INVALID**: a `TODO`
+  left in an `evidence:` or a `description:` is refused by name, because a
+  design whose weight path nobody wrote would still report savings. Then
+  `bash run.sh validate` and `diagnose` before committing to a long sweep, and
+  add its entries to `standard.yaml` / `provenance.yaml`.
+  **No Python file names a design** — `tests/contract/test_designs_are_data.py`
+  holds that at zero, and `arch.design.flag(arch, "<field>")` is how a
+  per-design fact reaches the code. `KNOWN_ARCHS`, `ARCH_LABELS` and the
+  constrained mapspace are read from the directory.
   **Declare each weight level's PUBLISHED `width`/`depth`/`datawidth` and stop
   there** — do not hand-pick a width to suit a code, and do not check one against
   another arm's datawidth. `arch.patch._set_weight_geometry()` reshapes every weight
@@ -619,12 +629,16 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   `physics.widths.WIDTH_TABLE`, never in the arch YAML and never in the config.
 - **Adding a model**: add to `CNN_MODELS` or `TRANSFORMER_MODELS` in `config.py`,
   then `python3 -m eccenergy.arch.generate models <name>` in the container.
-- **Adding an architecture to the placement study**: `WEIGHT_PATHS[<name>]` and
-  `PLACEMENTS[<name>]` together, then the name in `ECC_RECON_PLACEMENTS` in env.sh
-  §4. Get the stage-to-level match right by reading a real
-  `timeloop-mapper.stats.txt` AND `timeloop-mapper.map.txt` from that design's
-  cache. `test_every_placement_space_is_valid_for_every_supported_design` makes a
-  half-finished pair fail the tests rather than understate a figure.
+- **Adding an architecture to the placement study**: `weight_path.yaml` and
+  `placements.yaml` **in that design's own directory** — they are loaded
+  together or not at all, which is what makes "the two tables must be edited
+  together" a property of the directory rather than a warning here. Get the
+  stage-to-level match right by reading a real `timeloop-mapper.stats.txt` AND
+  `timeloop-mapper.map.txt` from that design's cache. Then the name in
+  `ECC_RECON_PLACEMENTS` in env.sh §4.
+  `test_every_placement_space_is_valid_for_every_supported_design` covers the
+  new design automatically, and the schema refuses a boundary that names a stage
+  the weight path does not declare.
 - **Adding a sweep axis**: a name in `SWEEPS`, a stem in `SWEEP_STEMS`, resolution
   in `Config.__post_init__`, and a `_<name>_groups()` in `report/sweep.py`. Do
   not write a second renderer.
@@ -720,6 +734,7 @@ carry the rest.
                         the one module here that reads a file, on purpose)
       L2  arch/         load.py  patch.py  fingerprint.py  layout.py
                         validate.py  workloads.py  generate.py
+                        design.py -- the ONLY reader of archs/<name>/*.yaml
                         weight_path.py  placements.py  arms.py -- the stages,
                         the boundaries, and which boundaries are DISTINCT CHIPS
       L3  config.py     THE RESOLVED CONFIGURATION: the six groups checked
@@ -746,6 +761,14 @@ carry the rest.
                         panels.py, style.py, and THE DRIVERS THAT DRAW:
                         sweep.py, recon_view.py, dilation_view.py
           __main__.py   the CLI. May import anything
+    Makefile            make arch NEW=<name> | make layers | make test | make gate
+    archs/<name>/       ONE DESIGN, ONE DIRECTORY (phase 5): arch_paper.yaml
+                        (the chip), design.yaml (label, axis order, the
+                        constrained mapspace, per-design modelling facts),
+                        weight_path.yaml + placements.yaml (the placement
+                        space, loaded together or not at all), README.md.
+                        arch/design.py is the ONLY reader. No Python names a
+                        design
     archs/_shared/      standard.yaml, provenance.yaml, noc.yaml -- not an
                         architecture; skipped by the installer.
                         components/ is IN THE FINGERPRINT: regfile_decoded.yaml

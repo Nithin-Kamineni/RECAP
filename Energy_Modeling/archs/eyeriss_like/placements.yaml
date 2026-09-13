@@ -1,0 +1,53 @@
+# THE RECONSTRUCTION BOUNDARIES of this design: which stages of
+# `weight_path.yaml` keep the REDUCED representation, and where the encoder
+# that rebuilds the rest sits.
+#
+# `reduced` must be a PREFIX of the path's reducible stages in path order, and
+# every reducible stage must be reached by some boundary --
+# `arch.arms.validate_placement_space()` refuses anything else, because a stage
+# nobody reaches leaves every boundary below it reporting a saving that the
+# whole list understates.
+#
+# site_counter: reads | fills | ingresses | deliveries.  A NETWORK boundary's
+# encoders run once per ARRIVAL, not once per injection: `deliveries` is
+# `ingresses x multicast factor`. ECC_RECON_ENCODER_SITE=source swaps it back.
+#
+# `rating` is the source discussion's HYPOTHESIS, carried so the result can be
+# read against it. It is not a result.
+placements:
+  - key: "recon1"
+    variant: "recon_source_noc_ingress"
+    label: "R1 - reconstruct at the source, before the array network"
+    short: "R1\n@ source"
+    rating: "3/5"
+    reduced: ["dram"]
+    site_stage: "dram"
+    site_counter: "reads"
+    description: "Sec. 7.1's source-side reconstruction. The die drives only the k message bits across the DRAM interface and an encoder at the chip source restores them before the array network, so nothing on chip carries the reduced form. It is the control that isolates the DRAM-interface saving -- which every boundary shares -- from every on-chip saving, and it pays one reconstruction per codeword fetched from DRAM with nothing but that interface saving against it."
+  - key: "recon2"
+    variant: "recon_after_array_multicast"
+    label: "R2 - reconstruct after the array multicast, at the column edge"
+    short: "R2\n@ column edge"
+    rating: "4/5"
+    reduced: ["dram", "array_multicast"]
+    site_stage: "array_multicast"
+    site_counter: "deliveries"
+    description: "Sec. 7.1's multicast tradeoff, resolved in favour of reduced-width shared transport: the 14-way column multicast carries the reduced form and one encoder per column restores it before the column's own fanout. Fewer encoders than one per PE, and the long half of the array network moves fewer bits. The encoders run once per word ARRIVING at a column, which on this design's own mappings is up to 7x the number injected -- that multiplicity is the cost side of the tradeoff and `ECC_RECON_ENCODER_SITE=source` prices the other side (one encoder, full-width network) for comparison."
+  - key: "recon3"
+    variant: "recon_pe_spad_input"
+    label: "R3 - reconstruct at the PE filter-spad input"
+    short: "R3\n@ spad input"
+    rating: "4/5"
+    reduced: ["dram", "array_multicast", "pe_local_multicast"]
+    site_stage: "weights_spad"
+    site_counter: "fills"
+    description: "Both halves of the array network carry the reduced form and the encoder sits at the scratchpad write port, so the spad keeps its published 224 x 16b capacity and its full-width read cost. The encoder runs once per weight FILLED into a PE, the smallest count of any boundary below the network. Sec. 7.2's PE-FIFO boundary would sit between R2 and R3; the model has no FIFO level, so this is the first boundary after the whole network."
+  - key: "recon4"
+    variant: "recon_pe_spad_output"
+    label: "R4a - reconstruct on every filter-spad read"
+    short: "R4a\n@ spad output"
+    rating: "3/5"
+    reduced: ["dram", "array_multicast", "pe_local_multicast", "weights_spad"]
+    site_stage: "weights_spad"
+    site_counter: "reads"
+    description: "The scratchpad stores the reduced form, so its write and read bit-volume fall with its capacity, and the encoder sits at its read port. Row-stationary reuse is what makes this expensive: the MAC reads the spad directly, once per MAC, so the encoder runs once per weight DELIVERED rather than once per weight stored."

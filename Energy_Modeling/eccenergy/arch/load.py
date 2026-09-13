@@ -32,8 +32,18 @@ import yaml
 from ..paths import ARCH_NOC, ARCH_PROVENANCE, ARCH_SRC, ARCH_SRC_RESERVED, ARCH_STANDARD, DESIGNS_DIR
 
 
+#: Files in a design directory that are the STUDY's, not Timeloop's, and are
+#: therefore not installed beside the chip: `arch/design.py` reads them from
+#: `archs/` directly (ProjectRestructure phase 5), and copying them into the
+#: exercises tree would put two spellings of a design's boundaries on disk.
+NOT_INSTALLED = ("design.yaml", "weight_path.yaml", "placements.yaml")
+
+
 def install_local_archs(verbose=True):
-    """Copy `archs/<name>/*` into the exercises example_designs tree."""
+    """Copy `archs/<name>/*` into the exercises example_designs tree.
+
+    Everything except the study's own per-design data -- see `NOT_INSTALLED`.
+    """
     if not ARCH_SRC.exists():
         return []
     installed = []
@@ -43,7 +53,7 @@ def install_local_archs(verbose=True):
         dst = DESIGNS_DIR / master.name
         dst.mkdir(parents=True, exist_ok=True)
         for f in master.iterdir():
-            if not f.is_file():
+            if not f.is_file() or f.name in NOT_INSTALLED:
                 continue
             target = dst / f.name
             if (not target.exists()) or f.stat().st_mtime > target.stat().st_mtime:

@@ -1,0 +1,40 @@
+# THE WEIGHT PATH of this design: the stages a weight crosses from DRAM to
+# the MAC, OUTER TO INNER, and the Timeloop levels that ARE each of them.
+#
+# It is half of the placement space; `placements.yaml` beside it is the other
+# half, and the two are loaded together or not at all -- which is what makes
+# "the two tables must be edited together" a property of the directory instead
+# of a warning in CLAUDE.md.
+#
+# kind:      dram | storage | network
+# prefixes:  level names as TIMELOOP PRINTS THEM. A network is named after the
+#            two levels it joins (`NoC: <outer> <==> <inner>`), so the outer
+#            level's name is the stable half and the prefix stops there.
+# reducible: can this stage ever carry the REDUCED representation?
+# evidence:  why this stage exists, with its citation. Not decoration: it is
+#            what a reader checks the model against.
+stages:
+  - key: "dram"
+    label: "DRAM (dynamic access, whole term reducible)"
+    kind: "dram"
+    prefixes: ["DRAM"]
+    reducible: true
+    evidence: "the decoder is on the DRAM die and off the fetch path, so only the k message bits of each n-bit codeword are read out and driven off the die: the whole per-bit DYNAMIC access constant carries k of every n bits under every boundary (01_project_context Sec. 1 and Sec. 4). The DRAM access is designed to fetch only the message bits of each codeword. The f_if array/interface split was removed 2026-09-09."
+  - key: "array_multicast"
+    label: "Flat array NoC (multicast across PE columns)"
+    kind: "network"
+    prefixes: ["NoC: inter_PE_column_spatial"]
+    reducible: true
+    evidence: "JSSC 2017 Sec. V: 168 PEs in a 12 x 14 array fed by a multicast network. `archs/eyeriss_like/arch_paper.yaml` declares PE_column with meshX 14, so this is Timeloop's outer fanout level -- the long-distance half of Sec. 7.1's 'flat multicast NoC'."
+  - key: "pe_local_multicast"
+    label: "Column-local distribution to the 12 PEs"
+    kind: "network"
+    prefixes: ["NoC: inter_PE_spatial"]
+    reducible: true
+    evidence: "the inner fanout level of the same array network: PE with meshY 12, one column of the 12 x 14 array. Sec. 7.1's multicast tradeoff -- one encoder before the fanout, or one per destination after it -- is the R2/R3 pair below."
+  - key: "weights_spad"
+    label: "PE filter scratchpad"
+    kind: "storage"
+    prefixes: ["weights_spad"]
+    reducible: true
+    evidence: "JSSC 2017 Sec. V-B: 'the filter spad is implemented in a 224-b x 16-b SRAM due to its large size'. This is the innermost level holding weights: the MAC reads it directly, with no decoded-weight register in the design -- so a retained-reconstruction boundary here would have been a pure ADDITION, which is part of why R4b was removed."

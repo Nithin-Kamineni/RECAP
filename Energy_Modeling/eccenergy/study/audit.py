@@ -10,6 +10,7 @@ if a check changes here, change it there too, and vice versa. Task 2
 """
 from __future__ import annotations
 
+from ..arch import design
 from ..physics import baseline_dram
 from ..toolchain import noc_post
 from ..arch.load import accumulator_bits, arch_source, noc_band_levels, noc_terms, pe_latch_pj
@@ -85,20 +86,25 @@ def common_checks(builder, cfg, arch, raw, parity_detail, mapping_ids):
                               {"*": {"router_pj": terms.get("router"),
                                      "ingress_pj": terms.get("ingress")}}),
                    "source": "archs/_shared/noc.yaml"})
-    if cfg.noc_enabled and arch.startswith("eyeriss_v2_like"):
+    band = design.flag(arch, "noc_published_share")
+    if cfg.noc_enabled and band:
         # JETCAS 2019 Sec. V / Fig. 18: the hierarchical mesh is "6%-10% of the
         # total energy consumption". The published band is for the paper's own
         # workloads, so a miss on one model is a prompt to look, not proof the
         # constants are wrong -- but a miss on EVERY model is.
         share_for_band = mesh_share_onchip if band_levels else noc_share_onchip
+        # THE KEY KEEPS THE DESIGN IN ITS NAME on purpose: it identifies a
+        # check in every result file already written, and a renamed key
+        # reads as a check that was deleted. The BAND is the design's own
+        # declaration (archs/<name>/design.yaml) since phase 5.
         builder.check("noc_share_within_published_band_eyeriss_v2",
-                      0.06 <= share_for_band <= 0.10,
+                      float(band["low"]) <= share_for_band <= float(band["high"]),
                       {"compared": ("hierarchical mesh only (noc.yaml paper_band_levels)"
                                     if band_levels else "all interconnect"),
                        "mesh_share_of_onchip": mesh_share_onchip,
                        "all_interconnect_share_of_onchip": noc_share_onchip,
                        "all_interconnect_share_of_timeloop_total": noc_share,
-                       "published_band": [0.06, 0.10],
+                       "published_band": [float(band["low"]), float(band["high"])],
                        "source": "arXiv:1807.07928 Sec. V, Fig. 18",
                        "read_as": "Fig. 18 is a gate-level breakdown of the chip, so the "
                                   "band is a share of ON-CHIP energy, and its 'hierarchical "

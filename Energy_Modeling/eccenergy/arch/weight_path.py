@@ -61,7 +61,12 @@ one file. It is L2: a design's weight path is a fact about the design.
 """
 from __future__ import annotations
 
+import functools
+
 from dataclasses import dataclass
+
+from ..paths import ARCH_SRC
+from . import design
 
 
 # ===========================================================================
@@ -86,197 +91,6 @@ class Stage:
         return any(level == p or level.startswith(p) for p in self.prefixes)
 
 
-#: Eyeriss v2 as modelled by `archs/eyeriss_v2_like/`, outer to inner. The
-#: design has NO weight GLB (its GLB banks are iact and psum, JETCAS 2019
-#: Table II), so the weight path goes straight from the memory interface into
-#: the hierarchical mesh -- which is why there is no global-buffer boundary in
-#: `PLACEMENTS` either.
-_EYERISS_V2_PATH = (
-    Stage("dram", "DRAM (dynamic access, whole term reducible)", "dram",
-          ("DRAM",), reducible=True,
-          evidence="the decoder is on the DRAM die and off the fetch path, so "
-                   "only the k message bits of each n-bit codeword are read out "
-                   "and driven off the die: the whole per-bit DYNAMIC access "
-                   "constant carries k of every n bits under every boundary "
-                   "(01_project_context Sec. 1 and Sec. 4). The DRAM access "
-                   "is designed to fetch only the message bits of each "
-                   "codeword. The f_if array/interface split was removed "
-                   "2026-09-09."),
-    Stage("inter_cluster_mesh", "Inter-cluster mesh (HM-NoC)", "network",
-          ("NoC: inter_PE_cluster_spatial",), reducible=True,
-          evidence="JETCAS 2019 Sec. III-C: the hierarchical mesh joins the GLB "
-                   "clusters to the PE clusters through the router clusters. "
-                   "Timeloop's PE_cluster fanout level (meshX 16)."),
-    Stage("cluster_local", "Cluster-local distribution to PE rows", "network",
-          ("NoC: inter_PE_spatial",), reducible=True,
-          evidence="JETCAS 2019 Sec. III-C: each router 'connects to one row of "
-                   "PEs within the cluster'. Timeloop's PE fanout level "
-                   "(meshY 12)."),
-    Stage("weight_spad", "PE weight scratchpad", "storage", ("weights_spad",),
-          reducible=True,
-          evidence="JETCAS 2019 Table IV: 'weight data: 288B (SRAM)' per PE."),
-)
-
-#: `eyeriss_v2_like_wglb` adds a weight GLB, so it has one more reducible stage
-#: and one more boundary. Registered so the study can be repeated on the
-#: bracketing variant without editing this file.
-#: The DRAM is ONE stage since 2026-09-09, so the weight GLB is inserted
-#: after index 1, not 2. Sliced by name rather than a literal so a future
-#: change to the DRAM stages cannot silently reorder this path again.
-_V2_DRAM_N = sum(1 for _s in _EYERISS_V2_PATH if _s.kind == "dram")
-_EYERISS_V2_WGLB_PATH = _EYERISS_V2_PATH[:_V2_DRAM_N] + (
-    Stage("weight_glb", "Weight global buffer", "storage", ("weight_glb",),
-          reducible=True,
-          evidence="the variant's extra weight level; NOT in the v2 paper -- see "
-                   "archs/eyeriss_v2_like_wglb/README.md"),
-) + _EYERISS_V2_PATH[_V2_DRAM_N:]
-
-#: `eyeriss_like` -- Eyeriss v1 as modelled by `archs/eyeriss_like/`, outer to
-#: inner. JSSC 2017 allocates 8 kB of the 108 kB GLB to filter weights, but the
-#: paper is explicit that the RS dataflow does not need it ("even though it is
-#: not required by the dataflow ... the GLB preloads the filters used by the
-#: next processing pass"), so `eyeriss_like/arch_paper.yaml` models the weight
-#: path as DRAM -> filter spad with a `!Nothing` node where a weight GLB would
-#: sit, and `eyeriss_like_wglb` is the bracketing variant that does model it
-#: (CLAUDE.md: "Eyeriss v1 is a bracketing PAIR, not a number"). There is
-#: therefore NO global-buffer boundary here, exactly as there is none on v2.
-#:
-#: Sec. 7's abstraction also names a PE pFIFO between the network and the
-#: scratchpad (Sec. 7.2 rates a FIFO-output boundary 3/5). The Timeloop model
-#: has no such level -- the fanout delivers straight into `weights_spad` -- so
-#: that boundary does not exist to evaluate and is absent by construction
-#: rather than omitted; `weight_path()` would refuse if a weight-carrying level
-#: went unclaimed.
-_EYERISS_V1_PATH = (
-    Stage("dram", "DRAM (dynamic access, whole term reducible)", "dram",
-          ("DRAM",), reducible=True,
-          evidence="the decoder is on the DRAM die and off the fetch path, so "
-                   "only the k message bits of each n-bit codeword are read out "
-                   "and driven off the die: the whole per-bit DYNAMIC access "
-                   "constant carries k of every n bits under every boundary "
-                   "(01_project_context Sec. 1 and Sec. 4). The DRAM access "
-                   "is designed to fetch only the message bits of each "
-                   "codeword. The f_if array/interface split was removed "
-                   "2026-09-09."),
-    Stage("array_multicast", "Flat array NoC (multicast across PE columns)",
-          "network", ("NoC: inter_PE_column_spatial",), reducible=True,
-          evidence="JSSC 2017 Sec. V: 168 PEs in a 12 x 14 array fed by a "
-                   "multicast network. `archs/eyeriss_like/arch_paper.yaml` "
-                   "declares PE_column with meshX 14, so this is Timeloop's "
-                   "outer fanout level -- the long-distance half of Sec. 7.1's "
-                   "'flat multicast NoC'."),
-    Stage("pe_local_multicast", "Column-local distribution to the 12 PEs",
-          "network", ("NoC: inter_PE_spatial",), reducible=True,
-          evidence="the inner fanout level of the same array network: PE with "
-                   "meshY 12, one column of the 12 x 14 array. Sec. 7.1's "
-                   "multicast tradeoff -- one encoder before the fanout, or one "
-                   "per destination after it -- is the R2/R3 pair below."),
-    Stage("weights_spad", "PE filter scratchpad", "storage", ("weights_spad",),
-          reducible=True,
-          evidence="JSSC 2017 Sec. V-B: 'the filter spad is implemented in a "
-                   "224-b x 16-b SRAM due to its large size'. This is the "
-                   "innermost level holding weights: the MAC reads it directly, "
-                   "with no decoded-weight register in the design -- so a "
-                   "retained-reconstruction boundary here would have been a "
-                   "pure ADDITION, which is part of why R4b was removed."),
-)
-
-#: `eyeriss_like_wglb` -- EYERISS v1 (decided 2026-09-10; see prompt_2.md and
-#: CLAUDE.md). JSSC 2017 Sec. V-A publishes the 8 kB filter-weight allocation
-#: of the 108 kB GLB, so the file that models it IS the design, and
-#: `eyeriss_like` -- which declares `!Nothing` in its place -- is retired
-#: rather than bracketed. The bracketing-pair doctrine for v1 is over.
-#:
-#: THE ONE STRUCTURAL DIFFERENCE from `_EYERISS_V1_PATH` is a weight level
-#: ABOVE the PE array, and that is exactly the level this study needs.
-#: FINDINGS 7.8: refetch on v1 is set by the DRAM-level loop order over
-#: `P`/`Q`, and a weight tile cannot index `P` or `Q`, so a weight buffer
-#: INSIDE the array cannot absorb those loops however large it is made --
-#: measured flat to x32 capacity at 1 % fill. `filter_glb` sits above the
-#: array and can.
-#:
-#: Inserted after the DRAM stages by name, not at a literal index, so a future
-#: change to the DRAM stages cannot silently reorder this path -- the same
-#: guard `_EYERISS_V2_WGLB_PATH` uses.
-_V1_DRAM_N = sum(1 for _s in _EYERISS_V1_PATH if _s.kind == "dram")
-_EYERISS_V1_WGLB_PATH = _EYERISS_V1_PATH[:_V1_DRAM_N] + (
-    Stage("filter_glb", "Filter global buffer (8 kB of the 108 kB GLB)",
-          "storage", ("filter_glb",), reducible=True,
-          evidence="JSSC 2017 Sec. V-A: 'Even though it is not required by the "
-                   "dataflow, the remaining 8 kB (two banks of 512-b x 64-b "
-                   "SRAMs) of the GLB is allocated for filter weights to "
-                   "compensate for insufficient off-chip traffic bandwidth. "
-                   "While the PE array is working on a processing pass, the "
-                   "GLB preloads the filters used by the next processing "
-                   "pass.' The bank geometry is exact (2 x 512 x 64b), so it "
-                   "is the same CACTI array as the other 23 banks. It keeps "
-                   "Weights and nothing else, so every pJ read from it is "
-                   "weight energy."),
-) + _EYERISS_V1_PATH[_V1_DRAM_N:]
-
-#: `simple_weight_stationary` as modelled by `archs/simple_weight_stationary/`,
-#: outer to inner. Sec. 6's canonical WS hierarchy is
-#:
-#:     DRAM -> global/weight buffer -> weight NoC -> PE weight RF
-#:          -> stationary weight -> MAC
-#:
-#: and this design has every one of those levels, which makes it the only
-#: design in the study with BOTH a weight global buffer and a stationary weight
-#: register. So it has two boundaries neither eyeriss design has: one at the
-#: global buffer's output (Sec. 6.2, 3/5) and one below the stationary register
-#: at the MAC input (Sec. 6.2, 2/5).
-_WS_PATH = (
-    Stage("dram", "DRAM (dynamic access, whole term reducible)", "dram",
-          ("DRAM",), reducible=True,
-          evidence="the decoder is on the DRAM die and off the fetch path, so "
-                   "only the k message bits of each n-bit codeword are read out "
-                   "and driven off the die: the whole per-bit DYNAMIC access "
-                   "constant carries k of every n bits under every boundary "
-                   "(01_project_context Sec. 1 and Sec. 4). The DRAM access "
-                   "is designed to fetch only the message bits of each "
-                   "codeword. The f_if array/interface split was removed "
-                   "2026-09-09."),
-    Stage("weight_glb", "Global weight buffer (36 kB)", "storage",
-          ("weight_glb",), reducible=True,
-          evidence="Sec. 6's 'global/weight buffer'. "
-                   "`archs/simple_weight_stationary/arch_paper.yaml` splits the "
-                   "stock 128 kB shared_glb by DATASPACE into three levels, and "
-                   "this is the 36 kB weight one. It keeps Weights and nothing "
-                   "else (`dataspace: {keep: [Weights]}`), so every bit of its "
-                   "energy is weight energy -- which is also what lets it "
-                   "declare the arm's `datawidth: q`. Until 2026-09-13 this "
-                   "stage was a 64 kB `operand_glb` holding Inputs beside "
-                   "Weights, and Timeloop's one-datawidth-per-level rule meant "
-                   "the reduced representation could not be declared on it at "
-                   "all."),
-    Stage("weight_noc", "Weight-distribution NoC to the PE array", "network",
-          ("NoC: inter_PE_spatial",), reducible=True,
-          evidence="Sec. 6's 'weight-distribution NoC'. The design declares ONE "
-                   "spatial container (PE, meshX 16 x meshY 16), so Timeloop "
-                   "prints one fanout level and one network for the whole "
-                   "256-PE broadcast -- unlike the two-level eyeriss meshes, "
-                   "this design has a single network stage."),
-    Stage("pe_spad", "PE weight scratchpad (stationary weights)", "storage",
-          ("pe_spad",), reducible=True,
-          evidence="Sec. 6's 'PE weight RF': the 192 x 16b scratchpad that "
-                   "holds the stationary weights while activations stream. It "
-                   "keeps Weights only (`dataspace: {keep: [Weights]}`), so "
-                   "every bit of its energy is weight energy."),
-    Stage("weight_reg", "Stationary weight register (one weight)", "storage",
-          ("weight_reg",), reducible=True,
-          evidence="Sec. 6.1's 'full stationary-weight latch', and it is ALREADY "
-                   "IN THE DESIGN -- a depth-1, 8-bit register between the "
-                   "scratchpad and the MAC. CLAUDE.md's rule for Simba applies "
-                   "here too: determine whether the proposal can reuse an "
-                   "existing register rather than assuming a new one. R4b's "
-                   "register would have had to cover the whole inner tile, "
-                   "not one weight, which is why R4b was removed; and "
-                   "a boundary BELOW this register (Sec. 6.2's MAC-input row, "
-                   "2/5) needs G_rec weights co-resident in a level that holds "
-                   "one, so it is reducible in the table and reported "
-                   "infeasible by `feasibility()` rather than asserted "
-                   "impossible in a comment."),
-)
 
 
 #: Where the BCH decoder sits. `ondie` is the model since 2026-09-09 (decoder
@@ -308,12 +122,87 @@ DECODE_SITES = ("ondie", "controller")
 #: `config.RECON_ENCODER_SITES` must stay in step with this tuple.
 ENCODER_SITES = ("destination", "source")
 
-WEIGHT_PATHS = {
-    "eyeriss_v2_like": _EYERISS_V2_PATH,
-    "eyeriss_v2_like_wglb": _EYERISS_V2_WGLB_PATH,
-    "eyeriss_like": _EYERISS_V1_PATH,
-    "eyeriss_like_wglb": _EYERISS_V1_WGLB_PATH,
-    "simple_weight_stationary": _WS_PATH,
-}
+
+#: The paths themselves are `archs/<name>/weight_path.yaml` since
+#: ProjectRestructure phase 5. What used to be five tuples here -- one per
+#: design, two of them built by slicing another -- is one loader and one schema,
+#: so a design's stages are declared beside the chip they describe and nothing in
+#: Python names a design.
+
+
+@functools.lru_cache(maxsize=None)
+def _declared_stages(arch):
+    """This design's `weight_path.yaml`, as `Stage` records, or `()`.
+
+    `()` when the design declares no weight path -- three designs are in that
+    state today, and that is an answer rather than a gap: no reconstruction
+    boundary has ever been written down for them.
+    """
+    doc = design.weight_path_doc(arch)
+    if doc is None:
+        return ()
+    path = ARCH_SRC / arch / design.WEIGHT_PATH_FILE
+    rows = design.validate_weight_path(arch, doc, path)
+    return tuple(Stage(key=r["key"], label=r["label"], kind=r["kind"],
+                       prefixes=tuple(r["prefixes"]),
+                       reducible=bool(r["reducible"]),
+                       evidence=r.get("evidence", ""))
+                 for r in rows)
+
+
+class _WeightPaths(dict):
+    """`WEIGHT_PATHS[arch]`, filled from `archs/<name>/weight_path.yaml` on first
+    use.
+
+    IT IS STILL A PLAIN DICT UNDERNEATH, and deliberately: a test registers a
+    SYNTHETIC design by assigning into it -- that is how "two boundaries that
+    agree on all three axes are one chip" is shown without bending a real
+    record -- so an entry that is already here always wins over the file.
+    """
+
+    def __missing__(self, arch):
+        got = _declared_stages(arch)
+        if not got:
+            raise KeyError(arch)
+        self[arch] = got
+        return got
+
+    def __contains__(self, arch):
+        try:
+            self[arch]
+        except KeyError:
+            return False
+        return True
+
+    def get(self, arch, default=None):
+        try:
+            return self[arch]
+        except KeyError:
+            return default
+
+    def keys(self):
+        declared = [a for a in design.known_archs() if a in self]
+        return tuple(declared) + tuple(k for k in dict.keys(self)
+                                       if k not in declared)
+
+    def __iter__(self):
+        return iter(self.keys())
+
+    def values(self):
+        return tuple(self[a] for a in self.keys())
+
+    def items(self):
+        return tuple((a, self[a]) for a in self.keys())
+
+
+def stages_of(arch):
+    """This design's stages, outer to inner, or `()` if it declares none."""
+    return WEIGHT_PATHS.get(arch) or ()
+
+
+#: design -> its stages. Reads `archs/<name>/weight_path.yaml` the first time a
+#: design is asked for; `in`, `keys()` and `get()` answer without raising, which
+#: is what the three designs that declare no boundaries need.
+WEIGHT_PATHS = _WeightPaths()
 
 

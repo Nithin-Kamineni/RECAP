@@ -64,6 +64,7 @@ from __future__ import annotations
 import math
 
 from ..arch import fingerprint
+from ..arch import design
 from ..arch import arms as arms_mod
 from ..arch import placements as placements_mod
 from ..physics import granularity
@@ -555,7 +556,7 @@ def evaluate(cfg, ses, prov, arch, model, raw):
         f"against the raw record's per-category weight energy before any "
         f"placement is evaluated. A level carrying weight energy that no stage "
         f"claims fails that check rather than being ignored.")
-    if arch.startswith("eyeriss_v2"):
+    if design.flag(arch, "weights_stored_compressed"):
         builder.warn(
             "CSC METADATA IS NOT MODELLED. The published Eyeriss v2 PE stores "
             "weights CSC-compressed with a separate address scratchpad "
