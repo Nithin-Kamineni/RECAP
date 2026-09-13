@@ -107,7 +107,7 @@ def layer_record(levels):
     so the module that charges TIME and the module that charges POWER x TIME
     cannot disagree about the same level's geometry.
     """
-    from .timeloop import physical_record
+    from ..timeloop import physical_record
     return physical_record(levels)
 
 

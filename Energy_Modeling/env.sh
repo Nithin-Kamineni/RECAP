@@ -1193,7 +1193,7 @@ declare -A ECC_ARCH_CLOCK_MHZ=(
 #
 # BCH(63,51) shares q=6 with BCH(63,45) and BCH(63,36) shares q=5 with
 # BCH(63,39), so they take the same widths. Read the live table with
-#   python3 -m eccenergy.code_widths
+#   python3 -m eccenergy.physics.widths
 #
 # THE ARMS DO NOT SHARE A DECLARED WIDTH. THIS IS THE POINT, AND IT HAS BEEN
 # GOT WRONG REPEATEDLY. Each arm declares the width that suits ITS OWN
@@ -1626,7 +1626,7 @@ declare -A ECC_RECON_IDLE_PJ=(          # pJ per CYCLE per ENGINE
 : "${ECC_VERBOSE:=}"
 
 # ---- workload generation ---------------------------------------------------
-# Read ONLY by `python3 -m eccenergy.generate models <name>`, which turns a
+# Read ONLY by `python3 -m eccenergy.arch.generate models <name>`, which turns a
 # network into the layer list the mapper walks. Regenerating a workload changes
 # every shape name and therefore every cache entry, so these are not run-time
 # knobs -- set them for the generation, then leave them alone.

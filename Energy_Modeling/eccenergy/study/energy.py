@@ -11,8 +11,8 @@ import json
 
 import pandas as pd
 
-from . import latency_post, noc_post
-from .timeloop import classify, parse_cycles, parse_levels, parse_stats, physical_record
+from ..toolchain import latency_post, noc_post
+from ..timeloop import classify, parse_cycles, parse_levels, parse_stats, physical_record
 
 #: Categories that come from Timeloop.
 #: "NoC" is the interconnect between levels -- wire, router and ingress energy
@@ -489,7 +489,7 @@ def latency_post_cycle_seconds(cfg):
     to be charged over the same period or POWER x TIME and ITEMS / TIME would
     be two different seconds.
     """
-    from .latency_post import cycle_seconds
+    from ..toolchain.latency_post import cycle_seconds
     return cycle_seconds(cfg)
 
 

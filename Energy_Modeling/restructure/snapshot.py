@@ -10,7 +10,7 @@ WHAT A SNAPSHOT IS. Everything the six gate items compare, captured as text that
     3. run.sh embedded --eval  (Task 2)             embedded/
     4. run.sh recon    --eval  (Tasks 3/4)          recon_default/  recon_ert/
     5. run.sh validate, run.sh diagnose             validate.txt  diagnose.txt
-    6. the test suite                               pytest.txt
+    6. the test suite, BOTH roots                   pytest.txt
 
 ENV.SH ALONE DECIDES WHAT IS SNAPSHOTTED. Every stage runs with every `ECC_*`
 variable and `RECON_OPTIMIZER` STRIPPED from the environment, so `run.sh`'s own
@@ -171,7 +171,7 @@ def main(argv):
     # them fail on a configuration nobody runs. pytest is a --user install, not
     # in the image.
     rc = _run(["bash", "-c",
-               "source env.sh; exec python3 -m pytest eccenergy/tests/ -q "
+               "source env.sh; exec python3 -m pytest eccenergy/tests/ tests/ -q "
                "--no-header -p no:cacheprovider"], {}, out / "pytest.txt")
     status.append(("pytest", rc, "pytest.txt"))
 

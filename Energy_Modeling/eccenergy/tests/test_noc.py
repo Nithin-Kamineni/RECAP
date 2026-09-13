@@ -280,7 +280,7 @@ def test_noc_is_in_the_slug_and_scale_override_changes_it():
 
 
 def test_noc_category_and_recon_scaling():
-    from ..energy import PHYS_CATS, onchip_cats, plot_cats
+    from ..study.energy import PHYS_CATS, onchip_cats, plot_cats
     cfg = _cfg(ECC_NOC="1")
     assert "NoC" in PHYS_CATS and "Local (spads/RF)" in PHYS_CATS
     assert "Local (spads/RF/NoC)" not in PHYS_CATS
@@ -433,7 +433,7 @@ def test_register_writes_are_costed_everywhere():
 
 def test_evaluator_only_terms_are_parsed_and_charged():
     """Spatial reductions (adder + one psum-wide hop) and the psum word width, from the fixture."""
-    from .. import noc_post
+    from ..toolchain import noc_post
     from ..timeloop import parse_stats
     cfg = _cfg(ECC_ARCH_FIDELITY="paper", ECC_NOC="1")
     rows = parse_stats(FIXTURE, "L")
@@ -471,7 +471,8 @@ def test_evaluator_only_terms_are_parsed_and_charged():
 
 def test_raw_record_is_stale_when_the_evaluator_terms_change():
     import tempfile
-    from .. import energy as E, noc_post
+    from ..study import energy as E
+    from ..toolchain import noc_post
     from ..paths import Results
     cfg = _cfg(ECC_ARCH_FIDELITY="paper", ECC_NOC="1")
     import pandas as pd

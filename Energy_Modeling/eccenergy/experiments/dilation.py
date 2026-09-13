@@ -94,11 +94,11 @@ import re
 import sys
 
 from .. import archs as archmod
-from .. import code_widths
+from ..physics import widths
 from .. import config as configmod
 from .. import paths as pathsmod
 from .. import recon as reconmod
-from .. import workloads as workloadsmod
+from ..arch import workloads as workloadsmod
 
 _NUM = r"([\d.eE+-]+)"
 
@@ -1731,10 +1731,10 @@ def main(argv=None):
     ap.add_argument("--recon-datawidth", type=int, default=None,
                     help="--levels only: the reconstruction arm's on-chip "
                          "weight datawidth in bits. Default is "
-                         "code_widths.declared_datawidth() -- "
+                         "widths.declared_datawidth() -- "
                          "round(ECC_WEIGHT_BITS * K/N), which is 4 at "
                          "BCH(63,30) and 7 at BCH(63,57). THE WIDTH TABLE "
-                         "(eccenergy/code_widths.py) gives one per code")
+                         "(eccenergy/widths.py) gives one per code")
     ap.add_argument("--depth-levels", default=None,
                     help="--levels only: read the SECOND PASS instead of the "
                          "joint one -- the caches where only these weight "
@@ -1775,7 +1775,7 @@ def main(argv=None):
                   else [float(s) for s in cfg.depth_sweep_gate_scales])
         dw = a.recon_datawidth
         if dw is None:
-            dw = code_widths.declared_datawidth(cfg.code_n, cfg.code_k,
+            dw = widths.declared_datawidth(cfg.code_n, cfg.code_k,
                                                 cfg.weight_bits)
         text, rows = convergence_gate(cfg, arch_list, layer_names, vs, scales,
                                       dw, mac_pj=mac_pj)
@@ -1795,7 +1795,7 @@ def main(argv=None):
                   else [1.0, 0.7071, 0.5, 0.3536, 0.25, 0.1768, 0.125])
         dw = a.recon_datawidth
         if dw is None:
-            dw = code_widths.declared_datawidth(cfg.code_n, cfg.code_k,
+            dw = widths.declared_datawidth(cfg.code_n, cfg.code_k,
                                                 cfg.weight_bits)
         dl = (a.depth_levels.split() if a.depth_levels
               else list(cfg.weight_depth_levels))

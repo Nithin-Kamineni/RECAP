@@ -62,7 +62,7 @@ from __future__ import annotations
 
 import math
 
-from .energy import dram_ert_pj_per_bit
+from ..study.energy import dram_ert_pj_per_bit
 
 #: The component the two arms used to differ in. Written explicitly as 0.0
 #: under the price model, so a reader sees "zero", not "missing".
@@ -230,7 +230,7 @@ def caveat(pricing):
 def charge_stack(cfg, raw, col, e_parity):
     """The same charge on a sweep-figure column, where there is no parity row.
 
-    `ecc.build_stacks()` plots the physical categories only, so the legacy
+    `study.stacks.build_stacks()` plots the physical categories only, so the legacy
     model folds the parity traffic INTO `DRAM` rather than beside it. Returns
     the pricing record.
     """

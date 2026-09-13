@@ -27,11 +27,11 @@ optimisation it did not perform.
 """
 from __future__ import annotations
 
-from .. import baseline_dram
+from ..physics import baseline_dram
 from ..archs import accumulator_bits, arch_source, load_provenance, noc_terms, validate_arch
-from ..ecc import external_parity
-from ..energy import plot_cats
-from ..results_store import ResultBuilder, Variant
+from .stacks import external_parity
+from .energy import plot_cats
+from ..toolchain.results_store import ResultBuilder, Variant
 from .common import Session
 
 #: Reconstruction boundaries this study will evaluate, from section 5.3 of

@@ -90,7 +90,7 @@ def _map_only(cfg):
     file. Afterwards `bash run.sh baseline --eval` runs anywhere, with no
     container, and cannot change a mapping.
     """
-    from .experiments.common import Session
+    from .study.common import Session
     ses = Session(cfg).setup()
     ses.collect_all()
     print("\n" + "=" * 78)
@@ -114,9 +114,9 @@ def main(argv=None):
         return 2
 
     # imported here so a config error never pays for matplotlib/pandas import
-    from .ecc import load_recon_energy, recon_pj_for_k
-    from .experiments import (baseline, diagnose, dilation, embedded, panels, recon, sweep,
-                              validate)
+    from .study.stacks import load_recon_energy, recon_pj_for_k
+    from .study import baseline, diagnose, embedded, panels, sweep, validate
+    from .experiments import dilation, recon
 
     recon_inc, recon_idle, provenance = load_recon_energy(cfg)
     if cfg.sweep == "bch" and cfg.recon_pj_override is None:

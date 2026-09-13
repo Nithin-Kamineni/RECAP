@@ -27,7 +27,7 @@ approximations would charge the wrong traffic.
 """
 from __future__ import annotations
 
-from .archs import load_noc, load_standard, noc_terms
+from ..archs import load_noc, load_standard, noc_terms
 
 #: Suffixes on the level name of an added row, so a reader of `Raw.levels` can
 #: tell an evaluator-only term from what Timeloop itself reported.

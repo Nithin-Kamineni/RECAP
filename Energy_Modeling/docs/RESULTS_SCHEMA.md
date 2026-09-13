@@ -154,7 +154,7 @@ so a reader sees zero rather than missing.
 
 ```python
 from eccenergy.paths import Results
-from eccenergy.results_store import load, load_latest
+from eccenergy.toolchain.results_store import load, load_latest
 
 doc = load_latest(Results(cfg).prepare(), "eyeriss_v2_like", "resnet18")
 doc = load("results/evaluation/Pre/.../20260906T072817Z__303cee78.json")

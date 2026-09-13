@@ -49,9 +49,10 @@ import pathlib
 
 import pandas as pd
 
-from . import baseline_dram, code_widths, config, embedded, parity
+from ..physics import baseline_dram, embedded, parity, widths
+from .. import config
 from .energy import onchip_cats, plot_cats
-from .paths import ROOT
+from ..paths import ROOT
 
 #: prompt_6 RULE 3 (4.3.3): the Design Compiler tables live in env.sh section 6
 #: (`ECC_RECON_INCREMENTAL_PJ` / `ECC_RECON_IDLE_PJ`, flattened by section 10
@@ -445,7 +446,7 @@ def build_stacks(cfg, raw, recon_pj, code_k=None, recon_pj_by_k=None,
         # RULE 1: weight energy the MAPPER already narrowed (a q-bit plan's
         # levels at Word bits == q) is not scaled again. On an 8-bit plan
         # `already` is 0 everywhere and this is the line it always was.
-        q = code_widths.declared_datawidth(n, k, cfg.weight_bits)
+        q = widths.declared_datawidth(n, k, cfg.weight_bits)
         narrowed = mapper_narrowed_weight_energy(raw, cfg, q, onchip)
         for c in onchip:
             already = min(float(narrowed.get(c, 0.0)), float(base_w[c]))
@@ -496,7 +497,7 @@ def recon_pj_for_k(cfg, k):
 
 def k_label(cfg, k):
     """Tick label for a K sweep: the corrected bit-error rate the code tolerates."""
-    from .config import BCH63_KTOD
+    from ..config import BCH63_KTOD
     d = BCH63_KTOD.get(k)
     if not d:
         return f"BCH({cfg.code_n}, {k})"

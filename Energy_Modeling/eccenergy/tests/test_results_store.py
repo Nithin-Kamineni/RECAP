@@ -56,7 +56,7 @@ def _cfg(**env):
 
 # --------------------------------------------------------------- parity maths
 def test_codeword_packing_is_whole_weights():
-    from eccenergy.parity import CodeGeometry
+    from eccenergy.physics.parity import CodeGeometry
     g = CodeGeometry(63, 51, 8).validate()
     # 51 // 8 == 6, NOT 6.375. Three message bits are padding.
     assert g.weights_per_codeword == 6, g.weights_per_codeword
@@ -69,7 +69,7 @@ def test_codeword_packing_is_whole_weights():
 
 
 def test_code_that_cannot_hold_a_weight_is_rejected():
-    from eccenergy.parity import CodeGeometry
+    from eccenergy.physics.parity import CodeGeometry
     try:
         CodeGeometry(63, 7, 8).validate()
     except ValueError as exc:
@@ -80,7 +80,7 @@ def test_code_that_cannot_hold_a_weight_is_rejected():
 
 def test_hand_check_matches_closed_form():
     """The check Task 1 asks for, over sizes that exercise every rounding case."""
-    from eccenergy.parity import CodeGeometry, hand_check
+    from eccenergy.physics.parity import CodeGeometry, hand_check
     g = CodeGeometry(63, 51, 8).validate()
     for w in (0, 1, 5, 6, 7, 12, 13, 32768, 2359296, 11678912):
         ok, detail = hand_check(g, w)
@@ -98,7 +98,7 @@ def test_parity_accounting_by_hand():
       parity                         = 3 * 12              =  36 bits
       parity in whole 64b DRAM words = ceil(36/64)         =   1 word
     """
-    from eccenergy.parity import CodeGeometry, account
+    from eccenergy.physics.parity import CodeGeometry, account
     a = account(13, CodeGeometry(63, 51, 8).validate(), dram_word_bits=64)
     assert a.codewords == 3, a.codewords
     assert a.payload_bits == 104, a.payload_bits
@@ -111,7 +111,7 @@ def test_parity_accounting_by_hand():
 
 def test_layer_grouping_costs_at_least_as_much_as_model_grouping():
     """Per-layer codewords pay per-layer tail padding, so never fewer codewords."""
-    from eccenergy.parity import CodeGeometry, account_layers
+    from eccenergy.physics.parity import CodeGeometry, account_layers
     g = CodeGeometry(63, 51, 8).validate()
     layers = [32768, 2359296, 13, 7]
     per_layer = account_layers(layers, g, grouping="layer")
@@ -122,7 +122,7 @@ def test_layer_grouping_costs_at_least_as_much_as_model_grouping():
 
 
 def test_padding_charge_is_the_larger_number():
-    from eccenergy.parity import CodeGeometry, account, traffic_account
+    from eccenergy.physics.parity import CodeGeometry, account, traffic_account
     g = CodeGeometry(63, 51, 8).validate()
     stored = account(32768, g)
     with_pad = traffic_account(131072, stored, g, charge_padding=True)
@@ -134,7 +134,7 @@ def test_padding_charge_is_the_larger_number():
 
 # ------------------------------------------------------------- savings maths
 def test_savings_definition():
-    from eccenergy.results_store import savings_percent
+    from eccenergy.toolchain.results_store import savings_percent
     assert savings_percent(100.0, 75.0) == 25.0
     assert savings_percent(100.0, 125.0) == -25.0   # negative savings allowed
     assert savings_percent(None, 75.0) is None      # unknown, not zero
@@ -144,13 +144,13 @@ def test_savings_definition():
 
 # ------------------------------------------------------- the writer contract
 def _builder(cfg, results, arch="eyeriss_v2_like", model="resnet18"):
-    from eccenergy.results_store import ResultBuilder
+    from eccenergy.toolchain.results_store import ResultBuilder
     return ResultBuilder(cfg, results, arch, model,
                          experiment="unit_test", fixed_mapping=True)
 
 
 def test_unavailable_variant_must_not_carry_a_number():
-    from eccenergy.results_store import ResultError, Variant
+    from eccenergy.toolchain.results_store import ResultError, Variant
     try:
         Variant("x", kind="reconstruction", status="not_implemented",
                 total_energy_pJ=1.0, unavailable_reason="because")
@@ -161,7 +161,7 @@ def test_unavailable_variant_must_not_carry_a_number():
 
 
 def test_unavailable_variant_must_explain_itself():
-    from eccenergy.results_store import ResultError, Variant
+    from eccenergy.toolchain.results_store import ResultError, Variant
     try:
         Variant("x", kind="reconstruction", status="unsupported")
     except ResultError as exc:
@@ -171,7 +171,7 @@ def test_unavailable_variant_must_explain_itself():
 
 
 def test_evaluated_variant_must_carry_a_number():
-    from eccenergy.results_store import ResultError, Variant
+    from eccenergy.toolchain.results_store import ResultError, Variant
     try:
         Variant("x", kind="baseline", status="evaluated")
     except ResultError as exc:
@@ -183,7 +183,7 @@ def test_evaluated_variant_must_carry_a_number():
 def test_fixed_mapping_violation_is_detected():
     """Two variants mapped differently must not pass as a fixed-mapping result."""
     from eccenergy.paths import Results
-    from eccenergy.results_store import Variant
+    from eccenergy.toolchain.results_store import Variant
     with tempfile.TemporaryDirectory() as tmp:
         cfg = _cfg(ECC_RESULTS_DIR=tmp)
         b = _builder(cfg, Results(cfg).prepare())
@@ -208,7 +208,7 @@ def test_roundtrip():
     back; and its savings recomputed to the definition in the spec.
     """
     from eccenergy.paths import Results
-    from eccenergy.results_store import Variant, load, load_latest, savings_percent
+    from eccenergy.toolchain.results_store import Variant, load, load_latest, savings_percent
     with tempfile.TemporaryDirectory() as tmp:
         cfg = _cfg(ECC_RESULTS_DIR=tmp)
         results = Results(cfg).prepare()
@@ -295,7 +295,7 @@ def test_roundtrip():
 
 def test_existing_result_is_not_silently_overwritten():
     from eccenergy.paths import Results
-    from eccenergy.results_store import ResultError, Variant
+    from eccenergy.toolchain.results_store import ResultError, Variant
     with tempfile.TemporaryDirectory() as tmp:
         cfg = _cfg(ECC_RESULTS_DIR=tmp)
         results = Results(cfg).prepare()
@@ -323,7 +323,7 @@ def test_existing_result_is_not_silently_overwritten():
 
 def test_missing_reference_is_refused():
     from eccenergy.paths import Results
-    from eccenergy.results_store import ResultError, Variant
+    from eccenergy.toolchain.results_store import ResultError, Variant
     with tempfile.TemporaryDirectory() as tmp:
         cfg = _cfg(ECC_RESULTS_DIR=tmp)
         b = _builder(cfg, Results(cfg).prepare())

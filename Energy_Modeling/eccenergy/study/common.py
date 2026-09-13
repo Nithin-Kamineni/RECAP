@@ -10,10 +10,10 @@ from __future__ import annotations
 from .. import archs as archmod
 from .. import timeloop as tlmod
 from ..config import BRACKET_PAIRS
-from ..ecc import build_stacks, load_recon_energy, savings
-from ..energy import collect
+from .stacks import build_stacks, load_recon_energy, savings
+from .energy import collect
 from ..paths import Results
-from ..workloads import layer_identities, load_workload, select, select_layers
+from ..arch.workloads import layer_identities, load_workload, select, select_layers
 
 
 class Session:

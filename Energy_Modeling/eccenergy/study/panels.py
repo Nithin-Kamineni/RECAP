@@ -16,7 +16,7 @@ comparison anyone can read.
 """
 from __future__ import annotations
 
-from ..plots.panels import stacked_panels
+from ..report.panels import stacked_panels
 from .common import Session
 
 

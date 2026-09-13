@@ -533,7 +533,7 @@ def test_a_depth_mismatch_between_the_arms_is_refused_but_a_width_one_is_not():
     Each arm declares the width that suits its own datawidth -- 96 at q=8,
     95 at q=5 -- and neither has to be legal for the other's, because neither
     is ever mapped on the other's silicon. Asserting a shared width is what
-    produced the withdrawn lcm(q, 8) scheme; see eccenergy/code_widths.py.
+    produced the withdrawn lcm(q, 8) scheme; see eccenergy/widths.py.
     """
     try:
         from eccenergy import archs
@@ -802,7 +802,7 @@ def _ert_cfgs():
     """`(reference, recon2, recon4)` configurations on Eyeriss v1 at BCH(63,30).
 
     The two DC tables are EMPTIED first, so the toll below comes from the DC
-    JSON and nothing else. `ecc.load_recon_terms` reads env.sh section 6 BEFORE
+    JSON and nothing else. `stacks.load_recon_terms` reads env.sh section 6 BEFORE
     the JSON, and section 10 rebuilds the flattened lists from the `declare -A`
     tables on every source -- an unconditional assignment, so the environment
     cannot override them. Without this, a value typed into section 6 while
@@ -1095,12 +1095,12 @@ def test_build_stacks_does_not_narrow_a_level_the_mapper_already_narrowed():
     measurement (an older record, or a network row) is the evaluator's."""
     try:
         import pandas as pd
-        from eccenergy import ecc
-        from eccenergy.energy import Raw
+        from eccenergy.study import stacks
+        from eccenergy.study.energy import Raw
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"pandas/ecc unavailable: {exc}")
     cfg, _, _ = _p2_cfgs()                          # BCH(63,30): q = 4, K/N = 30/63
-    from eccenergy.energy import plot_cats
+    from eccenergy.study.energy import plot_cats
     cats = plot_cats(cfg)
     glb, spad = "Global buffer", "Local (spads/RF)"
     assert glb in cats and spad in cats, cats
@@ -1118,7 +1118,7 @@ def test_build_stacks_does_not_narrow_a_level_the_mapper_already_narrowed():
     def recon_col(levels):
         # idle 0 here: this test is about the on-chip categories (RULE 1);
         # the Reconstruction row (RULE 3) has its own test in test_baseline_dram
-        return ecc.build_stacks(cfg, raw_with(levels), 1.0, recon_idle_pj=0.0)["recon"]
+        return stacks.build_stacks(cfg, raw_with(levels), 1.0, recon_idle_pj=0.0)["recon"]
 
     kn = 30 / 63
     # 8-bit plan: both on-chip weight shares scale by K/N
@@ -1142,8 +1142,8 @@ def test_build_stacks_does_not_narrow_a_level_the_mapper_already_narrowed():
     assert abs(q_glb[spad] - eight[spad]) < 1e-9
     # the other columns never move: the baseline and embedded arms are 8-bit by
     # construction and do not read the level rows
-    df8 = ecc.build_stacks(cfg, raw_with([]), 1.0, recon_idle_pj=0.0)
-    dfq = ecc.build_stacks(cfg, raw_with([{"level": "filter_glb", "dataspace": "Weights",
+    df8 = stacks.build_stacks(cfg, raw_with([]), 1.0, recon_idle_pj=0.0)
+    dfq = stacks.build_stacks(cfg, raw_with([{"level": "filter_glb", "dataspace": "Weights",
                                             "category": glb, "word_bits": 4,
                                             "energy_pJ": 600.0}]), 1.0, recon_idle_pj=0.0)
     for col in ("baseline", "embedded"):
@@ -1264,7 +1264,8 @@ def test_the_width_table_holds_total_bits_and_puts_the_glb_at_four_times():
     nothing reached for it until `map_ert_arms.sh` died on it at K=39.
     """
     try:
-        from eccenergy import archs, code_widths
+        from eccenergy import archs
+        from eccenergy.physics import widths
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"archs unavailable: {exc}")
     import dataclasses
@@ -1272,7 +1273,7 @@ def test_the_width_table_holds_total_bits_and_puts_the_glb_at_four_times():
     src_geom = archs.weight_capacity_levels(_P2_ARCH, cfg)
     published = {r["level"]: r for r in src_geom}
     got = archs.patched_weight_geometry(_P2_ARCH, emb)
-    base = code_widths.BASE_WIDTH
+    base = widths.BASE_WIDTH
     spad = list(got)[-1]
     for level, v in got.items():
         want_w = base if level == spad else base * 4
@@ -1313,12 +1314,12 @@ def test_the_cross_arm_width_rule_is_withdrawn_and_must_not_come_back():
     that is where BCH(63,39)'s spurious 37.69 % came from (FINDINGS 2.4b).
     """
     try:
-        from eccenergy import code_widths
+        from eccenergy.physics import widths
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"code_widths unavailable: {exc}")
-    assert code_widths.declared_width(7) == 98, "prompt_2's q=7 row moved"
-    assert code_widths.declared_width(5) == 95, "prompt_2's q=5 row moved"
-    assert code_widths.declared_width(8) == 96, "the 8-bit arm moved"
+    assert widths.declared_width(7) == 98, "prompt_2's q=7 row moved"
+    assert widths.declared_width(5) == 95, "prompt_2's q=5 row moved"
+    assert widths.declared_width(8) == 96, "the 8-bit arm moved"
     # There is no knob to get this wrong with any more, either.
     assert not hasattr(config.load_config(), "weight_width"), \
         "Config carries a weight_width field again"

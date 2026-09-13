@@ -32,7 +32,7 @@ must reproduce today's numbers exactly**, and §9.1's gate is one command --
 model) and every evaluated total is unchanged to the pJ. Run it BEFORE touching
 anything, so a red gate is never ambiguous. `restructure/README.md` says what the gate
 covers and what it cannot; ProjectRestructure §10 is what not to do.
-**Phases 0 and 1 are DONE.**
+**Phases 0, 1 and 2 are DONE.**
 
 Phase-by-phase status lives in `progress.txt`, not here.
 
@@ -233,7 +233,7 @@ reference's per-access read/write/leak.
 BCH(63,57) (ceil 8, round 7) and BCH(63,51) (ceil 7, round 6) — and at q=8 the
 "recon" arm *is* the embedded arm, so a gate run that way compares embedded with
 itself and reports an effect of exactly zero. `hpc/map_depth_sweep.sh` and
-`dilation.py` both call `code_widths.declared_datawidth()`. **`recon.py`'s
+`dilation.py` both call `physics.widths.declared_datawidth()`. **`recon.py`'s
 `Packing` still uses `ceil`** — it is Task 3's physical packing model — so Task 3
 narrows those two codes less than the mapping study does.
 
@@ -246,7 +246,7 @@ narrows those two codes less than the mapping study does.
 ITS OWN `datawidth`, and no arm has to be legal for any other arm's `datawidth`.**
 This has been got wrong in five separate sessions. It is prompt_2.md's table and it
 is applied automatically, on every run, by `archs._set_weight_geometry()` from
-`eccenergy/code_widths.py`:
+`eccenergy/physics/widths.py`:
 
 | arm | q | spad `width` | GLB `width` (×4) | weights/word | eff. capacity |
 |---|---:|---:|---:|---:|---:|
@@ -290,7 +290,7 @@ K=39 (all 24 arm jobs on `filter_glb: width 64 % datawidth 5 != 0`, dependent ev
 parked on `DependencyNeverSatisfied`). It is applied **per level**: at
 `ECC_WEIGHT_DATAWIDTH_LEVELS=filter_glb` the GLB stores 5-bit weights at width 380
 while `weights_spad` keeps 8-bit weights at width 96. Read it with
-`python3 -m eccenergy.code_widths`.
+`python3 -m eccenergy.physics.widths`.
 
 **DEPTH is shared and is the only thing `assert_pair_geometry()` checks.**
 `depth' = round(depth × width / 96)` is computed at the BASE width, not the arm's
@@ -324,7 +324,7 @@ elsewhere, to keep it.
 
 `results/evaluation/` accumulates on purpose: one JSON per run, holding every ECC
 variant including the ones not evaluated (`total_energy_pJ: null` plus a reason).
-Nothing but `results_store.py` writes one. Schema: `docs/RESULTS_SCHEMA.md`.
+Nothing but `toolchain/results_store.py` writes one. Schema: `docs/RESULTS_SCHEMA.md`.
 
 ## The two caches
 
@@ -458,7 +458,7 @@ compensating for it.
 `provenance.yaml` records where every declared number came from; `noc.yaml` holds
 the interconnect coefficients and, per design, which spatial containers actually
 are the NoC. Two NoC terms Timeloop cannot be given are charged after mapping by
-`noc_post.py`. `archs/_shared/components/` is part of the mapper fingerprint:
+`toolchain/noc_post.py`. `archs/_shared/components/` is in the mapper fingerprint:
 editing a component colds every cache, on purpose. `bash run.sh validate` checks
 all of it and exits non-zero on a violation.
 
@@ -495,7 +495,7 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
 
 ## Working on this code
 
-- **Frozen**: `parity.py`, `baseline.py` and `external_parity()` are not
+- **Frozen**: `physics/parity.py`, `study/baseline.py` and `external_parity()` are not
   refactored. `build_stacks()` **is no longer frozen** — prompt_6 RULE 3 changes
   its reconstruction term. After any change there, re-run `bash run.sh baseline
   --eval` and diff: Task 1 and 2 totals must not move.
@@ -525,7 +525,7 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   `Mapper` counts the shape failed. `timeloop.ErtTables` is the production hook
   (base table from Accelergy once per arm under `<cache>/_ert/`, two rows bumped,
   staged per shape, read back after the map); `python3 -m
-  eccenergy.experiments.ert_probe` is the proof (FINDINGS §3.5) and writes under
+  eccenergy.toolchain.ert_probe` is the proof (FINDINGS §3.5) and writes under
   `paths.ert_probe_dir()`, never the mapper cache.
 - **An ERT arm is a configuration, not a design.** `ECC_RECON_ERT_ARM=<placement
   key>` (set per job by `hpc/map_ert_arms.sh`) resolves in `config.py` into
@@ -614,9 +614,9 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   level per arm from THE WIDTH TABLE (above) and renormalises depth to hold your
   declared total bits, so `width % datawidth == 0` is satisfied by construction at
   every code. If a `width 64 % datawidth 5 != 0` ever reaches you, the fix is in
-  `code_widths.WIDTH_TABLE`, never in the arch YAML and never in the config.
+  `physics.widths.WIDTH_TABLE`, never in the arch YAML and never in the config.
 - **Adding a model**: add to `CNN_MODELS` or `TRANSFORMER_MODELS` in `config.py`,
-  then `python3 -m eccenergy.generate models <name>` in the container.
+  then `python3 -m eccenergy.arch.generate models <name>` in the container.
 - **Adding an architecture to the placement study**: `WEIGHT_PATHS[<name>]` and
   `PLACEMENTS[<name>]` together, then the name in `ECC_RECON_PLACEMENTS` in env.sh
   §4. Get the stage-to-level match right by reading a real
@@ -624,9 +624,9 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   cache. `test_every_placement_space_is_valid_for_every_supported_design` makes a
   half-finished pair fail the tests rather than understate a figure.
 - **Adding a sweep axis**: a name in `SWEEPS`, a stem in `SWEEP_STEMS`, resolution
-  in `Config.__post_init__`, and a `_<name>_groups()` in `experiments/sweep.py`. Do
+  in `Config.__post_init__`, and a `_<name>_groups()` in `study/sweep.py`. Do
   not write a second renderer.
-- **Changing how a bar looks**: `draw_panel()` in `plots/stacked.py` is the only
+- **Changing how a bar looks**: `draw_panel()` in `report/stacked.py` is the only
   place a bar is drawn, so every figure moves together. Add a parameter to it
   rather than a second routine.
 - **The placement figure's heading is ONE line** (`Config.recon_title` /
@@ -647,20 +647,20 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   own `ECC_ARCH_CLOCK_MHZ` through `globals_<arch>.yaml`. All four are in the
   patched YAML and therefore in the fingerprint.
 - **WHO APPLIES THE OFF-CHIP WEIGHT RELIEF IS MEASURED PER BAR**
-  (`latency_post.relief_owner`, prompt_6 RULE 1). The evaluator applied `K/N`
+  (`toolchain.latency_post.relief_owner`, prompt_6 RULE 1). The evaluator applied `K/N`
   from Phase A; C1.2 makes the MAPPER apply it, and both would give K/N
   SQUARED. The answer is on disk in each bar's own stats -- `Bandwidth
   Consumption Scale` is 1.00 where nothing was declared and K/N where it was --
   and a third value is REFUSED as a bar billed from another code's plan.
 - **`ECC_RECON_IDLE_PJ` IS RESCALED TO THE DESIGN'S CLOCK, ONCE**
-  (`Config.dc_idle_scale()` owns the factor, `ecc.load_recon_terms()` applies
+  (`Config.dc_idle_scale()` owns the factor, `study.stacks.load_recon_terms()` applies
   it after the three lookup branches converge). It is pJ per cycle at DC's 1 ns
   clock and it is CLOCK power, so 200 MHz is **x5** -- on the reconstruction
   engines only. `ECC_LEAKAGE_NW` is POWER in nW and must NOT be rescaled; that
   is why the two are declared in different units. env.sh section 6 TRAP 2 had
   documented this since before it existed in code.
 - **TIME and STANDBY POWER are still evaluator-only in the REPORT, and the
-  re-timing is not in the fingerprint** (prompt_7 Phase A). `latency_post.
+  re-timing is not in the fingerprint** (prompt_7 Phase A). `toolchain.latency_post.
   roofline()` re-times a mapping Timeloop already chose -- `max(compute, each
   level's declared-bandwidth limit, off-chip items / ECC_DRAM_BANDWIDTH_MBPS)`
   -- and at an unlimited off-chip limit it reproduces Timeloop's per-level AND
@@ -694,15 +694,32 @@ carry the rest.
                         map_by_shape.sh, map_ert_arms.sh (prompt_6: one job per
                         arm x shape, one dependent eval), map_capacity_sweep.sh,
                         map_depth_sweep.sh, summary.py, HIPERGATOR.md
-    eccenergy/          config.py (the ONLY reader of os.environ, and the ONLY
-                        place MHz becomes seconds), paths.py (the ONLY resolver
-                        of paths), workloads.py, timeloop.py (the only module
-                        needing the container), energy.py, ecc.py, recon.py,
-                        parity.py, embedded.py, code_widths.py, noc_post.py,
-                        latency_post.py (the roofline AND the ONE owner of the
-                        clock period every per-cycle term is charged over),
-                        results_store.py (the ONLY writer of an evaluation
-                        JSON), plots/, experiments/, tests/, generate.py
+    eccenergy/          LAYERED SINCE 2026-09-13 (ProjectRestructure phase 2).
+                        A module may import only from LOWER layers;
+                        tests/contract/test_layer_rule.py enforces it and lists
+                        every edge that still points the wrong way.
+      L0  paths.py      the ONLY resolver of paths
+          config.py     the ONLY reader of os.environ, and the ONLY place MHz
+                        becomes seconds. -> settings/ in phase 4
+          contracts/    the shared types. Empty until phase 3 fills it
+      L1  physics/      parity.py  embedded.py  widths.py (THE WIDTH TABLE)
+                        baseline_dram.py
+      L2  arch/         workloads.py  generate.py
+          archs.py      -> arch/{load,patch,fingerprint,validate}.py in phase 3
+      L3  toolchain/    noc_post.py, latency_post.py (the roofline AND the ONE
+                        owner of the clock period every per-cycle term is
+                        charged over), results_store.py (the ONLY writer of an
+                        evaluation JSON), ert_probe.py
+          timeloop.py   the only module needing the container.
+                        -> toolchain/{invoke,ert,stats}.py in phase 3
+      L4  study/        stacks.py (build_stacks), energy.py, common.py, and one
+                        driver per run.sh stage: baseline, embedded, sweep,
+                        panels, validate, audit, diagnose
+          recon.py      the placement space. Splits across FOUR layers, phase 3
+          experiments/  what is left: recon.py and dilation.py, both phase 3
+      L5  report/       stacked.py (draw_panel: the ONLY place a bar is drawn),
+                        panels.py, style.py
+          __main__.py   the CLI. May import anything
     archs/_shared/      standard.yaml, provenance.yaml, noc.yaml -- not an
                         architecture; skipped by the installer.
                         components/ is IN THE FINGERPRINT: regfile_decoded.yaml

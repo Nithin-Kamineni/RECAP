@@ -10,6 +10,70 @@ Rules for this file: newest entry at the top, one short block per day of work,
 no tables, no pasted output. Anything worth keeping longer than a week belongs
 in FINDINGS.md; anything that says what to do next belongs in the live plan.
 
+2026-09-13  RESTRUCTURE PHASE 2 -- SIX LAYERS, 23 MODULES MOVED, NOTHING MOVED
+-----------------------------------------------------------------------
+ProjectRestructure.md section 9.2, phase 2. Gate: 302 fingerprints
+BYTE-IDENTICAL, every evaluated total identical to the pJ, 227 -> 231 passing.
+Not one function body changed -- the diff is import statements, two module
+RENAMES carried into their qualified references, and prose.
+
+    L0  paths.py  config.py  contracts/          (contracts/ empty until phase 3)
+    L1  physics/    parity  embedded  widths  baseline_dram
+    L2  arch/       workloads  generate          + archs.py, phase 3 splits it
+    L3  toolchain/  noc_post  latency_post  results_store  ert_probe
+                                                 + timeloop.py, phase 3 splits it
+    L4  study/      stacks  energy  common  baseline  embedded  sweep  panels
+                    validate  audit  diagnose  + recon.py and experiments/
+    L5  report/     stacked  panels  style
+        __main__.py
+
+THE MOVE WAS MECHANISED, NOT HAND-EDITED: restructure/migrate_modules.py
+resolves every intra-package import to an absolute name, then re-spells it for
+the file's NEW location. That is the part sed cannot do -- `from .paths import
+ROOT` in a file that moves down a level must become `from ..paths import ROOT`
+even though `paths` never moved, and three of the first draft's rewrites were
+wrong in exactly that way until the probe caught them. It also splits a
+`from . import a, b` whose targets land in different packages, preserves aliases
+and one-line trailing comments, and REFUSES a multi-line import carrying a
+comment rather than guessing. Rehearsed on a copy of the tree first; six
+load-bearing "why this import is lazy" comments survived.
+
+TWO RENAMES, per Appendix C: code_widths -> physics/widths (58 qualified
+references) and ecc -> study/stacks (23). Documented commands moved with them
+(`python3 -m eccenergy.physics.widths`, `.arch.generate`, `.toolchain.ert_probe`)
+in CLAUDE.md and env.sh.
+
+THE SIX FILES PHASE 3 SPLITS STAYED PUT -- config, archs, recon, timeloop,
+experiments/recon, experiments/dilation. A file about to be cut across four
+layers cannot be filed under one of them first.
+
+WHERE THE PLAN CONTRADICTS ITSELF, THE TREE WON. Section 4.2's tree and
+Appendix C disagree in three places, and one is unresolvable as written: there
+is a panels.py in plots/ (the renderer) and another in experiments/ (the driver
+that calls it), and Appendix C sends both to report/panels.py. The line drawn is
+DRIVERS ARE L4, RENDERERS ARE L5, which matches section 4.2's study/ listing.
+results_store went to toolchain/ (Appendix C) and not report/ (the tree),
+because study/baseline.py writes results and an L4 module cannot import L5.
+latency_post is in toolchain/ by symmetry with noc_post; the plan names no home
+for it at all. All three choices are recorded in the package docstrings.
+
+THE LAYER RULE IS NOW A TEST: tests/contract/test_layer_rule.py, the first
+tenant of the new top-level tests/ (section 7.4's three buckets; the 15 existing
+modules stay in eccenergy/tests/ and migrate as later phases touch them). It
+reads the source and never imports it. 16 edges point upward today; every one is
+DECLARED with the phase that removes it, and the list fails BOTH ways -- a new
+upward edge fails, and a declared edge that has gone also fails, so phases 3 and
+4 have to delete lines. Both directions mutation-tested. Phase 4 is finished
+when KNOWN_UPWARD is empty; the sub-test that watches L0-L3 is xfail until then.
+
+ONE REAL WART, FOUND BY THE NEW TEST'S OWN AST WALK: archs.uncommented()'s
+docstring was not raw, so the `\b` in the regex it documents was compiled as a
+BACKSPACE character. Made raw. No behaviour anywhere; Python 3.12 would have
+warned.
+
+NEXT: phase 3 (split the big six along their existing banners). Run the gate
+first, and reuse restructure/migrate_modules.py for the halves that move.
+
 2026-09-13  RESTRUCTURE PHASE 1 -- TEST PLUMBING, AND A MISCOUNT CORRECTED
 -----------------------------------------------------------------------
 ProjectRestructure.md section 9.2, phase 1. NO PRODUCTION CODE TOUCHED -- the

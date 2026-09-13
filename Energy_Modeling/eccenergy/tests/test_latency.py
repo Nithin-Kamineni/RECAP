@@ -41,7 +41,9 @@ import sys
 
 import pandas as pd
 
-from .. import config, ecc, energy, latency_post
+from .. import config
+from ..study import energy, stacks
+from ..toolchain import latency_post
 from ..timeloop import parse_cycles, parse_levels, physical_record
 
 FAILED = []
@@ -460,8 +462,8 @@ def _cfgs():
 
 
 def _stack_totals(cfg, raw):
-    recon_pj, idle_pj, _ = ecc.load_recon_energy(cfg)
-    df = ecc.build_stacks(cfg, raw, recon_pj, recon_idle_pj=idle_pj)
+    recon_pj, idle_pj, _ = stacks.load_recon_energy(cfg)
+    df = stacks.build_stacks(cfg, raw, recon_pj, recon_idle_pj=idle_pj)
     return {a: float(df[a].sum()) for a in cfg.approaches}
 
 

@@ -25,7 +25,7 @@ import shutil
 
 import yaml
 
-from . import code_widths
+from .physics import widths
 from .paths import (ARCH_COMPONENTS, ARCH_NOC, ARCH_PROVENANCE, ARCH_SRC, ARCH_SRC_RESERVED,
                     ARCH_STANDARD, DESIGNS_DIR, WORK)
 
@@ -732,7 +732,7 @@ _COMMENT_RE = re.compile(r"#[^\n]*")
 
 
 def uncommented(text):
-    """`text` with every `#` comment blanked to spaces, POSITIONS PRESERVED.
+    r"""`text` with every `#` comment blanked to spaces, POSITIONS PRESERVED.
 
     THE BUG THIS EXISTS FOR (found 2026-09-13, prompt_7 C1, on a real SLURM
     run). Every geometry regex in this module is `re.search(r"\bdepth:\s*(\d+)",
@@ -824,7 +824,7 @@ def _weight_level_parts(text, scope="exclusive"):
 
 def _set_weight_geometry(text, bits, levels=(), glb_mult=4, scope="exclusive",
                          arch="?", quiet=False,
-                         weight_bits=code_widths.DEFAULT_WEIGHT_BITS):
+                         weight_bits=widths.DEFAULT_WEIGHT_BITS):
     """PROMPT_2's WIDTH TABLE, applied PER LEVEL and PER ARM in one pass.
 
     THE ARMS DO NOT SHARE A DECLARED WIDTH. Each weight level declares the
@@ -843,7 +843,7 @@ def _set_weight_geometry(text, bits, levels=(), glb_mult=4, scope="exclusive",
     defaults to 1, NO floor path, `exit=134` on a violation) -- and each width
     here is a multiple of the datawidth it is chosen for, by construction, so
     that abort is unreachable for every q. The lcm(q, 8) scheme of
-    2026-09-11/12 is WITHDRAWN; `eccenergy/code_widths.py` records why.
+    2026-09-11/12 is WITHDRAWN; `eccenergy/widths.py` records why.
 
     PER LEVEL, because an ERT arm narrows only the storage levels in its
     placement's `reduced` set: at `ECC_WEIGHT_DATAWIDTH_LEVELS=filter_glb` the
@@ -910,8 +910,8 @@ def _set_weight_geometry(text, bits, levels=(), glb_mult=4, scope="exclusive",
         narrowed = bits is not None and (not want_levels or name in want_levels)
         q = int(bits) if narrowed else int(weight_bits)
         is_spad = name == spad
-        want_w = code_widths.level_width(q, is_spad, glb_mult, weight_bits)
-        want_d = code_widths.renormalised_depth(d0, w0, is_spad, glb_mult,
+        want_w = widths.level_width(q, is_spad, glb_mult, weight_bits)
+        want_d = widths.renormalised_depth(d0, w0, is_spad, glb_mult,
                                                 weight_bits)
         if want_w % q != 0:                      # unreachable; a guard, not a path
             bad.append(f"{name}: width {want_w} % datawidth {q} != 0")
@@ -939,13 +939,13 @@ def _set_weight_geometry(text, bits, levels=(), glb_mult=4, scope="exclusive",
             f"not divide -- " + "; ".join(bad) + ".\n"
             f"  timeloop-mapper asserts `width % (word_bits * block_size) == 0` "
             f"(buffer.cpp:302) and ABORTS; there is no floor path.\n"
-            f"  Every entry of eccenergy/code_widths.WIDTH_TABLE is a multiple "
+            f"  Every entry of eccenergy/widths.WIDTH_TABLE is a multiple "
             f"of its own q, so this is a table edit, not a configuration\n"
             f"  problem. Run `python3 -m eccenergy.code_widths` and fix the "
             f"entry; do NOT reach for a width that suits a DIFFERENT arm.")
     if not quiet and arch:
         note = (f"  [weight-geometry] {arch}: THE WIDTH TABLE (base "
-                f"{code_widths.base_width(weight_bits)}b, GLB {glb_mult}x"
+                f"{widths.base_width(weight_bits)}b, GLB {glb_mult}x"
                 + (f", q={bits} on "
                    + ("+".join(sorted(want_levels)) if want_levels else "every level")
                    if bits is not None else ", 8-bit arm")
@@ -1619,7 +1619,7 @@ def assert_pair_geometry(arch, cfg_ref, cfg_arm, ref_name="embedded",
     neither has to be legal for the other's datawidth, because neither is ever
     mapped on the other's silicon. Asserting a shared width is what produced
     the withdrawn `lcm(q, 8)` scheme (56 / 24 / 40) and, through it,
-    BCH(63,39)'s spurious 37.69 %: see `eccenergy/code_widths.py`. Do not
+    BCH(63,39)'s spurious 37.69 %: see `eccenergy/widths.py`. Do not
     reintroduce that check.
 
     WHAT IT STILL CHECKS, AND WHY IT IS AN ASSERTION AND NOT A CONVENTION.
@@ -1798,7 +1798,7 @@ def ert_bump(arch, cfg):
         raise ValueError(f"ERT arm {arm['key']}: {level} declares width {g['width']} "
                          f"and datawidth {g['datawidth']}; block_size is undefined")
     block_size = g["width"] // g["datawidth"]
-    from . import ecc as _ecc            # lazily: ecc needs pandas, the reference arm does not
+    from .study import stacks as _ecc  # lazily: ecc needs pandas, the reference arm does not
     from . import recon as _recon
     inc, idle, prov = _ecc.load_recon_energy(cfg)
     gran = _recon.Granularity(cfg.code_n, cfg.code_k, cfg.weight_bits,
@@ -2007,7 +2007,7 @@ def effective_variant(arch, cfg):
     # no-op rule, because there is no configuration in which it is off. It
     # marks the boundary in `ls`: a directory without it predates 2026-09-12
     # and was mapped on the published word shape.
-    parts.append(f"wt{code_widths.base_width(cfg.weight_bits)}"
+    parts.append(f"wt{widths.base_width(cfg.weight_bits)}"
                  + (f"x{cfg.weight_width_glb_mult}"
                     if cfg.weight_width_glb_mult != 4 else ""))
     if getattr(cfg, "weight_depth_scale", 1.0) != 1.0:

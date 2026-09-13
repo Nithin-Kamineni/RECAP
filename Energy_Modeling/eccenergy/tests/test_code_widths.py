@@ -33,7 +33,8 @@ import os
 import re
 import sys
 
-from .. import archs, code_widths, config
+from .. import archs, config
+from ..physics import widths
 
 FAILED = []
 
@@ -78,7 +79,7 @@ def test_q_is_round_not_ceil():
     """prompt_2's 'q declared' column, exactly."""
     import math
     want = {57: 7, 51: 6, 45: 6, 39: 5, 36: 5, 30: 4}
-    got = {k: code_widths.declared_datawidth(63, k) for k in want}
+    got = {k: widths.declared_datawidth(63, k) for k in want}
     assert got == want, f"q column moved: {got} != {want}"
     # BREAKAGE: ceil, which is what hpc/map_depth_sweep.sh used to do. It agrees
     # everywhere except BCH(63,57), where it returns 8 -- the embedded arm's own
@@ -90,11 +91,11 @@ def test_q_is_round_not_ceil():
 
 
 def test_q_never_exceeds_the_payload_and_never_hits_zero():
-    assert code_widths.declared_datawidth(63, 62) <= 8
-    assert code_widths.declared_datawidth(63, 1) >= 1
-    expect_raises(lambda: code_widths.declared_datawidth(63, 63),
+    assert widths.declared_datawidth(63, 62) <= 8
+    assert widths.declared_datawidth(63, 1) >= 1
+    expect_raises(lambda: widths.declared_datawidth(63, 63),
                   "K == N accepted as a code")
-    expect_raises(lambda: code_widths.declared_datawidth(63, 0),
+    expect_raises(lambda: widths.declared_datawidth(63, 0),
                   "K == 0 accepted as a code")
 
 
@@ -102,7 +103,7 @@ def test_q_never_exceeds_the_payload_and_never_hits_zero():
 def test_the_widths_are_prompt_2s_widths():
     """Transcribed from prompt_2.md and compared value by value."""
     for label, q, width, per_word, _cap in PROMPT_2_TABLE:
-        got = code_widths.declared_width(q)
+        got = widths.declared_width(q)
         assert got == width, f"{label}: q={q} gave width {got}, prompt_2 says {width}"
         assert got // q == per_word, (
             f"{label}: {got}/{q} = {got // q} weights per word, "
@@ -129,8 +130,8 @@ def test_an_arm_width_need_not_divide_another_arms_datawidth():
         assert width % q == 0, f"{label}: width {width} % q {q} != 0 -- REAL breakage"
     assert 98 % 8 == 2 and 95 % 8 == 7, "the arithmetic moved"
     # ... and the table keeps them anyway, because the constraint is per arm.
-    assert code_widths.declared_width(7) == 98
-    assert code_widths.declared_width(5) == 95
+    assert widths.declared_width(7) == 98
+    assert widths.declared_width(5) == 95
     # BREAKAGE: requiring a width to suit the OTHER arm's datawidth is what
     # rejects 98 and 95. If this ever stops failing, the rule came back.
     def _demand_cross_arm_legality():
@@ -144,40 +145,40 @@ def test_the_rule_reproduces_the_table_without_reading_it():
     """`WIDTH_TABLE` is a record of a decision, not a second source of truth:
     the rule alone must give the same numbers."""
     for label, q, width, _p, _c in PROMPT_2_TABLE:
-        got = code_widths.nearest_multiple(q, code_widths.BASE_WIDTH)
+        got = widths.nearest_multiple(q, widths.BASE_WIDTH)
         assert got == width, (
             f"{label}: the rule gives {got}, the table says {width} -- one of "
             f"them is wrong and the dict must never win silently")
     # BREAKAGE: a table entry the rule contradicts is still returned (a
     # hand-picked width is allowed), but one its own q does not divide raises.
-    saved = dict(code_widths.WIDTH_TABLE)
+    saved = dict(widths.WIDTH_TABLE)
     try:
-        code_widths.WIDTH_TABLE[5] = 97          # 97 % 5 = 2
-        expect_raises(lambda: code_widths.declared_width(5),
+        widths.WIDTH_TABLE[5] = 97          # 97 % 5 = 2
+        expect_raises(lambda: widths.declared_width(5),
                       "a table width its own q does not divide was accepted")
     finally:
-        code_widths.WIDTH_TABLE.clear()
-        code_widths.WIDTH_TABLE.update(saved)
+        widths.WIDTH_TABLE.clear()
+        widths.WIDTH_TABLE.update(saved)
 
 
 def test_every_q_from_1_to_the_payload_has_a_legal_width():
     """No configuration can reach buffer.cpp:302, for any code at any N."""
     for q in range(1, 9):
-        w = code_widths.declared_width(q)
+        w = widths.declared_width(q)
         assert w % q == 0, f"q={q}: width {w} leaves {w % q}"
-        assert code_widths.level_width(q, False, 4) % q == 0, f"q={q}: GLB width"
+        assert widths.level_width(q, False, 4) % q == 0, f"q={q}: GLB width"
 
 
 def test_the_glb_is_the_multiple_and_keeps_divisibility():
     for q in range(1, 9):
-        spad = code_widths.level_width(q, True, 4)
-        glb = code_widths.level_width(q, False, 4)
+        spad = widths.level_width(q, True, 4)
+        glb = widths.level_width(q, False, 4)
         assert glb == spad * 4, f"q={q}: GLB {glb} != 4 x {spad}"
         assert glb % q == 0
     # BREAKAGE: a GLB width that is not a multiple of the scratchpad's breaks
     # the "q | W implies q | mW" argument for a non-integer multiplier.
     expect_raises(
-        lambda: _assert_eq(code_widths.level_width(7, False, 4), 98 * 3),
+        lambda: _assert_eq(widths.level_width(7, False, 4), 98 * 3),
         "the GLB multiplier is 4, not 3")
 
 
@@ -186,16 +187,16 @@ def test_depth_is_computed_at_the_base_width_so_every_arm_shares_it():
     """The arms differ in `width` and `datawidth`. They must NOT differ in
     `depth`, or Accelergy prices silicon one arm does not have."""
     for _l, q, _w, _p, _c in PROMPT_2_TABLE:
-        spad = code_widths.renormalised_depth(224, 16, True)      # prompt_2's own
-        glb = code_widths.renormalised_depth(1024, 64, False, 4)
+        spad = widths.renormalised_depth(224, 16, True)      # prompt_2's own
+        glb = widths.renormalised_depth(1024, 64, False, 4)
         assert spad == 37, f"prompt_2 says weights_spad depth 37 at width 96, got {spad}"
         assert glb == 171, f"prompt_2 says filter_glb depth 171 at width 384, got {glb}"
         # and it does not depend on q at all -- that is the point
-        assert code_widths.renormalised_depth(224, 16, True) == spad
+        assert widths.renormalised_depth(224, 16, True) == spad
     # BREAKAGE: computing depth at the ARM's width makes it q-dependent, and
     # the two arms then declare different depths (42 vs 43 on the real GLB).
     def _depth_at_arm_width(q):
-        return max(1, int((256 * 64 / (code_widths.declared_width(q) * 4)) + 0.5))
+        return max(1, int((256 * 64 / (widths.declared_width(q) * 4)) + 0.5))
     assert _depth_at_arm_width(8) != _depth_at_arm_width(7), \
         "the per-arm depth bug is no longer reachable to demonstrate"
     expect_raises(
@@ -207,8 +208,8 @@ def test_the_reshape_holds_the_published_total_bits():
     """A width change reshapes the word; it must not resize the array."""
     for depth, width, is_spad in ((224, 16, True), (1024, 64, False),
                                   (16, 16, True), (256, 64, False)):
-        nd = code_widths.renormalised_depth(depth, width, is_spad, 4)
-        base = code_widths.base_width() * (1 if is_spad else 4)
+        nd = widths.renormalised_depth(depth, width, is_spad, 4)
+        base = widths.base_width() * (1 if is_spad else 4)
         before, after = depth * width, nd * base
         assert abs(after - before) <= base, (
             f"{depth}x{width}b -> {nd}x{base}b: {before:,} bits became "
@@ -270,8 +271,8 @@ def test_the_eight_bit_arm_is_width_96_at_every_code():
             f"the 8-bit reference arm differs at BCH(63,{k}): {got} != {first}. "
             f"It must be ONE arm at every code, or its tiling moves with the "
             f"code and the margin measures the reference, not the treatment.")
-    spad = [v for lvl, v in first.items() if v[0] == code_widths.BASE_WIDTH]
-    assert spad, f"no level at the base width {code_widths.BASE_WIDTH}: {first}"
+    spad = [v for lvl, v in first.items() if v[0] == widths.BASE_WIDTH]
+    assert spad, f"no level at the base width {widths.BASE_WIDTH}: {first}"
 
 
 def test_capacity_ratio_reproduces_prompt_2s_eff_capacity_column():
@@ -357,7 +358,7 @@ def test_the_two_variant_slugs_agree():
             assert eff == cfg.arch_variant_slug, (
                 f"BCH(63,{k}) {arm}: mapper cache {eff!r}, configuration "
                 f"{cfg.arch_variant_slug!r} -- one chip, two directory names")
-            assert f"wt{code_widths.BASE_WIDTH}" in eff, (
+            assert f"wt{widths.BASE_WIDTH}" in eff, (
                 f"the slug does not record THE WIDTH TABLE: {eff}")
 
 
@@ -412,8 +413,8 @@ def test_claude_md_still_carries_the_protected_width_section():
 
 
 def main():
-    print("THE WIDTH TABLE -- eccenergy/code_widths.py")
-    print(code_widths.audit())
+    print("THE WIDTH TABLE -- eccenergy/widths.py")
+    print(widths.audit())
     print()
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

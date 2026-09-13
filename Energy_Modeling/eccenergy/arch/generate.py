@@ -18,7 +18,7 @@ import os
 import sys
 import traceback
 
-from .paths import CNN_LAYERS, TRANSFORMER_LAYERS, WORK
+from ..paths import CNN_LAYERS, TRANSFORMER_LAYERS, WORK
 
 # ------------------------------------------------------------------ CNN models
 CNN_MODELS = {  # name -> (source, constructor)

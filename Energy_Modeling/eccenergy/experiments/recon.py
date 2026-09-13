@@ -87,18 +87,18 @@ import pandas as pd
 import yaml
 
 from .. import archs as archmod
-from .. import latency_post
+from ..toolchain import latency_post
 from .. import recon as reconmod
 from .. import timeloop as tlmod
 from ..archs import accumulator_bits, load_provenance
-from .. import baseline_dram
-from ..ecc import embedded_dram, external_parity, load_recon_energy
-from ..energy import plot_cats
-from ..plots import panels as panels_mod
-from ..plots.stacked import grouped_stacks, write_table
-from ..results_store import ResultBuilder, Variant
-from . import audit
-from .common import Session
+from ..physics import baseline_dram
+from ..study.stacks import embedded_dram, external_parity, load_recon_energy
+from ..study.energy import plot_cats
+from ..report import panels as panels_mod
+from ..report.stacked import grouped_stacks, write_table
+from ..toolchain.results_store import ResultBuilder, Variant
+from ..study import audit
+from ..study.common import Session
 
 EXPERIMENT = "task3_reconstruction_placement_fixed_mapping"
 #: TASK 4. The same boundaries, but the reconstruction arm gets its OWN
@@ -2366,7 +2366,7 @@ def panel_for(cfg, arch, model, out):
     the same construction serves a one-architecture figure and a panel of a
     multi-architecture one. `figure()` decides which.
 
-    `plots/stacked.draw_panel` draws it -- the same routine the three sweeps and
+    `report/stacked.draw_panel` draws it -- the same routine the three sweeps and
     the panel figure use, widened rather than forked. One bar per group here,
     because a placement label is a sentence and does not fit as a rotated tag
     under one of six bars in a single group.
@@ -2592,7 +2592,7 @@ def figure(cfg, ses, panels):
     ONE ARCHITECTURE -> the single-panel figure this study has always drawn,
     through `grouped_stacks`, unchanged.
 
-    SEVERAL -> `plots/panels.stacked_panels`, one panel per design, each with
+    SEVERAL -> `report/panels.stacked_panels`, one panel per design, each with
     its OWN x axis of its own boundaries and its own two reference bars. The
     rule this does not break is the one env.sh section 4 and CLAUDE.md state:
     the boundaries of two designs must never share an x axis, because

@@ -97,7 +97,7 @@ from .. import paths as pathsmod
 from .. import recon as reconmod
 from .. import timeloop as tlmod
 from ..config import load_config
-from ..workloads import load_workload, select, select_layers
+from ..arch.workloads import load_workload, select, select_layers
 
 #: Relative tolerance for every reconciliation. Stats print to 0.01 pJ, so a
 #: number in the pJ range reconciles far tighter than this.

@@ -14,8 +14,8 @@ vary the raw energies instead, which is why this is one function.
 """
 from __future__ import annotations
 
-from ..ecc import build_stacks, k_label, recon_pj_for_k
-from ..plots.stacked import grouped_stacks
+from .stacks import build_stacks, k_label, recon_pj_for_k
+from ..report.stacked import grouped_stacks
 from .common import Session
 
 

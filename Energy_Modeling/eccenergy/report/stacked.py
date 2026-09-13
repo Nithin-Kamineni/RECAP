@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 
 from ..config import APPROACH_TAGS
-from ..energy import plot_cats
+from ..study.energy import plot_cats
 from . import style
 from .style import plt
 

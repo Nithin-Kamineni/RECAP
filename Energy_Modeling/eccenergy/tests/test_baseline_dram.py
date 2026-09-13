@@ -82,7 +82,7 @@ def _real_raw(cfg):
     if not REAL_RECORD.is_file():
         raise _Skip(f"cached record absent: {REAL_RECORD}")
     try:
-        from eccenergy.energy import Raw, apply_dram_override, apply_mac_override
+        from eccenergy.study.energy import Raw, apply_dram_override, apply_mac_override
     except ImportError as exc:                       # pandas, on the host python
         raise _Skip(f"pandas not available on this python: {exc}")
     raw = Raw.from_json(json.loads(REAL_RECORD.read_text()), cfg)
@@ -97,10 +97,10 @@ def _arms(cfg, raw):
     build them, so a divergence between this and the experiments is a failure
     here rather than a silent difference in the results.
     """
-    from eccenergy import baseline_dram
-    from eccenergy.ecc import embedded_dram, external_parity
-    from eccenergy.energy import plot_cats
-    from eccenergy.experiments import audit
+    from eccenergy.physics import baseline_dram
+    from eccenergy.study.stacks import embedded_dram, external_parity
+    from eccenergy.study.energy import plot_cats
+    from eccenergy.study import audit
     series = raw.base.reindex(plot_cats(cfg), fill_value=0.0)
     e_parity, pdetail = external_parity(cfg, raw)
     e_emb, _ = embedded_dram(cfg, raw)
@@ -132,7 +132,7 @@ def test_1_no_arm_issues_extra_dram_reads():
 def test_2_parity_component_is_zero_and_the_accounting_survives():
     cfg = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT="70")
     raw = _real_raw(cfg)
-    from eccenergy.baseline_dram import PARITY_KEY
+    from eccenergy.physics.baseline_dram import PARITY_KEY
     base, _, e_parity, pricing, pdetail = _arms(cfg, raw)
     assert base[PARITY_KEY] == 0.0                    # explicitly zero, not missing
     assert PARITY_KEY in base
@@ -162,7 +162,7 @@ def test_3b_a_weights_only_price_would_fail_the_check():
     """MUTATION: price the weight rows only. The check must catch it."""
     cfg = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT="70")
     raw = _real_raw(cfg)
-    from eccenergy import baseline_dram
+    from eccenergy.physics import baseline_dram
     base, emb, e_parity, pricing, _ = _arms(cfg, raw)
     broken = dict(emb)
     broken["DRAM"] = emb["DRAM"] + raw.e_dram_w * 0.75      # weights only
@@ -177,7 +177,7 @@ def test_3c_charging_the_parity_as_well_would_fail_the_check():
     """MUTATION: keep the old traffic term AND the new price. Double-charged."""
     cfg = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT="70")
     raw = _real_raw(cfg)
-    from eccenergy import baseline_dram
+    from eccenergy.physics import baseline_dram
     base, emb, e_parity, pricing, _ = _arms(cfg, raw)
     broken = dict(base)
     broken[baseline_dram.PARITY_KEY] = e_parity
@@ -216,7 +216,7 @@ def test_4b_recon_and_embedded_totals_do_not_move_at_all():
     """Only the baseline arm is repriced. The other two bars must be identical."""
     raw_a = _real_raw(_cfg(ECC_BASELINE_DRAM_PJ_PER_BIT="70"))
     raw_b = _real_raw(_cfg(ECC_BASELINE_DRAM_PJ_PER_BIT=None))
-    from eccenergy.ecc import build_stacks, load_recon_energy
+    from eccenergy.study.stacks import build_stacks, load_recon_energy
     cfg_a = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT="70")
     cfg_b = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT=None)
     recon_pj, recon_idle, _ = load_recon_energy(cfg_a)      # RULE 3: two terms
@@ -233,7 +233,7 @@ def test_4c_load_recon_energy_returns_incremental_and_idle_separately():
     quantities with two denominators. `load_recon_energy` returns them apart;
     nothing adds them. At BCH(63,30) they are 1.3786 pJ/codeword and
     2.8310811 pJ/cycle/engine; the old combined 4.2096811 must appear nowhere."""
-    from eccenergy.ecc import load_recon_energy, load_recon_terms, recon_pj_for_k
+    from eccenergy.study.stacks import load_recon_energy, load_recon_terms, recon_pj_for_k
     cfg = _cfg(ECC_CONST_K="30")
     inc, idle, prov = load_recon_energy(cfg)
     assert abs(inc - 1.3786) < 1e-12 and abs(idle - 2.8310811) < 1e-12, (inc, idle)
@@ -247,7 +247,7 @@ def test_4c_load_recon_energy_returns_incremental_and_idle_separately():
         i, d, _ = load_recon_energy(cfg, k)
         assert abs(i - want_inc) < 1e-12 and abs(d - want_idle) < 1e-12, (k, i, d)
         if cfg.recon_incremental_table:        # env.sh sourced: the tables are there
-            from eccenergy.ecc import _env_table_entry
+            from eccenergy.study.stacks import _env_table_entry
             ti, _ = _env_table_entry(cfg.recon_incremental_table, 63, k)
             td, _ = _env_table_entry(cfg.recon_idle_table, 63, k)
             assert ti == want_inc and td == want_idle, (k, ti, td)
@@ -266,13 +266,13 @@ def test_4d_build_stacks_charges_idle_per_cycle_and_refuses_without_cycles():
         import pandas as pd
     except ImportError as exc:
         raise _Skip(f"pandas not available on this python: {exc}")
-    from eccenergy.ecc import build_stacks
-    from eccenergy.energy import Raw, plot_cats
+    from eccenergy.study.stacks import build_stacks
+    from eccenergy.study.energy import Raw, plot_cats
     cfg = _cfg(ECC_CONST_K="30")
     cats = plot_cats(cfg)
     zero = pd.Series({c: 0.0 for c in cats}).reindex(cats)
     base = zero.copy(); base["DRAM"] = 1000.0
-    from eccenergy import parity
+    from eccenergy.physics import parity
     # build_stacks counts codewords with WHOLE weights per codeword
     # (parity.CodeGeometry: floor(30/8) = 3 at BCH(63,30)), not 63/8
     per_cw = parity.CodeGeometry(63, 30, 8).validate().weights_per_codeword
@@ -304,7 +304,7 @@ def test_4d_build_stacks_charges_idle_per_cycle_and_refuses_without_cycles():
 def test_5_no_component_outside_dram_differs():
     cfg = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT="70")
     raw = _real_raw(cfg)
-    from eccenergy.baseline_dram import DRAM_KEY, PARITY_KEY
+    from eccenergy.physics.baseline_dram import DRAM_KEY, PARITY_KEY
     base, emb, _, _, _ = _arms(cfg, raw)
     assert set(base) == set(emb)
     for c in base:
@@ -331,9 +331,9 @@ def test_6_the_knob_is_not_in_any_fingerprint():
 def test_7_unset_reproduces_the_pre_2026_09_10_model():
     cfg = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT=None)
     raw = _real_raw(cfg)
-    from eccenergy.baseline_dram import PARITY_KEY
-    from eccenergy.energy import plot_cats
-    from eccenergy.experiments import audit
+    from eccenergy.physics.baseline_dram import PARITY_KEY
+    from eccenergy.study.energy import plot_cats
+    from eccenergy.study import audit
     base, emb, e_parity, pricing, _ = _arms(cfg, raw)
     assert pricing["model"] == "parity_traffic" and pricing["ratio"] == 1.0
     # the old two lines, computed here, must give exactly today's numbers
@@ -346,7 +346,7 @@ def test_7_unset_reproduces_the_pre_2026_09_10_model():
 
 def test_7b_the_two_models_write_different_check_names():
     """One name meaning two things is how a model change hides in a diff."""
-    from eccenergy import baseline_dram
+    from eccenergy.physics import baseline_dram
     assert (baseline_dram.check_name({"model": "per_bit_price"})
             == "baseline_dram_is_exactly_the_per_bit_price")
     assert (baseline_dram.check_name(None)
@@ -360,11 +360,11 @@ def test_7b_the_two_models_write_different_check_names():
 def _task2_document(cfg, raw):
     """The Task 2 validation list, built the way `experiments/embedded` builds it."""
     import tempfile
-    from eccenergy.baseline_dram import PARITY_KEY
-    from eccenergy.experiments.embedded import task2_checks
-    from eccenergy.ecc import embedded_dram
+    from eccenergy.physics.baseline_dram import PARITY_KEY
+    from eccenergy.study.embedded import task2_checks
+    from eccenergy.study.stacks import embedded_dram
     from eccenergy.paths import Results
-    from eccenergy.results_store import ResultBuilder, Variant
+    from eccenergy.toolchain.results_store import ResultBuilder, Variant
     base, emb, e_parity, pricing, _ = _arms(cfg, raw)
     _, edetail = embedded_dram(cfg, raw)
     with tempfile.TemporaryDirectory() as tmp:
@@ -407,7 +407,7 @@ def test_the_legacy_model_writes_the_old_check_and_passes_it():
 
 def test_a_repriced_baseline_with_a_stale_ratio_is_caught():
     """MUTATION: components priced at x1.75, pricing record claiming x1.0."""
-    from eccenergy import baseline_dram
+    from eccenergy.physics import baseline_dram
     cfg = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT="70")
     raw = _real_raw(cfg)
     base, emb, e_parity, pricing, _ = _arms(cfg, raw)
@@ -431,9 +431,9 @@ def test_both_reports_render_under_both_models():
     import contextlib
     import io
 
-    from eccenergy.ecc import embedded_dram
-    from eccenergy.experiments import baseline as baseline_exp
-    from eccenergy.experiments import embedded as embedded_exp
+    from eccenergy.study.stacks import embedded_dram
+    from eccenergy.study import baseline as baseline_exp
+    from eccenergy.study import embedded as embedded_exp
     for knob in ("70", None):
         cfg = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT=knob)
         raw = _real_raw(cfg)
@@ -468,8 +468,8 @@ def test_an_unpriceable_record_is_refused_not_guessed():
         import pandas as pd
     except ImportError as exc:
         raise _Skip(f"pandas not available on this python: {exc}")
-    from eccenergy import baseline_dram
-    from eccenergy.energy import Raw, plot_cats
+    from eccenergy.physics import baseline_dram
+    from eccenergy.study.energy import Raw, plot_cats
     cfg = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT="70", ECC_DRAM_PJ_PER_BIT=None)
     cats = plot_cats(cfg)
     zero = pd.Series({c: 0.0 for c in cats}).reindex(cats)

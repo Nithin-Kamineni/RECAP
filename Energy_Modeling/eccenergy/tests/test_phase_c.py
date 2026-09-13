@@ -111,7 +111,9 @@ import dataclasses
 import re
 import sys
 
-from .. import archs, code_widths, config, latency_post, recon, timeloop as tlmod
+from .. import archs, config, recon, timeloop as tlmod
+from ..physics import widths
+from ..toolchain import latency_post
 
 FAILED = []
 
@@ -286,7 +288,7 @@ def test_the_bandwidth_scale_is_per_stage_and_per_factor():
     cfg = _cfg("recon2")
     assert cfg.recon_bw_scale, ("ECC_RECON_BW_SCALE is 0 in env.sh; prompt_7 "
                                 "C1.2 ships it ON -- the default IS the feature")
-    q = code_widths.declared_datawidth(cfg.code_n, cfg.code_k)
+    q = widths.declared_datawidth(cfg.code_n, cfg.code_k)
     factors = cfg.arm_bw_factors_for(ARCH)
     _close(factors["DRAM"]["factor"], cfg.code_k / cfg.code_n)
     _close(factors[GLB]["factor"], q / cfg.weight_bits)
@@ -582,7 +584,7 @@ def test_knobs_off_reproduce_the_pre_phase_c_architecture():
     _assert_eq(off.cycle_seconds_for(ARCH), off.global_cycle_seconds)
     # the arm's `datawidth: q` is prompt_6's and is NOT a Phase C knob
     _close(_attr(text, GLB, "datawidth"),
-           code_widths.declared_datawidth(off.code_n, off.code_k))
+           widths.declared_datawidth(off.code_n, off.code_k))
 
 
 # ---------------------------------------------------------------------------
@@ -653,15 +655,15 @@ def test_the_dc_idle_term_is_rescaled_to_this_designs_clock():
     the period at the point of use and must NOT be rescaled. The two are
     declared in different units precisely so this cannot be got wrong silently.
     """
-    from .. import ecc
+    from ..study import stacks
     live = _cfg()
     _close(live.dc_idle_scale(), 5.0)
     _assert_eq(config.DC_MEASUREMENT_CLOCK_NS, 1.0)
 
     pre = dataclasses.replace(live, arch_clock_mhz={})    # the pre-C1.5 clock
     _close(pre.dc_idle_scale(), 1.0)
-    inc0, idle0, _p0 = ecc.load_recon_energy(pre)
-    inc1, idle1, prov = ecc.load_recon_energy(live)
+    inc0, idle0, _p0 = stacks.load_recon_energy(pre)
+    inc1, idle1, prov = stacks.load_recon_energy(live)
     # the INCREMENTAL term is switching energy per codeword: it does not move
     _close(inc1, inc0)
     # the IDLE term is per cycle: it does

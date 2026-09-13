@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from .paths import CNN_LAYERS, TRANSFORMER_LAYERS, require
+from ..paths import CNN_LAYERS, TRANSFORMER_LAYERS, require
 
 
 @dataclass(frozen=True)

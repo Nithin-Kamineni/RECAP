@@ -70,7 +70,7 @@ def _raw(cfg):
         import pandas as pd
     except ImportError as exc:
         raise _Skip(f"pandas not available on this python: {exc}")
-    from eccenergy.energy import Raw, plot_cats
+    from eccenergy.study.energy import Raw, plot_cats
     cats = plot_cats(cfg)
     base = pd.Series({"DRAM": 5000.0, "Local (spads/RF)": 911.0, "NoC": 150.0,
                       "Compute": _MACS * _ERT_PJ}).reindex(cats, fill_value=0.0)
@@ -97,7 +97,7 @@ def _raw(cfg):
 
 # ------------------------------------------------------------ the rescale itself
 def test_only_the_compute_category_moves_and_by_exactly_macs_x_value():
-    from eccenergy.energy import apply_mac_override, mac_count
+    from eccenergy.study.energy import apply_mac_override, mac_count
     cfg0 = _cfg()
     raw0 = _raw(cfg0)
     assert mac_count(raw0) == _MACS            # unmapped layers do not count
@@ -147,8 +147,8 @@ def test_the_saved_pj_are_identical_across_the_rows_and_only_the_denominator_mov
     then differ by exactly the ratio of the totals -- which is the whole point.
     """
     from eccenergy import recon as reconmod
-    from eccenergy.ecc import embedded_dram, external_parity
-    from eccenergy.energy import apply_mac_override
+    from eccenergy.study.stacks import embedded_dram, external_parity
+    from eccenergy.study.energy import apply_mac_override
     from eccenergy.tests.test_recon import _Layer, _write_cache
 
     rows = {}
@@ -250,10 +250,10 @@ def test_the_manifest_and_the_result_file_carry_the_override():
         import pandas  # noqa: F401
     except ImportError as exc:
         raise _Skip(f"pandas not available on this python: {exc}")
-    from eccenergy.energy import apply_mac_override
-    from eccenergy.experiments import audit
+    from eccenergy.study.energy import apply_mac_override
+    from eccenergy.study import audit
     from eccenergy.paths import Results
-    from eccenergy.results_store import ResultBuilder, Variant
+    from eccenergy.toolchain.results_store import ResultBuilder, Variant
     with tempfile.TemporaryDirectory() as tmp:
         cfg = _cfg(ECC_MAC_PJ_OVERRIDE="0.23", ECC_RESULTS_DIR=tmp, ECC_OPT_METRIC="edp")
         raw = apply_mac_override(_raw(cfg), cfg, verbose=False)

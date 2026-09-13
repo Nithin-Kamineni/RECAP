@@ -10,9 +10,9 @@ if a check changes here, change it there too, and vice versa. Task 2
 """
 from __future__ import annotations
 
-from .. import baseline_dram, noc_post
-from ..archs import (accumulator_bits, arch_source, noc_band_levels, noc_terms,
-                     pe_latch_pj, validate_arch)
+from ..physics import baseline_dram
+from ..toolchain import noc_post
+from ..archs import accumulator_bits, arch_source, noc_band_levels, noc_terms, pe_latch_pj, validate_arch
 
 
 def components(series):

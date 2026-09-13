@@ -26,8 +26,7 @@ from __future__ import annotations
 
 import json
 
-from ..archs import (arch_fingerprint, arch_source, install_local_archs,
-                     load_provenance, load_standard, validate_arch)
+from ..archs import arch_fingerprint, arch_source, install_local_archs, load_provenance, load_standard, validate_arch
 from ..paths import DESIGNS_DIR, Results
 
 

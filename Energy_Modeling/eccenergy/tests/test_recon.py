@@ -602,10 +602,10 @@ def _task3_validation(mutate=None, newly=0, from_cache="1", **env):
     except ImportError as exc:
         raise _Skip(f"pandas not available on this python: {exc}")
     from eccenergy import recon as reconmod
-    from eccenergy.energy import Raw
+    from eccenergy.study.energy import Raw
     from eccenergy.experiments.recon import PARITY_KEY, task3_checks
     from eccenergy.paths import Results
-    from eccenergy.results_store import ResultBuilder, Variant
+    from eccenergy.toolchain.results_store import ResultBuilder, Variant
     with tempfile.TemporaryDirectory() as tmp:
         # `_cfg` clears every ECC_* first, so from_cache has to go THROUGH it
         # rather than being set around the call.
@@ -1254,7 +1254,7 @@ def _real_case():
 
     from eccenergy import archs as archmod
     from eccenergy import recon as reconmod
-    from eccenergy.energy import plot_cats
+    from eccenergy.study.energy import plot_cats
     from eccenergy.paths import Results
     variant = archmod.effective_variant(arch, cfg)
     fingerprint = archmod.arch_fingerprint(arch, cfg)
@@ -1283,7 +1283,7 @@ def _real_case():
     # `raw["base_w"]` straight off the JSON would compare a rescaled weight
     # path against an unscaled record and fail every reconciliation. Running
     # the real function here is also what checks that the two rescalings agree.
-    from eccenergy.energy import Raw, apply_dram_override
+    from eccenergy.study.energy import Raw, apply_dram_override
     rec = apply_dram_override(Raw.from_json(raw, cfg), cfg, verbose=False)
     _REAL_CACHE["case"] = {
         "name": f"cached Timeloop output, {arch}/{model}",
@@ -1753,10 +1753,10 @@ def test_an_unclaimed_weight_level_fails_the_recorded_check_rather_than_dropping
     except ImportError as exc:
         raise _Skip(f"pandas not available on this python: {exc}")
     from eccenergy import recon as reconmod
-    from eccenergy.energy import Raw
+    from eccenergy.study.energy import Raw
     from eccenergy.experiments.recon import PARITY_KEY, task3_checks
     from eccenergy.paths import Results
-    from eccenergy.results_store import ResultBuilder, Variant
+    from eccenergy.toolchain.results_store import ResultBuilder, Variant
 
     with tempfile.TemporaryDirectory() as tmp:
         cfg = _cfg(ECC_RESULTS_DIR=tmp)
@@ -1857,10 +1857,10 @@ def test_the_placement_space_check_is_recorded_on_every_result():
     except ImportError as exc:
         raise _Skip(f"pandas not available on this python: {exc}")
     from eccenergy import recon as reconmod
-    from eccenergy.energy import Raw
+    from eccenergy.study.energy import Raw
     from eccenergy.experiments.recon import PARITY_KEY, task3_checks
     from eccenergy.paths import Results
-    from eccenergy.results_store import ResultBuilder, Variant
+    from eccenergy.toolchain.results_store import ResultBuilder, Variant
 
     cats = ["DRAM", "Global buffer", "Local (spads/RF)", "NoC", "Compute",
             "ECC decode", "Reconstruction", "Recon overhead"]

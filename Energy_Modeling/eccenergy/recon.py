@@ -162,7 +162,7 @@ import pathlib
 import re
 from dataclasses import dataclass, field, replace
 
-from . import code_widths, embedded
+from .physics import embedded, widths
 
 
 # ===========================================================================
@@ -901,7 +901,7 @@ def ert_leak_delta_pj(cfg):
     g = max(0.0, min(1.0, float(getattr(cfg, "recon_clock_gating_pct", 0.0)) / 100.0))
     if g >= 1.0:
         return 0.0                 # fully gated: the row is identically zero
-    from . import ecc as _ecc            # lazily: ecc needs pandas
+    from .study import stacks as _ecc  # lazily: ecc needs pandas
     _inc, idle, _prov = _ecc.load_recon_energy(cfg)
     return float(idle) * (1.0 - g)
 
@@ -1053,9 +1053,9 @@ def arm_bw_factors(placement, stages, cfg):
     it. It is still DECLARED -- dropping it would merge two boundaries that
     differ only by a network into one chip (`BW_SCALE_TIMING`).
     """
-    from . import code_widths
+    from .physics import widths
     by_key = {s.key: s for s in stages}
-    q = code_widths.declared_datawidth(cfg.code_n, cfg.code_k)
+    q = widths.declared_datawidth(cfg.code_n, cfg.code_k)
     bits = cfg.weight_bits
     out = {}
     for level, timing in arm_bw_scale(placement, stages):
@@ -2138,7 +2138,7 @@ class Packing:
         """The mapper's reduced datawidth, `q = round(weight_bits x K/N)` --
         what `archs._set_weight_datawidth` writes and what a q-bit plan's
         stats print as `Word bits`."""
-        return code_widths.declared_datawidth(self.n, self.k, self.weight_bits)
+        return widths.declared_datawidth(self.n, self.k, self.weight_bits)
 
     def narrowing_owner(self, word_bits):
         """prompt_6 RULE 1: who narrows a storage stop, decided by MEASUREMENT.
@@ -2390,7 +2390,7 @@ def capacity_target(cfg):
     passed the other four by luck (within the 5 % slack); this target is exact
     for every code, so the slack goes back to catching real faults.
     """
-    q = code_widths.declared_datawidth(cfg.code_n, cfg.code_k, cfg.weight_bits)
+    q = widths.declared_datawidth(cfg.code_n, cfg.code_k, cfg.weight_bits)
     return cfg.weight_bits / q, q
 
 
@@ -3035,7 +3035,7 @@ def evaluate_placement(cfg, arch, placement, wpath, base_w_by_cat, base_by_cat,
     # layers, so a latch catches nothing, and a register that DOES pay has to
     # hold the whole inner tile -- up to 384 weights, the entire scratchpad).
     # `Recon overhead` is structurally zero. It is kept ONLY so the result
-    # schema and the CSV columns are unchanged -- `plots.stacked.active_categories`
+    # schema and the CSV columns are unchanged -- `report.stacked.active_categories`
     # already drops any category that is zero across every bar, so it reaches
     # neither the stacks nor the legend (prompt_7 Issue 10, checked 2026-09-12:
     # a sliver on an R bar is `Reconstruction`, a different, non-zero category).

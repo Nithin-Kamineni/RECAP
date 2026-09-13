@@ -307,8 +307,8 @@ class ResultBuilder:
 
     # ------------------------------------------------------------------ write
     def document(self):
-        from .archs import accumulator_bits
-        from .paths import ROOT
+        from ..archs import accumulator_bits
+        from ..paths import ROOT
 
         self._validate()
         acc_bits, acc_evidence = accumulator_bits(self.arch, self.cfg)

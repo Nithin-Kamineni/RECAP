@@ -28,7 +28,7 @@ import os
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
-from . import code_widths
+from .physics import widths
 
 # ---------------------------------------------------------------- env helpers
 _TRUE = {"1", "true", "yes", "on", "y"}
@@ -563,7 +563,7 @@ class Config:
     #: correction.
     weight_depth_scale: float
     #: PROMPT_2's WIDTH TABLE is NOT A KNOB and has no field here. Every
-    #: weight level's `width:` is chosen by `code_widths.level_width()` from
+    #: weight level's `width:` is chosen by `widths.level_width()` from
     #: the datawidth THAT LEVEL ends up storing, and `archs`
     #: `_set_weight_geometry()` applies it to every run: 96 b for an 8-bit
     #: level, 98 / 96 / 95 / 96 for q = 7 / 6 / 5 / 4, x this multiplier above
@@ -927,7 +927,7 @@ class Config:
         # applied per level by `archs._set_weight_geometry()`, which picks a
         # multiple of that level's own datawidth, so `width % datawidth == 0`
         # holds by construction and there is nothing here to validate.
-        # See eccenergy/code_widths.py.
+        # See eccenergy/widths.py.
         if self.weight_datawidth is not None and self.weight_datawidth < 1:
             raise ConfigError(
                 f"ECC_WEIGHT_DATAWIDTH={self.weight_datawidth}: the on-chip "
@@ -987,7 +987,7 @@ class Config:
                 spec = _recon.mapper_arm_spec(self.archs[0], self.recon_ert_arm, self)
             except (KeyError, ValueError) as exc:
                 raise ConfigError(f"ECC_RECON_ERT_ARM={self.recon_ert_arm!r}: {exc}") from None
-            q = code_widths.declared_datawidth(self.code_n, self.code_k)
+            q = widths.declared_datawidth(self.code_n, self.code_k)
             if (self.weight_datawidth is not None and spec["narrow_levels"]
                     and self.weight_datawidth != q):
                 raise ConfigError(
@@ -1212,7 +1212,7 @@ class Config:
         """
         if self.emb_weights_per_cw_override:
             return self.emb_weights_per_cw_override
-        from .embedded import EmbeddedLayout
+        from .physics.embedded import EmbeddedLayout
         return EmbeddedLayout(self.code_n, self.code_k,
                               self.weight_bits).weights_per_codeword
 
@@ -1361,7 +1361,7 @@ class Config:
         # spelling, same POSITION. It also marks the boundary in `ls`: a
         # directory without it predates 2026-09-12 and was mapped on the
         # published word shape.
-        parts.append(f"wt{code_widths.base_width(self.weight_bits)}"
+        parts.append(f"wt{widths.base_width(self.weight_bits)}"
                      + (f"x{self.weight_width_glb_mult}"
                         if self.weight_width_glb_mult != 4 else ""))
         if self.weight_datawidth is not None:
@@ -2140,7 +2140,7 @@ def load_config():
         weight_datawidth_levels=tuple(_list("ECC_WEIGHT_DATAWIDTH_LEVELS")),
         mapspace_constrain=_b("ECC_MAPSPACE_CONSTRAIN", False),
         # There is NO ECC_WEIGHT_WIDTH. THE WIDTH TABLE is automatic and
-        # unconditional (eccenergy/code_widths.py): every weight level takes
+        # unconditional (eccenergy/widths.py): every weight level takes
         # the width that suits the datawidth it stores, on every run, so there
         # is nothing to set and nothing that can be set wrong.
         weight_width_glb_mult=int(_f("ECC_WEIGHT_WIDTH_GLB_MULT", 4)),

@@ -56,7 +56,7 @@ def _cfg(**env):
 
 # ---------------------------------------------------------------- the layout
 def test_layout_is_the_bitstream_layout_the_pipeline_uses():
-    from eccenergy.embedded import EmbeddedLayout
+    from eccenergy.physics.embedded import EmbeddedLayout
     lay = EmbeddedLayout(63, 51, 8).validate()
     # 63-bit chunks over an 8-bit stream: fractional weights per codeword, for every K
     assert lay.weights_per_codeword == 63 / 8 == 7.875
@@ -71,7 +71,7 @@ def test_layout_is_the_bitstream_layout_the_pipeline_uses():
 
 def test_parity_overwrites_the_lowest_significance_positions():
     """Mirror of ParityOverwriteByTopWeightsEncode: message = top-k significance."""
-    from eccenergy.embedded import EmbeddedLayout
+    from eccenergy.physics.embedded import EmbeddedLayout
     lay = EmbeddedLayout(63, 51, 8).validate()
     for phase in range(lay.period_codewords):
         sig = lay.local_significances(phase)
@@ -106,7 +106,7 @@ def test_account_by_hand():
       interior boundaries          = j = 1 at bit 63: 63 % 8 = 7 -> splits weight 7
       stored                       = 104 + 22              = 126 bits -> 2 DRAM words
     """
-    from eccenergy.embedded import EmbeddedLayout, account
+    from eccenergy.physics.embedded import EmbeddedLayout, account
     a = account(13, EmbeddedLayout(63, 51, 8).validate(), dram_word_bits=64)
     assert a.payload_bits == 104, a.payload_bits
     assert a.codewords == 2, a.codewords
@@ -120,7 +120,7 @@ def test_account_by_hand():
 
 
 def test_one_period_exactly():
-    from eccenergy.embedded import EmbeddedLayout, account
+    from eccenergy.physics.embedded import EmbeddedLayout, account
     lay = EmbeddedLayout(63, 51, 8).validate()
     a = account(63, lay)                      # 504 bits = 8 codewords, no tail
     assert a.codewords == 8 and a.tail_pad_bits == 0
@@ -133,7 +133,7 @@ def test_one_period_exactly():
 
 
 def test_storage_is_the_payload_plus_at_most_one_tail_pad():
-    from eccenergy.embedded import EmbeddedLayout, account
+    from eccenergy.physics.embedded import EmbeddedLayout, account
     lay = EmbeddedLayout(63, 51, 8).validate()
     for w in (1, 5, 6, 7, 8, 9, 62, 63, 64, 127, 32768, 2359296, 11678912):
         a = account(w, lay)
@@ -144,7 +144,7 @@ def test_storage_is_the_payload_plus_at_most_one_tail_pad():
 
 
 def test_hand_check_matches_closed_form():
-    from eccenergy.embedded import EmbeddedLayout, hand_check
+    from eccenergy.physics.embedded import EmbeddedLayout, hand_check
     for n, k in ((63, 51), (63, 57), (63, 30), (7, 4)):     # (7,4): n < weight_bits
         lay = EmbeddedLayout(n, k, 8).validate()
         for w in (0, 1, 7, 8, 9, 13, 63, 64, 126, 32768, 2359296, 11678912):
@@ -153,7 +153,7 @@ def test_hand_check_matches_closed_form():
 
 
 def test_hand_check_layers_walks_each_tensor():
-    from eccenergy.embedded import EmbeddedLayout, account_layers, hand_check_layers
+    from eccenergy.physics.embedded import EmbeddedLayout, account_layers, hand_check_layers
     lay = EmbeddedLayout(63, 51, 8).validate()
     layers = [32768, 2359296, 13, 7]
     ok, d = hand_check_layers(lay, layers, grouping="layer")
@@ -168,7 +168,7 @@ def test_hand_check_layers_walks_each_tensor():
 
 
 def test_traffic_is_the_complete_codeword_and_nothing_external():
-    from eccenergy.embedded import EmbeddedLayout, account, dram_energy_pj, traffic_account
+    from eccenergy.physics.embedded import EmbeddedLayout, account, dram_energy_pj, traffic_account
     lay = EmbeddedLayout(63, 51, 8).validate()
     stored = account(32768, lay)
     tr = traffic_account(131072, stored, lay)          # refetch x4
@@ -195,7 +195,7 @@ def _fake_raw():
         import pandas as pd
     except ImportError as exc:
         raise _Skip(f"pandas not available on this python: {exc}")
-    from eccenergy.energy import Raw
+    from eccenergy.study.energy import Raw
     cats = ["DRAM", "Global buffer", "Local (spads/RF)", "NoC", "Compute",
             "ECC decode", "Reconstruction"]
     # 2,392,064 weights (the dev pair), read x2 from DRAM at 64 pJ each
@@ -218,7 +218,7 @@ def _fake_raw():
 
 def test_embedded_arm_removes_exactly_the_external_parity():
     raw = _fake_raw()
-    from eccenergy.ecc import embedded_dram, external_parity
+    from eccenergy.study.stacks import embedded_dram, external_parity
     cfg = _cfg()
     e_parity, pdetail = external_parity(cfg, raw)
     e_emb, edetail = embedded_dram(cfg, raw)
@@ -236,12 +236,12 @@ def test_embedded_arm_removes_exactly_the_external_parity():
 
 def test_task2_checks_pass_on_a_consistent_record_and_catch_a_leak():
     raw = _fake_raw()
-    from eccenergy.ecc import embedded_dram, external_parity
-    from eccenergy.energy import plot_cats
-    from eccenergy.experiments import audit
-    from eccenergy.experiments.embedded import PARITY_KEY, task2_checks
+    from eccenergy.study.stacks import embedded_dram, external_parity
+    from eccenergy.study.energy import plot_cats
+    from eccenergy.study import audit
+    from eccenergy.study.embedded import PARITY_KEY, task2_checks
     from eccenergy.paths import Results
-    from eccenergy.results_store import ResultBuilder, Variant
+    from eccenergy.toolchain.results_store import ResultBuilder, Variant
     with tempfile.TemporaryDirectory() as tmp:
         cfg = _cfg(ECC_RESULTS_DIR=tmp)
         results = Results(cfg).prepare()

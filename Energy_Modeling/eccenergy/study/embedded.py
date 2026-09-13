@@ -55,10 +55,10 @@ from __future__ import annotations
 import math
 
 from ..archs import accumulator_bits, load_provenance
-from ..ecc import embedded_dram, external_parity
-from ..energy import plot_cats
-from .. import baseline_dram
-from ..results_store import ResultBuilder, Variant
+from .stacks import embedded_dram, external_parity
+from .energy import plot_cats
+from ..physics import baseline_dram
+from ..toolchain.results_store import ResultBuilder, Variant
 from . import audit
 from .baseline import RECONSTRUCTION_PLACEMENTS
 from .common import Session
