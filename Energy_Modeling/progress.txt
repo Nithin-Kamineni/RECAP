@@ -1909,3 +1909,91 @@ WHAT PHASE 6 DID NOT DO, on purpose:
     worse than either. The frozen sites are registered by `frozen_match=`, a
     substring the contract test greps for, so the file is never edited and the
     registry still cannot drift from it.
+
+================================================================================
+RESTRUCTURE PHASE 7 -- tests/unit/ exists, and three signatures stopped lying
+================================================================================
+
+GATE: PASSED. 302 fingerprint rows byte-identical, every evaluated total and
+every guard report identical, suite 301 -> 484 passing with 10 skipped and
+nothing lost. The 183 new tests run in under a second and touch no cache, no
+filesystem and no mapper.
+
+Phase 7 is ONGOING by design (section 9.2): this is the first tranche, not the
+closing of the 69%. Public symbols named by a test went 62% -> 65%, which
+understates it -- most of these deepen symbols that were already named once.
+`physics/` went 70 -> 76 of 81 and `settings/` is closed.
+
+1. tests/unit/ IS THE THIRD BUCKET (section 7.4), and "red means red" is the
+   whole point of it: nothing in it can be red for any reason except a broken
+   invariant. It never skips.
+     test_env_parsers.py        26  every parser of the ONLY module that reads
+                                    os.environ. The one that matters most:
+                                    `_of` tells UNSET from ZERO, which is what
+                                    the whole `zero-price` ablation rests on.
+     test_patch_text.py          8  uncommented/read_attr/write_attr -- the
+                                    PROTECTED "a comment is never a declaration"
+                                    rule, written as the mutations the bug WAS.
+     test_packing.py            13  stream vs aligned, and prompt_6 RULE 1's
+                                    ONE owner of a narrowing.
+     test_granularity.py         8  weights_per_codeword (7.875) against G_rec
+                                    (9) -- section 15's two different numbers.
+     test_parity_accounting.py  91  Task 1's bit conservation, as properties.
+     test_baseline_dram_price.py 11 the three price helpers, with no Config.
+     test_settings_groups.py    26  the six from_env readers, over settings.GROUPS
+                                    so a seventh group is covered the day it lands.
+
+2. A PROPERTY FELL OUT THAT IS WORTH KNOWING, and it is now pinned with its
+   derivation: IN THE EXTERNAL LAYOUT THE DRAM OVERHEAD IS BANDED BY
+   floor(K/8), NOT SET BY K.
+
+       overhead = ((n-k) + (k - 8*floor(k/8))) / (8*floor(k/8))
+                = (n - 8*floor(k/8)) / (8*floor(k/8))        -- k cancels
+
+   BCH(63,39) and BCH(63,36) both hold FOUR whole weights per codeword and both
+   inflate the tensor by 0.96875, though their ideal rates are 0.615 and 0.750:
+   the three extra parity bits BCH(63,36) carries come out of message bits
+   BCH(63,39) was already wasting as padding. Quoting the ideal n/k - 1 as the
+   baseline arm's DRAM cost understates it by 22% at BCH(63,39) and hides the
+   banding completely. Found by writing `test_more_parity_never_costs_less` as
+   strictly increasing and watching it fail; the test is non-strict now and
+   `test_the_external_overhead_is_BANDED_by_floor_k_over_8_not_set_by_k` carries
+   the reason. NO NUMBER WAS CHANGED -- the code was already right.
+
+3. OPEN ITEM 3, one module of it. `physics/baseline_dram.py` (L1) took a whole
+   `Config` (L3) into three functions and read ONE knob out of each -- a
+   signature claiming a dependency the layer rule forbids, which only worked
+   because Python does not check, and which made them untestable without
+   building a configuration from the environment and the designs on disk.
+       dram_ert_pj_per_bit(raw, cfg)  -> (raw, code)      CodeSettings
+       charged_pj_per_bit(cfg, raw)   -> (raw, code)      CodeSettings
+       enabled(cfg)                   -> (energy)         EnergySettings
+   `charge()` and `charge_stack()` still take `cfg`, because `study/baseline.py`
+   calls them and that file is FROZEN. The payoff is test_baseline_dram_price.py:
+   a stub with two attributes, no environment, no filesystem.
+
+4. ONE DIVERGENCE RECORDED, NOT CORRECTED. This project has TWO comment
+   strippers and they are not the same function:
+       patch.uncommented()              `#[^\n]*`, blanked. NAIVE.
+       fingerprint.hashable_arch_text() QUOTE-AWARE, because a `#` inside a
+                                        scalar is data and hashing it as a
+                                        comment would re-key every mapper cache.
+   It does not bite today, and that is MEASURED rather than assumed: no
+   `archs/*/*.yaml` that `uncommented()` reads has a `#` inside a quoted scalar
+   (the only one in the tree is archs/_shared/provenance.yaml, which carries
+   citations and no geometry), and losing an attribute would take a quoted
+   string AND a geometry key on the SAME line, which YAML written one key per
+   line cannot produce. Pinned as it IS, with the reasoning in the test: making
+   `uncommented()` quote-aware is a geometry change and belongs to whoever
+   declares it, not to a test-backfilling phase.
+
+WHAT IS LEFT OF PHASE 7, for the next session:
+  * `study/` (61 untested symbols) and `toolchain/` (31) are the two big gaps,
+    and most of what is in them needs a cache -- those belong in `tests/data/`
+    (section 7.4's third bucket), which does not exist yet and must SKIP
+    cleanly, never fail, when the cache is cold.
+  * section 7.2's eleven "historical" tests have not been triaged into
+    keep/retire/convert. They still live in `eccenergy/tests/`.
+  * `physics/recon_dc.py` is the next signature-narrowing candidate: it asks
+    `cfg` for nine things including two METHODS (`cycle_seconds_for`,
+    `dc_idle_scale`), which is an L1 module depending on L3 behaviour.

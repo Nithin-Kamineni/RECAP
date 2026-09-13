@@ -79,24 +79,42 @@ DRAM_KEY = "DRAM"
 # module may own it -- and owning it is what ends this file's one import of an
 # L4 module. `energy.apply_dram_override()` is still its other caller.
 
-def dram_ert_pj_per_bit(raw, cfg):
+# -----------------------------------------------------------------------------
+#  THESE THREE STATE WHAT THEY NEED (ProjectRestructure section 4.3, phase 7).
+#
+#  They took a whole `Config` and read ONE knob out of it. A `Config` is L3 and
+#  this module is L1, so the signature was claiming a dependency the layer rule
+#  says cannot exist -- it only worked because Python does not check, and it made
+#  them untestable without building a whole configuration first.
+#
+#  `cfg.code` and `cfg.energy` are what a caller passes now. This is the
+#  incremental half of phase 4 that phase 4 deliberately did not do: one module
+#  at a time, never one big diff, and `charge()` and `charge_stack()` below still
+#  take `cfg` because `study/baseline.py` calls them and that file is FROZEN.
+# -----------------------------------------------------------------------------
+def dram_ert_pj_per_bit(raw, code):
     """Accelergy's own per-BIT dynamic DRAM energy, read back off the record.
 
     Timeloop counts a DRAM access in units of the dataspace datawidth, so the
     weight rows give it directly: `e_dram_w / (dram_w_reads x weight_bits)`.
     For the LPDDR4 model these designs use that is 64.0 pJ per 8-bit word =
     8.0 pJ/bit = the documented 512 pJ per 64-bit access.
+
+    `code` is a `settings.CodeSettings` (or anything carrying `weight_bits`).
     """
-    bits = float(raw.dram_w_reads) * float(cfg.weight_bits)
+    bits = float(raw.dram_w_reads) * float(code.weight_bits)
     return (float(raw.e_dram_w) / bits) if bits else None
 
 
-def enabled(cfg):
-    """Is the price model in force? False = the pre-2026-09-10 traffic model."""
-    return getattr(cfg, "baseline_dram_pj_per_bit", None) is not None
+def enabled(energy):
+    """Is the price model in force? False = the pre-2026-09-10 traffic model.
+
+    `energy` is a `settings.EnergySettings`.
+    """
+    return getattr(energy, "baseline_dram_pj_per_bit", None) is not None
 
 
-def charged_pj_per_bit(cfg, raw):
+def charged_pj_per_bit(raw, code):
     """What a DRAM bit cost in THIS record, before the baseline's own price.
 
     `apply_dram_override()` records it; a record that never went through the
@@ -104,7 +122,7 @@ def charged_pj_per_bit(cfg, raw):
     read off the weight rows.
     """
     v = (getattr(raw, "dram", None) or {}).get("pj_per_bit_charged")
-    return float(v) if v else dram_ert_pj_per_bit(raw, cfg)
+    return float(v) if v else dram_ert_pj_per_bit(raw, code)
 
 
 def price(cfg, raw, e_parity=0.0):
@@ -114,8 +132,8 @@ def price(cfg, raw, e_parity=0.0):
     multiplied by (1.0 under the legacy model, where the parity traffic is
     charged as a separate component instead).
     """
-    charged = charged_pj_per_bit(cfg, raw)
-    if not enabled(cfg):
+    charged = charged_pj_per_bit(raw, cfg.code)
+    if not enabled(cfg.energy):
         return {
             "model": "parity_traffic",
             "ratio": 1.0,

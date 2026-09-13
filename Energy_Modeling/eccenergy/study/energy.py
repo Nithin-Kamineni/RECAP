@@ -252,7 +252,7 @@ def apply_dram_override(raw, cfg, verbose=True):
     so. They are a TODO, and they are not neutral -- an arm that stores fewer
     weight bits would save both.
     """
-    ert = dram_ert_pj_per_bit(raw, cfg)
+    ert = dram_ert_pj_per_bit(raw, cfg.code)
     tgt = cfg.dram_pj_per_bit
     info = {"ert_pj_per_bit": ert,
             "override_pj_per_bit": tgt,
