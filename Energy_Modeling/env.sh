@@ -1,42 +1,4 @@
 #!/usr/bin/env bash
-# =============================================================================
-#  env.sh  --  EVERY KNOB IN THIS PROJECT, IN ONE FILE
-# =============================================================================
-#
-#  THE ONE COMMAND
-#
-#      cd /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling
-#      module load apptainer
-#      bash hpc/run_all.sh        # map -> evaluate -> plot, all from this file
-#
-#  Edit a value below and every stage sees it: the mapping optimiser (Timeloop),
-#  the energy evaluator, the figures, and the SLURM submission. No other file
-#  declares a default any more -- run.sh, hpc/run_all.sh and hpc/map.sbatch all
-#  source this one. That matters most for the mapper settings in section 2:
-#  they are hashed into the mapping cache key, so when the mapping stage and the
-#  evaluation stage kept separate copies of them, a drift between the copies
-#  meant the evaluator silently read a DIFFERENT cache than the mapper wrote.
-#
-#  Every value is written  : "${VAR:=default}"  so THE ENVIRONMENT STILL WINS.
-#  A one-off never needs an edit here:
-#
-#      ECC_VICTORY=500 bash hpc/run_all.sh          # a cheaper search, once
-#      ECC_MODELS=resnet50 bash hpc/run_all.sh      # a different network, once
-#
-#  CONTENTS
-#     1  the few you change most often
-#     2  the mapping optimiser -- what the search does
-#     3  what the pipeline runs -- archs x models x codes x arms
-#     4  reconstruction placement study     <-- TASK 3; takes precedence over
-#                                            section 3 when it is switched on
-#     5  hardware / architecture model
-#     6  ECC accounting -- how each arm is charged
-#     7  the cluster -- SLURM and the container
-#     8  output and figures
-#     9  miscellaneous
-#    10  derived -- NOT knobs, nothing to edit
-# =============================================================================
-
 
 # =============================================================================
 #  1. THE FEW YOU CHANGE MOST OFTEN
@@ -58,56 +20,16 @@
 # `guard_overrides` and on the figure's caveat list, so an ablation cannot be
 # published as if it were the study's own number.
 #
-# NAME THE GUARD. There is deliberately no blanket "off": a blanket would be set
-# once, forgotten, and a wrong number would reach a figure with nothing saying so
-# (ProjectRestructure section 10). A value that matches no id lifts nothing.
-#
+# NAME THE GUARD. There is deliberately no blanket "off": a blanket would be set once, forgotten, and a wrong number would reach a figure with nothing saying so
 #   ECC_ALLOW="zero-price"                what if this term were free?
 #   ECC_ALLOW="derived-datawidth"         test a hypothetical q against an arm
 #   ECC_ALLOW="zero-price,derived-datawidth"
-#
-# `zero-price` is the one ProjectRestructure Appendix B was written about: the
-# three price knobs (ECC_MAC_PJ_OVERRIDE, ECC_DRAM_PJ_PER_BIT and
-# ECC_BASELINE_DRAM_PJ_PER_BIT) used to demand `> 0`, which is the right rule for
-# a WIDTH and the wrong one for a PRICE. Zero is the ablation that measures what
-# the term was worth. Negative is still refused, and no ECC_ALLOW lifts that.
-#
-# NOT IN THE MAPPER FINGERPRINT: it changes what is REFUSED, never what is
-# mapped. Setting it does not cold a single cache.
 : "${ECC_ALLOW:=}"
 
-
-# Where this project lives. Derived from this file, so it is correct whatever
-# directory env.sh is sourced from.
 ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Mapper threads. THIS IS PART OF THE MAPPING CACHE KEY: change it and every
-# mapping already computed becomes a MISS and the whole sweep re-runs from cold.
-# 18 is what every cached entry was built at. Inside a SLURM job it follows the
-# cores actually granted, so the key can never drift from the allocation.
 : "${ECC_MAPPER_THREADS:=${SLURM_CPUS_PER_TASK:-18}}"
 
-# Which layers to run. EMPTY = the whole model = the real result.
-# A layer list is DEVELOPMENT MODE: minutes instead of hours. Everything such a
-# run writes is namespaced by the selection, so a two-layer number can never be
-# read back as a full-model one. Name layers by their STABLE workload name
-# (`layer4.1.conv2`), never by index.
-#   the recorded resnet18 pair -- a fast 1x1 projection and a weight-heavy 3x3:
-#   : "${ECC_LAYERS:=layer3.0.downsample.0 layer4.1.conv2}"
-#   whole model (hours, and the whole matrix is cold after 2026-09-10):
-#   : "${ECC_LAYERS:=}"
-#
-# PROMPT_2'S LAYER, and the reason it is the default rather than empty: the
-# live plan is a ONE-LAYER depth sweep on Eyeriss v1, and everything a scoped
-# run writes is namespaced by the selection, so it can never be read back as a
-# full-model number. Verified from cache at declared capacity: 168/168 PEs,
-# `weights_spad` 192/448 = 42.9% fill, refetch 14.0 -- full PE occupancy, so
-# no PE!= confound at baseline, and the highest weight-buffer fill of any
-# high-refetch layer. C128_M256_R3_S3_P14_Q14_ws2_hs2, 294,912 weights.
-# NOT layer2.0.conv1 (the layer both earlier passes used and FINDINGS 7.8 says
-# is not the best test bed), NOT C64_M64_R3_S3_P56_Q56_ws1_hs1 (96/168 PEs and
-# 14.3% fill -- carries the confound at baseline), NOT layer4.* (refetch 1.0
-# already, so there is nothing to remove).
 : "${ECC_LAYERS:=layer3.0.conv1}"
 
 # Run every stage inside the Timeloop+Accelergy container (1) or with the host
@@ -119,249 +41,44 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # =============================================================================
 #  2. THE MAPPING OPTIMISER  --  what Timeloop's search does
 # =============================================================================
-#  ALL of these are hashed into the mapping fingerprint, so each combination
-#  gets its OWN mapper cache: changing one means a cold run, not a cheap re-run.
 
 # random | hybrid | exhaustive | linear_pruned | random_pruned
-# MEASURED 2026-09-10 (WS, layer2.0.conv1, victory 10000, 18 threads, 4 scales;
-# best pJ/MAC, lower is better -- see FINDINGS 7.8):
-#     random_pruned  4.34 4.40 4.44 4.52   1.61 h/map   <- best UNCONSTRAINED
-#     linear_pruned  6.17 6.53 6.56 6.89   0.12 h/map
-#     hybrid         6.61 .. 9.80          (still running when measured)
-# `hybrid` walks every pruned loop PERMUTATION around ONE index factorization
-# before moving to the next, and with 9.0e9 permutations available it barely
-# advances through FACTORIZATIONS at all -- it was worse at victory 10000 than
-# random_pruned is at victory 2000. `linear_pruned` walks the space in index
-# order and sticks in a biased prefix. random_pruned samples factorizations
-# uniformly and won on every arm.
-# TRAP: any systematic algorithm (linear_pruned, exhaustive) ALSO needs a huge
-# ECC_MAPPER_TIMEOUT -- see that knob.
-#
-# THE CHOICE IS REGIME-DEPENDENT (FINDINGS 2.2), and the table above is the
-# UNCONSTRAINED regime. Under ECC_MAPSPACE_CONSTRAIN=1 the space is ~9.5e4
-# factorizations and a systematic walk COMPLETES: linear_pruned is then exact
-# (0.00% residual across victory 2000/4000/10000, 35 s - 1 min per map), while
-# random_pruned merely samples it. Constrained is the default since 2026-09-11
-# (prompt_3's "one command", which every prompt_5/prompt_6 job ran with as
-# exports), so linear_pruned is the default with it. Running a design with no
-# MAPSPACE_FREE_LEVELS entry -- i.e. unconstrained -- set random_pruned and
-# ECC_MAPPER_TIMEOUT=2000 back; do not carry one regime's choice into the other.
 : "${ECC_MAPPER_ALGORITHM:=linear_pruned}"
 
-# Hard cap on VALID mappings examined, PER THREAD (mapper-thread.cpp:403).
-# EMPTY = uncapped = converged = publishable.
-# MEASURED throughput: 400,000 valid mappings per thread per hour at 18 threads,
-# so a cap converts directly to wall time:
-#     ECC_MAPPER_SEARCH_SIZE=276000  ~= victory 5000  effort (~0.69 h/map)
-#     ECC_MAPPER_SEARCH_SIZE=644000  ~= victory 10000 effort (~1.61 h/map)
-# WHY YOU MIGHT PREFER IT TO ECC_VICTORY FOR AN A/B ABLATION. victory is an
-# ADAPTIVE budget: every improvement RESETS the counter, so the arm that keeps
-# getting lucky is searched LONGER. Measured wall-time spread across four
-# capacity arms of the SAME layer:
-#     victory 2000       3.28x        victory 10000      1.57x
-#     search_size 20000  1.20x
-# Different arms receiving different search effort is confounded with the
-# hardware difference under test. search_size fixes the evaluation count, so
-# every arm gets identical effort and the runtime is predictable.
-# The missing colon is deliberate: an exported EMPTY value must stay empty.
 : "${ECC_MAPPER_SEARCH_SIZE=}"
 
-# The search abandons a thread after this many consecutive non-improving valid
-# mappings (mapper-thread.cpp:413). Timeloop's own default is 500.
-#
-# RUNTIME GROWS SUPER-LINEARLY AT LOW BUDGET AND SATURATES AT HIGH BUDGET.
-# A larger budget also finds MORE improvements, and every improvement resets
-# the non-improving counter -- so early on you pay for the extra samples AND
-# the restarts. Once improvements get rare the restarts stop and growth falls
-# below linear. MEASURED mean h/map over the four capacity arms:
-#     victory  2000 : 0.15 h/map     step  2000 ->  5000 : 4.6x for 2.5x budget
-#     victory  5000 : 0.69 h/map     step  5000 -> 10000 : 2.3x for 2x
-#     victory 10000 : 1.61 h/map     step 10000 -> 20000 : 1.7x for 2x
-#     victory 20000 : 2.77 h/map     step 20000 -> 50000 : 2.6x for 2.5x
-#     victory 50000 : 7.20 h/map
-# Do NOT extrapolate a single power law across that range: a fit to the
-# 2000 -> 10000 points (t ~ victory^1.47) predicts 17 h/map at victory 50000
-# and the measured value is 7.20 h. Growth is super-linear early and roughly
-# LINEAR past 10000.
-#
-# !! NOT CONVERGED AT ANY OF THESE. Measured max residual in total uJ, all
-#    five budgets x all four capacity arms:
-#        2000 ->  5000 = 11.48%      10000 -> 20000 = 19.53%
-#        5000 -> 10000 =  9.04%      20000 -> 50000 = 10.72%
-#    The MINIMUM residual anywhere in that chain is 9.04%.
-#    The residual is NOT shrinking with budget, and it is LARGER than the ECC
-#    effect the study claims (2-12%). Raising this knob cannot fix that: the
-#    mapspace for ONE layer is 7.4e10 index factorizations x 9.0e9 permutations.
-#    At a MEASURED 400,000 valid mappings per thread per hour, coverage of ONE
-#    thread's 4.12e9-factorization subspace is 0.0067% at victory 5000, 0.0156%
-#    at 10000 and 0.0700% at 50000 -- ignoring the permutation dimension
-#    entirely. Convergence needs a SMALLER MAPSPACE (constrain the loop nest in
-#    the design YAML), not a bigger budget. See FINDINGS 7.8.
-#
-# !! A TWO-POINT AGREEMENT TEST IS UNSOUND HERE. random_pruned is
-#    DETERMINISTIC (fixed thread count -> same sequence), so a larger budget
-#    walks the SAME sequence further. It therefore PLATEAUS for long stretches
-#    and then JUMPS. Measured on the x0.5 arm: victory 10000 and victory 20000
-#    return a BIT-IDENTICAL mapping (4.343 pJ/MAC) -- "the totals did not move",
-#    which the old advice in this file called converged -- and victory 50000
-#    then improves it 8.5% to 3.974. Two adjacent budgets agreeing proves
-#    nothing. Only a bound on the UNSEARCHED mapspace does.
-# 4000 is the DEVELOPMENT setting: ~4x cheaper than 10000 and no less converged.
 : "${ECC_VICTORY:=2000}"
 
-# ...scaled by loop-nest depth, because the candidate count grows
-# combinatorially with depth: a flat number searches a deep hierarchy less
-# thoroughly and then reports the shortfall as an architecture result.
-#   levels : double per level past 8 (Eyeriss v1's depth), capped at 8x
-#            -> 10000 on the 9-level designs
-#   none   : use ECC_VICTORY flat
-# INERT on 8-level designs (simple_weight_stationary, eyeriss_like): the
-# multiplier is 1.0x and the effective victory equals the nominal one. It only
-# bites on eyeriss_v2_like.
+# Does the mapper stop when it finds a mapping that is feasible and better than
 : "${ECC_VICTORY_SCALING:=levels}"
 
-# Consecutive INVALID mappings before a thread abandons a region of the
-# mapspace. Timeloop's own default is 1000.
-#
-# ALGORITHM-DEPENDENT, and measured 2026-09-10:
-#  * under random_pruned it NEVER FIRES -- every thread of every run terminates
-#    by victory instead, so tuning this is a no-op that only invalidates caches.
-#  * under linear_pruned at 2000 it is FATAL: the linear walk starts where 100%
-#    of the first 36,000 mappings are infeasible (~44% fanout, ~56% capacity),
-#    so all 18 threads quit before finding ONE valid mapping and the job dies in
-#    10 s. A systematic search needs ECC_MAPPER_TIMEOUT=100000000.
-#
-# !! NEVER SET THIS TO 0. Timeloop's doc/mapper.md claims 0 disables the
-#    criterion; the implementation does the OPPOSITE. mapper-thread.cpp guards
-#    on the COUNTER, not the setting:
-#        if ((invalid_mapcnstr + invalid_eval) > 0 &&
-#            (invalid_mapcnstr + invalid_eval) >= timeout_)
-#    search_size_ and victory_condition_ both guard with `X_ > 0 &&`; this one
-#    does not, so timeout_=0 terminates on the FIRST invalid mapping. Measured:
-#    all 18 threads quit with "0 invalid mappings ...", job FAILED in 16 s.
-#
-# 100000000 IS THE DEFAULT since 2026-09-11 because the default algorithm is
-# linear_pruned (above), which dies at 2000. 2000 was the random_pruned-era
-# default, under which the criterion never fires anyway.
 : "${ECC_MAPPER_TIMEOUT:=100000000}"
 
-# Loop permutations tried per index factorization (Timeloop default 16).
-# Lowering it to 4 moves the search through FACTORIZATIONS ~4x faster.
-# !! DO NOT LOWER IT FOR THIS STUDY. FINDINGS 7.8 showed refetch is set by loop
-#    ORDER at the DRAM level -- C(4) Q(2) refetches 1.0x where Q(2) C(4)
-#    refetches 2.0x at an IDENTICAL factorization. Permutation is the axis the
-#    result turns on, so starving it biases the very thing being measured.
 : "${ECC_MAPPER_MAX_PERMUTATIONS:=16}"
 
-# ---- two mapper knobs this file does NOT expose ----------------------------
-# Both are emitted into every mapping's YAML at pytimeloop's defaults, because
-# nothing in eccenergy/ sets them. Verified in the emitted parsed-processed-
-# input.yaml of a real run:
-#
-#   max_temporal_loops_in_a_mapping: -1     (unlimited -- the criterion is OFF)
-#   filter_revisits:                 false
-#
-# `max_temporal_loops_in_a_mapping` IS enforced, for every algorithm
-# (mapper-thread.cpp:551-559, guarded `> 0`). It rejects any mapping with more
-# than N temporal loops, which is a DIRECT mapspace-shrinking lever and the one
-# knob that could make the convergence gate passable without editing a design
-# YAML. Wiring it up means touching config.py (fingerprint + slug) and
-# timeloop.py, which CLAUDE.md reserves -- ask before doing it.
-#
-# `filter_revisits` is DEAD CONFIG here: only hybrid.cpp and random.cpp read it.
-# random-pruned.cpp and linear-pruned.cpp contain ZERO references, so on the
-# configured algorithm it is emitted and then ignored. It would only matter if
-# ECC_MAPPER_ALGORITHM were switched to hybrid or random -- both measured worse.
-#
-# Also unset and worth knowing: `sync_interval` is null, and the sync is guarded
-# by `sync_interval_ > 0` (mapper-thread.cpp:489), so the 18 threads NEVER share
-# a best-so-far until the very end. The reported mapping is the min over 18
-# INDEPENDENT searches, each stopping against its own local best.
-
-# What the mapper minimises: energy | edp | delay | last_level_accesses
-# THIS IS AN ENERGY STUDY, so energy. EDP is not neutral between architectures:
-# a design with more MACs can buy latency by spending energy, and EDP rewards
-# that. Set edp only to reproduce the pre-correction numbers.
 : "${ECC_OPT_METRIC:=edp}"
 
-# Recorded in every mapping sidecar, but timeloop-mapper v4 exposes NO random
-# seed, so this documents intent only. Pinning ECC_MAPPER_THREADS is the real
-# reproducibility lever.
 : "${ECC_MAPPER_SEED:=}"
 
 
 # =============================================================================
 #  3. WHAT THE PIPELINE RUNS
 # =============================================================================
-#  These lists ARE the run. The mapper solves every (architecture, model) pair
-#  in them; the evaluator scores every arm; the figure puts ECC_SWEEP's list on
-#  the x axis and holds the other two at the FIRST entry of their list.
 
-# 1 -> re-run the mapping optimiser even when a valid cached mapping exists, and
-#      overwrite that cache entry with the new one. Use it to refresh a mapping
-#      after changing something the fingerprint does not capture, or to check a
-#      mapping reproduces. Refused together with evaluation-only mode, which
-#      forbids mapping outright.
-# 0 -> a valid cache hit is reused. This is what makes a re-run seconds.
+# 1 -> re-run | 0 -> a valid cache hit is reused
 : "${ECC_RERUN_OPTIMISER:=0}"
 
-# ---- architectures ---------------------------------------------------------
-#   eyeriss_like              Eyeriss v1 (published)
-#   eyeriss_like_wglb         ...with the published 8 kB filter GLB modelled
-#   eyeriss_v2_like           Eyeriss v2 (authored here, modelled dense)
-#   eyeriss_v2_like_wglb      ...with weights kept in the GLB
-#   simple_weight_stationary  authored here; reproduces no paper
-#   simple_output_stationary
-#   simple_input_stationary
-#   simba_like                a REFERENCE DESIGN named after Simba, not the chip
-# EYERISS v1 IS eyeriss_like_wglb (decided 2026-09-10, prompt_2.md). JSSC 2017
-# Sec. V-A publishes the 8 kB filter-weight allocation of the 108 kB GLB, so
-# the file that models it IS the design. `eyeriss_like`, which declares
-# `!Nothing` in its place, is RETIRED -- and with it the v1 bracketing-pair
-# doctrine (config.BRACKET_PAIRS is empty; a self-referential pair would stamp
-# every manifest with a caveat that is no longer true). The old file is still
-# mappable by name for a diff; it is simply not the design any more.
+
 : "${ECC_ARCHS:=eyeriss_v2_like eyeriss_like_wglb simple_weight_stationary simple_output_stationary simple_input_stationary simba_like}"
 
-# ---- models ----------------------------------------------------------------
-#   CNNs          resnet18 resnet50 densenet121 squeezenet1_1
-#                 mobilenet_v2 efficientnet_b0 convnext_tiny xception
-#   transformers  distilgpt2 gpt2 bert_base gpt2_medium opt_125m distilbert tinyllama
-# ONE RUN CANNOT MIX THE TWO FAMILIES: they come from different workload files.
-# More than one model with ECC_SWEEP=arch draws one PANEL per model, which is
-# the only honest way to show two networks at once.
 : "${ECC_MODELS:=resnet18 mobilenet_v2}"
 
-# ---- the BCH code ----------------------------------------------------------
-: "${ECC_CODE_N:=63}"   # codeword length N; all three arms share ONE code
-# K, weak to strong. All six have Design Compiler reconstruction energies:
-#   57 (t=1)   51 (t=2)   45 (t=3)   39 (t=4)   36 (t=5)   30 (t=6)
-# A list only matters when ECC_SWEEP=bch; otherwise the FIRST value is the code
-# the whole run uses.
-#   : "${ECC_KS:=57 51 45 39 36 30}"   # the full BCH sweep
-# 30 IS PROMPT_2'S CODE. BCH(63,30) is the only code that needs NO width change
-# at all -- q = round(8*30/63) = 4 divides both of Eyeriss v1's weight-level
-# widths (16 and 64), so the arms run on the UNTOUCHED published geometry at
-# exactly 2.000x effective capacity, zero rounding residual. It is also the
-# only code that clears the integer-tile step FINDINGS 7.8 measured (1.6154x
-# at 88.9% fill bought exactly nothing, because the tile could only grow in a
-# 2x jump): ratios 1.17, 1.33 and 1.58 all sit below that step, so if 2.00x
-# shows nothing the weaker codes cannot. Prove the mechanism here first.
+# the BCH code
+: "${ECC_CODE_N:=63}"
 : "${ECC_KS:=30}"
 
-# ---- the ECC arms ----------------------------------------------------------
-#   baseline  parity beside the data in DRAM -> weight traffic x N/K
-#   embedded  parity inside the stored weights' own bits -> no DRAM inflation
-#   recon     as embedded, but only K/N of the weights are held on chip and the
-#             rest is regenerated by the synthesized datapath
-# All three are ALWAYS drawn -- they are arms, never an axis. The FIRST entry is
-# the reference the saving percentages are measured against.
 : "${ECC_APPROACHES:=baseline embedded recon}"
 
-# ---- which list goes on the x axis -----------------------------------------
-#   arch   the accelerators  (holds model + code)
-#   model  the networks      (holds arch  + code)
-#   bch    BCH(63,K)         (holds arch  + model)
 : "${ECC_SWEEP:=arch}"
 
 # Which evaluations are written per model, in order. `baseline` is Task 1's
@@ -380,39 +97,8 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # =============================================================================
 #  4. RECONSTRUCTION PLACEMENT STUDY   --   TASK 3, ONE ARCHITECTURE AT A TIME
 # =============================================================================
-#  WITH ECC_RECON_MODELING=1 THIS SECTION TAKES PRECEDENCE OVER SECTION 3: the
-#  study collapses to ONE architecture, ONE model and ONE code, and the x axis
-#  becomes WHERE the reconstruction boundary sits rather than which accelerator
-#  runs. Section 10 does that collapsing; with it 0, section 3 governs and
-#  everything here is inert.
-#
-#  WHY THE BOUNDARIES NEVER SHARE AN X AXIS. The three sweeps put architectures
-#  on an axis because all three ECC ARMS exist on every design. A reconstruction
-#  BOUNDARY does not: Eyeriss v2's boundaries are its inter-cluster mesh, its
-#  cluster-local fanout and its PE weight scratchpad; a weight-stationary
-#  design's are a global operand buffer, one broadcast network, a PE scratchpad
-#  and a stationary register. Drawing them on one axis would put "reconstruct
-#  after the mesh" beside a design that has no mesh.
-#
-#  SEVERAL DESIGNS ARE THEREFORE ONE PANEL EACH, not one axis. ECC_RECON_ARCHS
-#  below lists them, top panel first; each panel keeps its own x axis of its own
-#  boundaries and its own two reference bars, and the panels share only the
-#  page, the legend, the category set and the energy unit. One name in the list
-#  draws exactly the single-panel figure this study has always drawn.
-#
-#      ECC_RECON_MODELING=1 bash hpc/run_all.sh --eval-only    # the one command
-#      ECC_RECON_MODELING=1 bash run.sh recon --eval           # just this stage
 : "${ECC_RECON_MODELING:=1}"
 
-# Re-optimise the MAPPING for each reconstruction placement?
-# THIS IS THE SWITCH THAT DOES THE WORK. ECC_PHASE (section 3) only LABELS the
-# result; this decides whether a second mapping is solved at all.
-#   False  the energy cost of every placement is evaluated on the BASELINE's
-#          mapping. No special mapping optimisation per placement, so every bar
-#          moves the same data and only the boundary differs. This is Task 3.
-#   True   a mapping optimised per placement -- packed reduced weights raise the
-#          effective weight capacity and may enable better tiling. This is
-#          TASK 4.
 #
 # CORRECTED 2026-09-11: this comment used to say True "IS A PLACEHOLDER:
 # setting it stops the run with an error". That has been FALSE since
@@ -711,120 +397,17 @@ declare -A ECC_RECON_PLACEMENTS=(
 # PE-local boundary already counts destination-side scratchpad accesses.
 : "${ECC_RECON_ENCODER_SITE:=destination}"
 
-# ---- DRAM DYNAMIC ACCESS ENERGY (the denominator that sets every DRAM % ) ---
-# THE WHOLE DRAM WEIGHT ENERGY IS REDUCIBLE BY K/N (decided 2026-09-09, replacing
-# f_if / ECC_DRAM_IF_FRAC, which is GONE). Accelergy's CactiDRAM bills a DRAM read
-# as ONE flat per-bit DYNAMIC access constant -- 512 pJ per 64-bit access = 8
-# pJ/bit, verified from the cached records at 64.0 pJ per 8-bit word. It is a
-# per-access read/write coefficient: it is NOT the energy of holding data in
-# LPDDR4 over time. The study used to split it into an array share and an
-# interface share and credit reconstruction only the interface share (f_if=0.40),
-# which charged a 38.1% bit cut as a 15.2% energy cut. That split is removed:
-# a reconstruction boundary that fetches k of every n bits is credited the full
-# K/N of the DRAM weight energy.
-#
-#     dram = DRAM weight energy x K/N   under EVERY boundary, R1 included
-#
-# The DRAM access is custom-designed to collect only the interleaved message
-# bits of each codeword, so the array reads fewer bits too and the whole term
-# scales.
-#
-# pJ PER BIT OF DYNAMIC DRAM ACCESS. Rescales the whole DRAM category
-# evaluator-side (eccenergy/energy.py apply_dram_override), exactly as
-# ECC_MAC_PJ_OVERRIDE does for Compute. EMPTY = leave Accelergy's 8 pJ/bit alone.
-#   8   Accelergy CactiDRAM LPDDR4 as modelled -- the pre-2026-09-09 value, and
-#       far below every measured figure in the literature.
-#   20  THE DEFAULT since 2026-09-11. Horowitz, ISSCC 2014 ("Computing's Energy
-#       Problem"): 32b DRAM read = 640 pJ -> 20 pJ/bit = 1.28 nJ / 64b. The
-#       same 45 nm table ECC_MAC_PJ_OVERRIDE=0.23 (section 5) is read from, so
-#       the two denominators of every percentage share one source. The value
-#       was set on disk 2026-09-11 08:54 while the comment still named 40;
-#       adopted as the study's price, and the comments, provenance.yaml and
-#       FINDINGS 2.9 made to agree the same day.
-#   40  The default from 2026-09-09 to 2026-09-11. Within the 28-45 pJ/bit band
-#       reported by FReaC Cache (MICRO 2020) and Gebhart et al. (MICRO 2012);
-#       2.56 nJ / 64b. FINDINGS 2.9 keeps the 40/70 numbers as the price
-#       sensitivity row; every DRAM percentage scales linearly with this knob.
-#       archs/_shared/provenance.yaml `dram_access_energy` records the sources.
+#20/40/70 pJ/bit = 0.5/1.0/1.75 nJ / 64b, which is the same 45 nm table Horowitz ISSCC 2014 reads from for ECC_MAC_PJ_OVERRIDE=0.23 (section 5), so the two denominators of every percentage share one source.
 : "${ECC_DRAM_PJ_PER_BIT:=20}"
 
-# THE BASELINE'S OWN pJ PER BIT. The conventional-ECC baseline stores the BCH
-# parity BESIDE the weights, so its DRAM array is bigger (6,193,152 stored bits
-# against 2,359,296 of payload at BCH(63,30) on layer3.0.conv1), and it does the
-# indexing/addressing work the embedded and reconstruction arms do not. Both are
-# priced by this one constant, applied to the WHOLE DRAM category of the
-# baseline arm only (eccenergy/baseline_dram.py, evaluator-side like
-# ECC_MAC_PJ_OVERRIDE -- it is NOT in the mapper fingerprint, so baseline and
-# embedded still share one mapper cache).
-#
-# IT IS A PRICE, NOT TRAFFIC. Decoding happens on the DRAM die, so the
-# baseline's parity is read, corrected and discarded there and never crosses
-# the datapath: all three arms drive the same 8 bits per weight off the die, and
-# reconstruction is the only arm whose traffic scales (x K/N). E_background and
-# E_refresh grow with the bigger array too and are still 0 below.
-#   40    THE DEFAULT since 2026-09-11: x2.0 over the 20 pJ/bit the embedded and
-#         reconstruction arms pay, for the bigger array + baseline-only
-#         indexing. Set beside ECC_DRAM_PJ_PER_BIT=20 above; move the two
-#         together.
-#   70    The default from 2026-09-10 to 2026-09-11, beside 40 (x1.75).
-#         FINDINGS 2.9 keeps the 40/70 numbers as the price sensitivity row.
-#   EMPTY the pre-2026-09-10 model -- baseline priced at ECC_DRAM_PJ_PER_BIT and
-#         charged the external-parity TRAFFIC as a separate component. Keeps the
-#         old numbers reproducible for the diff.
 : "${ECC_BASELINE_DRAM_PJ_PER_BIT:=22}"
 
 # The other two terms of E_total(DRAM) = E_dynamic + E_background + E_refresh.
-# BOTH ARE DELIBERATELY 0 FOR NOW (2026-09-09): the study's question is on-chip
-# energy, and the 8/20 pJ/bit constant above is the DYNAMIC term only. Modelling
-# them is a TODO (prompt_1.md) and is NOT neutral to the result -- reconstruction
-# holds fewer weight bits in DRAM, so the embedded arm should save background and
-# refresh energy too, which this study currently gives it no credit for. Units:
-# pJ per bit-second and pJ per bit per refresh window; 0 disables the term.
 : "${ECC_DRAM_BACKGROUND_PJ:=0}"
 : "${ECC_DRAM_REFRESH_PJ:=0}"
 
-# ---- off-chip bandwidth (the latency model) --------------------------------
-# THE SPEED LIMIT ON THE DRAM INTERFACE, IN MB/s.  Until this existed the DRAM
-# level declared no bandwidth at all, Timeloop skipped its throughput check
-# entirely (buffer.cpp:2575 gates on IsSpecified()), and off-chip traffic cost
-# ZERO cycles -- so reconstruction's K/N traffic saving could never show up as
-# latency.  That is prompt_7.md's Defect 1.
-#
-# 480 MB/s is the default Eyeriss-v1 configuration = 3.84 bits per 1 GHz model
-# cycle = 0.48 8-bit words/cycle.  Timeloop wants words/cycle, so section 10
-# converts:  words_per_cycle = MBps * 1e6 * ECC_GLOBAL_CYCLE_SECONDS / (ECC_WEIGHT_BITS/8)
-# Set 240 or 120 to halve/quarter it; EMPTY restores the old unlimited model --
-# and EMPTY is spelled with a bare `=` below, not `:=`, so that
-# `ECC_DRAM_BANDWIDTH_MBPS= bash run.sh ...` really does reach the unlimited
-# model. Under `:=` an explicitly empty value is null and bash substitutes the
-# default, so the documented way to switch the limit off silently kept it on.
-# prompt_7 Phase A's gate 1 -- "the roofline reproduces Timeloop's cycles at
-# UNLIMITED bandwidth" -- is run exactly that way, so it has to be reachable.
-#
-# SINCE PHASE C IT IS ALSO DECLARED ON THE ARCHITECTURE (C1.1), as
-# `shared_bandwidth` on the DRAM level of the YAML the MAPPER reads, so the
-# search itself sees the speed limit and can spend parallelism to comply with
-# it -- measured: with a binding limit the mapper picks a DIFFERENT plan on both
-# test shapes (prompt_7 7.2). Before that it was evaluator-only and the mapper
-# optimised a machine with an infinitely fast memory.
-#
-# WHY `shared_bandwidth` AND NOT `read_bandwidth` + `write_bandwidth`: the DQ
-# bus is ONE wire set that reads and writes take turns on, so the limit is on
-# their SUM. eccenergy/latency_post.py's roofline already charges it that way
-# (`offchip_limit / (d_r + d_w)`), and declaring the two directions separately
-# would let Timeloop deliver 2x this number while the evaluator capped it at
-# 1x -- two timing models for one bus. One owner per effect (prompt_6 RULE 1).
-#
-# EMPTY therefore means BOTH: no attribute on the DRAM level, and no off-chip
-# term in the roofline -- the pre-Phase-A model, reachable because the line
-# below is a bare `=`.
-#
-# CAVEAT worth knowing: the model clock was 1 GHz while Eyeriss v1 silicon runs
-# at 200 MHz, so pairing the real chip's absolute MB/s with a 5x faster clock
-# made the modelled chip ~5x more memory-starved than the real one.  Phase C1.5
-# closed that: ECC_ARCH_CLOCK_MHZ below now resolves per design, and at 200 MHz
-# 480 MB/s is 2.4 8-bit items per cycle (prompt_7 4.7, A.5).
-# : "${ECC_DRAM_BANDWIDTH_MBPS=480}"
+
+# 480/240/120 MB/s per 8-bit weight, which is the same 45 nm table Horowitz ISSCC 2014 reads from for ECC_MAC_PJ_OVERRIDE=0.23 (section 5), so the two denominators of every percentage share one source.
 : "${ECC_DRAM_BANDWIDTH_MBPS=120}"
 
 # ---- the latency model (prompt_7 Phase A) ----------------------------------
