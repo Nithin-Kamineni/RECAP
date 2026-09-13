@@ -93,11 +93,12 @@ if [ "${WANT_PROGRESS}" = "1" ]; then
          "threads=${ECC_MAPPER_THREADS} fidelity=${ECC_ARCH_FIDELITY}"
     for A in ${ECC_ARCHS}; do
         D=$(ECC_SWEEP=arch ECC_SWEEP_ARCHS="${A}" bash hpc/tl.sh python3 -c "
-from eccenergy import archs, config, paths
+from eccenergy import config, paths
+from eccenergy.arch import fingerprint
 cfg = config.load_config()
 a = cfg.archs[0]
-print(paths.Results(cfg).mapper_cache(a, archs.effective_variant(a, cfg),
-                                      archs.arch_fingerprint(a, cfg)))" 2>/dev/null | tail -1)
+print(paths.Results(cfg).mapper_cache(a, fingerprint.effective_variant(a, cfg),
+                                      fingerprint.arch_fingerprint(a, cfg)))" 2>/dev/null | tail -1)
         if [ -z "${D}" ] || [ ! -d "${D}" ]; then
             printf "  %-26s no cache directory at this fingerprint yet\n" "${A}"
             continue
@@ -143,7 +144,8 @@ if [ -n "${ECC_LAYERS}" ]; then
 else
 mapfile -t LAYERS < <(bash hpc/tl.sh python3 - "${MODEL}" 2>/dev/null <<'PY'
 import sys
-from eccenergy import config, workloads
+from eccenergy import config
+from eccenergy.arch import workloads
 cfg = config.load_config()
 models, _ = workloads.load_workload(cfg)
 seen = {}

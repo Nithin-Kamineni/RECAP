@@ -30,13 +30,16 @@ Writes TSV to stdout and nothing else, so the gate can diff it with `diff`.
 import dataclasses
 import sys
 
-from eccenergy import archs, config, recon
+from eccenergy import config
+from eccenergy.arch import arms as arms_mod
+from eccenergy.arch import fingerprint
+from eccenergy.arch import load
 
 
 def _arms(arch, cfg):
     """Every mapper arm of this design, or the reference alone if it declares none."""
     try:
-        return [a.key for a in recon.mapper_arms(arch, cfg)], ""
+        return [a.key for a in arms_mod.mapper_arms(arch, cfg)], ""
     except KeyError:
         # Not an error: three designs declare no reconstruction boundaries today.
         return ["reference"], "no-placement-table"
@@ -54,9 +57,9 @@ def _row(arch, cfg_for, model, k, arm, note):
     try:
         cfg = cfg_for()
         return "\t".join((
-            arch, model, str(k), arm, archs.arch_fingerprint(arch, cfg),
+            arch, model, str(k), arm, fingerprint.arch_fingerprint(arch, cfg),
             cfg.cycle_seconds_for(arch),
-            archs.effective_variant(arch, cfg),
+            fingerprint.effective_variant(arch, cfg),
             note,
         ))
     except Exception as exc:                       # noqa: BLE001 -- recorded, not handled
@@ -69,7 +72,7 @@ def _row(arch, cfg_for, model, k, arm, note):
 
 def main():
     cfg0 = config.load_config()
-    archs.install_local_archs(verbose=False)
+    load.install_local_archs(verbose=False)
     models = tuple(config.CNN_MODELS) + tuple(config.TRANSFORMER_MODELS)
 
     out = ["# arch\tmodel\tK\tarm\tfingerprint\tcycle_seconds\tvariant_slug\tnote"]
@@ -99,7 +102,7 @@ def main():
     # The two digests that sit INSIDE every fingerprint above. Printing them
     # separately turns "every hash moved" into one line that says why.
     out.append("# digests")
-    out.append("\t".join(("_components_digest", archs.components_digest())))
+    out.append("\t".join(("_components_digest", fingerprint.components_digest())))
     out.append("\t".join(("_config_hash", cfg0.fingerprint())))
     sys.stdout.write("\n".join(out) + "\n")
 

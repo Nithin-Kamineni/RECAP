@@ -32,7 +32,7 @@ must reproduce today's numbers exactly**, and §9.1's gate is one command --
 model) and every evaluated total is unchanged to the pJ. Run it BEFORE touching
 anything, so a red gate is never ambiguous. `restructure/README.md` says what the gate
 covers and what it cannot; ProjectRestructure §10 is what not to do.
-**Phases 0, 1 and 2 are DONE.**
+**Phases 0, 1, 2 and 3 are DONE.**
 
 Phase-by-phase status lives in `progress.txt`, not here.
 
@@ -132,7 +132,7 @@ wrong regime (FINDINGS §2.2).
 `embedded --eval`, `recon --eval`, `dilation`, `validate`, `diagnose`, `panels`,
 `--replot`, `--dry-run`.
 
-**Only `timeloop.py` needs the container.** `--eval` (`ECC_FROM_CACHE=1`) never
+**Only `toolchain/invoke.py` needs the container.** `--eval` (`ECC_FROM_CACHE=1`) never
 invokes Timeloop; validate, diagnose, replot and the whole `eccenergy/tests/`
 suite run on any python with pandas, matplotlib and pyyaml.
 
@@ -233,7 +233,7 @@ reference's per-access read/write/leak.
 BCH(63,57) (ceil 8, round 7) and BCH(63,51) (ceil 7, round 6) — and at q=8 the
 "recon" arm *is* the embedded arm, so a gate run that way compares embedded with
 itself and reports an effect of exactly zero. `hpc/map_depth_sweep.sh` and
-`dilation.py` both call `physics.widths.declared_datawidth()`. **`recon.py`'s
+`study/dilation.py` both call `physics.widths.declared_datawidth()`. **`physics/packing.py`'s
 `Packing` still uses `ceil`** — it is Task 3's physical packing model — so Task 3
 narrows those two codes less than the mapping study does.
 
@@ -245,7 +245,7 @@ narrows those two codes less than the mapping study does.
 **THE ARMS DO NOT SHARE A DECLARED WIDTH. Each arm declares the width that suits
 ITS OWN `datawidth`, and no arm has to be legal for any other arm's `datawidth`.**
 This has been got wrong in five separate sessions. It is prompt_2.md's table and it
-is applied automatically, on every run, by `archs._set_weight_geometry()` from
+is applied automatically, on every run, by `arch.patch._set_weight_geometry()` from
 `eccenergy/physics/widths.py`:
 
 | arm | q | spad `width` | GLB `width` (×4) | weights/word | eff. capacity |
@@ -302,8 +302,8 @@ purpose. It is the only thing that knob disables — **there is no width check f
 to disable**.
 
 Three assertions, each with a mutation test (`test_dilation.py`):
-`archs.assert_pair_geometry()` (both arms declare the same LEVELS at the same
-DEPTH — never the same width, see above), `recon.assert_onchip_narrowing_once()` (the
+`arch.patch.assert_pair_geometry()` (both arms declare the same LEVELS at the same
+DEPTH — never the same width, see above), `study.narrowing.assert_onchip_narrowing_once()` (the
 mapper and the evaluator can both narrow, and doing both SQUARES the saving —
 hence `ECC_RECON_PACKING=aligned`, the default), and the level table's own
 row-level re-check.
@@ -379,7 +379,7 @@ differ only in where the parity lives. Codewords are counted from DRAM weight re
 physical boundary does what it does. It is **not** one of the placement study's
 boundaries and must not be quoted as one.
 
-## `recon.py` — the placement space
+## `arch/weight_path.py` + `arch/placements.py` — the placement space
 
 Two tables define it and **must be edited together**: `WEIGHT_PATHS[<arch>]` (the
 stages of that design's weight path, each naming the Timeloop levels that are it)
@@ -502,7 +502,7 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
 - **Never** read `os.environ` outside `config.py`, and never resolve a path outside
   `paths.py`.
 - **A COMMENT IS NEVER A DECLARATION. Read geometry through
-  `archs.uncommented()`, write it through `archs.write_attr()`** (2026-09-13).
+  `arch.patch.uncommented()`, write it through `arch.patch.write_attr()`** (2026-09-13).
   Every geometry regex here used to match the raw text, so a `depth:` written
   in a COMMENT was read as the attribute — and `re.sub(..., count=1)` then
   rewrote the COMMENT and left the attribute alone. One explanatory comment
@@ -514,7 +514,7 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   RAISES when the rewrite lands on nothing, which is the silent half.
   **Adding a regex over an arch YAML? Mask first.**
 - **A `def` inside `__init__` ENDS `__init__`.** A `@property` added in the
-  middle of `timeloop.Mapper.__init__` orphaned every line after it, `self._memo`
+  middle of `toolchain.invoke.Mapper.__init__` orphaned every line after it, `self._memo`
   included, and killed 72 SLURM jobs ten seconds in — because no test had ever
   CONSTRUCTED a Mapper. `tests/test_phase_c.py` does now. Any class whose
   constructor sets state the hot path depends on needs one.
@@ -522,7 +522,7 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   beside `design_inputs()`, and pre-write them into the output directory as
   `timeloop-mapper.ERT.yaml` / `.ART.yaml` first -- with a supplied table Timeloop
   writes neither, timeloopfe's parser then raises after a successful search, and
-  `Mapper` counts the shape failed. `timeloop.ErtTables` is the production hook
+  `Mapper` counts the shape failed. `toolchain.ert.ErtTables` is the production hook
   (base table from Accelergy once per arm under `<cache>/_ert/`, two rows bumped,
   staged per shape, read back after the map); `python3 -m
   eccenergy.toolchain.ert_probe` is the proof (FINDINGS §3.5) and writes under
@@ -530,7 +530,7 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
 - **An ERT arm is a configuration, not a design.** `ECC_RECON_ERT_ARM=<placement
   key>` (set per job by `hpc/map_ert_arms.sh`) resolves in `config.py` into
   `datawidth: q` on the storage levels of that placement's `reduced` set and,
-  where the boundary has one, an ERT bump derived by `archs.ert_bump()`. The arm
+  where the boundary has one, an ERT bump derived by `arch.fingerprint.ert_bump()`. The arm
   is in the cache slug AND the fingerprint, and every entry's stored ERT is read
   back before a number is used: two arms with byte-identical YAML must never
   share a directory. **Since Phase C1.6 the REFERENCE arm has a supplied table
@@ -544,19 +544,19 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   the access toll is in the bill; the idle term is verified against the stats'
   leakage and charged by the evaluator.
 - **THE ARMS TO MAP ARE THE DISTINCT CHIPS, not the ERT-injectable boundaries**
-  (prompt_7 Phase B, 2026-09-12). `recon.mapper_arms(arch, cfg)` is the reference
+  (prompt_7 Phase B, 2026-09-12). `arch.arms.mapper_arms(arch, cfg)` is the reference
   plus every boundary that differs on any of three axes -- `datawidth: q`, the
   ERT bump, the declared per-dataspace bandwidth scale (a NETWORK stage is
   carried in that set and marked `no-op`, because Timeloop has no network timing
   model but a boundary that adds one is still a different declaration). Six on
-  `eyeriss_like_wglb`, five on v2. `recon.ert_arms()` keeps its older, narrower
+  `eyeriss_like_wglb`, five on v2. `arch.arms.ert_arms()` keeps its older, narrower
   meaning -- which boundaries have an ERT-injectable encoder -- and is a strict
   subset. Never `if key == "recon2"`. An arm with a bump keeps prompt_6's
   `ert-<key>-<level>-<action>` slug byte for byte; one without gets `arm-<key>`,
   which is what stops R1 (whose patched YAML IS the reference's until Phase C1.2)
   sharing the reference's directory.
 - **EVERY BAR NAMES THE PLAN IT WAS BILLED FROM** (`billed_from` on its record,
-  and on the figure). `recon.plan_assignment()` derives it: its own arm if that
+  and on the figure). `arch.arms.plan_assignment()` derives it: its own arm if that
   arm is mapped, else the OUTERMOST mapped arm in path order that narrows exactly
   the same storage levels, else the reference plan flagged
   `geometry_matches: false`. A plan is only valid for a bar when the narrowed
@@ -610,7 +610,7 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   `diagnose` before committing to a long sweep.
   **Declare each weight level's PUBLISHED `width`/`depth`/`datawidth` and stop
   there** — do not hand-pick a width to suit a code, and do not check one against
-  another arm's datawidth. `archs._set_weight_geometry()` reshapes every weight
+  another arm's datawidth. `arch.patch._set_weight_geometry()` reshapes every weight
   level per arm from THE WIDTH TABLE (above) and renormalises depth to hold your
   declared total bits, so `width % datawidth == 0` is satisfied by construction at
   every code. If a `width 64 % datawidth 5 != 0` ever reaches you, the fix is in
@@ -624,7 +624,7 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   cache. `test_every_placement_space_is_valid_for_every_supported_design` makes a
   half-finished pair fail the tests rather than understate a figure.
 - **Adding a sweep axis**: a name in `SWEEPS`, a stem in `SWEEP_STEMS`, resolution
-  in `Config.__post_init__`, and a `_<name>_groups()` in `study/sweep.py`. Do
+  in `Config.__post_init__`, and a `_<name>_groups()` in `report/sweep.py`. Do
   not write a second renderer.
 - **Changing how a bar looks**: `draw_panel()` in `report/stacked.py` is the only
   place a bar is drawn, so every figure moves together. Add a parameter to it
@@ -694,31 +694,45 @@ carry the rest.
                         map_by_shape.sh, map_ert_arms.sh (prompt_6: one job per
                         arm x shape, one dependent eval), map_capacity_sweep.sh,
                         map_depth_sweep.sh, summary.py, HIPERGATOR.md
-    eccenergy/          LAYERED SINCE 2026-09-13 (ProjectRestructure phase 2).
+    eccenergy/          LAYERED SINCE 2026-09-13 (ProjectRestructure phase 2),
+                        and the six big files CUT ALONG THEIR BANNERS (phase 3).
                         A module may import only from LOWER layers;
                         tests/contract/test_layer_rule.py enforces it and lists
-                        every edge that still points the wrong way.
+                        every edge that still points the wrong way -- eight, all
+                        of them the config cycle, all of them phase 4's.
+                        Each module's own docstring says what it is; this is
+                        only where to look.
       L0  paths.py      the ONLY resolver of paths
           config.py     the ONLY reader of os.environ, and the ONLY place MHz
                         becomes seconds. -> settings/ in phase 4
-          contracts/    the shared types. Empty until phase 3 fills it
+          contracts/    the shared types. Still empty: phase 3 kept every
+                        dataclass with the code that builds it. Phase 4 fills it
       L1  physics/      parity.py  embedded.py  widths.py (THE WIDTH TABLE)
-                        baseline_dram.py
-      L2  arch/         workloads.py  generate.py
-          archs.py      -> arch/{load,patch,fingerprint,validate}.py in phase 3
-      L3  toolchain/    noc_post.py, latency_post.py (the roofline AND the ONE
+                        baseline_dram.py (and the per-bit DRAM price read off a
+                        record), packing.py (stream vs aligned),
+                        granularity.py (G_rec, engines, engine_cycles)
+      L2  arch/         load.py  patch.py  fingerprint.py  layout.py
+                        validate.py  workloads.py  generate.py
+                        weight_path.py  placements.py  arms.py -- the stages,
+                        the boundaries, and which boundaries are DISTINCT CHIPS
+      L3  toolchain/    inputs.py (what Timeloop is given), ert.py (a supplied
+                        ERT/ART, read back), cache.py (ShapeLock: one entry, one
+                        writer), invoke.py (Mapper -- the ONLY module needing
+                        the container), stats.py (parsing its output),
+                        weight_stats.py (the weight path read back out of it),
+                        noc_post.py, latency_post.py (the roofline AND the ONE
                         owner of the clock period every per-cycle term is
                         charged over), results_store.py (the ONLY writer of an
                         evaluation JSON), ert_probe.py
-          timeloop.py   the only module needing the container.
-                        -> toolchain/{invoke,ert,stats}.py in phase 3
-      L4  study/        stacks.py (build_stacks), energy.py, common.py, and one
-                        driver per run.sh stage: baseline, embedded, sweep,
-                        panels, validate, audit, diagnose
-          recon.py      the placement space. Splits across FOUR layers, phase 3
-          experiments/  what is left: recon.py and dilation.py, both phase 3
+      L4  study/        stacks.py (build_stacks), energy.py, common.py, the
+                        drivers baseline/embedded/validate/audit/diagnose, the
+                        placement study (placement_study, placement_eval,
+                        placement_tables, placement_notes, ert_view,
+                        dilated_view, narrowing) and Task 4 (dilation,
+                        dilation_cache, dilation_tables, capacity)
       L5  report/       stacked.py (draw_panel: the ONLY place a bar is drawn),
-                        panels.py, style.py
+                        panels.py, style.py, and THE DRIVERS THAT DRAW:
+                        sweep.py, recon_view.py, dilation_view.py
           __main__.py   the CLI. May import anything
     archs/_shared/      standard.yaml, provenance.yaml, noc.yaml -- not an
                         architecture; skipped by the installer.
@@ -730,6 +744,8 @@ carry the rest.
     ecc_energy_study/   AUTO-MANAGED: cloned repo + mapper cache. Do not delete.
     restructure/        ProjectRestructure.md's gate: golden/ is the committed
                         snapshot, gate.sh compares a fresh one against it.
+                        migrate_modules.py (phase 2) and split_modules.py
+                        (phase 3) are the moves as MACHINERY, not as a diff.
                         Scaffolding -- deletable when the phase plan ends.
     legacy/             pre-rewrite material, plus the dated FINDINGS_detail_*,
                         progress_* and PROJECT_STATUS_* snapshots that hold the

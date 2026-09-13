@@ -10,6 +10,94 @@ Rules for this file: newest entry at the top, one short block per day of work,
 no tables, no pasted output. Anything worth keeping longer than a week belongs
 in FINDINGS.md; anything that says what to do next belongs in the live plan.
 
+2026-09-13  RESTRUCTURE PHASE 3 -- THE BIG SIX CUT ALONG THEIR BANNERS
+-----------------------------------------------------------------------
+ProjectRestructure.md section 9.2, phase 3. Gate: 302 fingerprints
+BYTE-IDENTICAL, every evaluated total identical to the pJ, 231 passing before
+and after. No function body changed: the diff is which file a body lives in,
+the import block above it, and the docstrings.
+
+Five files (12,233 lines: 39% of the package, 55% of it outside tests/) became 30:
+
+    recon.py          3,229 -> arch/{weight_path,placements,arms}
+                               toolchain/weight_stats
+                               physics/{packing,granularity}
+                               study/{narrowing,capacity,placement_eval}
+    archs.py          2,762 -> arch/{load,patch,fingerprint,layout,validate}
+    experiments/recon 2,862 -> study/{placement_notes,dilated_view,ert_view,
+                               placement_tables,placement_study}
+                               report/recon_view
+    experiments/dilat 1,851 -> study/{dilation_cache,dilation,dilation_tables}
+                               report/dilation_view
+    timeloop.py       1,529 -> toolchain/{inputs,ert,cache,invoke,stats}
+
+plus study/sweep.py -> report/sweep.py and study/panels.py merged into
+report/panels.py beside the renderer it calls. eccenergy/experiments/ and
+eccenergy/plots/ are gone; nothing is left at the package root but paths.py,
+config.py and __main__.py.
+
+THE CUT WAS MECHANISED: restructure/split_modules.py moves LINE RANGES byte for
+byte and writes each new module's import block itself, from the names the chunk
+actually uses. It refuses a split whose chunks would import each other, and it
+re-points every reference in the rest of the repository -- including a file that
+said `from eccenergy import recon as reconmod` and then used nine of its names
+from five different new modules. Two references it could not map mechanically
+(`reconmod.__file__`, `archs.ARCH_COMPONENTS`) it REPORTED, and both were fixed
+by hand first.
+
+ONE BUG IN THE TOOL IS WORTH RECORDING, because the gate is what caught it: the
+first version replaced a whole `from eccenergy import archs, config, paths`
+statement with the imports for the names that MOVED, silently dropping `config`
+and `paths`. The tests caught it in the package (NameError at setup) and gate
+item 1 caught the one file the tests do not import, restructure/_fingerprints.py,
+by refusing to produce a fingerprint table at all. Fixed to re-emit the untouched
+names, and the whole cut was re-run from a pristine copy rather than patched.
+
+WHERE THE PLAN'S FILE NAMES COLLIDED, AND WHAT WAS DONE. Section 4.4 and
+Appendix C each assign THE SAME target name to two different sources three
+times. Resolved, and recorded in the module docstrings:
+
+  * toolchain/stats.py is timeloop.py's parser; recon.py's weight-path view is
+    toolchain/weight_stats.py beside it.
+  * study/dilation.py is Task 4's driver; recon.py's dilation correction is
+    study/capacity.py.
+  * study/placement_eval.py evaluates ONE boundary (recon.py's tail);
+    experiments/recon.py's driver is study/placement_study.py.
+
+timeloop.py became FIVE modules, not Appendix C's three: ErtTables and Mapper
+both stand on the inputs half and both take the cache lock, so inputs.py and
+cache.py are the shared halves -- two modules that import each other are the one
+file the split was supposed to end.
+
+THE ARMS ARE L2, NOT L4. recon.py's mapper-arm half went to arch/arms.py rather
+than study/arms.py: config.py resolves ECC_RECON_ERT_ARM through it and
+toolchain/ert_probe.py reads it, and both sit below any driver. That is what
+removed the ert_probe edge instead of merely re-spelling it.
+
+WHAT THE LAYER RULE SAYS NOW. tests/contract/test_layer_rule.py went from
+sixteen declared upward edges to EIGHT, and every one of the remaining eight is
+the config cycle (config -> physics/arch, and the two arch modules that reach for
+the DC reconstruction table). Phase 3 removed: archs->recon, experiments.recon->
+report.{stacked,panels}, study.sweep->report.stacked, study.panels->report.panels,
+toolchain.ert_probe->recon, and physics.baseline_dram->study.energy -- the last
+by moving dram_ert_pj_per_bit DOWN into physics/baseline_dram.py, where its
+arithmetic belongs, rather than the lookup up. `test_the_layer_rule_holds_below_
+the_drivers` is still xfail: phase 4 is what makes it pass.
+
+THE GATE DIVERGED ON EXACTLY ONE LINE, and it was prose: a caveat sentence in
+the placement result names the module WEIGHT_PATHS lives in, and phase 3 moved
+it. fingerprints.tsv byte-identical, every energy identical, one hunk in one
+file. The sentence was corrected -- a provenance line pointing at a file that no
+longer exists is worse than a diff -- and the golden snapshot re-taken AFTER the
+phase was verified, as phase 4's baseline. restructure/README.md records it.
+
+ALSO REPAIRED, found while re-pointing callers: four hpc/*.sh job scripts and
+tools_bch_sweep_tables.py still imported `eccenergy.workloads` and
+`eccenergy.code_widths`, which PHASE 2 had moved. Those scripts submit SLURM
+arrays and are not in the gate or the test suite, so nothing had told anyone.
+Every out-of-package import of eccenergy is now audited by a script rather than
+by grep.
+
 2026-09-13  RESTRUCTURE PHASE 2 -- SIX LAYERS, 23 MODULES MOVED, NOTHING MOVED
 -----------------------------------------------------------------------
 ProjectRestructure.md section 9.2, phase 2. Gate: 302 fingerprints

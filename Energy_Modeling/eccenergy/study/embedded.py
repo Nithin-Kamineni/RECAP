@@ -54,7 +54,7 @@ from __future__ import annotations
 
 import math
 
-from ..archs import accumulator_bits, load_provenance
+from ..arch.load import accumulator_bits, load_provenance
 from .stacks import embedded_dram, external_parity
 from .energy import plot_cats
 from ..physics import baseline_dram

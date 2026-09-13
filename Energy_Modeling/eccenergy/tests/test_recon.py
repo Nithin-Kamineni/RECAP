@@ -268,7 +268,7 @@ def _dram_expected(frac, dram_w=_DRAM_W):
 
 # --------------------------------------------------------- layout arithmetic
 def test_g_rec_is_the_worst_aligned_codeword_not_the_average():
-    from eccenergy.recon import Granularity
+    from ..physics.granularity import Granularity
     g = Granularity(63, 51, 8, "weight")
     # 63 bits is 7.875 weights, but a codeword that starts mid-weight reaches
     # into one more, so the group a PE must hold is 9 -- and it is 9 for every
@@ -282,7 +282,7 @@ def test_g_rec_is_the_worst_aligned_codeword_not_the_average():
 
 
 def test_encoder_charging_modes_bracket_each_other():
-    from eccenergy.recon import Granularity
+    from ..physics.granularity import Granularity
     amortized = Granularity(63, 51, 8, "weight")
     pessimistic = Granularity(63, 51, 8, "codeword")
     assert math.isclose(amortized.codewords(7875), 1000.0)
@@ -293,7 +293,7 @@ def test_encoder_charging_modes_bracket_each_other():
 
 
 def test_stream_packing_scales_by_k_over_n_and_aligned_packing_does_not():
-    from eccenergy.recon import Packing
+    from ..physics.packing import Packing
     stream = Packing("stream", 8, 51, 63)
     assert math.isclose(stream.reduced_bits_per_weight, 8 * 51 / 63)
     # every stage falls by exactly K/N when the retained bits are packed
@@ -318,12 +318,19 @@ def test_stream_packing_scales_by_k_over_n_and_aligned_packing_does_not():
 
 # ------------------------------------------------------- the stats re-parse
 def test_weight_path_reads_totals_capacity_and_the_wire_split():
-    from eccenergy import recon as reconmod
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
     cfg = _cfg()
     with tempfile.TemporaryDirectory() as tmp:
         stats = _write_cache(tmp)
         layer = _Layer()
-        wp = reconmod.weight_path(cfg, "eyeriss_v2_like", "resnet18", [layer],
+        wp = weight_stats.weight_path(cfg, "eyeriss_v2_like", "resnet18", [layer],
                                   {layer.shape_name: stats})
         assert not wp.unclaimed, wp.unclaimed
 
@@ -371,7 +378,14 @@ def test_weight_path_reads_totals_capacity_and_the_wire_split():
 
 def test_a_weight_level_no_stage_claims_fails_the_cross_check():
     """The check that stops weight energy from being silently dropped."""
-    from eccenergy import recon as reconmod
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
     try:
         import pandas as pd
     except ImportError as exc:
@@ -383,20 +397,27 @@ def test_a_weight_level_no_stage_claims_fails_the_cross_check():
         p = pathlib.Path(stats)
         _write_lf(p, _STATS.replace("weights_spad", "mystery_weight_buffer"))
         layer = _Layer()
-        wp = reconmod.weight_path(cfg, "eyeriss_v2_like", "resnet18", [layer],
+        wp = weight_stats.weight_path(cfg, "eyeriss_v2_like", "resnet18", [layer],
                                   {layer.shape_name: stats})
         assert wp.unclaimed and wp.unclaimed[0]["level"] == "mystery_weight_buffer"
         base_w = pd.Series({"DRAM": 5000.0, "Global buffer": 0.0,
                             "Local (spads/RF)": 800.0, "NoC": 150.0,
                             "Compute": 0.0})
-        ok, detail = reconmod.cross_check(cfg, "eyeriss_v2_like", wp, base_w)
+        ok, detail = placement_eval.cross_check(cfg, "eyeriss_v2_like", wp, base_w)
         assert ok is False
         assert detail["unclaimed_weight_levels"]
 
 
 # --------------------------------------------------------- the placements
 def _placement_setup(**env):
-    from eccenergy import recon as reconmod
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
     try:
         import pandas as pd
     except ImportError as exc:
@@ -405,7 +426,7 @@ def _placement_setup(**env):
     tmp = tempfile.mkdtemp()
     stats = _write_cache(tmp)
     layer = _Layer()
-    wp = reconmod.weight_path(cfg, "eyeriss_v2_like", "resnet18", [layer],
+    wp = weight_stats.weight_path(cfg, "eyeriss_v2_like", "resnet18", [layer],
                               {layer.shape_name: stats})
     cats = ["DRAM", "Global buffer", "Local (spads/RF)", "NoC", "Compute",
             "ECC decode", "Reconstruction", "Recon overhead"]
@@ -413,17 +434,24 @@ def _placement_setup(**env):
                         "NoC": 150.0}).reindex(cats, fill_value=0.0)
     base = pd.Series({"DRAM": 5000.0, "Local (spads/RF)": 911.0,
                       "NoC": 150.0, "Compute": 9000.0}).reindex(cats, fill_value=0.0)
-    gran = reconmod.Granularity(cfg.code_n, cfg.code_k, cfg.weight_bits,
+    gran = granularity.Granularity(cfg.code_n, cfg.code_k, cfg.weight_bits,
                                 cfg.recon_granularity)
-    packing = reconmod.Packing(cfg.recon_packing, cfg.weight_bits,
+    packing = packing_mod.Packing(cfg.recon_packing, cfg.weight_bits,
                                cfg.code_k, cfg.code_n)
     return cfg, wp, base, base_w, gran, packing
 
 
 def test_placements_reconcile_by_hand_array_untouched_interface_x_k_over_n():
-    from eccenergy import recon as reconmod
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
     cfg, wp, base, base_w, gran, packing = _placement_setup()
-    ok, detail = reconmod.cross_check(cfg, "eyeriss_v2_like", wp, base_w)
+    ok, detail = placement_eval.cross_check(cfg, "eyeriss_v2_like", wp, base_w)
     assert ok is True, detail
     # ...and the check reconciles the SUM of the two DRAM stages, 3750 + 1250
     assert math.isclose(detail["per_category"]["DRAM"]["weight_path_module_pJ"],
@@ -431,8 +459,8 @@ def test_placements_reconcile_by_hand_array_untouched_interface_x_k_over_n():
 
     frac = 51 / 63
     out = {}
-    for p in reconmod.placements_for("eyeriss_v2_like"):
-        res = reconmod.evaluate_placement(
+    for p in placements_mod.placements_for("eyeriss_v2_like"):
+        res = placement_eval.evaluate_placement(
             cfg, "eyeriss_v2_like", p, wp, base_w, base,
             recon_pj=4.0, gran=gran, packing=packing)
         assert res.status == "evaluated", (p.key, res.reason)
@@ -515,16 +543,23 @@ def test_a_pe_local_boundary_is_rejected_when_the_tile_is_smaller_than_g_rec():
     rot.
     """
     import dataclasses as _dc
-    from eccenergy import recon as reconmod
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
     cfg, wp, base, base_w, gran, packing = _placement_setup()
     assert gran.g_rec == 9
 
     # 24 resident weights >= 9: the PE-local boundary is feasible under BOTH
     # readings, and reports no shortfall under either
     for key in ("recon4",):
-        p = reconmod.placement_by_key("eyeriss_v2_like", key)
+        p = placements_mod.placement_by_key("eyeriss_v2_like", key)
         for strict in (False, True):
-            ok, detail = reconmod.feasibility(p, "eyeriss_v2_like", wp, gran,
+            ok, detail = granularity.feasibility(p, "eyeriss_v2_like", wp, gran,
                                               require_group_residency=strict)
             assert ok is True, detail
             assert detail.get("layers_below_G_rec") == 0, detail
@@ -534,29 +569,29 @@ def test_a_pe_local_boundary_is_rejected_when_the_tile_is_smaller_than_g_rec():
     # INSTANT -- which is measured identically either way
     wp.per_layer[0]["stages"]["weight_spad"]["weights_resident_per_instance"] = 3
     for key in ("recon4",):
-        p = reconmod.placement_by_key("eyeriss_v2_like", key)
+        p = placements_mod.placement_by_key("eyeriss_v2_like", key)
 
         # STRICT: refused, and it says which layer and how few
-        ok, detail = reconmod.feasibility(p, "eyeriss_v2_like", wp, gran,
+        ok, detail = granularity.feasibility(p, "eyeriss_v2_like", wp, gran,
                                           require_group_residency=True)
         assert ok is False, detail
         assert detail["infeasible_layers"][0]["weights_resident"] == 3
         assert detail["layers_below_G_rec"] == 1, detail
         assert "fewest: 3" in detail["reason"], detail["reason"]
         strict_cfg = _dc.replace(cfg, recon_require_group_residency=True)
-        res = reconmod.evaluate_placement(strict_cfg, "eyeriss_v2_like", p, wp,
+        res = placement_eval.evaluate_placement(strict_cfg, "eyeriss_v2_like", p, wp,
                                           base_w, base, 4.0, gran, packing)
         assert res.status == "unsupported" and res.total_pJ == 0.0
 
         # DEFAULT: charged, and the shortfall travels WITH the bar. Losing the
         # number would be worse than losing the bar -- it is what bounds the
         # buffering the engine needs.
-        ok, detail = reconmod.feasibility(p, "eyeriss_v2_like", wp, gran)
+        ok, detail = granularity.feasibility(p, "eyeriss_v2_like", wp, gran)
         assert ok is True, detail
         assert detail["layers_below_G_rec"] == 1, detail
         assert "fewest: 3" in detail["group_residency_note"], detail
         assert "reason" not in detail, "a charged bar must carry no refusal reason"
-        res = reconmod.evaluate_placement(cfg, "eyeriss_v2_like", p, wp, base_w,
+        res = placement_eval.evaluate_placement(cfg, "eyeriss_v2_like", p, wp, base_w,
                                           base, 4.0, gran, packing)
         assert res.status == "evaluated" and res.total_pJ > 0.0, res.status
 
@@ -573,18 +608,25 @@ def test_a_pe_local_boundary_is_rejected_when_the_tile_is_smaller_than_g_rec():
     # ...while a boundary ABOVE the scratchpad is unaffected: the reduced form
     # is only in transit there, in codeword order from the ECC engine
     for key in ("recon1", "recon2", "recon3"):
-        p = reconmod.placement_by_key("eyeriss_v2_like", key)
-        ok, _ = reconmod.feasibility(p, "eyeriss_v2_like", wp, gran)
+        p = placements_mod.placement_by_key("eyeriss_v2_like", key)
+        ok, _ = granularity.feasibility(p, "eyeriss_v2_like", wp, gran)
         assert ok is True, key
 
 
 def test_a_missing_stage_is_unsupported_rather_than_skipped():
-    from eccenergy import recon as reconmod
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
     cfg, wp, base, base_w, gran, packing = _placement_setup()
     wp.stages["weight_spad"].energy_pJ = 0.0      # as if the design had no SPad
     for key in ("recon3", "recon4"):
-        p = reconmod.placement_by_key("eyeriss_v2_like", key)
-        res = reconmod.evaluate_placement(cfg, "eyeriss_v2_like", p, wp, base_w,
+        p = placements_mod.placement_by_key("eyeriss_v2_like", key)
+        res = placement_eval.evaluate_placement(cfg, "eyeriss_v2_like", p, wp, base_w,
                                           base, 4.0, gran, packing)
         assert res.status == "unsupported", key
         assert "no weight energy" in res.reason, res.reason
@@ -601,9 +643,17 @@ def _task3_validation(mutate=None, newly=0, from_cache="1", **env):
         import pandas          # noqa: F401  (energy.py imports it at module level)
     except ImportError as exc:
         raise _Skip(f"pandas not available on this python: {exc}")
-    from eccenergy import recon as reconmod
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
     from eccenergy.study.energy import Raw
-    from eccenergy.experiments.recon import PARITY_KEY, task3_checks
+    from ..study.placement_notes import PARITY_KEY
+    from ..study.placement_study import task3_checks
     from eccenergy.paths import Results
     from eccenergy.toolchain.results_store import ResultBuilder, Variant
     with tempfile.TemporaryDirectory() as tmp:
@@ -631,8 +681,8 @@ def _task3_validation(mutate=None, newly=0, from_cache="1", **env):
                       energy_by_component_pJ=emb_components,
                       mapping_ids=["aaaa1111"]))
         out = []
-        for p in reconmod.placements_for("eyeriss_v2_like", c):
-            r = reconmod.evaluate_placement(
+        for p in placements_mod.placements_for("eyeriss_v2_like", c):
+            r = placement_eval.evaluate_placement(
                 c, "eyeriss_v2_like", p, wp, base_w, base, 4.0,
                 gran, packing)
             if mutate:
@@ -642,7 +692,7 @@ def _task3_validation(mutate=None, newly=0, from_cache="1", **env):
                           total_energy_pJ=r.total_pJ,
                           energy_by_component_pJ=r.components,
                           mapping_ids=["aaaa1111"]))
-        ok, detail = reconmod.cross_check(c, "eyeriss_v2_like", wp, base_w)
+        ok, detail = placement_eval.cross_check(c, "eyeriss_v2_like", wp, base_w)
         task3_checks(b, c, "eyeriss_v2_like", raw, base_components,
                      emb_components, 1562.5, out, wp, ok, detail, base_w,
                      newly_mapped=newly)
@@ -727,32 +777,39 @@ def test_controller_site_reproduces_the_pre_2026_09_09_numbers():
     only, R3 both networks, R4a the scratchpad too. If they stop holding
     under `controller`, the diff row proves nothing.
     """
-    from eccenergy import recon as reconmod
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
     cfg, wp, base, base_w, gran, packing = _placement_setup(
         ECC_RECON_DECODE_SITE="controller")
     assert wp.decode_site == "controller"
     # the single dram stage owns the whole level and is NOT reducible
     assert math.isclose(wp.stages["dram"].energy_pJ, _DRAM_W)
-    assert not any(s.reducible for s in reconmod.stages_for("eyeriss_v2_like", cfg)
+    assert not any(s.reducible for s in placements_mod.stages_for("eyeriss_v2_like", cfg)
                    if s.key == "dram")
     # ...and it has left every placement's reduced set, R1's included
-    for p in reconmod.placements_for("eyeriss_v2_like", cfg):
+    for p in placements_mod.placements_for("eyeriss_v2_like", cfg):
         assert "dram" not in p.reduced, p
-    assert reconmod.placement_by_key("eyeriss_v2_like", "recon1", cfg).reduced == ()
-    ok, detail = reconmod.validate_placement_space("eyeriss_v2_like", cfg)
+    assert placements_mod.placement_by_key("eyeriss_v2_like", "recon1", cfg).reduced == ()
+    ok, detail = arms.validate_placement_space("eyeriss_v2_like", cfg)
     assert ok is True, detail
     assert detail["decode_site"] == "controller"
     assert detail["reducible_stages_in_path_order"][0] == "inter_cluster_mesh"
-    ok, detail = reconmod.cross_check(cfg, "eyeriss_v2_like", wp, base_w)
+    ok, detail = placement_eval.cross_check(cfg, "eyeriss_v2_like", wp, base_w)
     assert ok is True, detail
 
     frac = 51 / 63
     out = {}
     # the ON-DIE table's placements are handed in deliberately: evaluate_placement
     # has to apply the decode site itself, whatever form the caller holds
-    for p in reconmod.placements_for("eyeriss_v2_like"):
+    for p in placements_mod.placements_for("eyeriss_v2_like"):
         assert "dram" in p.reduced
-        res = reconmod.evaluate_placement(cfg, "eyeriss_v2_like", p, wp, base_w,
+        res = placement_eval.evaluate_placement(cfg, "eyeriss_v2_like", p, wp, base_w,
                                           base, 4.0, gran, packing)
         assert res.status == "evaluated", (p.key, res.reason)
         out[p.key] = res
@@ -781,8 +838,8 @@ def test_controller_site_reproduces_the_pre_2026_09_09_numbers():
     # the interface saving, on every bar, and by nothing else
     cfg2, wp2, _b, _bw, gran2, packing2 = _placement_setup()
     for key, old in out.items():
-        new = reconmod.evaluate_placement(
-            cfg2, "eyeriss_v2_like", reconmod.placement_by_key("eyeriss_v2_like", key),
+        new = placement_eval.evaluate_placement(
+            cfg2, "eyeriss_v2_like", placements_mod.placement_by_key("eyeriss_v2_like", key),
             wp2, base_w, base, 4.0, gran2, packing2)
         for cat in old.components:
             diff = old.components[cat] - new.components[cat]
@@ -799,7 +856,7 @@ def test_controller_site_reproduces_the_pre_2026_09_09_numbers():
     # is not reduced
     cfg3, wp3, *_ = _placement_setup(ECC_RECON_DECODE_SITE="controller")
     assert math.isclose(wp3.stages["dram"].energy_pJ, _DRAM_W)
-    ok, _ = reconmod.cross_check(cfg3, "eyeriss_v2_like", wp3, base_w)
+    ok, _ = placement_eval.cross_check(cfg3, "eyeriss_v2_like", wp3, base_w)
     assert ok is True
 
 
@@ -807,13 +864,25 @@ def test_the_dram_cost_knobs_are_validated_and_titled():
     """`ECC_DRAM_IF_FRAC` is GONE (2026-09-09) and nothing refuses on it any
     more; `ECC_DRAM_PJ_PER_BIT` and the two static terms take its place and
     reject what they cannot mean."""
-    from eccenergy import recon as reconmod
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
     from eccenergy.config import ConfigError
 
     # the removed knob leaves no trace in the config or the module
     assert not hasattr(_cfg(), "dram_if_frac")
-    assert not hasattr(reconmod, "F_IF_SENSITIVITY")
-    assert not hasattr(reconmod, "NO_F_IF")
+    # ProjectRestructure phase 3 cut `recon.py` into nine modules, so "the
+    # module" is now the package: the two names must be gone from all of it.
+    gone = [str(f) for f in pathlib.Path(__file__).resolve().parents[1].rglob("*.py")
+            if "__pycache__" not in f.parts and not f.name.endswith(".preC")
+            and re.search(r"^(F_IF_SENSITIVITY|NO_F_IF)\s*=", f.read_text(),
+                          re.MULTILINE)]
+    assert gone == [], gone
     # ...and setting it does nothing at all: it is not read
     assert _cfg(ECC_DRAM_IF_FRAC="0.25").dram_pj_per_bit == _cfg().dram_pj_per_bit
 
@@ -853,20 +922,27 @@ def test_the_dram_level_is_claimed_exactly_once_in_total():
     """ONE stage, one level. The array/interface pair and its f_if shares were
     removed on 2026-09-09, so a level claimed twice is now always a table
     error and is refused, not double-counted."""
-    from eccenergy import recon as reconmod
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
     cfg = _cfg()
-    stages = reconmod.stages_for("eyeriss_v2_like", cfg)
+    stages = placements_mod.stages_for("eyeriss_v2_like", cfg)
     dram = [s for s in stages if s.matches("DRAM")]
     assert [s.key for s in dram] == ["dram"]
     assert dram[0].reducible
-    assert reconmod._level_shares(dram, "DRAM") == {"dram": 1.0}
+    assert weight_stats._level_shares(dram, "DRAM") == {"dram": 1.0}
     # the wglb path keeps it FIRST, before its extra weight GLB
-    keys = [s.key for s in reconmod.stages_for("eyeriss_v2_like_wglb", cfg)]
+    keys = [s.key for s in placements_mod.stages_for("eyeriss_v2_like_wglb", cfg)]
     assert keys[:2] == ["dram", "weight_glb"], keys
     # any second claimant of the level is refused
-    rogue = dram + [reconmod.Stage("x", "x", "storage", ("DRAM",), True)]
+    rogue = dram + [weight_path.Stage("x", "x", "storage", ("DRAM",), True)]
     try:
-        reconmod._level_shares(rogue, "DRAM")
+        weight_stats._level_shares(rogue, "DRAM")
     except ValueError:
         pass
     else:
@@ -878,7 +954,14 @@ def test_r1_isolates_the_interface_saving_from_every_on_chip_saving():
     reference is the DRAM interface term and nothing else, and every other
     boundary's saving is R1's plus its own on-chip saving minus the extra
     reconstruction it pays -- which is what makes R1 the term to subtract."""
-    from eccenergy import recon as reconmod
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
     for case in _cases():
         out, packing = _evaluate(case)
         base, wp = case["base"], case["wpath"]
@@ -913,7 +996,7 @@ def test_recon_optimizer_true_is_task4_and_cannot_be_filed_as_a_pre_result():
 
       * here -- a re-optimised mapping filed as a `Pre` result, which is a
         result whose own phase field contradicts it;
-      * `experiments/recon.dilated_view()` -- the reconstruction arm's mapper
+      * `study.dilated_view.dilated_view()` -- the reconstruction arm's mapper
         cache missing, the design having no weight level to dilate, or the
         dilated capacity not coming back N/K times the reference's. Each of
         those would otherwise fall back to the reference mapping, which IS
@@ -933,8 +1016,15 @@ def test_recon_optimizer_true_is_task4_and_cannot_be_filed_as_a_pre_result():
     # from the reference one rather than configured separately.
     cfg = _cfg(ECC_RECON_OPTIMIZER="True", ECC_PHASE="Post")
     assert cfg.recon_optimizer is True
-    from eccenergy import recon as reconmod
-    assert math.isclose(reconmod.capacity_dilation_scale(cfg),
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
+    assert math.isclose(capacity.capacity_dilation_scale(cfg),
                         cfg.weight_capacity_scale * cfg.code_n / cfg.code_k,
                         rel_tol=1e-4)
     # ...and the OTHER crossed combination, caught at config time so --dry-run
@@ -966,7 +1056,14 @@ def test_a_multicast_network_boundary_pays_per_destination_not_per_injection():
     3-fold, so the two readings are 3x apart by construction and the answer is
     checkable by hand: 100 ingresses x 3 = 300 arrivals.
     """
-    from eccenergy import recon as reconmod
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
     mc = _STATS.replace(
         """        Fanout                                  : 4
         Multicast factor                        : 1
@@ -985,7 +1082,7 @@ def test_a_multicast_network_boundary_pays_per_destination_not_per_injection():
         stats = d / "timeloop-mapper.stats.txt"
 
         cfg = _cfg()
-        lp = reconmod.read_weight_path(cfg, "eyeriss_v2_like", _Layer(), stats)
+        lp = weight_stats.read_weight_path(cfg, "eyeriss_v2_like", _Layer(), stats)
         mesh = lp.stages["inter_cluster_mesh"]
         assert mesh.ingresses == 100.0, mesh.ingresses
         assert mesh.multicast == 3.0, mesh.multicast
@@ -998,18 +1095,18 @@ def test_a_multicast_network_boundary_pays_per_destination_not_per_injection():
         # the boundary itself: `destination` is the model, `source` reproduces
         # the pre-2026-09-09 count, and NOTHING ELSE about the bar moves
         got = {}
-        for site in reconmod.ENCODER_SITES:
+        for site in weight_path.ENCODER_SITES:
             c = _cfg(ECC_RECON_ENCODER_SITE=site)
-            wp = reconmod.weight_path(c, "eyeriss_v2_like", "m", [_Layer()],
+            wp = weight_stats.weight_path(c, "eyeriss_v2_like", "m", [_Layer()],
                                       {"C8_M8": stats})
-            p2 = reconmod.placement_by_key("eyeriss_v2_like", "recon2", c)
-            res = reconmod.evaluate_placement(
+            p2 = placements_mod.placement_by_key("eyeriss_v2_like", "recon2", c)
+            res = placement_eval.evaluate_placement(
                 c, "eyeriss_v2_like", p2, wp,
                 {k: v.energy_pJ for k, v in wp.stages.items()}, {},
                 recon_pj=1.0,
-                gran=reconmod.Granularity(c.code_n, c.code_k, c.weight_bits,
+                gran=granularity.Granularity(c.code_n, c.code_k, c.weight_bits,
                                           "codeword"),
-                packing=reconmod.Packing("stream", c.weight_bits, c.code_k,
+                packing=packing_mod.Packing("stream", c.weight_bits, c.code_k,
                                          c.code_n))
             counts = res.detail["reconstruction_counts"]
             got[site] = counts
@@ -1026,9 +1123,9 @@ def test_a_multicast_network_boundary_pays_per_destination_not_per_injection():
                 "the two readings must differ by exactly the multicast factor")
 
         # and the SAVING is the same under both: only the encoder count moved
-        for site in reconmod.ENCODER_SITES:
+        for site in weight_path.ENCODER_SITES:
             c = _cfg(ECC_RECON_ENCODER_SITE=site)
-            p2 = reconmod.placement_by_key("eyeriss_v2_like", "recon2", c)
+            p2 = placements_mod.placement_by_key("eyeriss_v2_like", "recon2", c)
             assert p2.reduced == ("dram", "inter_cluster_mesh"), (
                 "the encoder site must not change WHICH stages carry the "
                 f"reduced form: {p2.reduced}")
@@ -1041,23 +1138,30 @@ def test_several_architectures_are_one_panel_each_and_never_one_axis():
     boundaries of two designs cannot share an x axis: "reconstruct after the
     mesh" beside a design with no mesh is meaningless. Separate stacked axes are
     not that, so the rule is now enforced where it actually lives -- in
-    `experiments/reconmod.py figure()`, which gives every design its own axes, its
+    `report/recon_view.py figure()`, which gives every design its own axes, its
     own boundary list and its own two reference bars -- and the config accepts
     the list. What it still refuses is a REPEATED name, which would draw one
     design twice and write its result file twice.
     """
-    from eccenergy import recon as reconmod
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
     from eccenergy.config import ConfigError
     cfg = _cfg(ECC_SWEEP_ARCHS="simple_weight_stationary eyeriss_like")
     assert cfg.archs == ["simple_weight_stationary", "eyeriss_like"], cfg.archs
 
     # ...and the boundary lists stay per design, which is what makes panels the
     # only honest layout: these two are NOT the same axis.
-    ws = [p.key for p in reconmod.placements_for("simple_weight_stationary", cfg)]
-    v1 = [p.key for p in reconmod.placements_for("eyeriss_like", cfg)]
+    ws = [p.key for p in placements_mod.placements_for("simple_weight_stationary", cfg)]
+    v1 = [p.key for p in placements_mod.placements_for("eyeriss_like", cfg)]
     assert ws != v1 and len(ws) == 5 and len(v1) == 4, (ws, v1)
-    ws_stages = [s.key for s in reconmod.stages_for("simple_weight_stationary", cfg)]
-    v1_stages = [s.key for s in reconmod.stages_for("eyeriss_like", cfg)]
+    ws_stages = [s.key for s in placements_mod.stages_for("simple_weight_stationary", cfg)]
+    v1_stages = [s.key for s in placements_mod.stages_for("eyeriss_like", cfg)]
     assert set(ws_stages) & set(v1_stages) == {"dram"}, (
         "the only weight-path stage two different designs share is the DRAM; "
         "anything else means a stage name is being reused across "
@@ -1086,11 +1190,18 @@ def test_every_placement_space_is_valid_for_every_supported_design():
     `weight_glb` stage its placement list does not reach, and it is reported
     here instead of being evaluated with four understated boundaries.
     """
-    from eccenergy import recon as reconmod
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
     cfg = _cfg()
     expected_invalid = {"eyeriss_v2_like_wglb"}
-    for arch in reconmod.supported_archs():
-        ok, detail = reconmod.validate_placement_space(arch, cfg)
+    for arch in placements_mod.supported_archs():
+        ok, detail = arms.validate_placement_space(arch, cfg)
         if arch in expected_invalid:
             assert not ok, f"{arch} was expected to be the known-gap design"
             continue
@@ -1252,12 +1363,21 @@ def _real_case():
                ECC_RECON_ENCODER_GRANULARITY=mcfg.get("recon_granularity", "weight"))
     cfg = _cfg(**env)
 
-    from eccenergy import archs as archmod
-    from eccenergy import recon as reconmod
+    from ..arch import fingerprint as fingerprint_mod
+    from ..arch import load
+    from ..arch import patch
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
     from eccenergy.study.energy import plot_cats
     from eccenergy.paths import Results
-    variant = archmod.effective_variant(arch, cfg)
-    fingerprint = archmod.arch_fingerprint(arch, cfg)
+    variant = fingerprint_mod.effective_variant(arch, cfg)
+    fingerprint = fingerprint_mod.arch_fingerprint(arch, cfg)
     results = Results(cfg)
     raw_path = _locate(results.raw_path, arch, model, variant, fingerprint)
     cache = _locate(results.mapper_cache, arch, variant, fingerprint)
@@ -1288,7 +1408,7 @@ def _real_case():
     _REAL_CACHE["case"] = {
         "name": f"cached Timeloop output, {arch}/{model}",
         "cfg": cfg, "arch": arch,
-        "wpath": reconmod.weight_path(cfg, arch, model, layers, stats),
+        "wpath": weight_stats.weight_path(cfg, arch, model, layers, stats),
         "base": rec.base.reindex(cats, fill_value=0.0),
         "base_w": rec.base_w.reindex(cats, fill_value=0.0),
         "recon_pj": float(man.get("recon_pj_per_codeword", 4.1296273)),
@@ -1320,15 +1440,22 @@ def _evaluate(case, k=None, n=None):
     depend on the code at all -- re-reading twelve stats files per K would hide
     exactly the thing the code sweep is trying to show.
     """
-    from eccenergy import recon as reconmod
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
     cfg, arch = case["cfg"], case["arch"]
     k = cfg.code_k if k is None else k
     n = cfg.code_n if n is None else n
-    gran = reconmod.Granularity(n, k, cfg.weight_bits, cfg.recon_granularity)
-    packing = reconmod.Packing(cfg.recon_packing, cfg.weight_bits, k, n)
+    gran = granularity.Granularity(n, k, cfg.weight_bits, cfg.recon_granularity)
+    packing = packing_mod.Packing(cfg.recon_packing, cfg.weight_bits, k, n)
     out = {}
-    for p in reconmod.placements_for(arch, cfg):
-        out[p.key] = reconmod.evaluate_placement(
+    for p in placements_mod.placements_for(arch, cfg):
+        out[p.key] = placement_eval.evaluate_placement(
             cfg, arch, p, case["wpath"], case["base_w"], case["base"],
             case["recon_pj"], gran, packing)
     return out, packing
@@ -1372,9 +1499,16 @@ def _category_of(case, stage_key):
     against the raw record by `cross_check`, so the test uses it rather than
     restating it and drifting.
     """
-    from eccenergy import recon as reconmod
-    stage = next(s for s in reconmod.stages_for(case["arch"]) if s.key == stage_key)
-    return reconmod._category_of(stage, case["cfg"])
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
+    stage = next(s for s in placements_mod.stages_for(case["arch"]) if s.key == stage_key)
+    return placement_eval._category_of(stage, case["cfg"])
 
 
 #: The categories a boundary may MOVE. `Reconstruction` and `Recon overhead`
@@ -1398,11 +1532,18 @@ def test_every_reduced_stage_scales_by_k_over_n_and_no_other_stage_moves():
     packing, `scale == K/N`; for a stage it does not, `after == before` with no
     tolerance at all.
     """
-    from eccenergy import recon as reconmod
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
     for case in _cases():
         out, packing = _evaluate(case)
         for key, res in _evaluated(case, out).items():
-            reduced = set(reconmod.placement_by_key(case["arch"], key,
+            reduced = set(placements_mod.placement_by_key(case["arch"], key,
                                                     case["cfg"]).reduced)
             assert set(res.placement.reduced) == reduced
             for stage_key, row in _stage_rows(res).items():
@@ -1475,11 +1616,18 @@ def test_category_energies_are_monotonic_down_the_weight_path():
     NoC is not below R2's": a saving applied to the wrong stage, applied twice
     or dropped breaks it even when the bar total still looks plausible.
     """
-    from eccenergy import recon as reconmod
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
     for case in _cases():
         out, _packing = _evaluate(case)
         ev = _evaluated(case, out)
-        placements = {p.key: p for p in reconmod.placements_for(case["arch"],
+        placements = {p.key: p for p in placements_mod.placements_for(case["arch"],
                                                                 case["cfg"])}
 
         # the nesting itself, which everything below depends on
@@ -1536,7 +1684,14 @@ def test_the_saving_of_each_boundary_matches_its_closed_form():
     and since 2026-09-09 the whole of it is reducible.
     """
     for case in _cases():
-        from eccenergy import recon as reconmod
+        from ..arch import arms
+        from ..arch import placements as placements_mod
+        from ..arch import weight_path
+        from ..physics import granularity
+        from ..physics import packing as packing_mod
+        from ..study import capacity
+        from ..study import placement_eval
+        from ..toolchain import weight_stats
         out, packing = _evaluate(case)
         ev = _evaluated(case, out)
         wp, base, name, arch = (case["wpath"], case["base"], case["name"],
@@ -1560,14 +1715,14 @@ def test_the_saving_of_each_boundary_matches_its_closed_form():
         # boundary's category total is the embedded reference's minus
         # (1 - K/N) x the energy of the stages IT reduces in that category.
         by_cat = {}
-        for stage in reconmod.stages_for(arch, cfg):
+        for stage in placements_mod.stages_for(arch, cfg):
             st = wp.stages.get(stage.key)
             if st is None or stage.kind == "dram":
                 continue
             by_cat.setdefault(_category_of(case, stage.key), {})[stage.key] = st.energy_pJ
 
         for key, res in ((k, out[k]) for k in ev):
-            reduced = set(reconmod.effective_placement(
+            reduced = set(placements_mod.effective_placement(
                 res.placement, cfg).reduced)
             for cat, stages in by_cat.items():
                 want = float(base[cat]) - d * sum(
@@ -1587,7 +1742,7 @@ def test_the_saving_of_each_boundary_matches_its_closed_form():
         # spelling worth having: each boundary reduces a prefix of the path, so
         # a later boundary's reducible energy is never smaller than an earlier
         # one's. This holds on every design without naming a stage.
-        order = [p.key for p in reconmod.placements_for(arch, cfg)
+        order = [p.key for p in placements_mod.placements_for(arch, cfg)
                  if p.key in ev]
         befores = [out[k].detail["reducible_weight_energy_pJ"]["before_pJ"]
                    for k in order]
@@ -1711,10 +1866,17 @@ def test_every_weight_carrying_level_of_the_real_design_is_claimed_by_a_stage():
     case = _real_case()
     if case is None:
         raise _Skip(_REAL_CACHE.get("why", "no cached Timeloop output here"))
-    from eccenergy import recon as reconmod
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
 
     claimed, who = set(), {}
-    for stage in reconmod.stages_for(case["arch"], case["cfg"]):
+    for stage in placements_mod.stages_for(case["arch"], case["cfg"]):
         st = case["wpath"].stages.get(stage.key)
         levels = set(st.levels) if st is not None else set()
         for lv in levels:
@@ -1736,7 +1898,7 @@ def test_every_weight_carrying_level_of_the_real_design_is_claimed_by_a_stage():
     assert set(found) == claimed, (sorted(set(found) ^ claimed), sorted(found))
     assert case["wpath"].unclaimed == [], case["wpath"].unclaimed
 
-    ok, detail = reconmod.cross_check(case["cfg"], case["arch"], case["wpath"],
+    ok, detail = placement_eval.cross_check(case["cfg"], case["arch"], case["wpath"],
                                       case["base_w"])
     assert ok is True, detail
 
@@ -1752,9 +1914,17 @@ def test_an_unclaimed_weight_level_fails_the_recorded_check_rather_than_dropping
         import pandas as pd
     except ImportError as exc:
         raise _Skip(f"pandas not available on this python: {exc}")
-    from eccenergy import recon as reconmod
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
     from eccenergy.study.energy import Raw
-    from eccenergy.experiments.recon import PARITY_KEY, task3_checks
+    from ..study.placement_notes import PARITY_KEY
+    from ..study.placement_study import task3_checks
     from eccenergy.paths import Results
     from eccenergy.toolchain.results_store import ResultBuilder, Variant
 
@@ -1764,7 +1934,7 @@ def test_an_unclaimed_weight_level_fails_the_recorded_check_rather_than_dropping
         _write_lf(pathlib.Path(stats),
                   _STATS.replace("weights_spad", "mystery_weight_buffer"))
         layer = _Layer()
-        wp = reconmod.weight_path(cfg, "eyeriss_v2_like", "resnet18", [layer],
+        wp = weight_stats.weight_path(cfg, "eyeriss_v2_like", "resnet18", [layer],
                                   {layer.shape_name: stats})
         assert [u["level"] for u in wp.unclaimed] == ["mystery_weight_buffer"], \
             wp.unclaimed
@@ -1775,7 +1945,7 @@ def test_an_unclaimed_weight_level_fails_the_recorded_check_rather_than_dropping
                             "NoC": 150.0}).reindex(cats, fill_value=0.0)
         base = pd.Series({"DRAM": 5000.0, "Local (spads/RF)": 911.0,
                           "NoC": 150.0, "Compute": 9000.0}).reindex(cats, fill_value=0.0)
-        ok, detail = reconmod.cross_check(cfg, "eyeriss_v2_like", wp, base_w)
+        ok, detail = placement_eval.cross_check(cfg, "eyeriss_v2_like", wp, base_w)
         assert ok is False and detail["unclaimed_weight_levels"]
 
         builder = ResultBuilder(cfg, Results(cfg).prepare(), "eyeriss_v2_like",
@@ -1831,15 +2001,22 @@ def test_a_reducible_stage_no_boundary_reduces_stops_the_run():
     yet, so it has never been run -- which is exactly why the guard has to be
     structural rather than empirical.
     """
-    from eccenergy import recon as reconmod
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
 
-    ok, detail = reconmod.validate_placement_space("eyeriss_v2_like")
+    ok, detail = arms.validate_placement_space("eyeriss_v2_like")
     assert ok is True, detail["violations"]
     assert detail["reducible_stages_no_placement_reaches"] == [], detail
     # ...and every boundary's reduced set really is a prefix of the path
     assert all(row["is_a_prefix"] for row in detail["per_placement"]), detail
 
-    ok, detail = reconmod.validate_placement_space("eyeriss_v2_like_wglb")
+    ok, detail = arms.validate_placement_space("eyeriss_v2_like_wglb")
     assert ok is False
     assert detail["reducible_stages_no_placement_reaches"] == ["weight_glb"], detail
     assert any("weight_glb" in v for v in detail["violations"]), detail
@@ -1856,9 +2033,17 @@ def test_the_placement_space_check_is_recorded_on_every_result():
         import pandas as pd
     except ImportError as exc:
         raise _Skip(f"pandas not available on this python: {exc}")
-    from eccenergy import recon as reconmod
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
     from eccenergy.study.energy import Raw
-    from eccenergy.experiments.recon import PARITY_KEY, task3_checks
+    from ..study.placement_notes import PARITY_KEY
+    from ..study.placement_study import task3_checks
     from eccenergy.paths import Results
     from eccenergy.toolchain.results_store import ResultBuilder, Variant
 
@@ -1874,7 +2059,7 @@ def test_the_placement_space_check_is_recorded_on_every_result():
                        ECC_CONST_ARCH=arch)
             stats = _write_cache(tmp)
             layer = _Layer()
-            wp = reconmod.weight_path(cfg, arch, "resnet18", [layer],
+            wp = weight_stats.weight_path(cfg, arch, "resnet18", [layer],
                                       {layer.shape_name: stats})
             builder = ResultBuilder(cfg, Results(cfg).prepare(), arch, "resnet18",
                                     experiment="unit_test", fixed_mapping=True)
@@ -1928,7 +2113,9 @@ def test_capacity_dilation_scales_only_weight_levels_and_never_a_latch():
         default scope -- Timeloop has one capacity per level, so that would
         also hand the mapper free input-activation room.
     """
-    from eccenergy import archs as archmod
+    from ..arch import fingerprint as fingerprint_mod
+    from ..arch import load
+    from ..arch import patch
     import re
     cfg = _cfg(ECC_WEIGHT_CAPACITY_SCALE="1.6154")
     for arch, want, forbidden in (
@@ -1939,8 +2126,8 @@ def test_capacity_dilation_scales_only_weight_levels_and_never_a_latch():
             ("simple_weight_stationary", {"weight_glb", "pe_spad"},
              {"input_glb", "psum_glb", "weight_reg",
               "input_activation_reg", "output_activation_reg"})):
-        before = archmod.arch_source(arch, cfg).read_text()
-        after = archmod._scale_weight_capacity(before, 1.6154, "exclusive",
+        before = load.arch_source(arch, cfg).read_text()
+        after = patch._scale_weight_capacity(before, 1.6154, "exclusive",
                                                arch, quiet=True)
         assert after != before, arch
 
@@ -1973,13 +2160,15 @@ def test_a_shared_weight_level_is_a_bracket_and_is_named_as_one():
     level left to bracket. The two siblings still declare one and are what
     the `shared` scope is for.
     """
-    from eccenergy import archs as archmod
+    from ..arch import fingerprint as fingerprint_mod
+    from ..arch import load
+    from ..arch import patch
     import re
     cfg = _cfg()
-    base = archmod.arch_source("simple_output_stationary", cfg).read_text()
-    excl = archmod._scale_weight_capacity(base, 1.6154, "exclusive",
+    base = load.arch_source("simple_output_stationary", cfg).read_text()
+    excl = patch._scale_weight_capacity(base, 1.6154, "exclusive",
                                           "simple_output_stationary", quiet=True)
-    shar = archmod._scale_weight_capacity(base, 1.6154, "shared",
+    shar = patch._scale_weight_capacity(base, 1.6154, "shared",
                                           "simple_output_stationary", quiet=True)
 
     def depth_of(text, name):
@@ -2003,27 +2192,29 @@ def test_each_capacity_is_its_own_mapper_cache_and_a_no_op_keeps_the_old_one():
     re-run pays for a fresh map of an unchanged architecture -- the trap
     `archs._patch_dram_depth`'s docstring records for ECC_DRAM_DEPTH.
     """
-    from eccenergy import archs as archmod
+    from ..arch import fingerprint as fingerprint_mod
+    from ..arch import load
+    from ..arch import patch
     seen = {}
     for scale in ("1.0", "0.5", "1.6154"):
         cfg = _cfg(ECC_WEIGHT_CAPACITY_SCALE=scale)
         for arch in ("eyeriss_like", "eyeriss_v2_like",
                      "simple_weight_stationary"):
-            key = (archmod.effective_variant(arch, cfg),
-                   archmod.arch_fingerprint(arch, cfg))
+            key = (fingerprint_mod.effective_variant(arch, cfg),
+                   fingerprint_mod.arch_fingerprint(arch, cfg))
             assert seen.setdefault(key, (arch, scale)) == (arch, scale), \
                 (key, seen[key], (arch, scale))
     # 1.0 is the declared design and must keep the slug it always had
     cfg1 = _cfg(ECC_WEIGHT_CAPACITY_SCALE="1.0")
     for arch in ("eyeriss_like", "simple_weight_stationary"):
-        assert "wcap" not in archmod.effective_variant(arch, cfg1), arch
+        assert "wcap" not in fingerprint_mod.effective_variant(arch, cfg1), arch
 
     # a scale so close to 1 that every weight depth rounds back is a no-op and
     # keeps the undilated cache rather than re-mapping an unchanged design
     tiny = _cfg(ECC_WEIGHT_CAPACITY_SCALE="1.0005")
     for arch in ("eyeriss_like", "simple_weight_stationary"):
-        assert (archmod.effective_variant(arch, tiny)
-                == archmod.effective_variant(arch, cfg1)), arch
+        assert (fingerprint_mod.effective_variant(arch, tiny)
+                == fingerprint_mod.effective_variant(arch, cfg1)), arch
 
 
 def test_the_dilation_correction_reprices_the_array_and_is_recorded():
@@ -2036,7 +2227,14 @@ def test_the_dilation_correction_reprices_the_array_and_is_recorded():
     say so; an unreadable ERT must leave the number ALONE and say that instead
     of scaling by a guess.
     """
-    from eccenergy import recon as reconmod
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
     case = _synthetic_case()
     wp = case["wpath"]
     key = "weight_spad"
@@ -2063,7 +2261,7 @@ def test_the_dilation_correction_reprices_the_array_and_is_recorded():
             "write_ratio_declared_over_dilated": 0.7,
             "provenance": "synthetic"}
     ratio = ((reads * 0.8 + writes * 1.4) / (reads * 1.0 + writes * 2.0))
-    moved = reconmod.apply_capacity_correction(wp, key, corr)
+    moved = capacity.apply_capacity_correction(wp, key, corr)
     assert moved["corrected"] is True, moved
     assert math.isclose(wp.stages[key].energy_pJ, before * ratio, rel_tol=1e-9), moved
     assert math.isclose(moved["moved_pJ"], before * (ratio - 1), rel_tol=1e-9)
@@ -2077,13 +2275,13 @@ def test_the_dilation_correction_reprices_the_array_and_is_recorded():
     # not a physical word.
     bad = dict(corr, read_pJ_dilated=e_rd_dil * 2.5, write_pJ_dilated=5 * e_rd_dil)
     kept = wp.stages[key].energy_pJ
-    out = reconmod.apply_capacity_correction(wp, key, bad)
+    out = capacity.apply_capacity_correction(wp, key, bad)
     assert out["corrected"] is False and out["moved_pJ"] == 0.0, out
     assert "NOT corrected" in out["note"], out
     assert wp.stages[key].energy_pJ == kept
 
     # an unreadable ERT leaves it uncorrected AND says so
-    corr2 = reconmod.capacity_dilation_correction(
+    corr2 = capacity.capacity_dilation_correction(
         "/nonexistent/ref", "/nonexistent/dil", ("weights_spad",))
     assert corr2["ok"] is False
     assert "NOT corrected" in corr2["provenance"], corr2
@@ -2091,15 +2289,22 @@ def test_the_dilation_correction_reprices_the_array_and_is_recorded():
 
 def test_capacity_dilation_scale_is_derived_from_the_code_not_configured():
     """N/K comes from the BCH geometry, so a code change moves it by itself."""
-    from eccenergy import recon as reconmod
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
     for k, want in ((39, 63 / 39), (51, 63 / 51), (30, 63 / 30)):
         cfg = _cfg(ECC_CONST_K=str(k), ECC_RECON_K=str(k))
-        assert math.isclose(reconmod.capacity_dilation_scale(cfg), want,
+        assert math.isclose(capacity.capacity_dilation_scale(cfg), want,
                             abs_tol=5e-5), k
         # ONE capacity, ONE spelling: the value that goes into the cache slug
         # must be the value the shell writes, or the evaluator refuses a cache
         # it has. (63/39 = 1.61539 by %g, 1.6154 rounded -- two directories.)
-        assert f"{reconmod.capacity_dilation_scale(cfg):g}" == \
+        assert f"{capacity.capacity_dilation_scale(cfg):g}" == \
             f"{round(63 / k, 4):g}", k
     # and it composes with a SHRUNK reference: the reconstruction arm is always
     # N/K times whatever the reference arm's silicon is
@@ -2108,7 +2313,7 @@ def test_capacity_dilation_scale_is_derived_from_the_code_not_configured():
     # stores as 0.4038, which is 1.1e-4 relative but 4.6e-5 absolute.
     cfg = _cfg(ECC_CONST_K="39", ECC_RECON_K="39",
                ECC_WEIGHT_CAPACITY_SCALE="0.25")
-    assert math.isclose(reconmod.capacity_dilation_scale(cfg),
+    assert math.isclose(capacity.capacity_dilation_scale(cfg),
                         0.25 * 63 / 39, abs_tol=5e-5)
 
 
@@ -2133,7 +2338,7 @@ def test_an_identical_loop_nest_means_an_identical_dram_read_count():
     import pathlib as _pl
     from eccenergy.paths import ROOT
     try:
-        from eccenergy.experiments import dilation as dilmod
+        from ..study import dilation_cache
     except ImportError as exc:                                # pragma: no cover
         raise _Skip(f"dilation module unavailable: {exc}")
 
@@ -2168,9 +2373,9 @@ def test_an_identical_loop_nest_means_an_identical_dram_read_count():
                         if ref_shapes[shape].read_text() != dil_shapes[shape].read_text():
                             continue          # the mapper DID use the room
                         identical += 1
-                        a = dilmod.read_mapped_layer(
+                        a = dilation_cache.read_mapped_layer(
                             ref_fp / shape / "timeloop-mapper.stats.txt", "DRAM")
-                        b = dilmod.read_mapped_layer(
+                        b = dilation_cache.read_mapped_layer(
                             dil_fp / shape / "timeloop-mapper.stats.txt", "DRAM")
                         if a is None or b is None:
                             continue
@@ -2206,18 +2411,20 @@ _EXPECTED_ERT_ARMS = {
 
 
 def test_the_ert_injectable_predicate_on_every_registered_design():
-    """prompt_6 3.3, on every design in `recon.PLACEMENTS`: the derived set,
+    """prompt_6 3.3, on every design in `placements_mod.PLACEMENTS`: the derived set,
     and the stated reason for every excluded bar."""
-    from eccenergy import recon
-    assert set(_EXPECTED_ERT_ARMS) == set(recon.PLACEMENTS), (
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..physics import granularity
+    assert set(_EXPECTED_ERT_ARMS) == set(placements_mod.PLACEMENTS), (
         f"a design was registered without an expectation here: "
-        f"{set(recon.PLACEMENTS) ^ set(_EXPECTED_ERT_ARMS)}")
+        f"{set(placements_mod.PLACEMENTS) ^ set(_EXPECTED_ERT_ARMS)}")
     for arch, want in _EXPECTED_ERT_ARMS.items():
-        got = tuple(p.key for p in recon.ert_arms(arch))
+        got = tuple(p.key for p in arms.ert_arms(arch))
         assert got == want, f"{arch}: ERT arms {got} != {want}"
-        stages = recon.stages_for(arch)
-        for p in recon.placements_for(arch):
-            ok, why = recon.ert_injectable(p, stages)
+        stages = placements_mod.stages_for(arch)
+        for p in placements_mod.placements_for(arch):
+            ok, why = arms.ert_injectable(p, stages)
             assert ok == (p.key in want), (arch, p.key, why)
             if not ok:
                 assert any(w in why for w in ("dram stage", "network stage",
@@ -2225,8 +2432,8 @@ def test_the_ert_injectable_predicate_on_every_registered_design():
     # Eyeriss v1: recon2 is filter_glb + reads -> read, recon4 is weights_spad
     # + fills -> write, and BOTH narrow only filter_glb (the weights stop AT
     # the boundary; weights_spad stays 8 on recon4).
-    r2 = recon.ert_arm_spec("eyeriss_like_wglb", "recon2")
-    r4 = recon.ert_arm_spec("eyeriss_like_wglb", "recon4")
+    r2 = arms.ert_arm_spec("eyeriss_like_wglb", "recon2")
+    r4 = arms.ert_arm_spec("eyeriss_like_wglb", "recon4")
     assert (r2["level"], r2["counter"], r2["action"]) == ("filter_glb", "reads", "read"), r2
     assert (r4["level"], r4["counter"], r4["action"]) == ("weights_spad", "fills", "write"), r4
     assert r2["narrow_levels"] == ("filter_glb",), r2["narrow_levels"]
@@ -2234,13 +2441,13 @@ def test_the_ert_injectable_predicate_on_every_registered_design():
     # not an arm: a clear refusal naming the reason, never a silent None
     for key in ("recon1", "recon3", "recon5"):
         try:
-            recon.ert_arm_spec("eyeriss_like_wglb", key)
+            arms.ert_arm_spec("eyeriss_like_wglb", key)
         except ValueError as e:
             assert "not an ERT arm" in str(e), e
         else:
             raise AssertionError(f"{key} was accepted as an ERT arm")
     try:
-        recon.ert_arm_spec("eyeriss_like_wglb", "recon9")
+        arms.ert_arm_spec("eyeriss_like_wglb", "recon9")
     except KeyError:
         pass
     else:
@@ -2251,22 +2458,24 @@ def test_the_predicate_is_derived_not_keyed_on_the_name():
     """MUTATIONS: the same key with a different record flips the verdict, so
     nothing can be reading `key == "recon2"`."""
     import dataclasses
-    from eccenergy import recon
-    stages = recon.stages_for("eyeriss_like_wglb")
-    r2 = recon.placement_by_key("eyeriss_like_wglb", "recon2")
-    assert recon.ert_injectable(r2, stages)[0]
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..physics import granularity
+    stages = placements_mod.stages_for("eyeriss_like_wglb")
+    r2 = placements_mod.placement_by_key("eyeriss_like_wglb", "recon2")
+    assert arms.ert_injectable(r2, stages)[0]
     # a storage stage charged on a NETWORK counter names no ERT action
-    assert not recon.ert_injectable(dataclasses.replace(r2, site_counter="deliveries"), stages)[0]
+    assert not arms.ert_injectable(dataclasses.replace(r2, site_counter="deliveries"), stages)[0]
     # the same boundary sited on the network stage is billed by noc.yaml
-    assert not recon.ert_injectable(dataclasses.replace(r2, site_stage="array_multicast"), stages)[0]
+    assert not arms.ert_injectable(dataclasses.replace(r2, site_stage="array_multicast"), stages)[0]
     # moved to the innermost level's READS it is mapping-invariant ...
-    assert not recon.ert_injectable(dataclasses.replace(
+    assert not arms.ert_injectable(dataclasses.replace(
         r2, site_stage="weights_spad", site_counter="reads"), stages)[0]
     # ... but the innermost level's FILLS are fine (that IS recon4)
-    assert recon.ert_injectable(dataclasses.replace(
+    assert arms.ert_injectable(dataclasses.replace(
         r2, site_stage="weights_spad", site_counter="fills"), stages)[0]
     # and a stage that is not on the path at all
-    assert not recon.ert_injectable(dataclasses.replace(r2, site_stage="nowhere"), stages)[0]
+    assert not arms.ert_injectable(dataclasses.replace(r2, site_stage="nowhere"), stages)[0]
 
 
 def test_the_ert_deltas_reproduce_prompt_6_table_5_1():
@@ -2275,23 +2484,25 @@ def test_the_ert_deltas_reproduce_prompt_6_table_5_1():
     weights: E_w = 1.3786 / 7.875 = 0.175060; filter_glb (64/4 = 16 per word)
     2.80096; weights_spad (16/8 = 2) 0.350120; leak 2.8310811. The table in the
     plan is the CHECK; these are recomputed from the DC numbers."""
-    from eccenergy import recon
-    gran = recon.Granularity(63, 30, 8, "weight")
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..physics import granularity
+    gran = granularity.Granularity(63, 30, 8, "weight")
     assert abs(gran.weights_per_codeword - 7.875) < 1e-12
-    d16 = recon.ert_deltas(1.3786, 2.8310811, gran, 16)
-    d2 = recon.ert_deltas(1.3786, 2.8310811, gran, 2)
+    d16 = arms.ert_deltas(1.3786, 2.8310811, gran, 16)
+    d2 = arms.ert_deltas(1.3786, 2.8310811, gran, 2)
     assert abs(d16["e_w_pj"] - 0.175060) < 1e-6, d16["e_w_pj"]
     assert abs(d16["access_delta_pj"] - 2.80096) < 1e-5, d16["access_delta_pj"]
     assert abs(d2["access_delta_pj"] - 0.350120) < 1e-6, d2["access_delta_pj"]
     assert d16["leak_delta_pj"] == d2["leak_delta_pj"] == 2.8310811
     assert d16["access_delta_pj"] / d2["access_delta_pj"] == 8.0
     # codeword charging: every access rebuilds a whole codeword, E_w = incremental
-    dc = recon.ert_deltas(1.3786, 2.8310811, recon.Granularity(63, 30, 8, "codeword"), 16)
+    dc = arms.ert_deltas(1.3786, 2.8310811, granularity.Granularity(63, 30, 8, "codeword"), 16)
     assert abs(dc["e_w_pj"] - 1.3786) < 1e-12 and abs(dc["access_delta_pj"] - 1.3786 * 16) < 1e-9
     # BREAKAGE: a block size of 0 or None is undefined, never a silent 0 pJ
     for bad in (0, None):
         try:
-            recon.ert_deltas(1.3786, 2.8310811, gran, bad)
+            arms.ert_deltas(1.3786, 2.8310811, gran, bad)
         except ValueError:
             pass
         else:
@@ -2305,7 +2516,7 @@ def test_storage_scale_bypasses_a_level_the_mapper_already_narrowed():
     """RULE 1 on `Packing`: Word bits == q -> the mapper owns it, scale 1.0;
     Word bits == weight_bits -> the evaluator narrows as before; anything else
     -> STOP. No `word_bits` keeps the pre-prompt_6 reading."""
-    from eccenergy.recon import Packing
+    from ..physics.packing import Packing
     for mode in ("aligned", "stream"):
         p = Packing(mode, 8, 30, 63)          # q = round(8*30/63) = 4
         assert p.declared_q == 4
@@ -2334,7 +2545,7 @@ def test_the_narrowing_site_audit_fails_on_both_live_and_on_nobody_live():
     """The per-stop audit row, fed the scale the evaluator ACTUALLY applied.
     BREAKAGES: a q-bit plan with a scale != 1 applied (both live) and an 8-bit
     plan with x1.0 applied on a stop the placement narrows (nobody live)."""
-    from eccenergy.recon import Packing
+    from ..physics.packing import Packing
     p = Packing("aligned", 8, 30, 63)
     ok_m = p.narrowing_site(4, 1.0)
     assert ok_m["ok"] and ok_m["owner"] == "mapper" and not ok_m["evaluator_live"], ok_m
@@ -2362,11 +2573,18 @@ def test_a_q_bit_plan_is_narrowed_by_the_mapper_and_an_odd_one_is_refused():
     plan whose spad prints Word bits 4 the mapper already did, so the spad
     saving is ZERO and the owner is the mapper -- the same bar, same energies,
     read from two different plans. Word bits 5 stops the run."""
-    from eccenergy import recon as reconmod
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
     cfg = _cfg(ECC_CONST_K="30", ECC_RECON_PACKING="aligned")
-    gran = reconmod.Granularity(63, 30, 8, "weight")
-    packing = reconmod.Packing("aligned", 8, 30, 63)
-    placement = reconmod.placement_by_key("eyeriss_v2_like", "recon4", cfg)
+    gran = granularity.Granularity(63, 30, 8, "weight")
+    packing = packing_mod.Packing("aligned", 8, 30, 63)
+    placement = placements_mod.placement_by_key("eyeriss_v2_like", "recon4", cfg)
     assert "weight_spad" in placement.reduced
     base_w = {"DRAM": _DRAM_W, "Local (spads/RF)": 800.0, "NoC": 150.0}
     base = {"DRAM": _DRAM_W, "Local (spads/RF)": 1000.0, "NoC": 150.0, "Compute": 9000.0}
@@ -2377,10 +2595,10 @@ def test_a_q_bit_plan_is_narrowed_by_the_mapper_and_an_odd_one_is_refused():
             _write_lf(d / "timeloop-mapper.stats.txt", _stats_with_word_bits(wb))
             _write_lf(d / "timeloop-mapper.map.txt", _MAP)
             layer = _Layer()
-            wp = reconmod.weight_path(cfg, "eyeriss_v2_like", "resnet18", [layer],
+            wp = weight_stats.weight_path(cfg, "eyeriss_v2_like", "resnet18", [layer],
                                       {layer.shape_name: d / "timeloop-mapper.stats.txt"})
             assert wp.stage("weight_spad").word_bits == wb
-            res = reconmod.evaluate_placement(cfg, "eyeriss_v2_like", placement, wp,
+            res = placement_eval.evaluate_placement(cfg, "eyeriss_v2_like", placement, wp,
                                               base_w, base, 1.0, gran, packing)
             assert res.status == "evaluated", res.reason
             out[wb] = res
@@ -2407,10 +2625,10 @@ def test_a_q_bit_plan_is_narrowed_by_the_mapper_and_an_odd_one_is_refused():
         _write_lf(d / "timeloop-mapper.stats.txt", _stats_with_word_bits(5))
         _write_lf(d / "timeloop-mapper.map.txt", _MAP)
         layer = _Layer()
-        wp = reconmod.weight_path(cfg, "eyeriss_v2_like", "resnet18", [layer],
+        wp = weight_stats.weight_path(cfg, "eyeriss_v2_like", "resnet18", [layer],
                                   {layer.shape_name: d / "timeloop-mapper.stats.txt"})
         try:
-            reconmod.evaluate_placement(cfg, "eyeriss_v2_like", placement, wp,
+            placement_eval.evaluate_placement(cfg, "eyeriss_v2_like", placement, wp,
                                         base_w, base, 1.0, gran, packing)
         except ValueError as e:
             assert "disagree" in str(e) and "recon4" in str(e), e
@@ -2423,19 +2641,26 @@ def test_a_narrow_stop_nobody_narrows_is_refused():
     and a 24-bit word holds floor(24/7) = 3 values -- the same 3 it held at 8
     bits -- so on an 8-bit plan NOBODY narrows the spad although recon4 says it
     carries narrow weights. That used to pass with a note; it is a stop now."""
-    from eccenergy import recon as reconmod
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
     cfg = _cfg(ECC_CONST_K="57", ECC_RECON_PACKING="aligned")
-    gran = reconmod.Granularity(63, 57, 8, "weight")
-    packing = reconmod.Packing("aligned", 8, 57, 63)
+    gran = granularity.Granularity(63, 57, 8, "weight")
+    packing = packing_mod.Packing("aligned", 8, 57, 63)
     assert packing.storage_scale(24, word_bits=8) == 1.0
-    placement = reconmod.placement_by_key("eyeriss_v2_like", "recon4", cfg)
+    placement = placements_mod.placement_by_key("eyeriss_v2_like", "recon4", cfg)
     with tempfile.TemporaryDirectory() as tmp:
         stats = _write_cache(tmp)
         layer = _Layer()
-        wp = reconmod.weight_path(cfg, "eyeriss_v2_like", "resnet18", [layer],
+        wp = weight_stats.weight_path(cfg, "eyeriss_v2_like", "resnet18", [layer],
                                   {layer.shape_name: stats})
         try:
-            reconmod.evaluate_placement(cfg, "eyeriss_v2_like", placement, wp,
+            placement_eval.evaluate_placement(cfg, "eyeriss_v2_like", placement, wp,
                                         {"DRAM": _DRAM_W, "Local (spads/RF)": 800.0},
                                         {"DRAM": _DRAM_W, "Local (spads/RF)": 1000.0},
                                         1.0, gran, packing)
@@ -2444,10 +2669,10 @@ def test_a_narrow_stop_nobody_narrows_is_refused():
         else:
             raise AssertionError("a narrow stop narrowed by nobody was accepted")
         # `stream` packing DOES narrow it (x K/N), so the same bar evaluates
-        res = reconmod.evaluate_placement(cfg, "eyeriss_v2_like", placement, wp,
+        res = placement_eval.evaluate_placement(cfg, "eyeriss_v2_like", placement, wp,
                                           {"DRAM": _DRAM_W, "Local (spads/RF)": 800.0},
                                           {"DRAM": _DRAM_W, "Local (spads/RF)": 1000.0},
-                                          1.0, gran, reconmod.Packing("stream", 8, 57, 63))
+                                          1.0, gran, packing_mod.Packing("stream", 8, 57, 63))
         assert res.status == "evaluated"
         assert res.detail["narrowing_ownership"]["stops"][0]["owner"] == "evaluator"
 
@@ -2471,10 +2696,17 @@ def test_the_idle_term_is_per_cycle_per_engine_with_engines_derived_per_placemen
     beside them). Until 2026-09-11 this charged the DECLARED 192; the
     ResNet18 full-model eval (job 41740440) caught the disagreement with
     Timeloop on every shape that does not fill the array."""
-    from eccenergy import recon as reconmod
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
     cfg = _cfg(ECC_CONST_K="51")
-    gran = reconmod.Granularity(63, 51, 8, "weight")
-    packing = reconmod.Packing("stream", 8, 51, 63)
+    gran = granularity.Granularity(63, 51, 8, "weight")
+    packing = packing_mod.Packing("stream", 8, 51, 63)
     base_w = {"DRAM": _DRAM_W, "Local (spads/RF)": 800.0, "NoC": 150.0}
     base = {"DRAM": _DRAM_W, "Local (spads/RF)": 1000.0, "NoC": 150.0, "Compute": 9000.0}
     inc, idle, cycles = 1.8995, 2.2301273, 4000
@@ -2483,7 +2715,7 @@ def test_the_idle_term_is_per_cycle_per_engine_with_engines_derived_per_placemen
         _write_lf(d / "timeloop-mapper.stats.txt", _stats_with_cycles(cycles))
         _write_lf(d / "timeloop-mapper.map.txt", _MAP)
         layer = _Layer(count=1)
-        wp = reconmod.weight_path(cfg, "eyeriss_v2_like", "resnet18", [layer],
+        wp = weight_stats.weight_path(cfg, "eyeriss_v2_like", "resnet18", [layer],
                                   {layer.shape_name: d / "timeloop-mapper.stats.txt"})
         assert wp.cycles == cycles, wp.cycles
         assert wp.stage("weight_spad").declared_instances == 192
@@ -2493,8 +2725,8 @@ def test_the_idle_term_is_per_cycle_per_engine_with_engines_derived_per_placemen
                                         * wp.stage("inter_cluster_mesh").instances),
                         "recon3": 4, "recon4": 4}
         for key, n_eng in want_engines.items():
-            pl = reconmod.placement_by_key("eyeriss_v2_like", key, cfg)
-            res = reconmod.evaluate_placement(cfg, "eyeriss_v2_like", pl, wp, base_w, base,
+            pl = placements_mod.placement_by_key("eyeriss_v2_like", key, cfg)
+            res = placement_eval.evaluate_placement(cfg, "eyeriss_v2_like", pl, wp, base_w, base,
                                               inc, gran, packing, recon_idle_pj=idle)
             assert res.status == "evaluated", (key, res.reason)
             c = res.detail["reconstruction_counts"]
@@ -2514,8 +2746,8 @@ def test_the_idle_term_is_per_cycle_per_engine_with_engines_derived_per_placemen
         # the network boundary's engines: fanout 4 x 1 instance in the synthetic mesh
         assert want_engines["recon2"] == 4, want_engines
         # an explicit `cycles` (another plan's, RULE 4) overrides the path's own
-        pl = reconmod.placement_by_key("eyeriss_v2_like", "recon3", cfg)
-        res = reconmod.evaluate_placement(cfg, "eyeriss_v2_like", pl, wp, base_w, base,
+        pl = placements_mod.placement_by_key("eyeriss_v2_like", "recon3", cfg)
+        res = placement_eval.evaluate_placement(cfg, "eyeriss_v2_like", pl, wp, base_w, base,
                                           inc, gran, packing, recon_idle_pj=idle, cycles=1)
         assert math.isclose(res.detail["reconstruction_counts"]["reconstruction_energy_idle_pJ"],
                             idle * 1 * 4)
@@ -2523,19 +2755,19 @@ def test_the_idle_term_is_per_cycle_per_engine_with_engines_derived_per_placemen
         assert not math.isclose(res.detail["reconstruction_counts"]["reconstruction_energy_idle_pJ"],
                                 idle * 1 * 192)
         # no idle term: the old behaviour, exactly
-        res0 = reconmod.evaluate_placement(cfg, "eyeriss_v2_like", pl, wp, base_w, base,
+        res0 = placement_eval.evaluate_placement(cfg, "eyeriss_v2_like", pl, wp, base_w, base,
                                            inc, gran, packing)
         assert res0.detail["reconstruction_counts"]["reconstruction_energy_idle_pJ"] == 0.0
     # BREAKAGE: an idle term on a plan with no `Cycles:` line is refused
     with tempfile.TemporaryDirectory() as tmp:
         stats = _write_cache(tmp)
         layer = _Layer()
-        wp = reconmod.weight_path(cfg, "eyeriss_v2_like", "resnet18", [layer],
+        wp = weight_stats.weight_path(cfg, "eyeriss_v2_like", "resnet18", [layer],
                                   {layer.shape_name: stats})
         assert wp.cycles == 0.0
-        pl = reconmod.placement_by_key("eyeriss_v2_like", "recon3", cfg)
+        pl = placements_mod.placement_by_key("eyeriss_v2_like", "recon3", cfg)
         try:
-            reconmod.evaluate_placement(cfg, "eyeriss_v2_like", pl, wp, base_w, base,
+            placement_eval.evaluate_placement(cfg, "eyeriss_v2_like", pl, wp, base_w, base,
                                         inc, gran, packing, recon_idle_pj=idle)
         except ValueError as e:
             assert "cycle" in str(e), e
@@ -2556,12 +2788,19 @@ def test_the_ert_split_moves_exactly_what_the_evaluator_charges():
     synthetic plan whose spad declares 192 instances, utilises 4 and fills 40
     weights; the leak side is idle x UTILIZED x cycles, as Timeloop bills it."""
     try:
-        from eccenergy.experiments import recon as exp
+        from ..study import ert_view
     except Exception as exc:                       # pragma: no cover
-        raise _Skip(f"experiments.recon unavailable: {exc}")
-    from eccenergy import recon as reconmod
+        raise _Skip(f"the placement study is unavailable: {exc}")
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
     cfg = _cfg(ECC_CONST_K="30", ECC_RECON_PACKING="aligned")
-    gran = reconmod.Granularity(63, 30, 8, "weight")
+    gran = granularity.Granularity(63, 30, 8, "weight")
     inc, idle, cycles = 1.3786, 2.8310811, 5000
     bump = {"placement": "recon3", "level": "weights_spad", "counter": "fills",
             "action": "write", "e_w_pj": inc * gran.codewords(1.0),
@@ -2572,10 +2811,10 @@ def test_the_ert_split_moves_exactly_what_the_evaluator_charges():
         _write_lf(d / "timeloop-mapper.stats.txt", _stats_with_cycles(cycles))
         _write_lf(d / "timeloop-mapper.map.txt", _MAP)
         layer = _Layer()
-        wp = reconmod.weight_path(cfg, "eyeriss_v2_like", "resnet18", [layer],
+        wp = weight_stats.weight_path(cfg, "eyeriss_v2_like", "resnet18", [layer],
                                   {layer.shape_name: d / "timeloop-mapper.stats.txt"})
         st = wp.stage("weight_spad")
-        split = exp.ert_split(bump, st, wp.cycles)
+        split = ert_view.ert_split(bump, st, wp.cycles)
         assert split["scalar_accesses"] == st.fills == 40.0
         assert split["engines"] == 4 and split["cycles"] == cycles
         assert split["engines_declared"] == 192 and split["engines_utilized_max"] == 4
@@ -2584,21 +2823,21 @@ def test_the_ert_split_moves_exactly_what_the_evaluator_charges():
         assert math.isclose(split["total_toll_pJ"], split["access_toll_pJ"] + split["leak_toll_pJ"])
         # the evaluator's two terms on the same plan, same placement (v2 recon3
         # is weight_spad + fills), are the same two numbers
-        pl = reconmod.placement_by_key("eyeriss_v2_like", "recon3", cfg)
-        packing = reconmod.Packing("aligned", 8, 30, 63)
-        res = reconmod.evaluate_placement(cfg, "eyeriss_v2_like", pl, wp,
+        pl = placements_mod.placement_by_key("eyeriss_v2_like", "recon3", cfg)
+        packing = packing_mod.Packing("aligned", 8, 30, 63)
+        res = placement_eval.evaluate_placement(cfg, "eyeriss_v2_like", pl, wp,
                                           {"DRAM": _DRAM_W, "Local (spads/RF)": 800.0, "NoC": 150.0},
                                           {"DRAM": _DRAM_W, "Local (spads/RF)": 1000.0, "NoC": 150.0,
                                            "Compute": 9000.0},
                                           inc, gran, packing, recon_idle_pj=idle)
         c = res.detail["reconstruction_counts"]
-        assert exp._close(c["reconstruction_energy_incremental_pJ"], split["access_toll_pJ"])
-        assert exp._close(c["reconstruction_energy_idle_pJ"], split["leak_toll_pJ"])
+        assert ert_view._close(c["reconstruction_energy_incremental_pJ"], split["access_toll_pJ"])
+        assert ert_view._close(c["reconstruction_energy_idle_pJ"], split["leak_toll_pJ"])
         # BREAKAGE: the wrong counter (a blended or level-total figure) does not reconcile
-        wrong = exp.ert_split(dict(bump, counter="reads"), st, wp.cycles)
-        assert not exp._close(wrong["access_toll_pJ"], c["reconstruction_energy_incremental_pJ"])
+        wrong = ert_view.ert_split(dict(bump, counter="reads"), st, wp.cycles)
+        assert not ert_view._close(wrong["access_toll_pJ"], c["reconstruction_energy_incremental_pJ"])
     # the ERT arms of every design are what the per-bar lookup keys on
-    assert [p.key for p in reconmod.ert_arms("eyeriss_like_wglb")] == ["recon2", "recon4"]
+    assert [p.key for p in arms.ert_arms("eyeriss_like_wglb")] == ["recon2", "recon4"]
 
 
 def test_idle_engines_are_timeloops_utilized_instances_on_the_real_cache():
@@ -2611,8 +2850,16 @@ def test_idle_engines_are_timeloops_utilized_instances_on_the_real_cache():
     delta against the reference entry must equal idle x 98 x cycles, the
     stage's engine_cycles must be 98 x cycles, and the DECLARED 168 must NOT
     reconcile. Skips when the two cache entries are not on disk."""
-    from eccenergy import recon as reconmod
-    base = pathlib.Path(reconmod.__file__).resolve().parents[1] / "ecc_energy_study" / "outputs" / "eyeriss_like_wglb"
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
+    from eccenergy.paths import WORK
+    base = WORK / "outputs" / "eyeriss_like_wglb"
     slug = "multimodel__vic4000__vicx__alg-linear_pruned__to100000000__noc__paper"
     shape = "C3_M64_R7_S7_P112_Q112_ws2_hs2"
     ref = base / f"{slug}__mcons__wrelax" / "fp-3cd00eb16801" / shape / "timeloop-mapper.stats.txt"
@@ -2637,18 +2884,18 @@ def test_idle_engines_are_timeloops_utilized_instances_on_the_real_cache():
     cfg = _cfg(ECC_CONST_ARCH="eyeriss_like_wglb", ECC_SWEEP_ARCHS="eyeriss_like_wglb",
                ECC_CONST_K="30", ECC_RECON_PACKING="aligned")
     layer = _Layer(name="conv1", shape_name=shape, weights=9408)
-    wp = reconmod.weight_path(cfg, "eyeriss_like_wglb", "resnet18", [layer], {shape: arm})
+    wp = weight_stats.weight_path(cfg, "eyeriss_like_wglb", "resnet18", [layer], {shape: arm})
     st = wp.stage("weights_spad") if hasattr(wp, "stage") else wp.stages["weights_spad"]
     assert st.declared_instances == 168 and st.instances == 98, (st.declared_instances, st.instances)
     assert math.isclose(st.engine_cycles, 98 * cyc_a), st.engine_cycles
     try:
-        from eccenergy.experiments import recon as exp
+        from ..study import ert_view
     except Exception as exc:                       # pragma: no cover
-        raise _Skip(f"experiments.recon unavailable: {exc}")
+        raise _Skip(f"the placement study is unavailable: {exc}")
     bump = {"placement": "recon4", "level": "weights_spad", "counter": "fills",
             "action": "write", "e_w_pj": 0.17506, "access_delta_pj": 0.35012,
             "leak_delta_pj": idle, "narrow_levels": ["filter_glb"]}
-    split = exp.ert_split(bump, st, wp.cycles)
+    split = ert_view.ert_split(bump, st, wp.cycles)
     assert math.isclose(split["leak_toll_pJ"], leak_a - leak_r, rel_tol=1e-6), (split["leak_toll_pJ"], leak_a - leak_r)
     assert split["engines"] == 98 and split["engines_declared"] == 168
 
@@ -2660,10 +2907,17 @@ def test_clock_gating_is_exact_at_zero_and_scales_the_idle_term(cache=None):
     term and nothing else. The engine burns `incremental + idle` while it is
     working (that is active_per_codeword) and `idle x (1-g)` while it is gated
     off, so at g=1 only the work term survives."""
-    from eccenergy import recon as reconmod
+    from ..arch import arms
+    from ..arch import placements as placements_mod
+    from ..arch import weight_path
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import capacity
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
     inc, idle, cycles = 1.3786, 2.8310811, 5000
-    gran = reconmod.Granularity(63, 30, 8, "weight")
-    packing = reconmod.Packing(63, 30, 8, "aligned")
+    gran = granularity.Granularity(63, 30, 8, "weight")
+    packing = packing_mod.Packing(63, 30, 8, "aligned")
 
     def charge(pct):
         cfg = _cfg(ECC_CONST_K="30", ECC_RECON_PACKING="aligned",

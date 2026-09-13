@@ -28,7 +28,8 @@ optimisation it did not perform.
 from __future__ import annotations
 
 from ..physics import baseline_dram
-from ..archs import accumulator_bits, arch_source, load_provenance, noc_terms, validate_arch
+from ..arch.load import accumulator_bits, arch_source, load_provenance, noc_terms
+from ..arch.validate import validate_arch
 from .stacks import external_parity
 from .energy import plot_cats
 from ..toolchain.results_store import ResultBuilder, Variant

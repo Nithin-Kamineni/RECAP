@@ -12,7 +12,8 @@ from __future__ import annotations
 
 from ..physics import baseline_dram
 from ..toolchain import noc_post
-from ..archs import accumulator_bits, arch_source, noc_band_levels, noc_terms, pe_latch_pj, validate_arch
+from ..arch.load import accumulator_bits, arch_source, noc_band_levels, noc_terms, pe_latch_pj
+from ..arch.validate import validate_arch
 
 
 def components(series):

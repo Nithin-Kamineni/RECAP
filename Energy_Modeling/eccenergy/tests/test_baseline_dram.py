@@ -200,7 +200,8 @@ def test_3d_the_ratio_is_read_from_the_record_not_assumed():
 
 # ----------------------------------------------- 4. recon is the arm that scales
 def test_4_dram_is_reducible_by_k_over_n_on_every_recon_boundary():
-    from eccenergy.recon import PLACEMENTS, WEIGHT_PATHS
+    from ..arch.placements import PLACEMENTS
+    from ..arch.weight_path import WEIGHT_PATHS
     stages = [s for stages in WEIGHT_PATHS.values()
               for s in stages if s.key == "dram"]
     assert stages, "no design declares a `dram` weight-path stage"
@@ -315,7 +316,7 @@ def test_5_no_component_outside_dram_differs():
 
 # -------------------------------------------- 6. no mapper input changed
 def test_6_the_knob_is_not_in_any_fingerprint():
-    from eccenergy.archs import arch_fingerprint
+    from ..arch.fingerprint import arch_fingerprint
     with_knob = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT="70")
     without = _cfg(ECC_BASELINE_DRAM_PJ_PER_BIT=None)
     assert with_knob.baseline_dram_pj_per_bit == 70.0

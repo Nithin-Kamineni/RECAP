@@ -23,7 +23,9 @@ from __future__ import annotations
 
 import pandas as pd
 
-from ..archs import arch_fingerprint, audit, audit_findings, effective_variant, install_local_archs
+from ..arch.fingerprint import arch_fingerprint, effective_variant
+from ..arch.load import install_local_archs
+from ..arch.validate import audit, audit_findings
 from .energy import load_raw, plot_cats
 from ..paths import DESIGNS_DIR, Results
 

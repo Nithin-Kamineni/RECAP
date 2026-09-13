@@ -57,7 +57,7 @@
 #  that converges on a big buffer may not on a small one). Converged means the
 #  last two agree within a margin you STATE, and that margin must be smaller
 #  than the Recon-vs-Embedded effect being claimed. Read it with
-#      bash hpc/tl.sh python3 -m eccenergy.experiments.dilation --gate
+#      bash hpc/tl.sh python3 -m eccenergy.report.dilation_view --gate
 #
 #  NO KNOBS ARE DEFINED HERE. Every value comes from ../env.sh (section 5 for
 #  the sweep, section 2 for the search budget, section 8 for SLURM), so a value
@@ -66,7 +66,7 @@
 #  There is deliberately NO dependent evaluation: the sweep is a property of
 #  the MAPPINGS, and an eval job here would draw a Task 3 figure over it. Read
 #  the result with
-#      bash hpc/tl.sh python3 -m eccenergy.experiments.dilation --levels \
+#      bash hpc/tl.sh python3 -m eccenergy.report.dilation_view --levels \
 #           --csv results/tables/EyerissV1_mem_arch_sweep.csv
 #
 #  Structure is hpc/map_capacity_sweep.sh's, deliberately: one job per unit of
@@ -104,7 +104,7 @@ source ./env.sh
 
 # ---- what the two arms are -------------------------------------------------
 # The reduced arm's datawidth. env.sh may pin it; otherwise it comes from
-# eccenergy/code_widths.py -- round(ECC_WEIGHT_BITS * K/N), which is 4 at
+# eccenergy/physics/widths.py -- round(ECC_WEIGHT_BITS * K/N), which is 4 at
 # BCH(63,30), the value that needs no width change at all on Eyeriss v1's
 # 16-bit and 64-bit weight words.
 #
@@ -116,7 +116,7 @@ source ./env.sh
 RECON_DW="${ECC_DEPTH_SWEEP_RECON_DW}"
 if [ -z "${RECON_DW}" ]; then
     RECON_DW=$(python3 -c "
-from eccenergy import code_widths
+from eccenergy.physics import widths as code_widths
 print(code_widths.declared_datawidth(${ECC_CODE_N}, ${ECC_CONST_K}, ${ECC_WEIGHT_BITS}))")
 fi
 
@@ -140,7 +140,8 @@ if [ "${ALL_SHAPES}" = "0" ] && [ -n "${ECC_LAYERS}" ]; then
 else
     read -r -a LAYERS <<< "$(python3 -c "
 import dataclasses
-from eccenergy import config, workloads
+from eccenergy import config
+from eccenergy.arch import workloads
 cfg = dataclasses.replace(config.load_config(), layers=[])
 models, _ = workloads.load_workload(cfg)
 seen, out = set(), []
@@ -172,7 +173,7 @@ read -r -a GATE_LAYERS <<< "${ECC_LAYERS}"
 # fingerprints.
 read -r -a PERLEVEL <<< "$(python3 -c "
 from eccenergy import config
-from eccenergy.experiments import dilation
+from eccenergy.report import dilation_view as dilation
 cfg = config.load_config()
 levels = dilation.weight_levels_of(cfg.archs[0], cfg)
 print(' '.join(levels) if len(levels) > 1 else '')")"
@@ -203,7 +204,8 @@ print(' '.join(levels) if len(levels) > 1 else '')")"
 # exit=134). One python call now beats 14 core dumps in an hour.
 python3 - "${RECON_DW}" <<'PY' || exit 2
 import dataclasses, sys
-from eccenergy import archs, config
+from eccenergy import config
+from eccenergy.arch import patch
 dw = int(sys.argv[1])
 cfg = config.load_config()
 scales = [round(float(s), 4) for s in
@@ -214,7 +216,7 @@ for arch in cfg.archs:
         emb = dataclasses.replace(cfg, weight_depth_scale=s, weight_datawidth=None)
         rec = dataclasses.replace(cfg, weight_depth_scale=s, weight_datawidth=dw)
         try:
-            info = archs.assert_pair_geometry(arch, emb, rec)
+            info = patch.assert_pair_geometry(arch, emb, rec)
         except ValueError as e:
             print(f"  REFUSED  {arch} x{s:g}: {e}", file=sys.stderr)
             sys.exit(1)
@@ -277,7 +279,7 @@ else
 fi
 echo "  task file : ${SNAP}"
 echo "  NO dependent eval is submitted. Read the result with"
-echo "      bash hpc/tl.sh python3 -m eccenergy.experiments.dilation --levels \\"
+echo "      bash hpc/tl.sh python3 -m eccenergy.report.dilation_view --levels \\"
 echo "           --csv results/tables/EyerissV1_mem_arch_sweep.csv"
 
 if [ "${WANT_PROGRESS}" = "1" ]; then
@@ -289,11 +291,12 @@ if [ "${WANT_PROGRESS}" = "1" ]; then
                       ECC_SWEEP=arch ECC_SWEEP_ARCHS="${A}" \
                       python3 -c "
 import pathlib
-from eccenergy import archs, config, paths
+from eccenergy import config, paths
+from eccenergy.arch import fingerprint
 cfg = config.load_config()
 a = cfg.archs[0]
-d = pathlib.Path(paths.Results(cfg).mapper_cache(a, archs.effective_variant(a, cfg),
-                                                 archs.arch_fingerprint(a, cfg),
+d = pathlib.Path(paths.Results(cfg).mapper_cache(a, fingerprint.effective_variant(a, cfg),
+                                                 fingerprint.arch_fingerprint(a, cfg),
                                                  create=False))
 n = len(list(d.glob('*/timeloop-mapper.stats.txt'))) if d.is_dir() else 0
 k = len(list(d.glob('*.lock'))) if d.is_dir() else 0

@@ -115,8 +115,10 @@ def main(argv=None):
 
     # imported here so a config error never pays for matplotlib/pandas import
     from .study.stacks import load_recon_energy, recon_pj_for_k
-    from .study import baseline, diagnose, embedded, panels, sweep, validate
-    from .experiments import dilation, recon
+    from .study import baseline, diagnose, embedded, validate
+    from .report import panels, sweep as sweep_mod
+    from .report import dilation_view
+    from .report import recon_view
 
     recon_inc, recon_idle, provenance = load_recon_energy(cfg)
     if cfg.sweep == "bch" and cfg.recon_pj_override is None:
@@ -131,7 +133,7 @@ def main(argv=None):
         print("\n--dry-run: configuration is valid; nothing executed.")
         return 0
 
-    runners = {"sweep": sweep.run, "diagnose": diagnose.run, "panels": panels.run,
+    runners = {"sweep": sweep_mod.run, "diagnose": diagnose.run, "panels": panels.run,
                "baseline": baseline.run, "validate": validate.run,
                # Task 2: the embedded-ECC arm beside the conventional baseline,
                # from the same cached mappings; only DRAM differs, and the
@@ -140,13 +142,13 @@ def main(argv=None):
                # Task 3: the reconstruction PLACEMENT study on ONE architecture,
                # from the same cached mappings; the boundary is the axis and the
                # mapper is never re-run.
-               "recon": recon.run,
+               "recon": recon_view.run,
                # Task 4 STEP 1: diff the DRAM weight reads of two mapper caches
                # at different weight capacities. Reads caches only, maps
                # nothing, writes no figure -- it decides whether the capacity
                # effect exists on a design before the energy model is asked to
                # price it.
-               "dilation": lambda cfg: dilation.main([]),
+               "dilation": lambda cfg: dilation_view.main([]),
                # `map` is the mapping-generation half of the split the plan
                # requires: solve and cache the mappings for the selected layers,
                # write no result, evaluate nothing.

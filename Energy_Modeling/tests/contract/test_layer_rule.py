@@ -9,12 +9,14 @@ be fooled by an import that only runs on some paths.
 
 WHY THE EXCEPTION LIST IS THE POINT. The rule does not hold today -- there is one
 import cycle and it is the reason `config.py`, `archs.py` and `recon.py` cannot
-be changed independently (section 2.3). Sixteen edges point upward, and every one
-of them is DECLARED below with the phase that removes it. So:
+be changed independently (section 2.3). Eight edges point upward -- phase 3 removed eight more, and re-spelled
+the rest at the module granularity the split created -- and every one of them is
+DECLARED below with the phase that removes it. So:
 
   * a NEW upward edge fails immediately -- the rule cannot rot further;
   * a declared edge that is GONE also fails, which makes the list shrink rather
-    than accumulate. Phase 3 and phase 4 are finished when it is empty.
+    than accumulate. Phase 3 emptied everything but the cycle; PHASE 4 IS
+    FINISHED WHEN THE LIST IS EMPTY.
 
 That is the same shape as the `fp-` fingerprint rule: assert the invariant, list
 the exceptions, and make the list expensive to leave alone.
@@ -33,16 +35,11 @@ LAYERS = (
     ("contracts.", 0),          # the shared types
     ("paths", 0),               # the ONLY resolver of paths
     ("config", 0),              # -> settings/ in phase 4
-    ("physics.", 1),            # parity, embedding, widths, the DRAM price
-    ("arch.", 2), ("archs", 2), # the designs and the workloads
-    ("toolchain.", 3), ("timeloop", 3),
-    ("study.", 4), ("experiments.", 4),
-    # `recon.py` splits across FOUR layers in phase 3 (section 4.4), so it has no
-    # settled home. It is called L4 here because that is where most of it lands
-    # and because every import IT makes is then legal -- which keeps this test
-    # about the edges phase 3 has to fix, not about the file's provisional name.
-    ("recon", 4),
-    ("report.", 5),             # the renderers
+    ("physics.", 1),            # parity, embedding, widths, packing, the DRAM price
+    ("arch.", 2),               # the designs, their weight paths and their arms
+    ("toolchain.", 3),          # Timeloop in, its output parsed, what is charged after
+    ("study.", 4),              # the arms, the placement study, Task 4
+    ("report.", 5),             # the renderers, and the drivers that draw
     ("__main__", 6),            # the CLI: may import anything
     ("__init__", 0),            # the package docstring; imports nothing
 )
@@ -56,41 +53,28 @@ KNOWN_UPWARD = {
         "CodeSettings holds q and physics is handed it.",
     ("config", "physics.embedded"):
         "Config asks EmbeddedLayout how many weights a codeword holds. Phase 4.",
-    ("config", "archs"):
-        "Config validates an ERT arm against the design, and reads mac_candidates. "
-        "THE CYCLE (section 2.3). Phase 4: ArchSettings is data, not a validator.",
-    ("config", "recon"):
-        "Config resolves ECC_RECON_ERT_ARM through recon.mapper_arm_spec. "
-        "THE CYCLE. Phase 4.",
-    ("archs", "recon"):
-        "archs.ert_bump() needs the arm's placement. THE CYCLE. Phase 3 puts the "
-        "placement tables in arch/placements.py, below archs.",
-    ("archs", "study.stacks"):
-        "archs reaches for the reconstruction energy to build an ERT bump. "
-        "Phase 3/4: the bump is computed from settings, not from the arm builder.",
-    # ---- one module that is not yet the pure function it is filed as ----
-    ("physics.baseline_dram", "study.energy"):
-        "baseline_dram reads dram_ert_pj_per_bit off a Timeloop record, so it is "
-        "not the pure price model physics/ is for. Phase 3: the lookup moves to "
-        "the caller and the arithmetic stays here.",
-    # ---- the drivers still draw ----
-    ("study.sweep", "report.stacked"):
-        "The sweep driver draws its own figure. Phase 3 splits the view halves "
-        "out (report/recon_view.py, report/dilation_view.py) and this goes with them.",
-    ("study.panels", "report.panels"):
-        "Same: the panels driver draws its own figure. Phase 3, with sweep.",
-    ("experiments.recon", "report.stacked"):
-        "The placement driver draws. Phase 3: study/placement_eval.py computes, "
-        "report/recon_view.py draws.",
-    ("experiments.recon", "report.panels"):
-        "Same, for the one-panel-per-design figure. Phase 3, with the above.",
-    # ---- one tool that needs a piece of recon that has not been cut out yet ----
-    ("toolchain.ert_probe", "recon"):
-        "ert_probe needs the ERT arms, which live in recon.py until phase 3 cuts "
-        "study/arms.py out of it.",
+    ("config", "arch.load"):
+        "Config reads mac_candidates off the design to pick a MAC price. "
+        "Phase 4: ArchSettings is data, not a reader.",
+    ("config", "arch.fingerprint"):
+        "Config asks for the effective variant slug while resolving itself. "
+        "THE CYCLE (section 2.3). Phase 4.",
+    ("config", "arch.placements"):
+        "Config validates ECC_RECON_PLACEMENTS against the design's boundaries. "
+        "Phase 4: the validation moves to the arch layer, which owns the table.",
+    ("config", "arch.arms"):
+        "Config resolves ECC_RECON_ERT_ARM through mapper_arm_spec. THE CYCLE, "
+        "and the half phase 3 could not cut: the arm list is what a knob names. "
+        "Phase 4.",
+    # ---- two arch modules price a reconstruction engine ----
+    ("arch.fingerprint", "study.stacks"):
+        "ert_bump() reaches for the reconstruction energy to build the ERT bump "
+        "the mapper is given. Phase 4: the bump is computed from settings, so "
+        "the DC table is handed in rather than looked up. (Was archs -> ecc.)",
+    ("arch.arms", "study.stacks"):
+        "ert_leak_delta_pj() needs the same DC table, to decide whether a bump "
+        "has a per-cycle row at all. Phase 4, with the edge above.",
 }
-
-
 def _modules():
     out = {}
     for f in sorted(ROOT.rglob("*.py")):

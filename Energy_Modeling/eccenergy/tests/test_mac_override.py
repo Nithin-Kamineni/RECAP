@@ -146,7 +146,11 @@ def test_the_saved_pj_are_identical_across_the_rows_and_only_the_denominator_mov
     totals must differ by exactly MACs x (ERT - override). The percentages
     then differ by exactly the ratio of the totals -- which is the whole point.
     """
-    from eccenergy import recon as reconmod
+    from ..arch import placements as placements_mod
+    from ..physics import granularity
+    from ..physics import packing as packing_mod
+    from ..study import placement_eval
+    from ..toolchain import weight_stats
     from eccenergy.study.stacks import embedded_dram, external_parity
     from eccenergy.study.energy import apply_mac_override
     from eccenergy.tests.test_recon import _Layer, _write_cache
@@ -160,15 +164,15 @@ def test_the_saved_pj_are_identical_across_the_rows_and_only_the_denominator_mov
         with tempfile.TemporaryDirectory() as tmp:
             stats = _write_cache(tmp)
             layer = _Layer()
-            wp = reconmod.weight_path(cfg, "eyeriss_v2_like", "resnet18", [layer],
+            wp = weight_stats.weight_path(cfg, "eyeriss_v2_like", "resnet18", [layer],
                                       {layer.shape_name: stats})
-        gran = reconmod.Granularity(cfg.code_n, cfg.code_k, cfg.weight_bits,
+        gran = granularity.Granularity(cfg.code_n, cfg.code_k, cfg.weight_bits,
                                     cfg.recon_granularity)
-        packing = reconmod.Packing(cfg.recon_packing, cfg.weight_bits,
+        packing = packing_mod.Packing(cfg.recon_packing, cfg.weight_bits,
                                    cfg.code_k, cfg.code_n)
         placements = {}
-        for p in reconmod.placements_for("eyeriss_v2_like", cfg):
-            res = reconmod.evaluate_placement(cfg, "eyeriss_v2_like", p, wp,
+        for p in placements_mod.placements_for("eyeriss_v2_like", cfg):
+            res = placement_eval.evaluate_placement(cfg, "eyeriss_v2_like", p, wp,
                                               raw.base_w, raw.base, 4.0,
                                               gran, packing)
             assert res.status == "evaluated", (label, p.key, res.reason)

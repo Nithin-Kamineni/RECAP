@@ -62,7 +62,6 @@ from __future__ import annotations
 
 import math
 
-from ..study.energy import dram_ert_pj_per_bit
 
 #: The component the two arms used to differ in. Written explicitly as 0.0
 #: under the price model, so a reader sees "zero", not "missing".
@@ -70,6 +69,26 @@ PARITY_KEY = "DRAM external BCH parity"
 
 #: The category a per-bit DRAM price applies to. One category, never split.
 DRAM_KEY = "DRAM"
+
+
+# ---------------------------------------------------------------------------
+#  Accelergy's own per-bit DRAM price, read back off a record
+# ---------------------------------------------------------------------------
+# It lived in `study/energy.py` until ProjectRestructure phase 3. It is
+# arithmetic over two numbers of a Timeloop record and nothing else, so an L1
+# module may own it -- and owning it is what ends this file's one import of an
+# L4 module. `energy.apply_dram_override()` is still its other caller.
+
+def dram_ert_pj_per_bit(raw, cfg):
+    """Accelergy's own per-BIT dynamic DRAM energy, read back off the record.
+
+    Timeloop counts a DRAM access in units of the dataspace datawidth, so the
+    weight rows give it directly: `e_dram_w / (dram_w_reads x weight_bits)`.
+    For the LPDDR4 model these designs use that is 64.0 pJ per 8-bit word =
+    8.0 pJ/bit = the documented 512 pJ per 64-bit access.
+    """
+    bits = float(raw.dram_w_reads) * float(cfg.weight_bits)
+    return (float(raw.e_dram_w) / bits) if bits else None
 
 
 def enabled(cfg):

@@ -79,7 +79,8 @@ for M in "${MODELS[@]}"; do
     # The hardest shapes of THIS model, one representative layer each.
     mapfile -t LAYERS < <(ECC_RECON_MODEL="${M}" bash hpc/tl.sh python3 - "${NSHAPES}" 2>/dev/null <<'PY'
 import re, sys
-from eccenergy import config, workloads
+from eccenergy import config
+from eccenergy.arch import workloads
 cfg = config.load_config()
 models, _ = workloads.load_workload(cfg)
 name = cfg.models[0]

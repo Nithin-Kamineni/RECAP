@@ -307,7 +307,7 @@ class ResultBuilder:
 
     # ------------------------------------------------------------------ write
     def document(self):
-        from ..archs import accumulator_bits
+        from ..arch.load import accumulator_bits
         from ..paths import ROOT
 
         self._validate()

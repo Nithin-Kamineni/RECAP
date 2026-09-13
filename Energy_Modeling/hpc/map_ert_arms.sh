@@ -129,11 +129,12 @@ trap 'rm -rf "${PIN}"' EXIT      # cleared once the jobs are actually submitted
 # The arms, derived inside the container from the placement records. One TAB
 # separated line per arm: key, cache slug, what it declares, its members.
 mapfile -t ARM_ROWS < <(bash hpc/tl.sh python3 - 2>/dev/null <<'PY'
-from eccenergy import config, recon
+from eccenergy import config
+from eccenergy.arch import arms as arms_mod
 cfg = config.load_config()
 arch = cfg.archs[0]
 wanted = cfg.recon_placements_for(arch)
-for a in recon.mapper_arms(arch, cfg):
+for a in arms_mod.mapper_arms(arch, cfg):
     if a.placement is not None and wanted and not (
             a.key in wanted or a.placement.variant in wanted
             or any(m in wanted for m in a.members)):
@@ -166,7 +167,8 @@ if [ -n "${ECC_LAYERS}" ]; then
 else
 mapfile -t LAYERS < <(bash hpc/tl.sh python3 - "${MODEL}" 2>/dev/null <<'PY'
 import sys
-from eccenergy import config, workloads
+from eccenergy import config
+from eccenergy.arch import workloads
 cfg = config.load_config()
 models, _ = workloads.load_workload(cfg)
 seen = {}
@@ -188,11 +190,12 @@ if [ "${WANT_PROGRESS}" = "1" ]; then
     echo "  a claimed shape has a directory at once):"
     for ARM in "${ARMS[@]}"; do
         D=$(ECC_RECON_ERT_ARM="${ARM}" bash hpc/tl.sh python3 -c "
-from eccenergy import archs, config, paths
+from eccenergy import config, paths
+from eccenergy.arch import fingerprint
 cfg = config.load_config()
 a = cfg.archs[0]
-print(paths.Results(cfg).mapper_cache(a, archs.effective_variant(a, cfg),
-                                      archs.arch_fingerprint(a, cfg), create=False))" 2>/dev/null | tail -1)
+print(paths.Results(cfg).mapper_cache(a, fingerprint.effective_variant(a, cfg),
+                                      fingerprint.arch_fingerprint(a, cfg), create=False))" 2>/dev/null | tail -1)
         if [ -z "${D}" ] || [ ! -d "${D}" ]; then
             printf "  %-10s no cache directory at this fingerprint yet\n" "${ARM}"
             continue
@@ -225,9 +228,10 @@ echo "  task file : ${SNAP}"
 echo "  arch pin  : ${ECC_ARCH_PIN_DIR}   (this run maps THIS copy of archs/;"
 echo "              edit archs/ freely from now on -- the queued jobs cannot see it)"
 PIN_FP=$(bash hpc/tl.sh python3 -c "
-from eccenergy import archs, config
+from eccenergy import config
+from eccenergy.arch import fingerprint
 cfg = config.load_config()
-print(archs.arch_fingerprint(cfg.archs[0], cfg))" 2>/dev/null | tail -1)
+print(fingerprint.arch_fingerprint(cfg.archs[0], cfg))" 2>/dev/null | tail -1)
 echo "  reference fp: ${PIN_FP:-<unavailable>}   (the cache directory every arm is keyed under)"
 if [ "${DRY}" = "1" ]; then
     echo "  cache slugs (one per arm, all distinct -- checked above):"

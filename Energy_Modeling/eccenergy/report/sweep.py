@@ -11,12 +11,15 @@ Whichever it is, exactly one grouped stacked-bar figure comes out, named after
 the sweep, plus its CSV and a manifest recording the constants that produced it.
 Only the BCH sweep needs the ECC arithmetic redone per group -- the other two
 vary the raw energies instead, which is why this is one function.
+
+It was `study/sweep.py` until ProjectRestructure phase 3: a driver that draws is
+L5, and the layer rule has no exception left for it.
 """
 from __future__ import annotations
 
-from .stacks import build_stacks, k_label, recon_pj_for_k
-from ..report.stacked import grouped_stacks
-from .common import Session
+from .stacked import grouped_stacks
+from ..study.common import Session
+from ..study.stacks import build_stacks, k_label, recon_pj_for_k
 
 
 def _bch_groups(cfg, ses):

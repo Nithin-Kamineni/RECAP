@@ -2,12 +2,15 @@
 
 `parity` and `embedded` are the two placements of the parity bits; `widths` is
 THE WIDTH TABLE (`CLAUDE.md`, protected); `baseline_dram` is the conventional
-arm's price model.
+arm's price model; `packing` is how a reduced weight is physically stored
+(`stream` against `aligned`); `granularity` is `G_rec` and the engine counts the
+reconstruction terms are billed over.
 
 May import: `contracts`, `settings`/`config`, `paths`. Nothing above.
 
-`baseline_dram` VIOLATES that today -- it imports `study.energy` for
-`dram_ert_pj_per_bit`, which is an L4 module. Recorded rather than fixed here,
-because phase 2 moves code and changes none: `tests/contract/test_layer_rule.py`
-carries it as a declared exception with this reason on it.
+IT NOW HOLDS. `baseline_dram` used to import `study.energy` for
+`dram_ert_pj_per_bit`; phase 3 moved that function DOWN here, where its
+arithmetic belongs, and `study/energy.py` imports it from this package instead.
+The exception is gone from `tests/contract/test_layer_rule.py` rather than
+re-worded.
 """

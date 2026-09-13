@@ -799,7 +799,7 @@ class Config:
             # never produce fixed-mapping numbers under a heading that says the
             # mapping was optimised for reconstruction. That is now enforced
             # where it can actually be checked instead of by refusing outright.
-            # `experiments/recon.dilated_view()` stops the run when the
+            # `study.dilated_view.dilated_view()` stops the run when the
             # reconstruction arm's OWN mapper cache is absent, when the design
             # has no weight level to dilate, or when the dilated capacity does
             # not come back N/K times the reference's; and `task4_checks()`
@@ -820,7 +820,7 @@ class Config:
         if self.experiment == "recon" and not self.recon_optimizer \
                 and self.phase != "Pre":
             # The other half of the pair above. Caught HERE rather than only in
-            # `experiments/recon.run()` so `--dry-run` reports it too: a
+            # `report.recon_view.run()` so `--dry-run` reports it too: a
             # configuration this contradictory should never survive to a run.
             raise ConfigError(
                 f"ECC_PHASE={self.phase} but RECON_OPTIMIZER=False is Task 3, "
@@ -838,7 +838,7 @@ class Config:
             # SEVERAL ARCHITECTURES ARE ONE PANEL EACH, NOT ONE AXIS. Each
             # design has its own weight path and therefore its own list of
             # feasible boundaries, so they cannot share an x axis -- env.sh
-            # section 4 and CLAUDE.md both say so, and `experiments/recon.py`
+            # section 4 and CLAUDE.md both say so, and `study/placement_study.py`
             # `figure()` honours it by giving every design its own axes, its own
             # boundary list and its own two reference bars. What is shared is
             # the page, the legend, the category set and the energy unit.
@@ -982,9 +982,10 @@ class Config:
                     f"ECC_RECON_ERT_ARM={self.recon_ert_arm!r} names the arm of ONE "
                     f"mapper job on ONE architecture; this configuration has "
                     f"{len(self.archs)}: {', '.join(self.archs)}")
-            from . import recon as _recon      # recon imports nothing of ours but embedded
+            from .arch import arms as arms_mod
+            from .arch import placements
             try:
-                spec = _recon.mapper_arm_spec(self.archs[0], self.recon_ert_arm, self)
+                spec = arms_mod.mapper_arm_spec(self.archs[0], self.recon_ert_arm, self)
             except (KeyError, ValueError) as exc:
                 raise ConfigError(f"ECC_RECON_ERT_ARM={self.recon_ert_arm!r}: {exc}") from None
             q = widths.declared_datawidth(self.code_n, self.code_k)
@@ -1405,8 +1406,9 @@ class Config:
         key = getattr(self, "recon_ert_arm", "reference")
         if key in ("", "reference", None):
             return None
-        from . import recon as _recon
-        return _recon.mapper_arm_spec(self.archs[0], key, self)
+        from .arch import arms as arms_mod
+        from .arch import placements
+        return arms_mod.mapper_arm_spec(self.archs[0], key, self)
 
     def ert_arm(self):
         """The ERT arm this configuration maps -- `recon.ert_arm_spec()`'s
@@ -1567,9 +1569,10 @@ class Config:
         spec = self._arm_for(arch)
         if spec is None or spec["placement"] is None:
             return {}
-        from . import recon as _recon
-        return _recon.arm_bw_factors(spec["placement"],
-                                     _recon.stages_for(arch, self), self)
+        from .arch import arms as arms_mod
+        from .arch import placements
+        return arms_mod.arm_bw_factors(spec["placement"],
+                                     placements.stages_for(arch, self), self)
 
     def onchip_bw_bitaware_factor(self):
         """`weight_bits / q` -- how much MORE a narrowed level's port delivers
@@ -1630,7 +1633,7 @@ class Config:
         number that changes every percentage in the study may not travel
         without saying where it came from.
         """
-        from .archs import mac_candidates            # lazy: archs imports config
+        from .arch.load import mac_candidates
         v = self.mac_pj_override
         if v is None:
             return ("Accelergy ERT", "Accelergy ERT (intmac = aladdin_multiplier "
@@ -1716,9 +1719,10 @@ class Config:
         """
         if getattr(self, "recon_ert_aware", False):
             try:
-                from . import recon as _recon
+                from .arch import arms as arms_mod
+                from .arch import placements
                 arms = sorted({a.key for d in self.archs
-                               for a in _recon.mapper_arms(d, self)
+                               for a in arms_mod.mapper_arms(d, self)
                                if a.placement is not None})
             except Exception:                    # the title must never kill a run
                 arms = []
@@ -2194,8 +2198,8 @@ def _ert_arm_row(cfg):
     if cfg.recon_ert_arm == "reference":
         return "reference (no ERT toll; the published 8-bit chip)"
     try:
-        from . import archs as _archs
-        b = _archs.ert_bump(cfg.archs[0], cfg)
+        from .arch import fingerprint
+        b = fingerprint.ert_bump(cfg.archs[0], cfg)
         return (f"{b['placement']}: {b['level']}.{b['action']} += "
                 f"{b['access_delta_pj']:.6f} pJ (E_w {b['e_w_pj']:.6f} x block_size "
                 f"{b['block_size']}), {b['level']}.leak += {b['leak_delta_pj']:.7f} "

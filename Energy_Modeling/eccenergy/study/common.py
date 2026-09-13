@@ -7,8 +7,12 @@ x axis.
 """
 from __future__ import annotations
 
-from .. import archs as archmod
-from .. import timeloop as tlmod
+from ..arch import fingerprint as fingerprint_mod
+from ..arch import layout
+from ..arch import load
+from ..toolchain import ert
+from ..toolchain import inputs
+from ..toolchain import invoke
 from ..config import BRACKET_PAIRS
 from .stacks import build_stacks, load_recon_energy, savings
 from .energy import collect
@@ -42,15 +46,15 @@ class Session:
             need_mapper = not cfg.replot_only
 
         if need_mapper and not cfg.from_cache:
-            tlmod.require_container()
-            tlmod.ensure_exercises_repo()
-            archmod.install_local_archs()
+            inputs.require_container()
+            inputs.ensure_exercises_repo()
+            load.install_local_archs()
             # ONE globals.yaml PER DESIGN (prompt_7 C1.5): the clock is a
             # per-architecture number now, so a shared file would run every
             # design on a multi-design figure at whichever rate was written
             # last. Written here, once, for every design in the run.
             for arch in cfg.archs:
-                path, node = archmod.write_globals(cfg, arch)
+                path, node = layout.write_globals(cfg, arch)
                 # The name carries the content hash, so "already there" is
                 # proof the bytes are right -- not a reason to rewrite.
                 print(f"  {path.name}: technology={node} "
@@ -95,7 +99,7 @@ class Session:
         # The treatment slug is per-architecture: forcing the datawidth is a
         # no-op on a design already declared at the weight width, and such an
         # architecture must keep its existing (expensive) mapper cache.
-        variant = archmod.effective_variant(arch, cfg)
+        variant = fingerprint_mod.effective_variant(arch, cfg)
         if variant != cfg.arch_variant_slug:
             print(f"  treatment {cfg.arch_variant_slug!r} does not change this "
                   f"architecture -> reusing the {variant!r} mapper cache")
@@ -103,7 +107,7 @@ class Session:
         # The cache is content-addressed on the architecture YAML the mapper
         # will actually see. Editing a YAML therefore moves the cache instead
         # of silently reusing mappings computed for the previous geometry.
-        fingerprint = archmod.arch_fingerprint(arch, cfg)
+        fingerprint = fingerprint_mod.arch_fingerprint(arch, cfg)
         self.fingerprints[arch] = fingerprint
 
         # Mapper effort scales with this architecture's loop-nest depth, so a
@@ -111,11 +115,11 @@ class Session:
         levels = None
         if not cfg.from_cache:
             try:
-                levels = archmod.arch_levels(arch, cfg)
+                levels = layout.arch_levels(arch, cfg)
             except FileNotFoundError:
                 pass
             else:
-                print(f"  source {archmod.arch_source(arch, cfg).name}  "
+                print(f"  source {load.arch_source(arch, cfg).name}  "
                       f"({cfg.arch_fidelity} fidelity, {levels} loop levels)  "
                       f"-> victory {cfg.victory_for(levels)}, "
                       f"objective {cfg.opt_metric}")
@@ -123,16 +127,16 @@ class Session:
         # prompt_6: the ERT toll of this arm, None for the reference. In the
         # fingerprint already; the Mapper also records it in every sidecar,
         # requires it to match on a hit, and reads it back after a map.
-        bump = archmod.ert_bump(arch, cfg)
+        bump = fingerprint_mod.ert_bump(arch, cfg)
         if bump is not None:
-            print(f"  ERT arm {tlmod.describe_bump(bump)}  "
+            print(f"  ERT arm {ert.describe_bump(bump)}  "
                   f"(block_size {bump['block_size']}, E_w {bump['e_w_pj']:.6f} pJ/weight; "
                   f"narrow levels {'+'.join(bump['narrow_levels'])})")
 
         def factory():
-            arch_yaml = (archmod.patched_arch_path(arch, cfg)
+            arch_yaml = (layout.patched_arch_path(arch, cfg)
                          if not cfg.from_cache else None)
-            return tlmod.Mapper(
+            return invoke.Mapper(
                 cfg, arch, arch_yaml,
                 self.results.mapper_cache(arch, variant, fingerprint), levels,
                 fingerprint=fingerprint,

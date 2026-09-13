@@ -81,7 +81,7 @@ def _duplicate_keys(text):
 
 # ------------------------------------------------------------------ parsing
 def test_networks_section_is_parsed_and_reconciles():
-    from ..timeloop import classify, parse_stats
+    from ..toolchain.stats import classify, parse_stats
     rows = [r for r in parse_stats(FIXTURE, "L") if r["energy_pJ"] is not None]
     cats = {}
     for r in rows:
@@ -100,7 +100,7 @@ def test_networks_section_is_parsed_and_reconciles():
 
 def test_network_text_does_not_leak_into_dram():
     """The Networks section sits inside the DRAM `===` chunk; it must not be read as DRAM."""
-    from ..timeloop import classify, parse_stats
+    from ..toolchain.stats import classify, parse_stats
     rows = [r for r in parse_stats(FIXTURE, "L") if r["energy_pJ"] is not None]
     dram = [r for r in rows if classify(r["level"], r["instances"]) == "DRAM"]
     assert len(dram) == 3, [(r["level"], r["dataspace"]) for r in dram]
@@ -108,7 +108,7 @@ def test_network_text_does_not_leak_into_dram():
 
 
 def test_classify_puts_networks_first():
-    from ..timeloop import classify
+    from ..toolchain.stats import classify
     assert classify("NoC: DRAM <==> ifmap_glb") == "NoC"      # contains "dram"
     assert classify("NoC: psum_spad <==> mac") == "NoC"        # contains "mac"
     assert classify("DRAM") == "DRAM"
@@ -116,29 +116,33 @@ def test_classify_puts_networks_first():
 
 
 def test_split_networks_without_section_is_identity():
-    from ..timeloop import _split_networks
+    from ..toolchain.stats import _split_networks
     text = "=== a ===\n x\n=== b ===\n y\n"
     assert _split_networks(text) == (text, "")
 
 
 # ---------------------------------------------------------------- injection
 def test_injection_is_valid_yaml_on_every_arch_and_moves_the_fingerprint():
-    from .. import archs as A
+    from ..arch import fingerprint
+    from ..arch import layout
+    from ..arch import load
+    from ..arch import patch
+    from ..arch import validate
     cfg = _cfg(ECC_ARCH_FIDELITY="paper", ECC_NOC="1")
     off = dataclasses.replace(cfg, noc_enabled=False)
     for arch in ARCHS:
-        on, plain = A._patched_text(arch, cfg, quiet=True), A._patched_text(arch, off, quiet=True)
+        on, plain = patch._patched_text(arch, cfg, quiet=True), patch._patched_text(arch, off, quiet=True)
         assert on != plain, arch
         assert not _duplicate_keys(on), (arch, _duplicate_keys(on))
-        present = A.spatial_containers(on)
-        levels = A.noc_levels(arch)
+        present = load.spatial_containers(on)
+        levels = load.noc_levels(arch)
         charged = present if levels is None else [n for n in present if n in levels]
         n_spatial = len(charged)
         assert 1 <= n_spatial <= len(present), (arch, present, levels)
         assert on.count("# NoC: archs/_shared/noc.yaml") == n_spatial, arch
         assert on.count("network_word_bits: 8") == n_spatial, arch
         # the coefficients the contract says this design is charged
-        terms = A.noc_terms(arch, cfg)
+        terms = load.noc_terms(arch, cfg)
         assert terms["wire"] == 0.12, (arch, terms["wire"])   # Keckler/Dally Table 1
         per_level = {n: (terms["levels"][n] if terms["levels"] else (terms["router"], terms["ingress"]))
                      for n in charged}
@@ -149,7 +153,7 @@ def test_injection_is_valid_yaml_on_every_arch_and_moves_the_fingerprint():
         assert sum(1 for v in g_vals if v) == sum(1 for _, g in per_level.values() if g), arch
         # ... and explicitly zeroed on every storage component, so a child does
         # not inherit a switching charge for a register-to-ALU path.
-        n_comp = sum(1 for b in A._node_blocks(on.split("\n"))
+        n_comp = sum(1 for b in load._node_blocks(on.split("\n"))
                      if b["kind"] == "Component" and b["attr"] is not None)
         n_storage = len(re.findall(r"^\s*depth:\s*\d", on, re.M))
         assert n_comp > n_storage, arch                 # the MAC is a component too
@@ -162,29 +166,33 @@ def test_injection_is_valid_yaml_on_every_arch_and_moves_the_fingerprint():
         assert sum(1 for v in r_vals if not v) == n_comp + n_datapath + zero_r, (arch, n_comp, n_datapath, r_vals)
         assert sum(1 for v in g_vals if not v) == n_comp + n_datapath + zero_g, (arch, n_comp, n_datapath, g_vals)
         # every charged level carries BOTH switching terms, whatever their value
-        for b in A._node_blocks(on.split("\n")):
+        for b in load._node_blocks(on.split("\n")):
             if b["kind"] == "Container" and b["spatial"] is not None and b["name"] in charged:
                 blk = "\n".join(on.split("\n")[b["spatial"] + 1: b["spatial"] + 8])
                 assert "router_energy:" in blk and "energy-per-ingress:" in blk, (arch, b["name"], blk)
         # loop depth (and so victory scaling) must not move
-        assert A.loop_levels(on) == A.loop_levels(plain), arch
-        assert A.arch_fingerprint(arch, cfg) != A.arch_fingerprint(arch, off), arch
+        assert layout.loop_levels(on) == layout.loop_levels(plain), arch
+        assert fingerprint.arch_fingerprint(arch, cfg) != fingerprint.arch_fingerprint(arch, off), arch
 
 
 def test_contract_charges_routers_only_where_the_design_has_them():
-    from .. import archs as A
+    from ..arch import fingerprint
+    from ..arch import layout
+    from ..arch import load
+    from ..arch import patch
+    from ..arch import validate
     cfg = _cfg(ECC_ARCH_FIDELITY="paper", ECC_NOC="1")
-    routers = {a: A.noc_params(a, cfg)[1] for a in ARCHS}
-    ingress = {a: A.noc_params(a, cfg)[2] for a in ARCHS}
+    routers = {a: load.noc_params(a, cfg)[1] for a in ARCHS}
+    ingress = {a: load.noc_params(a, cfg)[2] for a in ARCHS}
     for a in ("eyeriss_v2_like", "eyeriss_v2_like_wglb", "simba_like"):
         assert routers[a] > 0 and ingress[a] == 0, a
     # v2: one shared per-flit router energy, three operands per 24b flit, and
     # only the router-cluster level is a router hop; the PE row is wiring.
-    t = A.noc_terms("eyeriss_v2_like", cfg)
+    t = load.noc_terms("eyeriss_v2_like", cfg)
     assert abs(t["levels"]["PE_cluster"][0] - 0.25 / 3) < 1e-9, t
     assert t["levels"]["PE_cluster"][1] == 0.0, t              # switching is in the routers
     assert t["levels"]["PE"] == (0.0, 0.0), t                  # no second router; latch 0 by default (2026-09-09)
-    assert A.noc_terms("simba_like", cfg)["levels"]["PE"][0] == 0.25   # no published packing
+    assert load.noc_terms("simba_like", cfg)["levels"]["PE"][0] == 0.25   # no published packing
     for a in ("eyeriss_like", "eyeriss_like_wglb", "simple_weight_stationary",
               "simple_output_stationary", "simple_input_stationary"):
         assert routers[a] == 0 and ingress[a] > 0, a
@@ -196,15 +204,19 @@ def test_contract_charges_routers_only_where_the_design_has_them():
 
 def test_datapath_spatial_levels_are_not_charged():
     """v2's SIMD pair and Simba's vector-MAC lanes are spatial to Timeloop, datapath to the design."""
-    from .. import archs as A
+    from ..arch import fingerprint
+    from ..arch import layout
+    from ..arch import load
+    from ..arch import patch
+    from ..arch import validate
     cfg = _cfg(ECC_ARCH_FIDELITY="paper", ECC_NOC="1")
     expect = {"eyeriss_v2_like": (["PE_cluster", "PE"], ["SIMD"]),
               "simba_like": (["PE"], ["distributed_buffers", "reg_mac"]),
               "eyeriss_like": (["PE_column", "PE"], []),
               "simple_weight_stationary": (["PE"], [])}
     for arch, (noc, datapath) in expect.items():
-        text = A._patched_text(arch, cfg, quiet=True)
-        blocks = [b for b in A._node_blocks(text.split("\n"))
+        text = patch._patched_text(arch, cfg, quiet=True)
+        blocks = [b for b in load._node_blocks(text.split("\n"))
                   if b["kind"] == "Container" and b["spatial"] is not None]
         assert [b["name"] for b in blocks] == noc + datapath or \
             set(b["name"] for b in blocks) == set(noc + datapath), (arch, [b["name"] for b in blocks])
@@ -222,33 +234,41 @@ def test_datapath_spatial_levels_are_not_charged():
 
 
 def test_validate_rejects_a_misspelt_noc_level():
-    from .. import archs as A
+    from ..arch import fingerprint
+    from ..arch import layout
+    from ..arch import load
+    from ..arch import patch
+    from ..arch import validate
     cfg = _cfg(ECC_ARCH_FIDELITY="paper", ECC_NOC="1")
-    saved = A._NOC["architectures"]["eyeriss_like"]["noc_levels"]
-    A._NOC["architectures"]["eyeriss_like"]["noc_levels"] = ["PE_colum", "PE"]
+    saved = load._NOC["architectures"]["eyeriss_like"]["noc_levels"]
+    load._NOC["architectures"]["eyeriss_like"]["noc_levels"] = ["PE_colum", "PE"]
     try:
-        report = A.validate_arch("eyeriss_like", cfg)
+        report = validate.validate_arch("eyeriss_like", cfg)
     finally:
-        A._NOC["architectures"]["eyeriss_like"]["noc_levels"] = saved
+        load._NOC["architectures"]["eyeriss_like"]["noc_levels"] = saved
     assert any("PE_colum" in v for v in report["violations"]), report["violations"]
-    assert not any("PE_colum" in v for v in A.validate_arch("eyeriss_like", cfg)["violations"])
+    assert not any("PE_colum" in v for v in validate.validate_arch("eyeriss_like", cfg)["violations"])
 
 
 def test_calibrated_ingress_follows_the_wire_constant():
     """v1's inter-PE transfer stays at its published 2x MAC whatever the wire constant."""
-    from .. import archs as A
+    from ..arch import fingerprint
+    from ..arch import layout
+    from ..arch import load
+    from ..arch import patch
+    from ..arch import validate
     cfg = _cfg(ECC_ARCH_FIDELITY="paper", ECC_NOC="1")
     ref = 1.13555  # 2 x MAC for 16b, i.e. 1 x MAC for this study's 8b operand
     for wire in (0.4, 0.12, 0.0):
         c = _cfg(ECC_NOC="1", ECC_NOC_WIRE_PJ_PER_BIT_MM=str(wire))
-        g = A.calibrated_ingress(c)
+        g = load.calibrated_ingress(c)
         wire_term = 2.5 * 8 * 0.09181 * wire
         assert abs(g + wire_term - ref) < 1e-6, (wire, g)
-        assert abs(A.noc_params("eyeriss_like", c)[2] - g) < 1e-9
-    assert abs(A.calibrated_ingress(cfg) - 0.9152) < 5e-4          # the documented value at 0.12
-    assert abs(A.calibrated_ingress(_cfg(ECC_NOC="1", ECC_NOC_WIRE_PJ_PER_BIT_MM="0.4")) - 0.4011) < 5e-4
+        assert abs(load.noc_params("eyeriss_like", c)[2] - g) < 1e-9
+    assert abs(load.calibrated_ingress(cfg) - 0.9152) < 5e-4          # the documented value at 0.12
+    assert abs(load.calibrated_ingress(_cfg(ECC_NOC="1", ECC_NOC_WIRE_PJ_PER_BIT_MM="0.4")) - 0.4011) < 5e-4
     r = _cfg(ECC_NOC="1", ECC_NOC_ROUTER_PJ="0.1")
-    assert abs(A.noc_terms("eyeriss_v2_like", r)["levels"]["PE_cluster"][0] - 0.1 / 3) < 1e-9
+    assert abs(load.noc_terms("eyeriss_v2_like", r)["levels"]["PE_cluster"][0] - 0.1 / 3) < 1e-9
     assert "nocr0.1" in r.arch_variant_slug
 
 
@@ -260,10 +280,14 @@ def test_unknown_arch_is_a_hard_error_not_a_free_noc():
     assertions"; its AST audit does not see a raised `AssertionError`. Measured
     2026-09-13: one test in the suite has no failure mechanism, not three.
     """
-    from .. import archs as A
+    from ..arch import fingerprint
+    from ..arch import layout
+    from ..arch import load
+    from ..arch import patch
+    from ..arch import validate
     cfg = _cfg(ECC_ARCH_FIDELITY="paper", ECC_NOC="1")
     try:
-        A.noc_params("not_a_design", cfg)
+        load.noc_params("not_a_design", cfg)
     except SystemExit:
         return
     raise AssertionError("expected SystemExit for an arch with no noc.yaml entry")
@@ -292,38 +316,46 @@ def test_noc_category_and_recon_scaling():
 # ------------------------------------------------ 2026-09-08 revision
 def test_v2_pe_latch_is_bracketed_and_the_knob_moves_the_cache():
     """Default 0 (2026-09-09); ECC_NOC_PE_LATCH_PJ runs the bracket (0.5, v1's calibrated 0.9152)."""
-    from .. import archs as A
+    from ..arch import fingerprint
+    from ..arch import layout
+    from ..arch import load
+    from ..arch import patch
+    from ..arch import validate
     cfg = _cfg(ECC_ARCH_FIDELITY="paper", ECC_NOC="1")
-    assert A.pe_latch_pj(cfg) == 0.0
-    assert A.noc_terms("eyeriss_v2_like", cfg)["levels"]["PE"][1] == 0.0
-    assert A.noc_terms("eyeriss_v2_like_wglb", cfg)["levels"]["PE"][1] == 0.0
+    assert load.pe_latch_pj(cfg) == 0.0
+    assert load.noc_terms("eyeriss_v2_like", cfg)["levels"]["PE"][1] == 0.0
+    assert load.noc_terms("eyeriss_v2_like_wglb", cfg)["levels"]["PE"][1] == 0.0
     # nobody else pays it: v1 and the generic designs are on the calibrated
     # ingress, simba on routers only
     for a in ("eyeriss_like", "simple_weight_stationary", "simba_like"):
-        text = A._patched_text(a, cfg, quiet=True)
+        text = patch._patched_text(a, cfg, quiet=True)
         assert "energy-per-ingress: 0.5\n" not in text, a
     lo = _cfg(ECC_ARCH_FIDELITY="paper", ECC_NOC="1", ECC_NOC_PE_LATCH_PJ="0.5")
     hi = _cfg(ECC_ARCH_FIDELITY="paper", ECC_NOC="1", ECC_NOC_PE_LATCH_PJ="0.9152")
-    assert A.noc_terms("eyeriss_v2_like", lo)["levels"]["PE"][1] == 0.5
-    assert abs(A.noc_terms("eyeriss_v2_like", hi)["levels"]["PE"][1] - 0.9152) < 1e-12
+    assert load.noc_terms("eyeriss_v2_like", lo)["levels"]["PE"][1] == 0.5
+    assert abs(load.noc_terms("eyeriss_v2_like", hi)["levels"]["PE"][1] - 0.9152) < 1e-12
     assert "nocl0.9152" in hi.arch_variant_slug and "nocl0.5" in lo.arch_variant_slug
     assert "nocl" not in cfg.arch_variant_slug
-    fps = {A.arch_fingerprint("eyeriss_v2_like", c) for c in (cfg, lo, hi)}
+    fps = {fingerprint.arch_fingerprint("eyeriss_v2_like", c) for c in (cfg, lo, hi)}
     assert len(fps) == 3, fps
     # 8x2 cluster mesh (2026-09-09): both dims declared, no forced split
-    text = A._patched_text("eyeriss_v2_like", cfg, quiet=True)
+    text = patch._patched_text("eyeriss_v2_like", cfg, quiet=True)
     assert "spatial: {meshX: 8, meshY: 2}" in text and "spatial: {meshX: 16}" not in text
     # the upper bound really is v1's number
-    assert abs(A.calibrated_ingress(cfg) - 0.9152) < 5e-4
+    assert abs(load.calibrated_ingress(cfg) - 0.9152) < 5e-4
 
 
 def test_v2_injection_zeros_the_inner_router_and_declares_both_pitches():
     """The 8.1 defect: PE row inherited the cluster router. Now explicit, with tile widths."""
-    from .. import archs as A
+    from ..arch import fingerprint
+    from ..arch import layout
+    from ..arch import load
+    from ..arch import patch
+    from ..arch import validate
     cfg = _cfg(ECC_ARCH_FIDELITY="paper", ECC_NOC="1")
-    text = A._patched_text("eyeriss_v2_like", cfg, quiet=True)
+    text = patch._patched_text("eyeriss_v2_like", cfg, quiet=True)
     lines = text.split("\n")
-    blocks = {b["name"]: b for b in A._node_blocks(lines)
+    blocks = {b["name"]: b for b in load._node_blocks(lines)
               if b["kind"] == "Container" and b["spatial"] is not None}
     clu = "\n".join(lines[blocks["PE_cluster"]["spatial"] + 1: blocks["PE_cluster"]["spatial"] + 8])
     pe = "\n".join(lines[blocks["PE"]["spatial"] + 1: blocks["PE"]["spatial"] + 8])
@@ -331,8 +363,8 @@ def test_v2_injection_zeros_the_inner_router_and_declares_both_pitches():
     assert "tile_width: 430.0" in clu, clu
     assert "router_energy: 0.0\n" in pe + "\n" and "energy-per-ingress: 0.0" in pe, pe
     assert "tile_width: 108.0" in pe, pe
-    assert A.noc_band_levels("eyeriss_v2_like") == ["PE_cluster"]
-    assert A.noc_band_levels("eyeriss_like") == []
+    assert load.noc_band_levels("eyeriss_v2_like") == ["PE_cluster"]
+    assert load.noc_band_levels("eyeriss_like") == []
     # SIMD is datapath: wire, router, ingress zero and no pitch of its own
     simd = "\n".join(lines[blocks["SIMD"]["spatial"] + 1: blocks["SIMD"]["spatial"] + 5])
     assert "wire_energy: 0.0" in simd and "tile_width" not in simd, simd
@@ -340,25 +372,29 @@ def test_v2_injection_zeros_the_inner_router_and_declares_both_pitches():
     # nobody else declares a pitch: their hop length stays Timeloop's area-derived one
     for a in ARCHS:
         if not a.startswith("eyeriss_v2_like"):
-            assert "tile_width:" not in A._patched_text(a, cfg, quiet=True), a
+            assert "tile_width:" not in patch._patched_text(a, cfg, quiet=True), a
     # and the contract refuses a partial declaration (the inner level would
     # inherit the outer pitch)
-    saved = A._NOC["architectures"]["eyeriss_v2_like"]["noc_levels"]["PE"]
-    A._NOC["architectures"]["eyeriss_v2_like"]["noc_levels"]["PE"] = {
+    saved = load._NOC["architectures"]["eyeriss_v2_like"]["noc_levels"]["PE"]
+    load._NOC["architectures"]["eyeriss_v2_like"]["noc_levels"]["PE"] = {
         k: v for k, v in saved.items() if k != "tile_width_um"}
     try:
-        rep = A.validate_arch("eyeriss_v2_like", cfg)
+        rep = validate.validate_arch("eyeriss_v2_like", cfg)
     finally:
-        A._NOC["architectures"]["eyeriss_v2_like"]["noc_levels"]["PE"] = saved
+        load._NOC["architectures"]["eyeriss_v2_like"]["noc_levels"]["PE"] = saved
     assert any("tile_width_um" in v for v in rep["violations"]), rep["violations"]
-    assert not any("tile_width_um" in v for v in A.validate_arch("eyeriss_v2_like", cfg)["violations"])
+    assert not any("tile_width_um" in v for v in validate.validate_arch("eyeriss_v2_like", cfg)["violations"])
 
 
 def test_declared_pitches_match_the_cached_art():
     """108 um and 430 um are DERIVED numbers; re-derive them from any cached ART."""
     import glob
     import math
-    from .. import archs as A
+    from ..arch import fingerprint
+    from ..arch import layout
+    from ..arch import load
+    from ..arch import patch
+    from ..arch import validate
     from ..paths import WORK
     # THE ART HAS TO BE THE ONE THIS DESIGN'S PITCHES WERE DERIVED FROM, and
     # until 2026-09-13 this took the NEWEST cached ART instead. Any run that
@@ -388,7 +424,7 @@ def test_declared_pitches_match_the_cached_art():
     glb_cluster = (area["iact_glb"] + area["psum_glb"]) / 16
     pe_pitch = math.sqrt(pe)
     cluster_pitch = math.sqrt((12 * pe + glb_cluster) / (1 - 0.026))
-    lv = A.load_noc()["architectures"]["eyeriss_v2_like"]["noc_levels"]
+    lv = load.load_noc()["architectures"]["eyeriss_v2_like"]["noc_levels"]
     assert abs(pe_pitch - lv["PE"]["tile_width_um"]) / pe_pitch < 0.01, (pe_pitch, lv["PE"])
     assert abs(cluster_pitch - lv["PE_cluster"]["tile_width_um"]) / cluster_pitch < 0.01, \
         (cluster_pitch, lv["PE_cluster"])
@@ -398,17 +434,21 @@ def test_declared_pitches_match_the_cached_art():
 
 def test_component_library_is_in_the_fingerprint():
     """Editing archs/_shared/components changes every ERT; the cache must move."""
-    from .. import archs as A
+    from ..arch import fingerprint
+    from ..arch import layout
+    from ..arch import load
+    from ..arch import patch
+    from ..arch import validate
     cfg = _cfg(ECC_ARCH_FIDELITY="paper", ECC_NOC="1")
-    before = A.arch_fingerprint("eyeriss_like", cfg)
-    real = A.components_digest
-    A.components_digest = lambda: "deadbeefcafe"
+    before = fingerprint.arch_fingerprint("eyeriss_like", cfg)
+    real = fingerprint.components_digest
+    fingerprint.components_digest = lambda: "deadbeefcafe"
     try:
-        after = A.arch_fingerprint("eyeriss_like", cfg)
+        after = fingerprint.arch_fingerprint("eyeriss_like", cfg)
     finally:
-        A.components_digest = real
+        fingerprint.components_digest = real
     assert before != after
-    assert A.arch_fingerprint("eyeriss_like", cfg) == before
+    assert fingerprint.arch_fingerprint("eyeriss_like", cfg) == before
     assert len(real()) == 12 and real() != "deadbeefcafe"
 
 
@@ -434,7 +474,7 @@ def test_register_writes_are_costed_everywhere():
 def test_evaluator_only_terms_are_parsed_and_charged():
     """Spatial reductions (adder + one psum-wide hop) and the psum word width, from the fixture."""
     from ..toolchain import noc_post
-    from ..timeloop import parse_stats
+    from ..toolchain.stats import parse_stats
     cfg = _cfg(ECC_ARCH_FIDELITY="paper", ECC_NOC="1")
     rows = parse_stats(FIXTURE, "L")
     net = [r for r in rows if r["level"].startswith("NoC")]

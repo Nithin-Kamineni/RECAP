@@ -128,12 +128,13 @@ def _stats(dram_reads=8000, weights=1000, mac_used=168, mac_declared=168,
 
 def _read(tmp, name, **kw):
     """Write a synthetic mapping under a `fp-<hash>/<shape>/` path and parse it."""
-    from eccenergy.experiments import dilation
+    from ..study import dilation as dilation_mod
+    from ..study import dilation_cache
     levels = kw.get("levels", (("weights_spad", 448, 128, 168),))
     d = pathlib.Path(tmp) / name / "C64_M128_R3_S3_P28_Q28_ws2_hs2"
     d.mkdir(parents=True, exist_ok=True)
     (d / "timeloop-mapper.stats.txt").write_text(_stats(**kw))
-    return dilation.read_mapped_layer(d / "timeloop-mapper.stats.txt",
+    return dilation_cache.read_mapped_layer(d / "timeloop-mapper.stats.txt",
                                       levels[-1][0],
                                       tuple(l[0] for l in levels))
 
@@ -181,7 +182,8 @@ def test_a_permutation_only_difference_is_not_called_capacity():
     """THE `simple_weight_stationary` FALSE POSITIVE. Reads halve while `held`
     is identical at every weight level: nothing extra was stored, so the cause
     is the loop nest's order and not the silicon."""
-    from eccenergy.experiments import dilation
+    from ..study import dilation as dilation_mod
+    from ..study import dilation_cache
     with tempfile.TemporaryDirectory() as tmp:
         ref = _read(tmp, "fp-a", dram_reads=2000,
                     levels=(("pe_spad", 384, 24, 16),), mac_used=16,
@@ -191,7 +193,7 @@ def test_a_permutation_only_difference_is_not_called_capacity():
                     levels=(("pe_spad", 620, 24, 16),), mac_used=16,
                     mac_declared=256)
     assert ref.weights_held == dil.weights_held == 384
-    v = dilation.capacity_verdict(ref, dil)
+    v = dilation_mod.capacity_verdict(ref, dil)
     assert v.startswith("PERM?"), v
     assert "capacity" not in v, (
         "reads fell while `held` did not move, and the verdict still claimed a "
@@ -201,13 +203,14 @@ def test_a_permutation_only_difference_is_not_called_capacity():
 def test_a_pe_count_change_is_flagged_rather_than_attributed():
     """THE FINDINGS 7.7 CONFOUND, in a column. Capacity and parallelism moved
     together, so neither is separable and the row must say so."""
-    from eccenergy.experiments import dilation
+    from ..study import dilation as dilation_mod
+    from ..study import dilation_cache
     with tempfile.TemporaryDirectory() as tmp:
         ref = _read(tmp, "fp-a", dram_reads=14000, mac_used=384,
                     levels=(("weights_spad", 288, 16, 192),))
         dil = _read(tmp, "fp-b", dram_reads=4000, mac_used=288,
                     levels=(("weights_spad", 465, 16, 144),))
-    v = dilation.capacity_verdict(ref, dil)
+    v = dilation_mod.capacity_verdict(ref, dil)
     assert v.startswith("PE!="), v
     assert "capacity" not in v, (
         f"parallelism moved and the verdict still claimed capacity: {v}")
@@ -216,24 +219,26 @@ def test_a_pe_count_change_is_flagged_rather_than_attributed():
 def test_a_genuine_capacity_win_is_called_capacity_and_nothing_else():
     """A guard that fired on everything would be as useless as no guard. Reads
     FALL and `held` RISES: that is the hypothesis, and it must come back clean."""
-    from eccenergy.experiments import dilation
+    from ..study import dilation as dilation_mod
+    from ..study import dilation_cache
     with tempfile.TemporaryDirectory() as tmp:
         ref = _read(tmp, "fp-a", dram_reads=2000, weights=1000,
                     levels=(("weight_noc", 65536, 58982, 1),))
         dil = _read(tmp, "fp-b", dram_reads=1000, weights=1000,
                     levels=(("weight_noc", 105882, 73728, 1),))
     assert dil.weights_held > ref.weights_held
-    v = dilation.capacity_verdict(ref, dil)
+    v = dilation_mod.capacity_verdict(ref, dil)
     assert v == "capacity", v
 
 
 def test_an_unchanged_mapping_is_flat_and_claims_nothing():
-    from eccenergy.experiments import dilation
+    from ..study import dilation as dilation_mod
+    from ..study import dilation_cache
     with tempfile.TemporaryDirectory() as tmp:
         ref = _read(tmp, "fp-a", dram_reads=8000)
         dil = _read(tmp, "fp-b", dram_reads=8000,
                     levels=(("weights_spad", 724, 128, 168),))
-    v = dilation.capacity_verdict(ref, dil)
+    v = dilation_mod.capacity_verdict(ref, dil)
     assert v == "flat", v
     assert "capacity" not in v
 
@@ -252,7 +257,8 @@ def test_the_fingerprint_guard_finds_the_real_sibling_fingerprints():
     """
     try:
         from eccenergy import config
-        from eccenergy.experiments import dilation
+        from ..study import dilation as dilation_mod
+        from ..study import dilation_cache
         cfg = config.load_config()
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"config unavailable: {exc}")
@@ -260,7 +266,7 @@ def test_the_fingerprint_guard_finds_the_real_sibling_fingerprints():
     seen_any = False
     for arch in ("eyeriss_like", "eyeriss_v2_like", "simple_weight_stationary"):
         try:
-            sibs = dilation.sibling_fingerprints(cfg, arch, 1.0, shapes)
+            sibs = dilation_mod.sibling_fingerprints(cfg, arch, 1.0, shapes)
         except Exception as exc:
             raise AssertionError(f"{arch}: the guard itself raised: {exc}")
         if not sibs:
@@ -285,7 +291,8 @@ def test_no_pair_on_disk_is_reported_as_capacity_without_held_rising():
     """
     try:
         from eccenergy import config
-        from eccenergy.experiments import dilation
+        from ..study import dilation as dilation_mod
+        from ..study import dilation_cache
         cfg = config.load_config()
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"config unavailable: {exc}")
@@ -304,15 +311,15 @@ def test_no_pair_on_disk_is_reported_as_capacity_without_held_rising():
                           1.0, 1.125, 2.0, 4.0, 8.0):
             dil_scale = round(ref_scale / k_over_n, 4)
             try:
-                ref, _ = dilation.load(cfg, arch, ref_scale, shapes)
-                dil, _ = dilation.load(cfg, arch, dil_scale, shapes)
+                ref, _ = dilation_cache.load(cfg, arch, ref_scale, shapes)
+                dil, _ = dilation_cache.load(cfg, arch, dil_scale, shapes)
             except Exception:
                 continue
             for sh in shapes:
                 if sh not in ref or sh not in dil:
                     continue
                 checked += 1
-                v = dilation.capacity_verdict(ref[sh], dil[sh])
+                v = dilation_mod.capacity_verdict(ref[sh], dil[sh])
                 if v == "capacity":
                     assert dil[sh].weights_held > ref[sh].weights_held, (
                         f"{arch} {scope} x{ref_scale} -> x{dil_scale}: verdict "
@@ -375,8 +382,10 @@ def test_the_relax_drops_only_weight_indexed_pins_on_weight_levels():
     experiment. The psum level must not be touched at all even though its pins
     name C, R and S, because it does not hold Weights.
     """
-    from eccenergy import archs
-    out = archs._relax_weight_factors(_ARCH, "fixture", quiet=True)
+    from ..arch import fingerprint
+    from ..arch import load
+    from ..arch import patch
+    out = patch._relax_weight_factors(_ARCH, "fixture", quiet=True)
     # the weight level lost exactly M and S, and kept N, P, Q in order
     assert "factors: [N=1, P=1, Q=1]" in out, out
     assert "factors: [N=1, M=1, P=1, Q=1, S=1]" not in out
@@ -397,17 +406,22 @@ def test_the_relax_is_a_no_op_when_nothing_weight_indexed_is_pinned():
     this lever cannot help it and it must NOT pay for a fresh map. A slug that
     said `wrelax` on an unchanged architecture would cold-start every design.
     """
-    from eccenergy import archs
+    from ..arch import fingerprint
+    from ..arch import load
+    from ..arch import patch
     free = _ARCH.replace("factors: [N=1, M=1, P=1, Q=1, S=1]",
                          "factors: [N=1, P=1, Q=1]")
-    assert archs._relax_weight_factors(free, "fixture", quiet=True) == free
+    assert patch._relax_weight_factors(free, "fixture", quiet=True) == free
 
 
 def test_the_relax_changes_the_cache_slug_and_the_fingerprint():
     """A relaxed dataflow is a different MAPSPACE, so it is a different
     architecture to the mapper and must never share a cache directory."""
     try:
-        from eccenergy import archs, config
+        from .. import config
+        from ..arch import fingerprint
+        from ..arch import load
+        from ..arch import patch
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"config unavailable: {exc}")
     import os
@@ -418,8 +432,8 @@ def test_the_relax_changes_the_cache_slug_and_the_fingerprint():
             os.environ["ECC_WEIGHT_FACTOR_RELAX"] = flag
             cfg = config.load_config()
             arch = "eyeriss_like"
-            seen[flag] = (archs.effective_variant(arch, cfg),
-                          archs.arch_fingerprint(arch, cfg))
+            seen[flag] = (fingerprint.effective_variant(arch, cfg),
+                          fingerprint.arch_fingerprint(arch, cfg))
     finally:
         if saved is None:
             os.environ.pop("ECC_WEIGHT_FACTOR_RELAX", None)
@@ -479,14 +493,16 @@ def test_the_datawidth_knob_narrows_every_weight_level_and_never_dram():
     structural, so it is asserted rather than remembered.
     """
     try:
-        from eccenergy import archs
+        from ..arch import fingerprint
+        from ..arch import load
+        from ..arch import patch
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"archs unavailable: {exc}")
     import re
     _, emb, rec = _p2_cfgs()
-    text = archs._patched_text(_P2_ARCH, rec, quiet=True)
+    text = patch._patched_text(_P2_ARCH, rec, quiet=True)
     # every WEIGHT level narrowed ...
-    geo = archs.patched_weight_geometry(_P2_ARCH, rec)
+    geo = patch.patched_weight_geometry(_P2_ARCH, rec)
     assert geo, "no weight levels found"
     for level, g in geo.items():
         assert g["datawidth"] == 4, (level, g)
@@ -508,7 +524,9 @@ def test_the_two_arms_declare_identical_silicon_at_every_swept_depth():
     between the arms the comparison is VOID, so this must fail loudly.
     """
     try:
-        from eccenergy import archs
+        from ..arch import fingerprint
+        from ..arch import load
+        from ..arch import patch
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"archs unavailable: {exc}")
     import dataclasses
@@ -516,7 +534,7 @@ def test_the_two_arms_declare_identical_silicon_at_every_swept_depth():
     for s in (1.0, 0.7071, 0.5, 0.3536, 0.25, 0.1768, 0.125):
         e = dataclasses.replace(emb, weight_depth_scale=round(s, 4))
         r = dataclasses.replace(rec, weight_depth_scale=round(s, 4))
-        info = archs.assert_pair_geometry(_P2_ARCH, e, r)   # raises if not
+        info = patch.assert_pair_geometry(_P2_ARCH, e, r)   # raises if not
         assert info, s
         for level, v in info.items():
             # the treatment, and the ONLY difference
@@ -536,14 +554,16 @@ def test_a_depth_mismatch_between_the_arms_is_refused_but_a_width_one_is_not():
     produced the withdrawn lcm(q, 8) scheme; see eccenergy/widths.py.
     """
     try:
-        from eccenergy import archs
+        from ..arch import fingerprint
+        from ..arch import load
+        from ..arch import patch
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"archs unavailable: {exc}")
     import dataclasses
     _, emb, rec = _p2_cfgs()
     dilated = dataclasses.replace(rec, weight_depth_scale=2.0)  # the old model
     try:
-        archs.assert_pair_geometry(_P2_ARCH, emb, dilated)
+        patch.assert_pair_geometry(_P2_ARCH, emb, dilated)
     except ValueError as e:
         assert "depth" in str(e) and "silicon" in str(e), str(e)
     else:
@@ -552,7 +572,7 @@ def test_a_depth_mismatch_between_the_arms_is_refused_but_a_width_one_is_not():
             "pair. That is exactly the geometry FINDINGS 7.8 withdrew.")
     # ... and the knob that lets a deliberate depth study through.
     allowed = dataclasses.replace(dilated, disable_pair_geometry_assert=True)
-    archs.assert_pair_geometry(_P2_ARCH, emb, allowed)          # must not raise
+    patch.assert_pair_geometry(_P2_ARCH, emb, allowed)          # must not raise
 
     # A WIDTH DIFFERENCE IS NOT A DEFECT. BCH(63,39) declares 95 against the
     # 8-bit arm's 96 and the pair is legal.
@@ -563,7 +583,7 @@ def test_a_depth_mismatch_between_the_arms_is_refused_but_a_width_one_is_not():
         cfg39 = config.load_config()
         e39 = dataclasses.replace(cfg39, weight_datawidth=None)
         r39 = dataclasses.replace(cfg39, weight_datawidth=5)
-        info = archs.assert_pair_geometry(_P2_ARCH, e39, r39)   # must not raise
+        info = patch.assert_pair_geometry(_P2_ARCH, e39, r39)   # must not raise
     finally:
         os.environ.clear()
         os.environ.update(saved)
@@ -587,7 +607,9 @@ def test_the_reduced_arm_gets_exactly_two_times_the_capacity_at_bch_63_30():
     clears the integer-tile step FINDINGS 7.8 measured.
     """
     try:
-        from eccenergy import archs
+        from ..arch import fingerprint
+        from ..arch import load
+        from ..arch import patch
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"archs unavailable: {exc}")
     import dataclasses
@@ -595,7 +617,7 @@ def test_the_reduced_arm_gets_exactly_two_times_the_capacity_at_bch_63_30():
     for s in (1.0, 0.7071, 0.5, 0.3536, 0.25, 0.1768, 0.125):
         e = dataclasses.replace(emb, weight_depth_scale=round(s, 4))
         r = dataclasses.replace(rec, weight_depth_scale=round(s, 4))
-        for level, v in archs.assert_pair_geometry(_P2_ARCH, e, r).items():
+        for level, v in patch.assert_pair_geometry(_P2_ARCH, e, r).items():
             assert v["capacity_ratio"] == 2.0, (
                 f"x{s:g} {level}: capacity ratio {v['capacity_ratio']} != "
                 f"exactly 2.0 -- BCH(63,30) is chosen precisely because it "
@@ -612,18 +634,20 @@ def test_the_embedded_arm_spelled_8b_reads_the_same_cache_as_unset():
     of the silicon.
     """
     try:
-        from eccenergy import archs
+        from ..arch import fingerprint
+        from ..arch import load
+        from ..arch import patch
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"archs unavailable: {exc}")
     import dataclasses
     cfg, emb, _ = _p2_cfgs()
     eight = dataclasses.replace(emb, weight_datawidth=8)
-    assert (archs.effective_variant(_P2_ARCH, emb)
-            == archs.effective_variant(_P2_ARCH, eight)), (
-        archs.effective_variant(_P2_ARCH, emb),
-        archs.effective_variant(_P2_ARCH, eight))
-    assert (archs.arch_fingerprint(_P2_ARCH, emb)
-            == archs.arch_fingerprint(_P2_ARCH, eight))
+    assert (fingerprint.effective_variant(_P2_ARCH, emb)
+            == fingerprint.effective_variant(_P2_ARCH, eight)), (
+        fingerprint.effective_variant(_P2_ARCH, emb),
+        fingerprint.effective_variant(_P2_ARCH, eight))
+    assert (fingerprint.arch_fingerprint(_P2_ARCH, emb)
+            == fingerprint.arch_fingerprint(_P2_ARCH, eight))
 
 
 def test_the_depth_sweep_has_its_own_cache_and_never_shares_wcap_s():
@@ -636,15 +660,17 @@ def test_the_depth_sweep_has_its_own_cache_and_never_shares_wcap_s():
     run be read as an uncorrected one.
     """
     try:
-        from eccenergy import archs
+        from ..arch import fingerprint
+        from ..arch import load
+        from ..arch import patch
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"archs unavailable: {exc}")
     import dataclasses
     cfg, _, _ = _p2_cfgs()
     depth = dataclasses.replace(cfg, weight_depth_scale=0.5)
     cap = dataclasses.replace(cfg, weight_capacity_scale=0.5)
-    vd = archs.effective_variant(_P2_ARCH, depth)
-    vc = archs.effective_variant(_P2_ARCH, cap)
+    vd = fingerprint.effective_variant(_P2_ARCH, depth)
+    vc = fingerprint.effective_variant(_P2_ARCH, cap)
     assert "wdepth0.5" in vd and "wcap" not in vd, vd
     assert "wcap0.5" in vc and "wdepth" not in vc, vc
     assert vd != vc, f"the two knobs share the cache directory {vd}"
@@ -657,15 +683,15 @@ def test_the_depth_sweep_has_its_own_cache_and_never_shares_wcap_s():
     # `capacity_dilation_correction()` at the undilated geometry and `wdepth`
     # deliberately is not. One directory would let a corrected run be read as
     # an uncorrected one.
-    assert (archs.arch_fingerprint(_P2_ARCH, depth)
-            == archs.arch_fingerprint(_P2_ARCH, cap)), (
+    assert (fingerprint.arch_fingerprint(_P2_ARCH, depth)
+            == fingerprint.arch_fingerprint(_P2_ARCH, cap)), (
         "the two knobs no longer produce identical YAML at the same scale; if "
         "that is intended, this test records the assumption that broke")
     from eccenergy import paths as pathsmod
     pd = pathsmod.Results(depth).mapper_cache(
-        _P2_ARCH, vd, archs.arch_fingerprint(_P2_ARCH, depth), create=False)
+        _P2_ARCH, vd, fingerprint.arch_fingerprint(_P2_ARCH, depth), create=False)
     pc = pathsmod.Results(cap).mapper_cache(
-        _P2_ARCH, vc, archs.arch_fingerprint(_P2_ARCH, cap), create=False)
+        _P2_ARCH, vc, fingerprint.arch_fingerprint(_P2_ARCH, cap), create=False)
     assert str(pd) != str(pc), f"both knobs resolve to {pd}"
 
 
@@ -677,7 +703,9 @@ def test_naming_a_level_the_design_does_not_have_is_refused():
     would be filed as a per-level answer.
     """
     try:
-        from eccenergy import archs
+        from ..arch import fingerprint
+        from ..arch import load
+        from ..arch import patch
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"archs unavailable: {exc}")
     import dataclasses
@@ -685,7 +713,7 @@ def test_naming_a_level_the_design_does_not_have_is_refused():
     bad = dataclasses.replace(cfg, weight_depth_scale=0.5,
                               weight_depth_levels=("filter_gbl",))  # typo
     try:
-        archs.patched_weight_geometry(_P2_ARCH, bad)
+        patch.patched_weight_geometry(_P2_ARCH, bad)
     except ValueError as e:
         assert "filter_gbl" in str(e) and "no weight-carrying level" in str(e)
     else:
@@ -696,15 +724,17 @@ def test_naming_a_level_the_design_does_not_have_is_refused():
 def test_a_single_named_level_moves_only_that_level():
     """The second pass holds the other weight level(s) at x1."""
     try:
-        from eccenergy import archs
+        from ..arch import fingerprint
+        from ..arch import load
+        from ..arch import patch
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"archs unavailable: {exc}")
     import dataclasses
     cfg, _, _ = _p2_cfgs()
-    base = archs.patched_weight_geometry(_P2_ARCH, cfg)
+    base = patch.patched_weight_geometry(_P2_ARCH, cfg)
     only = dataclasses.replace(cfg, weight_depth_scale=0.25,
                                weight_depth_levels=("filter_glb",))
-    got = archs.patched_weight_geometry(_P2_ARCH, only)
+    got = patch.patched_weight_geometry(_P2_ARCH, only)
     assert got["filter_glb"]["depth"] == round(base["filter_glb"]["depth"] * 0.25)
     assert got["weights_spad"]["depth"] == base["weights_spad"]["depth"], (
         "the unnamed level moved too, so the row cannot say which level "
@@ -721,15 +751,17 @@ def test_datawidth_levels_empty_reproduces_the_unfiltered_rewrite_byte_for_byte(
     gives the same text, and neither differs from the unfiltered call.
     """
     try:
-        from eccenergy import archs
+        from ..arch import fingerprint
+        from ..arch import load
+        from ..arch import patch
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"archs unavailable: {exc}")
-    text = archs.arch_source(_P2_ARCH, _p2_cfgs()[0]).read_text()
-    plain = archs._set_weight_geometry(text, 4, scope="exclusive",
+    text = load.arch_source(_P2_ARCH, _p2_cfgs()[0]).read_text()
+    plain = patch._set_weight_geometry(text, 4, scope="exclusive",
                                        arch=_P2_ARCH, quiet=True)
-    empty = archs._set_weight_geometry(text, 4, (), 4, "exclusive", _P2_ARCH,
+    empty = patch._set_weight_geometry(text, 4, (), 4, "exclusive", _P2_ARCH,
                                        quiet=True)
-    both = archs._set_weight_geometry(text, 4, ("filter_glb", "weights_spad"),
+    both = patch._set_weight_geometry(text, 4, ("filter_glb", "weights_spad"),
                                       4, "exclusive", _P2_ARCH, quiet=True)
     assert plain == empty, "levels=() changed the patched YAML"
     assert plain == both, "naming every weight level differs from naming none"
@@ -742,13 +774,15 @@ def test_naming_filter_glb_narrows_filter_glb_and_leaves_the_spad_at_eight():
     will see: `filter_glb` at 4, `weights_spad` still at 8, DRAM still at 8.
     That is what a `recon2`/`recon4` arm declares (prompt_6 5.2)."""
     try:
-        from eccenergy import archs
+        from ..arch import fingerprint
+        from ..arch import load
+        from ..arch import patch
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"archs unavailable: {exc}")
     import dataclasses
     _, emb, rec = _p2_cfgs()
     glb_only = dataclasses.replace(rec, weight_datawidth_levels=("filter_glb",))
-    geo = archs.patched_weight_geometry(_P2_ARCH, glb_only)
+    geo = patch.patched_weight_geometry(_P2_ARCH, glb_only)
     assert geo["filter_glb"]["datawidth"] == 4, geo["filter_glb"]
     assert geo["weights_spad"]["datawidth"] == 8, geo["weights_spad"]
     # THE WIDTH TABLE: the narrowed GLB is 96 x 4 = 384 b at datawidth 4, the
@@ -758,31 +792,33 @@ def test_naming_filter_glb_narrows_filter_glb_and_leaves_the_spad_at_eight():
     assert geo["filter_glb"]["weights_per_word"] == 96, geo["filter_glb"]
     assert geo["weights_spad"]["width"] == 96, geo["weights_spad"]
     assert geo["weights_spad"]["weights_per_word"] == 12, geo["weights_spad"]
-    text = archs._patched_text(_P2_ARCH, glb_only, quiet=True)
+    text = patch._patched_text(_P2_ARCH, glb_only, quiet=True)
     dram = [p for p in text.split("\n- !") if "class: DRAM" in p or "name: DRAM" in p]
     assert dram and all("datawidth: 8" in p for p in dram), "DRAM moved"
     # and the slug says which level, so the two arms never share a directory
-    v_all = archs.effective_variant(_P2_ARCH, rec)
-    v_glb = archs.effective_variant(_P2_ARCH, glb_only)
+    v_all = fingerprint.effective_variant(_P2_ARCH, rec)
+    v_glb = fingerprint.effective_variant(_P2_ARCH, glb_only)
     assert "wdw4-filter_glb" in v_glb and "wdw4-filter_glb" not in v_all, (v_all, v_glb)
-    assert archs.arch_fingerprint(_P2_ARCH, rec) != archs.arch_fingerprint(_P2_ARCH, glb_only)
+    assert fingerprint.arch_fingerprint(_P2_ARCH, rec) != fingerprint.arch_fingerprint(_P2_ARCH, glb_only)
     # the embedded arm is untouched by the field: no datawidth, nothing to filter
     emb_glb = dataclasses.replace(emb, weight_datawidth_levels=("filter_glb",))
-    assert archs.arch_fingerprint(_P2_ARCH, emb) == archs.arch_fingerprint(_P2_ARCH, emb_glb)
+    assert fingerprint.arch_fingerprint(_P2_ARCH, emb) == fingerprint.arch_fingerprint(_P2_ARCH, emb_glb)
 
 
 def test_a_misspelt_datawidth_level_is_refused():
     """Same rule as ECC_WEIGHT_DEPTH_LEVELS: a typo must not silently narrow
     every level and file the result as a per-boundary architecture."""
     try:
-        from eccenergy import archs
+        from ..arch import fingerprint
+        from ..arch import load
+        from ..arch import patch
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"archs unavailable: {exc}")
     import dataclasses
     _, _, rec = _p2_cfgs()
     bad = dataclasses.replace(rec, weight_datawidth_levels=("filter_gbl",))
     try:
-        archs.patched_weight_geometry(_P2_ARCH, bad)
+        patch.patched_weight_geometry(_P2_ARCH, bad)
     except ValueError as e:
         assert "filter_gbl" in str(e) and "no weight-carrying level" in str(e), e
     else:
@@ -791,7 +827,7 @@ def test_a_misspelt_datawidth_level_is_refused():
     # DRAM is not a weight level the filter can name either
     bad2 = dataclasses.replace(rec, weight_datawidth_levels=("DRAM",))
     try:
-        archs.patched_weight_geometry(_P2_ARCH, bad2)
+        patch.patched_weight_geometry(_P2_ARCH, bad2)
     except ValueError:
         pass
     else:
@@ -855,7 +891,9 @@ def test_the_wrong_sibling_guard_two_arms_identical_yaml_different_fingerprints(
     arm, which has no toll, must hash exactly as it did before the ERT existed.
     """
     try:
-        from eccenergy import archs
+        from ..arch import fingerprint
+        from ..arch import load
+        from ..arch import patch
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"archs unavailable: {exc}")
     from eccenergy import paths as pathsmod
@@ -863,11 +901,11 @@ def test_the_wrong_sibling_guard_two_arms_identical_yaml_different_fingerprints(
     # the arm resolved its own datawidth half
     assert (r2.weight_datawidth, r2.weight_datawidth_levels) == (4, ("filter_glb",)), r2
     assert (r4.weight_datawidth, r4.weight_datawidth_levels) == (4, ("filter_glb",)), r4
-    t2 = archs._patched_text(_P2_ARCH, r2, quiet=True)
-    t4 = archs._patched_text(_P2_ARCH, r4, quiet=True)
+    t2 = patch._patched_text(_P2_ARCH, r2, quiet=True)
+    t4 = patch._patched_text(_P2_ARCH, r4, quiet=True)
     assert t2 == t4, "the two arms are supposed to differ ONLY in the ERT"
-    v2, v4 = archs.effective_variant(_P2_ARCH, r2), archs.effective_variant(_P2_ARCH, r4)
-    f2, f4 = archs.arch_fingerprint(_P2_ARCH, r2), archs.arch_fingerprint(_P2_ARCH, r4)
+    v2, v4 = fingerprint.effective_variant(_P2_ARCH, r2), fingerprint.effective_variant(_P2_ARCH, r4)
+    f2, f4 = fingerprint.arch_fingerprint(_P2_ARCH, r2), fingerprint.arch_fingerprint(_P2_ARCH, r4)
     assert v2 != v4 and "ert-recon2-filter_glb-read" in v2 and "ert-recon4-weights_spad-write" in v4, (v2, v4)
     assert f2 != f4, f"identical YAML, different ERT, SAME fingerprint {f2}"
     d2 = pathsmod.Results(r2).mapper_cache(_P2_ARCH, v2, f2, create=False)
@@ -876,19 +914,19 @@ def test_the_wrong_sibling_guard_two_arms_identical_yaml_different_fingerprints(
     # the slug the config computes and the slug archs computes agree
     assert r2.arch_variant_slug == v2 and r4.arch_variant_slug == v4
     # the reference has no toll and no `ert` part anywhere
-    assert archs.ert_bump(_P2_ARCH, ref) is None
-    assert "ert-" not in archs.effective_variant(_P2_ARCH, ref)
-    assert archs.arch_fingerprint(_P2_ARCH, ref) not in (f2, f4)
+    assert fingerprint.ert_bump(_P2_ARCH, ref) is None
+    assert "ert-" not in fingerprint.effective_variant(_P2_ARCH, ref)
+    assert fingerprint.arch_fingerprint(_P2_ARCH, ref) not in (f2, f4)
     # BREAKAGE: the same toll spelled twice is ONE architecture
     import dataclasses
     again = dataclasses.replace(ref, recon_ert_arm="recon2")
-    assert archs.arch_fingerprint(_P2_ARCH, again) == f2
+    assert fingerprint.arch_fingerprint(_P2_ARCH, again) == f2
     # and the fingerprint tracks the DELTA itself: codeword charging makes
     # E_w the whole incremental figure, so the toll moves on IDENTICAL YAML
     other = dataclasses.replace(ref, recon_granularity="codeword", recon_ert_arm="recon2")
-    assert archs._patched_text(_P2_ARCH, other, quiet=True) == t2
-    assert archs.effective_variant(_P2_ARCH, other) == v2
-    assert archs.arch_fingerprint(_P2_ARCH, other) != f2, "the delta is not in the hash"
+    assert patch._patched_text(_P2_ARCH, other, quiet=True) == t2
+    assert fingerprint.effective_variant(_P2_ARCH, other) == v2
+    assert fingerprint.arch_fingerprint(_P2_ARCH, other) != f2, "the delta is not in the hash"
 
 
 def test_the_ert_bump_is_recomputed_from_the_patched_arch_and_the_dc_table():
@@ -911,13 +949,15 @@ def test_the_ert_bump_is_recomputed_from_the_patched_arch_and_the_dc_table():
     """
     try:
         import dataclasses as _dc
-        from eccenergy import archs
+        from ..arch import fingerprint
+        from ..arch import load
+        from ..arch import patch
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"archs unavailable: {exc}")
     _, r2, r4 = _ert_cfgs()
-    b2, b4 = archs.ert_bump(_P2_ARCH, r2), archs.ert_bump(_P2_ARCH, r4)
-    geo2 = archs.patched_weight_geometry(_P2_ARCH, r2)
-    geo4 = archs.patched_weight_geometry(_P2_ARCH, r4)
+    b2, b4 = fingerprint.ert_bump(_P2_ARCH, r2), fingerprint.ert_bump(_P2_ARCH, r4)
+    geo2 = patch.patched_weight_geometry(_P2_ARCH, r2)
+    geo4 = patch.patched_weight_geometry(_P2_ARCH, r4)
     assert (b2["level"], b2["action"], b2["counter"], b2["block_size"]) == (
         "filter_glb", "read", "reads",
         geo2["filter_glb"]["weights_per_word"]), (b2, geo2["filter_glb"])
@@ -935,7 +975,7 @@ def test_the_ert_bump_is_recomputed_from_the_patched_arch_and_the_dc_table():
     assert abs(b2["leak_delta_pj"] - 2.8310811 * scale) < 1e-9, (b2, scale)
     # and both ends of it, spelled out: 1 ns is what DC measured, 5 ns is what
     # eyeriss_like_wglb runs at (prompt_7 C1.5, env.sh section 6 TRAP 2).
-    at_1ns = archs.ert_bump(_P2_ARCH, _dc.replace(r2, arch_clock_mhz={}))
+    at_1ns = fingerprint.ert_bump(_P2_ARCH, _dc.replace(r2, arch_clock_mhz={}))
     assert abs(at_1ns["leak_delta_pj"] - 2.8310811) < 1e-9, at_1ns
     assert abs(b2["leak_delta_pj"] - 14.1554055) < 1e-6, (b2, "200 MHz")
     assert abs(b2["e_w_pj"] - 0.175060) < 1e-6 and b2["e_w_pj"] == b4["e_w_pj"]
@@ -952,7 +992,8 @@ def _fake_ert_entry(tmp, bump, base_pj=None, tamper=0.0):
     """A cache entry as `timeloop.Mapper` writes one for an ERT arm: sidecar
     with the bump record, and the stored (patched) ERT beside it."""
     import json
-    from eccenergy import timeloop as tl
+    from ..toolchain import ert
+    from ..toolchain import inputs
     base_pj = base_pj or {"read": 2.75566, "write": 4.29165, "update": 4.2, "leak": 0.00010256}
     d = pathlib.Path(tmp) / "C128_M256_R3_S3_P14_Q14_ws2_hs2"
     d.mkdir(parents=True, exist_ok=True)
@@ -963,51 +1004,54 @@ def _fake_ert_entry(tmp, bump, base_pj=None, tamper=0.0):
         {"name": "system_top_level.ifmap_glb[1..1]",
          "actions": [{"name": "read", "arguments": {}, "energy": 23.4862},
                      {"name": "leak", "arguments": {}, "energy": 0.00136375}]}]}}
-    patched = tl.patched_ert(doc, tl.ert_changes(bump))
+    patched = ert.patched_ert(doc, ert.ert_changes(bump))
     if tamper:
         for t in patched["ERT"]["tables"]:
             for a in t["actions"]:
-                if tl.ert_level_of(t["name"]) == level and a["name"] == bump["action"]:
+                if ert.ert_level_of(t["name"]) == level and a["name"] == bump["action"]:
                     a["energy"] += tamper
-    tl.write_yaml(d / tl.ERT_NAME, patched)
-    prices = tl.ert_prices(patched)
+    ert.write_yaml(d / inputs.ERT_NAME, patched)
+    prices = ert.ert_prices(patched)
     side = {"arch_fingerprint": "deadbeef", "ert_bump": {
         "bump": bump,
         "base_pj": {bump["action"]: base_pj[bump["action"]], "leak": base_pj["leak"]},
         "patched_pj": {bump["action"]: prices[(level, bump["action"])],
                        "leak": prices[(level, "leak")]}}}
-    (d / tl.MAPPING_SIDECAR).write_text(json.dumps(side))
-    return d, tl.ert_prices(doc)
+    (d / inputs.MAPPING_SIDECAR).write_text(json.dumps(side))
+    return d, ert.ert_prices(doc)
 
 
 def test_the_read_back_assertion_accepts_its_own_arm_and_stops_on_a_wrong_one():
     """prompt_6 RULE 4.4.5, defence 3: a cache entry whose ERT does not match
     the bar asking for it STOPS THE RUN and names both."""
     try:
-        from eccenergy import archs
+        from ..arch import fingerprint
+        from ..arch import load
+        from ..arch import patch
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"archs unavailable: {exc}")
-    from eccenergy import timeloop as tl
+    from ..toolchain import ert
+    from ..toolchain import inputs
     _, r2, r4 = _ert_cfgs()
-    b2, b4 = archs.ert_bump(_P2_ARCH, r2), archs.ert_bump(_P2_ARCH, r4)
+    b2, b4 = fingerprint.ert_bump(_P2_ARCH, r2), fingerprint.ert_bump(_P2_ARCH, r4)
     with tempfile.TemporaryDirectory() as tmp:
         d, base = _fake_ert_entry(tmp, b2)
-        got = tl.read_back_ert(d, b2)
+        got = ert.read_back_ert(d, b2)
         assert got["arm"] == "recon2" and any("filter_glb.read" in v for v in got["verified"]), got
         # with the un-bumped table the untouched rows are checked too
-        got = tl.read_back_ert(d, b2, base_prices=base)
+        got = ert.read_back_ert(d, b2, base_prices=base)
         assert any("other rows untouched" in v for v in got["verified"]), got
         # BREAKAGE 1: recon4 asks for recon2's entry
         try:
-            tl.read_back_ert(d, b4)
-        except tl.ErtMismatch as e:
+            ert.read_back_ert(d, b4)
+        except ert.ErtMismatch as e:
             assert "recon2" in str(e) and "recon4" in str(e), e
         else:
             raise AssertionError("recon4 read recon2's entry without complaint")
         # BREAKAGE 2: the reference bar asks for an ERT entry
         try:
-            tl.read_back_ert(d, None)
-        except tl.ErtMismatch as e:
+            ert.read_back_ert(d, None)
+        except ert.ErtMismatch as e:
             assert "reference" in str(e), e
         else:
             raise AssertionError("the reference read an ERT entry without complaint")
@@ -1015,19 +1059,19 @@ def test_the_read_back_assertion_accepts_its_own_arm_and_stops_on_a_wrong_one():
         import dataclasses
         drift = dict(b2, access_delta_pj=b2["access_delta_pj"] * (1 + 1e-6))
         try:
-            tl.read_back_ert(d, drift)
-        except tl.ErtMismatch as e:
+            ert.read_back_ert(d, drift)
+        except ert.ErtMismatch as e:
             assert "recon2" in str(e), e
         else:
             raise AssertionError("a 1e-6 relative delta drift was accepted")
         # BREAKAGE 4: an entry with no ERT record at all
         d2 = pathlib.Path(tmp) / "plain"; d2.mkdir()
         import json
-        (d2 / tl.MAPPING_SIDECAR).write_text(json.dumps({"arch_fingerprint": "x"}))
-        assert tl.read_back_ert(d2, None)["arm"] == "reference"
+        (d2 / inputs.MAPPING_SIDECAR).write_text(json.dumps({"arch_fingerprint": "x"}))
+        assert ert.read_back_ert(d2, None)["arm"] == "reference"
         try:
-            tl.read_back_ert(d2, b2)
-        except tl.ErtMismatch:
+            ert.read_back_ert(d2, b2)
+        except ert.ErtMismatch:
             pass
         else:
             raise AssertionError("an un-bumped entry was accepted for recon2")
@@ -1035,14 +1079,14 @@ def test_the_read_back_assertion_accepts_its_own_arm_and_stops_on_a_wrong_one():
         # BREAKAGE 5: the stored table was overwritten after the sidecar was written
         d, _ = _fake_ert_entry(tmp, b2, tamper=1e-6)
         try:
-            tl.read_back_ert(d, b2)
-        except tl.ErtMismatch as e:
+            ert.read_back_ert(d, b2)
+        except ert.ErtMismatch as e:
             assert "filter_glb.read" in str(e), e
         else:
             raise AssertionError("a tampered stored ERT was accepted")
     # `same_bump` is what `Mapper._accept_cached` uses
-    assert tl.same_bump(b2, dict(b2)) and not tl.same_bump(b2, b4)
-    assert tl.same_bump(None, None) and not tl.same_bump(None, b2)
+    assert ert.same_bump(b2, dict(b2)) and not ert.same_bump(b2, b4)
+    assert ert.same_bump(None, None) and not ert.same_bump(None, b2)
 
 
 def test_patching_the_real_cached_ert_moves_only_the_two_rows():
@@ -1050,21 +1094,25 @@ def test_patching_the_real_cached_ert_moves_only_the_two_rows():
     recon2 patch changes filter_glb.read and filter_glb.leak by exactly the
     bump and nothing else; a row that does not exist is refused."""
     try:
-        from eccenergy import archs
+        from ..arch import fingerprint
+        from ..arch import load
+        from ..arch import patch
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"archs unavailable: {exc}")
     import yaml
-    from eccenergy import paths as pathsmod, timeloop as tl
+    from .. import paths as pathsmod
+    from ..toolchain import ert
+    from ..toolchain import inputs
     ref, r2, _ = _ert_cfgs()
     cache = pathsmod.Results(ref).mapper_cache(
-        _P2_ARCH, archs.effective_variant(_P2_ARCH, ref),
-        archs.arch_fingerprint(_P2_ARCH, ref), create=False)
-    erts = sorted(cache.glob(f"*/{tl.ERT_NAME}"))
+        _P2_ARCH, fingerprint.effective_variant(_P2_ARCH, ref),
+        fingerprint.arch_fingerprint(_P2_ARCH, ref), create=False)
+    erts = sorted(cache.glob(f"*/{inputs.ERT_NAME}"))
     if not erts:
         raise _Skip("no reference cache entry with an ERT on disk")
     doc = yaml.safe_load(erts[0].read_text())
-    b2 = archs.ert_bump(_P2_ARCH, r2)
-    base, got = tl.ert_prices(doc), tl.ert_prices(tl.patched_ert(doc, tl.ert_changes(b2)))
+    b2 = fingerprint.ert_bump(_P2_ARCH, r2)
+    base, got = ert.ert_prices(doc), ert.ert_prices(ert.patched_ert(doc, ert.ert_changes(b2)))
     assert set(base) == set(got)
     moved = {k for k in base if abs(got[k] - base[k]) > 1e-12}
     assert moved == {("filter_glb", "read"), ("filter_glb", "leak")}, moved
@@ -1075,12 +1123,12 @@ def test_patching_the_real_cached_ert_moves_only_the_two_rows():
     # revision ("prices filter_glb.read at 2.75566, so the arm roughly doubles
     # it") asserts the revision, not the rule -- it broke when the level went
     # from 64 b/4 b to 384 b/4 b (2026-09-12).
-    geo = archs.patched_weight_geometry(_P2_ARCH, r2)
+    geo = patch.patched_weight_geometry(_P2_ARCH, r2)
     assert abs(b2["access_delta_pj"]
                - b2["e_w_pj"] * geo["filter_glb"]["weights_per_word"]) < 1e-9, b2
     assert got[("filter_glb", "read")] > base[("filter_glb", "read")] > 0, (base, got)
     try:
-        tl.patched_ert(doc, {("filter_glb", "no_such_action"): ("add", 1.0)})
+        ert.patched_ert(doc, {("filter_glb", "no_such_action"): ("add", 1.0)})
     except ValueError:
         pass
     else:
@@ -1169,7 +1217,11 @@ def test_the_capacity_target_is_8_over_q_and_every_code_passes_its_own():
     luck; against 8/q every code passes exactly. Each mutation checks that the
     old target would still refuse the two."""
     try:
-        from eccenergy import recon
+        from ..arch import arms
+        from ..arch import placements
+        from ..arch import weight_path
+        from ..study import capacity
+        from ..study import narrowing
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"recon unavailable: {exc}")
     import dataclasses
@@ -1178,7 +1230,7 @@ def test_the_capacity_target_is_8_over_q_and_every_code_passes_its_own():
              36: (5, 1.600), 30: (4, 2.000)}
     for k, (q_want, room) in table.items():
         c = dataclasses.replace(cfg, const_k=k)
-        want, q = recon.capacity_target(c)
+        want, q = capacity.capacity_target(c)
         assert q == q_want, (k, q, q_want)
         assert abs(want - room) < 5e-4, (k, want, room)
         # what the arm really delivers, 8/q exactly, passes ITS target...
@@ -1189,7 +1241,7 @@ def test_the_capacity_target_is_8_over_q_and_every_code_passes_its_own():
         off = abs(delivered - nk) > 0.05 * nk
         assert off == (k in (51, 36)), (k, delivered, nk)
     # BREAKAGE: the ideal rate is not the target -- at BCH(63,30) N/K = 2.1
-    want, q = recon.capacity_target(cfg)
+    want, q = capacity.capacity_target(cfg)
     assert q == 4 and want == 2.0 and abs(63 / 30 - want) > 0.05
 
 
@@ -1264,15 +1316,17 @@ def test_the_width_table_holds_total_bits_and_puts_the_glb_at_four_times():
     nothing reached for it until `map_ert_arms.sh` died on it at K=39.
     """
     try:
-        from eccenergy import archs
+        from ..arch import fingerprint
+        from ..arch import load
+        from ..arch import patch
         from eccenergy.physics import widths
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"archs unavailable: {exc}")
     import dataclasses
     cfg, emb, rec = _p2_cfgs()
-    src_geom = archs.weight_capacity_levels(_P2_ARCH, cfg)
+    src_geom = patch.weight_capacity_levels(_P2_ARCH, cfg)
     published = {r["level"]: r for r in src_geom}
-    got = archs.patched_weight_geometry(_P2_ARCH, emb)
+    got = patch.patched_weight_geometry(_P2_ARCH, emb)
     base = widths.BASE_WIDTH
     spad = list(got)[-1]
     for level, v in got.items():
@@ -1281,7 +1335,7 @@ def test_the_width_table_holds_total_bits_and_puts_the_glb_at_four_times():
         assert v["datawidth"] == 8, (level, v)
         assert v["width"] % v["datawidth"] == 0, (level, v)
     # the q=4 arm keeps the SAME depth and takes its own width (96 at q=4)
-    narrow = archs.patched_weight_geometry(_P2_ARCH, rec)
+    narrow = patch.patched_weight_geometry(_P2_ARCH, rec)
     for level in got:
         assert narrow[level]["depth"] == got[level]["depth"], (
             f"{level}: the arms must share a depth -- "
@@ -1333,14 +1387,18 @@ def test_the_onchip_narrowing_is_applied_exactly_once():
     resolution is `aligned`, and this is the assertion that enforces it.
     """
     try:
-        from eccenergy import recon
+        from ..arch import arms
+        from ..arch import placements
+        from ..arch import weight_path
+        from ..study import capacity
+        from ..study import narrowing
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"recon unavailable: {exc}")
     import dataclasses
     cfg, _, _ = _p2_cfgs()
     both = dataclasses.replace(cfg, recon_packing="stream", weight_datawidth=4)
     try:
-        recon.assert_onchip_narrowing_once(both)
+        narrowing.assert_onchip_narrowing_once(both)
     except ValueError as e:
         assert "TWICE" in str(e) and "SQUARED" in str(e), str(e)
     else:
@@ -1349,11 +1407,11 @@ def test_the_onchip_narrowing_is_applied_exactly_once():
             "on-chip saving would be counted twice")
     # the prompt_2 configuration passes
     good = dataclasses.replace(cfg, recon_packing="aligned", weight_datawidth=4)
-    assert recon.assert_onchip_narrowing_once(good)["n_sites"] == 1
+    assert narrowing.assert_onchip_narrowing_once(good)["n_sites"] == 1
     # and a datawidth that disagrees with the code is refused
     wrong = dataclasses.replace(cfg, recon_packing="aligned", weight_datawidth=5)
     try:
-        recon.assert_onchip_narrowing_once(wrong)
+        narrowing.assert_onchip_narrowing_once(wrong)
     except ValueError as e:
         assert "DISAGREE" in str(e), str(e)
     else:
@@ -1364,13 +1422,17 @@ def test_the_onchip_narrowing_is_applied_exactly_once():
 def test_aligned_without_a_mapper_datawidth_is_the_old_bound_not_an_error():
     """The pessimistic bound predates prompt_2 and must stay runnable."""
     try:
-        from eccenergy import recon
+        from ..arch import arms
+        from ..arch import placements
+        from ..arch import weight_path
+        from ..study import capacity
+        from ..study import narrowing
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"recon unavailable: {exc}")
     import dataclasses
     cfg, _, _ = _p2_cfgs()
     old = dataclasses.replace(cfg, recon_packing="aligned", weight_datawidth=None)
-    audit = recon.onchip_narrowing_audit(old)
+    audit = narrowing.onchip_narrowing_audit(old)
     assert audit["ok"] and audit["n_sites"] == 0 and "note" in audit, audit
 
 
@@ -1383,17 +1445,21 @@ def test_eyeriss_v1_wglb_has_a_weight_path_and_every_stage_has_a_boundary():
     full width -- the whole list understated, with nothing saying so.
     """
     try:
-        from eccenergy import recon
+        from ..arch import arms
+        from ..arch import placements
+        from ..arch import weight_path
+        from ..study import capacity
+        from ..study import narrowing
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"recon unavailable: {exc}")
-    assert _P2_ARCH in recon.WEIGHT_PATHS, "no weight path registered"
-    assert _P2_ARCH in recon.PLACEMENTS, "no placements registered"
-    keys = [s.key for s in recon.WEIGHT_PATHS[_P2_ARCH]]
+    assert _P2_ARCH in weight_path.WEIGHT_PATHS, "no weight path registered"
+    assert _P2_ARCH in placements.PLACEMENTS, "no placements registered"
+    keys = [s.key for s in weight_path.WEIGHT_PATHS[_P2_ARCH]]
     assert "filter_glb" in keys, keys
-    ok, detail = recon.validate_placement_space(_P2_ARCH)
+    ok, detail = arms.validate_placement_space(_P2_ARCH)
     assert ok, detail.get("violations")
     # five boundaries: one more than eyeriss_like, because of the GLB
-    assert len(recon.PLACEMENTS[_P2_ARCH]) == len(recon.PLACEMENTS["eyeriss_like"]) + 1
+    assert len(placements.PLACEMENTS[_P2_ARCH]) == len(placements.PLACEMENTS["eyeriss_like"]) + 1
 
 
 def test_the_eyeriss_v1_bracket_pair_is_retired():
@@ -1439,9 +1505,10 @@ def test_the_level_parser_reads_geometry_and_energy_off_the_stats_file():
     that may since have been edited. That is what makes the fairness rule
     checkable on the ROWS.
     """
-    from eccenergy.experiments import dilation
+    from ..study import dilation as dilation_mod
+    from ..study import dilation_cache
     text = _stats()
-    rows = dilation._weight_level_rows(text, ("weights_spad",))
+    rows = dilation_cache._weight_level_rows(text, ("weights_spad",))
     assert len(rows) == 1, rows
     r = rows[0]
     for key in ("datawidth", "weights_per_word", "width", "declared_depth",

@@ -31,7 +31,7 @@ def check(name, fn):
 
 
 def test_uncontended_acquire_does_not_wait_and_releases():
-    from ..timeloop import ShapeLock
+    from ..toolchain.cache import ShapeLock
     with tempfile.TemporaryDirectory() as tmp:
         out = pathlib.Path(tmp) / "fp-x" / "C1_M1"
         lk = ShapeLock(out)
@@ -42,7 +42,7 @@ def test_uncontended_acquire_does_not_wait_and_releases():
 
 
 def test_second_acquire_waits_until_release_then_reports_waited():
-    from ..timeloop import ShapeLock
+    from ..toolchain.cache import ShapeLock
     with tempfile.TemporaryDirectory() as tmp:
         out = pathlib.Path(tmp) / "fp-x" / "C2_M2"
         first = ShapeLock(out); first.acquire()
@@ -57,7 +57,7 @@ def test_second_acquire_waits_until_release_then_reports_waited():
 
 
 def test_lock_from_dead_pid_on_this_host_is_taken_over():
-    from ..timeloop import ShapeLock
+    from ..toolchain.cache import ShapeLock
     with tempfile.TemporaryDirectory() as tmp:
         out = pathlib.Path(tmp) / "fp-x" / "C3_M3"
         lk = ShapeLock(out, poll_s=0.05)
@@ -70,7 +70,7 @@ def test_lock_from_dead_pid_on_this_host_is_taken_over():
 
 
 def test_old_lock_from_another_host_is_taken_over():
-    from ..timeloop import ShapeLock
+    from ..toolchain.cache import ShapeLock
     with tempfile.TemporaryDirectory() as tmp:
         out = pathlib.Path(tmp) / "fp-x" / "C4_M4"
         lk = ShapeLock(out, stale_s=60, poll_s=0.05)

@@ -1,10 +1,10 @@
 """prompt_6 PHASE 1 -- prove the ERT hook.
 
-    bash hpc/tl.sh python3 -m eccenergy.experiments.ert_probe --plan        # preconditions +
+    bash hpc/tl.sh python3 -m eccenergy.toolchain.ert_probe --plan        # preconditions +
                                                                            # predictions only
-    bash hpc/tl.sh python3 -m eccenergy.experiments.ert_probe --parse-only  # + build every input
+    bash hpc/tl.sh python3 -m eccenergy.toolchain.ert_probe --parse-only  # + build every input
                                                                            # file, invoke nothing
-    sbatch ... bash hpc/tl.sh python3 -m eccenergy.experiments.ert_probe    # the five runs
+    sbatch ... bash hpc/tl.sh python3 -m eccenergy.toolchain.ert_probe    # the five runs
 
 THE QUESTION. prompt_6 puts the encoder's energy into the mapper's objective by
 bumping actions of the Energy Reference Table. That only works if a table handed
@@ -92,10 +92,13 @@ import time
 
 import yaml
 
-from .. import archs as archmod
+from ..arch import fingerprint
+from ..arch import layout
 from .. import paths as pathsmod
-from .. import recon as reconmod
-from .. import timeloop as tlmod
+from ..arch import placements
+from . import ert
+from . import inputs as inputs_mod
+from . import stats as stats_mod
 from ..config import load_config
 from ..arch.workloads import load_workload, select, select_layers
 
@@ -126,20 +129,20 @@ def _backend_calls():
 # --------------------------------------------------------------------- tables
 # The table helpers moved into `timeloop.py` for PHASE 3 (the production hook
 # uses them); this module keeps its names as aliases.
-_level_of = tlmod.ert_level_of
-_ert_prices = tlmod.ert_prices
-_art_areas = tlmod.art_areas
+_level_of = ert.ert_level_of
+_ert_prices = ert.ert_prices
+_art_areas = ert.art_areas
 
 
 def _patched_ert(doc, changes):
     try:
-        return tlmod.patched_ert(doc, changes)
+        return ert.patched_ert(doc, changes)
     except ValueError as exc:
         raise SystemExit(f"ert_probe: {exc}")
 
 
 def _write_yaml(path, doc):
-    return tlmod.write_yaml(path, doc)
+    return ert.write_yaml(path, doc)
 
 
 # ---------------------------------------------------------------------- stats
@@ -150,7 +153,7 @@ def _grab(pattern, text, cast=float):
 
 # `parse_levels` moved into timeloop.py for PHASE 6 (the per-arm checks use
 # it); the name is kept here.
-parse_levels = tlmod.parse_levels
+parse_levels = stats_mod.parse_levels
 
 
 def _close(a, b, rel=REL_TOL, abs_=1e-9):
@@ -178,8 +181,8 @@ class Probe:
     def setup(self):
         cfg = self.cfg
         self.arch = cfg.archs[0]
-        self.variant = archmod.effective_variant(self.arch, cfg)
-        self.fp = archmod.arch_fingerprint(self.arch, cfg)
+        self.variant = fingerprint.effective_variant(self.arch, cfg)
+        self.fp = fingerprint.arch_fingerprint(self.arch, cfg)
         models = select(load_workload(cfg)[0], cfg.models)
         models = select_layers(models, cfg.layers, verbose=False)
         self.model = cfg.models[0]
@@ -189,19 +192,19 @@ class Probe:
         self.ref = cache / shape
         need = ["timeloop-mapper.stats.txt", "timeloop-mapper.ERT.yaml",
                 "timeloop-mapper.ART.yaml", "timeloop-mapper.map.yaml",
-                "timeloop-mapper.map.txt", PROCESSED_INPUT, tlmod.MAPPING_SIDECAR]
+                "timeloop-mapper.map.txt", PROCESSED_INPUT, inputs_mod.MAPPING_SIDECAR]
         missing = [n for n in need if not (self.ref / n).exists()]
         if missing:
             raise SystemExit(f"ert_probe: reference cache entry {self.ref} lacks {missing}.\n"
                              f"  Map the reference arm first (prompt_3's four exports set).")
-        side = json.loads((self.ref / tlmod.MAPPING_SIDECAR).read_text())
+        side = json.loads((self.ref / inputs_mod.MAPPING_SIDECAR).read_text())
         if side.get("arch_fingerprint") != self.fp:
             raise SystemExit(f"ert_probe: sidecar fingerprint {side.get('arch_fingerprint')} "
                              f"!= current {self.fp}")
         self.out = pathsmod.ert_probe_dir(self.arch, self.fp, shape)
 
         # The bumped levels come from the weight path, not from a design name.
-        storage = [s for s in reconmod.stages_for(self.arch, cfg) if s.kind == "storage"]
+        storage = [s for s in placements.stages_for(self.arch, cfg) if s.kind == "storage"]
         if not storage:
             raise SystemExit(f"ert_probe: {self.arch} has no storage stage on its weight path")
         self.read_level = storage[0].prefixes[0]
@@ -227,7 +230,7 @@ class Probe:
                            layer=self.layer.name, shape=shape, reference=str(self.ref),
                            read_level=self.read_level, leak_levels=self.leak_levels,
                            read_bump_pJ=READ_BUMP_PJ, leak_bump_pJ=LEAK_BUMP_PJ,
-                           tool_versions=tlmod.tool_versions())
+                           tool_versions=inputs_mod.tool_versions())
         return self
 
     def predictions(self):
@@ -280,11 +283,11 @@ class Probe:
 
     def _spec_inputs(self):
         """The YAMLs `timeloop.Mapper` hands timeloopfe, for this arch and layer."""
-        archmod.write_globals(self.cfg, self.arch)
-        arch_yaml = archmod.patched_arch_path(self.arch, self.cfg)
-        problem = tlmod.problem_path(self.layer)
+        layout.write_globals(self.cfg, self.arch)
+        arch_yaml = layout.patched_arch_path(self.arch, self.cfg)
+        problem = inputs_mod.problem_path(self.layer)
         return [pathlib.Path(p)
-                for p in tlmod.design_inputs(arch_yaml, problem, self.arch, self.cfg)]
+                for p in inputs_mod.design_inputs(arch_yaml, problem, self.arch, self.cfg)]
 
     def _model_input(self, sub, ert_path):
         """ONE v3 YAML for timeloop-model: the cached mapper's processed input
@@ -326,7 +329,7 @@ class Probe:
         return d, log, dt, err
 
     def _run_spec(self, kind, sub, inputs, mapper_setup=None, clean=True):
-        tl = tlmod.load_timeloopfe()
+        tl = inputs_mod.load_timeloopfe()
         d = self.out / sub
         d.mkdir(parents=True, exist_ok=True)
         if clean:
@@ -386,7 +389,7 @@ class Probe:
 
     def _mapper_setup(self):
         cfg = self.cfg
-        levels_n = archmod.arch_levels(self.arch, cfg)
+        levels_n = layout.arch_levels(self.arch, cfg)
         threads = cfg.mapper_threads or os.cpu_count() or 4
         victory = cfg.victory_for(levels_n)
 
@@ -426,7 +429,7 @@ class Probe:
                    all(k in doc for k in ("architecture", "problem", "mapping", "ERT", "ART")),
                    f"{len(doc['mapping'])} mapping entries, {len(doc['ERT']['tables'])} ERT tables")
         print("\n== parse-only: timeloopfe spec with ERT+ART extra inputs (step 4) ==")
-        tl = tlmod.load_timeloopfe()
+        tl = inputs_mod.load_timeloopfe()
         inputs = self._spec_inputs() + [self.ert_read, self.art]
         spec = tl.Specification.from_yaml_files(*[str(p) for p in inputs])
         setup, victory, threads = self._mapper_setup()
@@ -618,7 +621,7 @@ def main(argv=None):
     if args.plan or args.parse_only:
         print("\nnothing invoked.")
         return 0 if all(c[2] for c in probe.checks) else 1
-    tlmod.require_container()
+    inputs_mod.require_container()
     if not shutil.which("timeloop-model"):
         raise SystemExit("ert_probe: timeloop-model is not on PATH")
     probe.run()

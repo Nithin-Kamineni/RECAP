@@ -15,6 +15,8 @@ phase plan is finished it can be deleted in one line.
 | `snapshot.py` | takes one snapshot: fingerprints, the three arms, validate, diagnose, the suite |
 | `_fingerprints.py` | gate item 1 on its own — every `arch_fingerprint()`, as TSV |
 | `golden/` | **the committed snapshot.** The safety net. Phase 0 is this directory existing. |
+| `migrate_modules.py` | phase 2's move: modules between packages, every import repaired. |
+| `split_modules.py` | phase 3's cut: LINE RANGES into new modules, byte for byte, with each new module's import block written from the names its chunk uses -- and every reference in the rest of the repo re-pointed. `--plan` first. |
 
 ## The one rule
 
@@ -40,6 +42,21 @@ That branch is mutation-tested too: a golden claiming 999 passing against a fres
 did not — the count regex needed a non-digit before the number and the summary
 line begins with one, so both counts parsed as 0 and compared equal. Which is the
 argument for testing the gate and not only with it.
+
+## The one recorded prose divergence, 2026-09-13 (phase 3)
+
+Phase 3's gate ran green on the fingerprints and on every number, and diverged on
+**one line of one file**: a caveat sentence in the placement result names the
+module `WEIGHT_PATHS` lives in, and phase 3 moved it
+(`eccenergy/recon.py` -> `eccenergy/arch/weight_path.py`). A provenance sentence
+that points at a file which no longer exists is worse than a diff, so the
+sentence was corrected and the golden snapshot re-taken **after** phase 3 was
+verified, as phase 4's baseline.
+
+The rule is unchanged, and this is the shape an exception has to have: the
+divergence was reduced to a single hunk and read before anything was rewritten,
+`fingerprints.tsv` was byte-identical, and no energy moved. **A number moving is
+never this.**
 
 ## What the snapshot covers, and what it cannot
 

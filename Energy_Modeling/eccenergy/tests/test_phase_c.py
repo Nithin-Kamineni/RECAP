@@ -1,7 +1,7 @@
 """prompt_7 Phase C1: the single cold pass -- TIME, in the architecture.
 
 PROPERTY TESTS ON THE REAL PATCHED ARCHITECTURE, PLUS DELIBERATE BREAKAGE.
-Every assertion here reads the YAML `archs._patched_text()` actually produces
+Every assertion here reads the YAML `patch._patched_text()` actually produces
 for an arm -- no fixture, no hand-written expectation of what the file should
 contain -- and every one is followed by the mutation it exists to catch,
 applied to a copy and checked to FAIL. An assertion nobody has seen fail is a
@@ -108,10 +108,19 @@ Run it like every other suite:
 from __future__ import annotations
 
 import dataclasses
+import inspect
 import re
 import sys
 
-from .. import archs, config, recon, timeloop as tlmod
+from .. import config
+from ..arch import fingerprint
+from ..arch import layout
+from ..arch import load
+from ..arch import patch
+from ..arch import arms
+from ..arch import placements
+from ..toolchain import ert
+from ..toolchain import invoke
 from ..physics import widths
 from ..toolchain import latency_post
 
@@ -176,7 +185,7 @@ def _cfg(arm="reference", code_k=None, **over):
 
 def _text(arm="reference", cfg=None, **over):
     cfg = cfg or _cfg(arm, **over)
-    return archs._patched_text(ARCH, cfg, quiet=True)
+    return patch._patched_text(ARCH, cfg, quiet=True)
 
 
 def _attr(text, level, key):
@@ -321,9 +330,9 @@ def test_the_bandwidth_scale_is_per_stage_and_per_factor():
     t3 = _text(cfg=r3)
     for lvl in net:
         _assert_eq(_scale_line(t3, lvl), None, f"{lvl} is a network: no-op")
-    _assert_eq(recon.arm_bw_factors(
-        recon.placement_by_key(ARCH, "recon3", r3),
-        recon.stages_for(ARCH, r3), r3)[net[0]]["timing"], "no-op")
+    _assert_eq(arms.arm_bw_factors(
+        placements.placement_by_key(ARCH, "recon3", r3),
+        placements.stages_for(ARCH, r3), r3)[net[0]]["timing"], "no-op")
 
     # BREAKAGE: one factor everywhere. The DRAM line must change.
     expect_raises(
@@ -333,7 +342,7 @@ def test_the_bandwidth_scale_is_per_stage_and_per_factor():
 
     # BREAKAGE: a misspelled dataspace must not be silently dropped by US
     # either -- the name comes from one constant, so a typo cannot be local.
-    _assert_eq(recon.REDUCED_BW_DATASPACE, "Weights")
+    _assert_eq(arms.REDUCED_BW_DATASPACE, "Weights")
 
 
 # ---------------------------------------------------------------------------
@@ -371,7 +380,7 @@ def test_only_the_narrowed_levels_are_bit_aware():
 
     # BREAKAGE: make the REFERENCE bit-aware. Its filter_glb must move off 16,
     # which is the free architecture change this rule exists to prevent.
-    broken = archs._bitaware_onchip_bandwidth(ref, (GLB,), 2.0, ARCH, quiet=True)
+    broken = patch._bitaware_onchip_bandwidth(ref, (GLB,), 2.0, ARCH, quiet=True)
     expect_raises(lambda: _close(_attr(broken, GLB, "read_bandwidth"), 16.0),
                   "the reference arm was given a bit-aware port")
 
@@ -379,11 +388,11 @@ def test_only_the_narrowed_levels_are_bit_aware():
     # already declared as a bandwidth scale (C1.2), so 8/q on top would charge
     # the reduced representation twice.
     expect_raises(
-        lambda: archs._bitaware_onchip_bandwidth(ref, ("DRAM",), 2.0, ARCH, True),
+        lambda: patch._bitaware_onchip_bandwidth(ref, ("DRAM",), 2.0, ARCH, True),
         "the off-chip limit was made bit-aware on top of its K/N scale")
     # BREAKAGE: a level this design does not have is refused, not skipped
     expect_raises(
-        lambda: archs._bitaware_onchip_bandwidth(ref, ("no_such_level",), 2.0,
+        lambda: patch._bitaware_onchip_bandwidth(ref, ("no_such_level",), 2.0,
                                                  ARCH, True),
         "a bit-aware port named a level the design does not have")
 
@@ -403,10 +412,10 @@ def test_the_mac_price_the_mapper_sees_is_the_one_the_report_charges():
                      {"name": "leak", "energy": 0.00784449, "arguments": {}}]},
         {"name": "system_top_level.filter_glb[1..1]",
          "actions": [{"name": "read", "energy": 13.591, "arguments": {}}]}]}}
-    _assert_eq(tlmod.compute_levels(doc), ["mac"])
-    changes = tlmod.mac_ert_changes(doc, cfg.mac_pj_override)
+    _assert_eq(ert.compute_levels(doc), ["mac"])
+    changes = ert.mac_ert_changes(doc, cfg.mac_pj_override)
     _assert_eq(changes, {("mac", "compute"): ("set", float(cfg.mac_pj_override))})
-    priced = tlmod.ert_prices(tlmod.patched_ert(doc, changes))
+    priced = ert.ert_prices(ert.patched_ert(doc, changes))
     _close(priced[("mac", "compute")], cfg.mac_pj_override)
     # every other row untouched -- the MAC price is not a toll on the memory
     _close(priced[("filter_glb", "read")], 13.591)
@@ -419,17 +428,17 @@ def test_the_mac_price_the_mapper_sees_is_the_one_the_report_charges():
 
     # BREAKAGE: `add` instead of `set` -- the mapper would then see 1.366 pJ
     # and the evaluator would rescale a price nothing charges.
-    added = tlmod.ert_prices(tlmod.patched_ert(
+    added = ert.ert_prices(ert.patched_ert(
         doc, {("mac", "compute"): ("add", float(cfg.mac_pj_override))}))
     expect_raises(lambda: _close(added[("mac", "compute")], cfg.mac_pj_override),
                   "the MAC price was ADDED to Accelergy's rather than replacing it")
 
     # BREAKAGE: a design with no arithmetic row must be refused, not skipped
     expect_raises(
-        lambda: tlmod.mac_ert_changes({"ERT": {"tables": []}}, 0.23),
+        lambda: ert.mac_ert_changes({"ERT": {"tables": []}}, 0.23),
         "a table with no `compute` row silently took no MAC price")
     # and EMPTY leaves the table alone
-    _assert_eq(tlmod.mac_ert_changes(doc, None), {})
+    _assert_eq(ert.mac_ert_changes(doc, None), {})
 
 
 # ---------------------------------------------------------------------------
@@ -445,25 +454,26 @@ def test_only_a_declared_bank_count_reaches_cacti():
     """
     text = _text("reference")
     for level in ("ifmap_glb", "psum_glb", GLB):
-        _assert_eq(_class_of(text, level), archs.BANKED_SRAM_CLASS, level)
+        _assert_eq(_class_of(text, level), load.BANKED_SRAM_CLASS, level)
         assert _attr(text, level, "n_banks") and _attr(text, level, "n_banks") > 1
-    _assert_eq(_class_of(text, "weights_spad"), archs.PLAIN_SRAM_CLASS,
+    _assert_eq(_class_of(text, "weights_spad"), load.PLAIN_SRAM_CLASS,
                "weights_spad declares no n_banks")
     # the register files are untouched: they are not SRAM at all
     _assert_eq(_class_of(text, "psum_spad"), "smartbuffer_RF_decoded")
 
     # the banked compound must EXIST and must forward the attribute, or the
     # class switch is a rename that changes nothing
-    comp = (archs.ARCH_COMPONENTS / "smartbuffer_SRAM_banked.yaml").read_text()
+    from ..paths import ARCH_COMPONENTS
+    comp = (ARCH_COMPONENTS / "smartbuffer_SRAM_banked.yaml").read_text()
     assert "n_banks: n_banks" in comp, comp[:400]
 
     # BREAKAGE: switch every SRAM. The depth-3 scratchpad must then move, which
     # is the front-end default landing on a level that publishes no banking.
-    everything = text.replace(f"class: {archs.PLAIN_SRAM_CLASS}\n",
-                              f"class: {archs.BANKED_SRAM_CLASS}\n")
+    everything = text.replace(f"class: {load.PLAIN_SRAM_CLASS}\n",
+                              f"class: {load.BANKED_SRAM_CLASS}\n")
     expect_raises(
         lambda: _assert_eq(_class_of(everything, "weights_spad"),
-                           archs.PLAIN_SRAM_CLASS),
+                           load.PLAIN_SRAM_CLASS),
         "a level with no declared n_banks was banked from a front-end default")
 
 
@@ -482,8 +492,8 @@ def test_the_clock_is_per_design_and_inverted_once():
     # ECC_ARCH_CLOCK_MHZ would have colded designs that did not change.
     _assert_eq(cfg.cycle_seconds_for("simba_like"), cfg.global_cycle_seconds)
     _close(cfg.clock_mhz_for("simba_like"), 1000.0)
-    _assert_eq(archs.arch_fingerprint("simba_like", cfg),
-               archs.arch_fingerprint("simba_like",
+    _assert_eq(fingerprint.arch_fingerprint("simba_like", cfg),
+               fingerprint.arch_fingerprint("simba_like",
                                       dataclasses.replace(cfg, arch_clock_mhz={})),
                "declaring a design at its existing rate colded it")
     # a design with no entry keeps the study default rather than inventing one
@@ -492,11 +502,11 @@ def test_the_clock_is_per_design_and_inverted_once():
     # CONTENT-ADDRESSED (2026-09-13): the name carries 8 hex of the bytes, so
     # 186 concurrent jobs write ONE name and nothing replaces a file a reader
     # may hold open. Two designs at two clocks therefore differ in the name.
-    assert archs.globals_path(ARCH, cfg).name.startswith(f"globals_{ARCH}_")
-    assert archs.globals_path(ARCH, cfg) != archs.globals_path("simba_like", cfg)
-    assert f"{cfg.cycle_seconds_for(ARCH)}" in archs.globals_text(cfg, ARCH)
+    assert layout.globals_path(ARCH, cfg).name.startswith(f"globals_{ARCH}_")
+    assert layout.globals_path(ARCH, cfg) != layout.globals_path("simba_like", cfg)
+    assert f"{cfg.cycle_seconds_for(ARCH)}" in layout.globals_text(cfg, ARCH)
     # and the cache slug says which clock a directory was mapped at
-    assert "clk5e-09" in archs.effective_variant(ARCH, cfg)
+    assert "clk5e-09" in fingerprint.effective_variant(ARCH, cfg)
 
     # BREAKAGE: invert twice. env.sh section 6's TRAP 2 is that a per-cycle
     # constant converted twice is a silent 5x on every standby and idle term.
@@ -516,32 +526,32 @@ def test_the_clock_is_per_design_and_inverted_once():
 #  7. C1.8 -- none of this can land silently
 # ---------------------------------------------------------------------------
 def test_every_phase_c_declaration_colds_the_cache():
-    """Each declaration moves `archs.arch_fingerprint()`, which is the hash the
+    """Each declaration moves `fingerprint.arch_fingerprint()`, which is the hash the
     mapper CACHE DIRECTORY is named after."""
     live = _cfg()
-    base = archs.arch_fingerprint(ARCH, live)
+    base = fingerprint.arch_fingerprint(ARCH, live)
     for name, off in (
             ("ECC_DRAM_BANDWIDTH_MBPS", dict(dram_bandwidth_mbps=None)),
             ("ECC_ARCH_CLOCK_MHZ", dict(arch_clock_mhz={})),
             ("ECC_ENERGY_MODEL_REV", dict(energy_model_rev="")),
             ("ECC_MAC_PJ_OVERRIDE", dict(mac_pj_override=None)),
     ):
-        other = archs.arch_fingerprint(ARCH, dataclasses.replace(live, **off))
+        other = fingerprint.arch_fingerprint(ARCH, dataclasses.replace(live, **off))
         assert other != base, f"{name} does not move the mapper fingerprint"
     # THE TWO PER-ARM DECLARATIONS only exist on an arm that HAS a boundary, so
     # they are checked there. On the reference they are correctly no-ops: it
     # narrows nothing and moves no less of anything, which is the whole reason
     # `arm-<key>` had to become its own slug in Phase B.
     arm = _cfg("recon2")
-    arm_fp = archs.arch_fingerprint(ARCH, arm)
+    arm_fp = fingerprint.arch_fingerprint(ARCH, arm)
     for name, off in (("ECC_RECON_BW_SCALE", dict(recon_bw_scale=False)),
                       ("ECC_ONCHIP_BW_BITAWARE", dict(onchip_bw_bitaware=False))):
-        assert arm_fp != archs.arch_fingerprint(
+        assert arm_fp != fingerprint.arch_fingerprint(
             ARCH, dataclasses.replace(arm, **off)), \
             f"{name} does not move the mapper fingerprint"
     for name, off in (("ECC_RECON_BW_SCALE", dict(recon_bw_scale=False)),
                       ("ECC_ONCHIP_BW_BITAWARE", dict(onchip_bw_bitaware=False))):
-        _assert_eq(archs.arch_fingerprint(ARCH, dataclasses.replace(live, **off)),
+        _assert_eq(fingerprint.arch_fingerprint(ARCH, dataclasses.replace(live, **off)),
                    base, f"{name} moved the REFERENCE arm, which declares none")
 
     # THE ONE THAT WAS BROKEN. Until Phase C `ECC_ENERGY_MODEL_REV` reached
@@ -550,18 +560,18 @@ def test_every_phase_c_declaration_colds_the_cache():
     # it was meant to invalidate stayed warm.
     a = dataclasses.replace(live, energy_model_rev="rev-a")
     b = dataclasses.replace(live, energy_model_rev="rev-b")
-    assert archs.arch_fingerprint(ARCH, a) != archs.arch_fingerprint(ARCH, b)
+    assert fingerprint.arch_fingerprint(ARCH, a) != fingerprint.arch_fingerprint(ARCH, b)
     # and EMPTY still hashes like every directory that predates the knob:
     # the key is absent from the blob, not present-and-empty
     empty = dataclasses.replace(live, energy_model_rev="")
-    _assert_eq(archs.arch_fingerprint(ARCH, empty),
-               archs.arch_fingerprint(ARCH, dataclasses.replace(empty)))
+    _assert_eq(fingerprint.arch_fingerprint(ARCH, empty),
+               fingerprint.arch_fingerprint(ARCH, dataclasses.replace(empty)))
 
     # every arm still has its own directory (prompt_7 B2 gate 2, re-checked
     # here because five new declarations could have merged two of them)
-    fps = {a.key: archs.arch_fingerprint(
+    fps = {a.key: fingerprint.arch_fingerprint(
         ARCH, dataclasses.replace(live, recon_ert_arm=a.key))
-        for a in recon.mapper_arms(ARCH, live)}
+        for a in arms.mapper_arms(ARCH, live)}
     _assert_eq(len(set(fps.values())), len(fps), f"two arms share a hash: {fps}")
 
 
@@ -690,7 +700,7 @@ def test_the_dc_idle_term_is_rescaled_to_this_designs_clock():
 #  10. a comment is prose, never a declaration
 # ---------------------------------------------------------------------------
 def test_a_comment_is_never_the_geometry():
-    """`archs.uncommented()`. Found on a real SLURM run, 2026-09-13.
+    """`patch.uncommented()`. Found on a real SLURM run, 2026-09-13.
 
     Every geometry regex in `archs.py` read the RAW text, so a `depth:` in a
     comment was a declaration; and `re.sub(..., count=1)` then rewrote that
@@ -704,29 +714,29 @@ def test_a_comment_is_never_the_geometry():
     # reaches it before the attribute.
     src = ("      # the paper's two banks would be `depth: 1024`\n"
            "        depth: 256\n")
-    masked = archs.uncommented(src)
+    masked = patch.uncommented(src)
     _assert_eq(len(masked), len(src), "the mask must preserve positions")
     assert "1024" not in masked, masked
-    _assert_eq(archs.read_attr(src, "depth"), 256)
-    got = archs.write_attr(src, "depth", 43)
+    _assert_eq(patch.read_attr(src, "depth"), 256)
+    got = patch.write_attr(src, "depth", 43)
     assert "`depth: 1024`" in got, "the comment must be left alone"
     assert "depth: 43\n" in got, got
 
     # ON THE REAL DESIGN: the arch YAML carries exactly such a comment, and the
     # patched geometry must be the ATTRIBUTE's, not the comment's.
     cfg = _cfg()
-    geo = archs.patched_weight_geometry(ARCH, cfg)
+    geo = patch.patched_weight_geometry(ARCH, cfg)
     _assert_eq(geo[GLB]["depth"], 43, "filter_glb: 256 x 64b renormalised at 384b")
     _assert_eq(geo[GLB]["width"], 384)
     _assert_eq(geo["weights_spad"]["depth"], 3)
     # and the source really does mention another depth in prose, or this test
     # is asserting against a file that cannot exercise it
-    src_text = archs.arch_source(ARCH, cfg).read_text()
-    in_comments = " ".join(archs._COMMENT_RE.findall(src_text))
+    src_text = load.arch_source(ARCH, cfg).read_text()
+    in_comments = " ".join(patch._COMMENT_RE.findall(src_text))
     assert "depth: 1024" in in_comments, (
         "the arch YAML no longer names another depth in a comment, so this "
         "test cannot see the bug it exists for")
-    assert "depth: 1024" not in archs.uncommented(src_text), (
+    assert "depth: 1024" not in patch.uncommented(src_text), (
         "1024 is DECLARED somewhere, not only quoted in prose")
 
     # BREAKAGE: read the RAW text, as every regex here used to. On the real
@@ -738,7 +748,7 @@ def test_a_comment_is_never_the_geometry():
     _assert_eq(int(raw.group(1)), 1024, "the sample must reproduce the real shape")
 
     # BREAKAGE: a rewrite that lands on nothing must RAISE, not pass silently
-    expect_raises(lambda: archs.write_attr("  # depth: 9\n", "depth", 43),
+    expect_raises(lambda: patch.write_attr("  # depth: 9\n", "depth", 43),
                   "a geometry rewrite landed on a comment and reported success")
 
 
@@ -755,11 +765,12 @@ def test_the_mapper_constructor_finishes():
     never ran. No test had ever constructed a Mapper, so nothing caught it
     until SLURM did.
     """
-    from .. import timeloop as tlmod
+    from ..toolchain import ert
+    from ..toolchain import invoke
     import tempfile
     cfg = _cfg()
     with tempfile.TemporaryDirectory() as tmp:
-        m = tlmod.Mapper(cfg, ARCH, None, tmp, 9, fingerprint="deadbeef")
+        m = invoke.Mapper(cfg, ARCH, None, tmp, 9, fingerprint="deadbeef")
         # every attribute the mapping path touches must exist
         for attr in ("cfg", "arch", "out_root", "ert_bump", "mac_pj", "levels",
                      "victory", "fingerprint", "legacy_root", "_memo",
@@ -784,12 +795,13 @@ def test_the_reference_arms_table_needs_no_bump():
     import ast
     import pathlib
     import tempfile
-    from .. import timeloop as tlmod
+    from ..toolchain import ert
+    from ..toolchain import invoke
 
     cfg = _cfg()
     # 1. IT CONSTRUCTS. Before C1.6 this raised: "ErtTables is for an ERT arm".
     with tempfile.TemporaryDirectory() as tmp:
-        t = tlmod.ErtTables(cfg, ARCH, None, tmp, None,
+        t = ert.ErtTables(cfg, ARCH, None, tmp, None,
                             mac_pj=cfg.mac_pj_override)
         _assert_eq(t.bump, None)
         _close(t.mac_pj, cfg.mac_pj_override)
@@ -805,13 +817,15 @@ def test_the_reference_arms_table_needs_no_bump():
     # patching NOTHING is still refused -- a supplied table with no change is a
     # cache directory that exists for no reason
     expect_raises(
-        lambda: tlmod.ErtTables(cfg, ARCH, None, ".", None, mac_pj=None),
+        lambda: ert.ErtTables(cfg, ARCH, None, ".", None, mac_pj=None),
         "ErtTables accepted an arm that patches no row at all")
 
     # 5. THE RULE, checked on the source: every `self.bump[...]` in the class
     # sits under a `bump is not None` guard. A reading of the code is not a
     # test; this walks it.
-    src = pathlib.Path(tlmod.__file__).read_text()
+    # the module that DEFINES it, so a class that moves file takes this
+    # source walk with it (ProjectRestructure phase 3)
+    src = pathlib.Path(inspect.getsourcefile(ert.ErtTables)).read_text()
     cls = next(n for n in ast.walk(ast.parse(src))
                if isinstance(n, ast.ClassDef) and n.name == "ErtTables")
     unguarded = []
@@ -851,22 +865,22 @@ def test_the_shared_inputs_are_never_replaced_under_a_reader():
 
     # 1. THE NAMES CARRY THE CONTENT. Same bytes -> same name; different
     #    bytes -> different name, so a change never overwrites.
-    g_now = archs.globals_path(ARCH, cfg)
-    _assert_eq(archs.globals_path(ARCH, cfg), g_now, "same config, same name")
+    g_now = layout.globals_path(ARCH, cfg)
+    _assert_eq(layout.globals_path(ARCH, cfg), g_now, "same config, same name")
     faster = dataclasses.replace(cfg, arch_clock_mhz={ARCH: 1000.0})
-    assert archs.globals_path(ARCH, faster) != g_now, (
+    assert layout.globals_path(ARCH, faster) != g_now, (
         "a different clock must be a different FILE, not a replacement")
-    a_now = archs.patched_arch_path(ARCH, cfg)
-    assert archs._content_tag(a_now.read_text()) in a_now.name, a_now.name
+    a_now = layout.patched_arch_path(ARCH, cfg)
+    assert layout._content_tag(a_now.read_text()) in a_now.name, a_now.name
 
     # 2. `_write_once` NEVER REPLACES. A second writer with different bytes
     #    loses -- which is correct, because the name promises the content.
     with tempfile.TemporaryDirectory() as tmp:
         import pathlib
         p = pathlib.Path(tmp) / "shared.yaml"
-        archs._write_once(p, "first\n")
+        layout._write_once(p, "first\n")
         _assert_eq(p.read_text(), "first\n")
-        archs._write_once(p, "second\n")
+        layout._write_once(p, "second\n")
         _assert_eq(p.read_text(), "first\n",
                    "_write_once replaced a file that already existed")
         # and it leaves no temp behind for the next job to trip over
@@ -875,7 +889,7 @@ def test_the_shared_inputs_are_never_replaced_under_a_reader():
 
         # BREAKAGE: the old writer. `_write_atomic` DOES replace, which is what
         # left a reader holding a stale handle across 186 concurrent jobs.
-        archs._write_atomic(p, "third\n")
+        layout._write_atomic(p, "third\n")
         expect_raises(lambda: _assert_eq(p.read_text(), "first\n"),
                       "_write_atomic did not replace, so the race it caused "
                       "cannot be reproduced and this test proves nothing")
@@ -883,8 +897,8 @@ def test_the_shared_inputs_are_never_replaced_under_a_reader():
     # 3. AND THE FINGERPRINT DOES NOT MOVE. The hash is over the CONTENT of
     #    these files, never their paths, so content-addressing the names colds
     #    nothing.
-    assert archs._content_tag("x") != archs._content_tag("y")
-    _assert_eq(len(archs._content_tag("x")), 8)
+    assert layout._content_tag("x") != layout._content_tag("y")
+    _assert_eq(len(layout._content_tag("x")), 8)
 
 
 def main():

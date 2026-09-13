@@ -44,7 +44,7 @@ import pandas as pd
 from .. import config
 from ..study import energy, stacks
 from ..toolchain import latency_post
-from ..timeloop import parse_cycles, parse_levels, physical_record
+from ..toolchain.stats import parse_cycles, parse_levels, physical_record
 
 FAILED = []
 
@@ -127,11 +127,11 @@ def _reference_cache():
     `config.load_config()` is the same resolution every other stage does.
     Nothing here writes to the cache (`create=False`).
     """
-    from .. import archs as archmod
+    from ..arch import fingerprint
     from ..paths import Results
     cfg = config.load_config()
-    variant = archmod.effective_variant(ARCH, cfg)
-    fp = Results(cfg).mapper_cache(ARCH, variant, archmod.arch_fingerprint(ARCH, cfg),
+    variant = fingerprint.effective_variant(ARCH, cfg)
+    fp = Results(cfg).mapper_cache(ARCH, variant, fingerprint.arch_fingerprint(ARCH, cfg),
                                    create=False)
     n = (sum(1 for d in fp.iterdir()
              if d.is_dir() and (d / "timeloop-mapper.stats.txt").exists())

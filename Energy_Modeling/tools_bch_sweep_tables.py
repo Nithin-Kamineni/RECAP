@@ -1,9 +1,9 @@
 """prompt_5's tables, across several BCH codes. READS CACHE ONLY.
 
 Changes nothing and invokes no mapper. Every energy comes from the project's
-OWN aggregation path -- `energy.gather()` (which applies `noc_post.augment`,
+OWN aggregation path -- `energy_mod.gather()` (which applies `noc_post.augment`,
 the evaluator-only NoC terms Timeloop cannot be given), then
-`apply_mac_override` and `apply_dram_override`, then `baseline_dram.price()`.
+`apply_mac_override` and `apply_dram_override`, then `baseline_dram_mod.price()`.
 So the totals are the ones `run.sh` would print, not a second arithmetic.
 
     the stats file's own total        231.560 uJ   (what dilation.py reads)
@@ -19,7 +19,7 @@ are done here, with prompt_5's own arithmetic:
     total_mapping_only      = the whole run at that DRAM price
     total_with_dram         = total_mapping_only - dram_kn_saving_pJ
     total_baseline          = embedded's total, its DRAM category repriced
-                              70/40 by baseline_dram.price()
+                              70/40 by baseline_dram_mod.price()
 
 SELF-CHECK FIRST. BCH(63,30) is already in the cache and its numbers are on the
 record (progress.txt, 2026-09-10). Nothing else prints unless they come back.
@@ -35,9 +35,13 @@ import sys
 
 sys.path.insert(0, "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling")
 
-from eccenergy import (archs as A, baseline_dram, code_widths, config,  # noqa: E402
-                       energy, paths as P, workloads)
-from eccenergy.experiments import dilation                              # noqa: E402
+from eccenergy import config, paths as P
+from eccenergy.arch import fingerprint
+from eccenergy.physics import baseline_dram as baseline_dram_mod
+from eccenergy.physics import widths
+from eccenergy.study import energy as energy_mod
+from eccenergy.arch import workloads as workloads_mod
+from eccenergy.report import dilation_view as dilation                              # noqa: E402
 
 CODES = [int(x) for x in os.environ.get("KN_CODES", "57 45 39 30").split()]
 #: The depth scale to read. 1.0 is prompt_5's point (the YAML as it stands).
@@ -54,9 +58,9 @@ RECORDED_K30 = {
 
 
 class CachedMapper:
-    """The two attributes `energy.gather()` needs, served from the cache.
+    """The two attributes `energy_mod.gather()` needs, served from the cache.
 
-    Deliberately NOT eccenergy.timeloop.Mapper: that one can decide to SOLVE a
+    Deliberately NOT eccenergy.toolchain.invoke.Mapper: that one can decide to SOLVE a
     shape. This one returns None instead, so a missing entry is reported rather
     than queued.
     """
@@ -65,7 +69,7 @@ class CachedMapper:
         self.cfg, self.arch = cfg, arch
         self.mappings = {}
         self.root = pathlib.Path(P.Results(cfg).mapper_cache(
-            arch, A.effective_variant(arch, cfg), A.arch_fingerprint(arch, cfg),
+            arch, fingerprint.effective_variant(arch, cfg), fingerprint.arch_fingerprint(arch, cfg),
             create=False))
 
     def stats_for(self, layer):
@@ -88,8 +92,8 @@ def load_code(k):
                       RECON_OPTIMIZER="False")
     try:
         cfg = config.load_config()
-        q = code_widths.declared_datawidth(cfg.code_n, cfg.code_k, cfg.weight_bits)
-        models, _ = workloads.load_workload(cfg)
+        q = widths.declared_datawidth(cfg.code_n, cfg.code_k, cfg.weight_bits)
+        models, _ = workloads_mod.load_workload(cfg)
         layers = [l for l in models[cfg.models[0]] if l.name == LAYER]
         if not layers:
             raise SystemExit(f"{LAYER} is not in {cfg.models[0]}")
@@ -98,13 +102,13 @@ def load_code(k):
         out = {}
         for name in ("embedded", "recon"):
             c = arms[name]
-            raw = energy.gather(c, CachedMapper(c, ARCH), c.models[0], layers,
+            raw = energy_mod.gather(c, CachedMapper(c, ARCH), c.models[0], layers,
                                 verbose=False)
             if raw is None:
                 return None
             # exactly the evaluator's order, exactly its functions
-            raw = energy.apply_dram_override(
-                energy.apply_mac_override(raw, c, verbose=False), c,
+            raw = energy_mod.apply_dram_override(
+                energy_mod.apply_mac_override(raw, c, verbose=False), c,
                 verbose=False)
             out[name] = raw
         # the geometry both arms declare, off the SAME cached mappings the
@@ -126,11 +130,11 @@ def _derive(cfg, k, q, raws, geo):
          # PER ARM: the reconstruction arm's width comes from ITS q, the
          # 8-bit arm's from 8. They are NOT the same number and do not have
          # to be -- see eccenergy/code_widths.py.
-         "spad_width": code_widths.declared_width(q, cfg.weight_bits),
-         "glb_width": code_widths.level_width(q, False,
+         "spad_width": widths.declared_width(q, cfg.weight_bits),
+         "glb_width": widths.level_width(q, False,
                                               cfg.weight_width_glb_mult,
                                               cfg.weight_bits),
-         "emb_spad_width": code_widths.declared_width(cfg.weight_bits,
+         "emb_spad_width": widths.declared_width(cfg.weight_bits,
                                                       cfg.weight_bits),
          "capacity_ratio": cfg.weight_bits / q,
          "dram_pj_per_bit": cfg.dram_pj_per_bit,
@@ -165,9 +169,9 @@ def _derive(cfg, k, q, raws, geo):
     d["rec_dram_final_pJ"] = d["rec_dram_pJ"] - d["dram_kn_saving_pJ"]
 
     # --- BASELINE shares embedded's mapping exactly and differs only in price.
-    #     baseline_dram.price() is the evaluator's own function, so the 70/40
+    #     baseline_dram_mod.price() is the evaluator's own function, so the 70/40
     #     ratio is read from the record rather than hardcoded here.
-    rec_price = baseline_dram.price(cfg, emb, 0.0)
+    rec_price = baseline_dram_mod.price(cfg, emb, 0.0)
     d["baseline_ratio"] = rec_price["ratio"]
     d["baseline_dram_pJ"] = d["emb_dram_pJ"] * rec_price["ratio"]
     d["baseline_total_pJ"] = (d["emb_total_pJ"]

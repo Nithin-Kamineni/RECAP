@@ -1,18 +1,21 @@
-"""L4 -- the arms, the drivers, and the energy bookkeeping.
+"""L4 -- the arms, the placement study, Task 4, and the energy bookkeeping.
 
 `stacks` builds the three ECC arms (prompt_6's `build_stacks`); `energy` is the
-category algebra over a Timeloop record; the rest are the drivers `run.sh`
-dispatches to, one per stage.
+category algebra over a Timeloop record; `baseline`, `embedded`, `validate`,
+`audit` and `diagnose` are the drivers `run.sh` dispatches to.
+
+The placement study (Task 3) is `placement_study` (the driver), `placement_eval`
+(one boundary), `placement_tables` (what it prints), `placement_notes` (the prose
+and the cache paths), `ert_view` (one plan per bar), `dilated_view` (the arm's own
+mapping) and `narrowing` (the exactly-once rule). Task 4 is `dilation`,
+`dilation_cache`, `dilation_tables` and `capacity`.
 
 May import: `toolchain`, `arch`, `physics`, `contracts`, `settings`/`config`,
 `paths` -- and each other.
 
-WHY THE DRIVERS ARE HERE AND THE RENDERERS ARE NOT. ProjectRestructure section
-4.2's tree lists `sweep.py`, `panels.py`, `baseline.py`, `embedded.py`,
-`validate.py`, `audit.py` and `diagnose.py` under `study/`, while Appendix C
-sends `experiments/{sweep,panels}.py` to `report/`. Both cannot hold: there is
-one `panels.py` in `plots/` (the renderer) and another in `experiments/` (the
-driver that calls it). The tree wins, and the line is DRIVERS ARE L4, RENDERERS
-ARE L5 -- so `study/panels.py` calls `report/panels.py`, and no L5 module is
-imported by anything below it except through that call.
+DRIVERS THAT DRAW ARE L5. Phase 2 read section 4.2's tree as putting every
+driver here; phase 3 applied Appendix C instead, for the two that call a
+renderer: `sweep` and `panels` are now in `report/`, and NOTHING in this package
+imports L5 any more. A driver that only prints -- `dilation`, `diagnose`,
+`validate` -- stays here.
 """

@@ -11,8 +11,9 @@ import json
 
 import pandas as pd
 
+from ..physics.baseline_dram import dram_ert_pj_per_bit
 from ..toolchain import latency_post, noc_post
-from ..timeloop import classify, parse_cycles, parse_levels, parse_stats, physical_record
+from ..toolchain.stats import classify, parse_cycles, parse_levels, parse_stats, physical_record
 
 #: Categories that come from Timeloop.
 #: "NoC" is the interconnect between levels -- wire, router and ingress energy
@@ -229,18 +230,6 @@ def mac_count(raw):
     """
     return float(sum(float(l.get("macs", 0) or 0) * float(l.get("repeat_count", 1) or 1)
                      for l in raw.per_layer if l.get("status") == "ok"))
-
-
-def dram_ert_pj_per_bit(raw, cfg):
-    """Accelergy's own per-BIT dynamic DRAM energy, read back off the record.
-
-    Timeloop counts a DRAM access in units of the dataspace datawidth, so the
-    weight rows give it directly: `e_dram_w / (dram_w_reads x weight_bits)`.
-    For the LPDDR4 model these designs use that is 64.0 pJ per 8-bit word =
-    8.0 pJ/bit = the documented 512 pJ per 64-bit access.
-    """
-    bits = float(raw.dram_w_reads) * float(cfg.weight_bits)
-    return (float(raw.e_dram_w) / bits) if bits else None
 
 
 def apply_dram_override(raw, cfg, verbose=True):
@@ -553,7 +542,7 @@ def apply_standby_energy(raw, cfg, verbose=True):
     THE SYMMETRY FIX (prompt_7 Defect 2). Applied to the `Raw` record, beside
     the MAC and DRAM overrides and after the raw cache, so it lands in
     `raw.base` -- which is where `ecc.build_stacks()` and every placement bar in
-    `experiments/recon.py` start from. Charging it here rather than per arm is
+    `study/placement_study.py` start from. Charging it here rather than per arm is
     what makes "all three arms or none" structural instead of a thing three
     call sites have to remember: there is no code path that can give it to one
     arm and not another.

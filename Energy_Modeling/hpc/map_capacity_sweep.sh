@@ -23,7 +23,7 @@
 #  So this submits (architecture x layer x ECC_WEIGHT_CAPACITY_SCALE) mapping
 #  jobs and NOTHING ELSE. There is deliberately no dependent evaluation:
 #  the diff is a property of the MAPPINGS (DRAM weight reads per layer), it is
-#  read with `python3 -m eccenergy.experiments.dilation`, and an eval job here
+#  read with `python3 -m eccenergy.report.dilation_view`, and an eval job here
 #  would draw a Task 3 figure over a Task 4 wave.
 #
 #  WHY SEVERAL SCALES AND NOT JUST 1.0 vs N/K. At the DECLARED buffer sizes
@@ -39,7 +39,7 @@
 #  fingerprint), which is the point -- Task 4 is the diff of two mappings, so
 #  they must never share a directory. A scale that rounds every weight level
 #  back to its declared depth is not a dilation and keeps the undilated cache;
-#  `archs.effective_variant()` drops the slug in that case, so such a job is a
+#  `fingerprint.effective_variant()` drops the slug in that case, so such a job is a
 #  cache HIT and costs seconds.
 #
 #  Structure is `hpc/map_by_shape.sh`'s, deliberately: one job per unit of
@@ -91,7 +91,7 @@ MODEL="$(set -- ${ECC_MODELS}; echo "$1")"
     echo "  This is a SPOT CHECK by construction: it maps the same layers at" >&2
     echo "  $(set -- ${ECC_CAPSWEEP_SCALES}; echo $#) capacities x $(set -- ${ECC_ARCHS}; echo $#) designs, and a" >&2
     echo "  whole-model version of that is a week of compute. Pick the layers" >&2
-    echo "  from a refetch survey:  python3 -m eccenergy.experiments.dilation --survey" >&2
+    echo "  from a refetch survey:  python3 -m eccenergy.report.dilation_view --survey" >&2
     exit 2; }
 read -r -a LAYERS <<< "${ECC_LAYERS}"
 
@@ -105,11 +105,12 @@ if [ "${WANT_PROGRESS}" = "1" ]; then
             OUT=$(ECC_WEIGHT_CAPACITY_SCALE="${S}" ECC_SWEEP=arch ECC_SWEEP_ARCHS="${A}" \
                   python3 -c "
 import pathlib
-from eccenergy import archs, config, paths
+from eccenergy import config, paths
+from eccenergy.arch import fingerprint
 cfg = config.load_config()
 a = cfg.archs[0]
-d = pathlib.Path(paths.Results(cfg).mapper_cache(a, archs.effective_variant(a, cfg),
-                                                 archs.arch_fingerprint(a, cfg)))
+d = pathlib.Path(paths.Results(cfg).mapper_cache(a, fingerprint.effective_variant(a, cfg),
+                                                 fingerprint.arch_fingerprint(a, cfg)))
 n = len(list(d.glob('*/timeloop-mapper.stats.txt'))) if d.is_dir() else 0
 k = len(list(d.glob('*.lock'))) if d.is_dir() else 0
 print(f'{n} {k} {d.name}')" 2>/dev/null | tail -1)
@@ -146,7 +147,7 @@ echo "  capacities: ${ECC_CAPSWEEP_SCALES}   (N/K = ${NK}, scope=${ECC_WEIGHT_CA
 echo "  objective : ${ECC_OPT_METRIC}   victory=${ECC_VICTORY}   qos=${ECC_QOS}"
 echo "  task file : ${SNAP}"
 echo "  NO dependent eval is submitted -- read the diff with"
-echo "      python3 -m eccenergy.experiments.dilation"
+echo "      python3 -m eccenergy.report.dilation_view"
 
 if [ "${DRY}" = "1" ]; then
     echo "  --dry-run: nothing submitted."

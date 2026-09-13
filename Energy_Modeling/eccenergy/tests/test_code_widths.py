@@ -33,7 +33,9 @@ import os
 import re
 import sys
 
-from .. import archs, config
+from .. import config
+from ..arch import fingerprint
+from ..arch import patch
 from ..physics import widths
 
 FAILED = []
@@ -228,7 +230,7 @@ def _geom(k, arm, **env):
         os.environ.update({k2: str(v) for k2, v in env.items()})
         cfg = config.load_config()
         with contextlib.redirect_stdout(io.StringIO()):
-            return cfg, archs.patched_weight_geometry(_P2_ARCH, cfg)
+            return cfg, patch.patched_weight_geometry(_P2_ARCH, cfg)
     finally:
         os.environ.clear()
         os.environ.update(saved)
@@ -283,7 +285,7 @@ def test_capacity_ratio_reproduces_prompt_2s_eff_capacity_column():
     for k, cap in want.items():
         ref, gr = _geom(k, "reference")
         arm, ga = _geom(k, "recon2")
-        info = archs.assert_pair_geometry(_P2_ARCH, ref, arm,
+        info = patch.assert_pair_geometry(_P2_ARCH, ref, arm,
                                           ref_name="embedded", arm_name="recon")
         narrowed = [lvl for lvl, v in info.items()
                     if v["recon"] != v["embedded"]]
@@ -302,19 +304,19 @@ def test_pair_geometry_ignores_width_and_datawidth_and_checks_depth():
     treatment -- and FAIL on arms whose depths differ."""
     ref, _ = _geom(39, "reference")
     arm, ga = _geom(39, "recon2")
-    info = archs.assert_pair_geometry(_P2_ARCH, ref, arm)       # must not raise
+    info = patch.assert_pair_geometry(_P2_ARCH, ref, arm)       # must not raise
     widths = {lvl: (v["embedded_width"], v["recon_width"]) for lvl, v in info.items()}
     assert any(a != b for a, b in widths.values()), (
         f"BCH(63,39)'s arms declare identical widths {widths} -- then this test "
         f"is not exercising the thing it claims to")
     # BREAKAGE: a DEPTH difference must still stop the run.
     deeper = dataclasses.replace(arm, weight_depth_scale=0.5)
-    expect_raises(lambda: archs.assert_pair_geometry(_P2_ARCH, ref, deeper),
+    expect_raises(lambda: patch.assert_pair_geometry(_P2_ARCH, ref, deeper),
                   "a depth difference between the arms was accepted")
     # ... unless the study asked for it.
     allowed = dataclasses.replace(deeper, disable_pair_geometry_assert=True)
     with contextlib.redirect_stdout(io.StringIO()) as buf:
-        archs.assert_pair_geometry(_P2_ARCH, ref, allowed)
+        patch.assert_pair_geometry(_P2_ARCH, ref, allowed)
     assert "ECC_DISABLE_ASSERT_PAIR_GEOMETRY" in buf.getvalue(), (
         "the disabled check must SAY it let a depth difference through, "
         f"got {buf.getvalue()!r}")
@@ -348,13 +350,13 @@ def test_there_is_no_width_knob_left_to_get_wrong():
 
 # ------------------------------------------------------- the slug and caches
 def test_the_two_variant_slugs_agree():
-    """`config.arch_variant_slug` and `archs.effective_variant()` name ONE
+    """`config.arch_variant_slug` and `fingerprint.effective_variant()` name ONE
     chip; the `mcons` comment in config.py records what a split costs."""
     for k in (57, 45, 39, 30):
         for arm in ("reference", "recon2"):
             cfg, _ = _geom(k, arm)
             with contextlib.redirect_stdout(io.StringIO()):
-                eff = archs.effective_variant(_P2_ARCH, cfg)
+                eff = fingerprint.effective_variant(_P2_ARCH, cfg)
             assert eff == cfg.arch_variant_slug, (
                 f"BCH(63,{k}) {arm}: mapper cache {eff!r}, configuration "
                 f"{cfg.arch_variant_slug!r} -- one chip, two directory names")
@@ -369,8 +371,8 @@ def test_the_arms_of_one_code_never_share_a_cache():
     for arm in ("reference", "recon2", "recon4"):
         cfg, _ = _geom(39, arm)
         with contextlib.redirect_stdout(io.StringIO()):
-            seen[arm] = (archs.effective_variant(_P2_ARCH, cfg),
-                         archs.arch_fingerprint(_P2_ARCH, cfg))
+            seen[arm] = (fingerprint.effective_variant(_P2_ARCH, cfg),
+                         fingerprint.arch_fingerprint(_P2_ARCH, cfg))
     assert len(set(seen.values())) == 3, f"two arms share a cache: {seen}"
 
 

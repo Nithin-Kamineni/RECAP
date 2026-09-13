@@ -36,11 +36,14 @@ solving one chip and the dependent eval looking for another.
 import pathlib
 import re
 import shutil
+import sys
 import tempfile
 
 import pytest
 
-from eccenergy import archs, config, paths
+from .. import config, paths
+from ..arch import fingerprint
+from ..arch import load
 
 
 # --------------------------------------------------------------- the harness
@@ -48,23 +51,42 @@ def _cfg():
     return config.load_config()
 
 
+def _binders(name):
+    """Every loaded `eccenergy` module that holds `name` in its own namespace.
+
+    `arch_source` is defined once, in `arch/load.py`, and IMPORTED BY NAME into
+    `arch/patch.py`, `arch/fingerprint.py` and `arch/layout.py` -- so each of
+    them has its own binding and rebinding one of them redirects only that one.
+    Before ProjectRestructure phase 3 all four were `archs.py` and one
+    assignment covered the whole call chain. Asking `sys.modules` which modules
+    hold the name keeps that true without naming them here: a fifth importer
+    is covered the day it appears.
+    """
+    real = getattr(load, name)
+    return [m for n, m in list(sys.modules.items())
+            if n.startswith("eccenergy.") and getattr(m, name, None) is real]
+
+
 def _fp_of_text(text, cfg, arch, tmp_path, tag):
     """The fingerprint `arch` would have if its source file held `text`."""
     p = tmp_path / f"arch_{tag}.yaml"
     p.write_text(text)
-    real = archs.arch_source
-    archs.arch_source = lambda *a, **k: p
+    real = load.arch_source
+    mods = _binders("arch_source")
+    for m in mods:
+        m.arch_source = lambda *a, **k: p
     try:
-        return archs.arch_fingerprint(arch, cfg)
+        return fingerprint.arch_fingerprint(arch, cfg)
     finally:
-        archs.arch_source = real
+        for m in mods:
+            m.arch_source = real
 
 
 @pytest.fixture
 def live(tmp_path):
     cfg = _cfg()
     arch = cfg.archs[0]
-    text = archs.arch_source(arch, cfg).read_text()
+    text = load.arch_source(arch, cfg).read_text()
     base = _fp_of_text(text, cfg, arch, tmp_path, "base")
     return cfg, arch, text, base, tmp_path
 
@@ -101,7 +123,7 @@ def test_documentation_is_free(live, name, mutate):
 def test_the_normaliser_keeps_every_digit(live):
     """`hashable_arch_text` may delete comments and whitespace -- nothing else."""
     _cfg_, _arch, text, _base, _tmp = live
-    stripped = archs.hashable_arch_text(text)
+    stripped = fingerprint.hashable_arch_text(text)
     # every `key: <number>` line survives, value intact
     for line in text.splitlines():
         body = line.split("#")[0].rstrip()
