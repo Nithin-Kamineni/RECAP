@@ -894,8 +894,16 @@ def test_the_wrong_sibling_guard_two_arms_identical_yaml_different_fingerprints(
 
 def test_the_ert_bump_is_recomputed_from_the_patched_arch_and_the_dc_table():
     """prompt_6 5.1's table, recomputed: recon2 bumps filter_glb.read by
-    E_w x block_size, recon4 bumps weights_spad.write likewise, both bump leak
-    by 2.8310811 pJ/instance/cycle.
+    E_w x block_size, recon4 bumps weights_spad.write likewise, and both bump
+    leak by the DC idle term AT THIS DESIGN'S CLOCK.
+
+    THE LEAK ROW IS PER CYCLE, AND SINCE prompt_7 C1.5 THE CYCLE IS THE
+    DESIGN'S. Design Compiler measured 2.8310811 pJ/cycle for BCH(63,30) at a
+    1 ns clock; Eyeriss v1 runs at the published 200 MHz, so the engine burns
+    5 ns of clock power per cycle and the row is 14.1554055 -- which is the
+    worked example env.sh section 6's TRAP 2 spells out. Both clocks are
+    asserted below, because pinning only one of them is how a factor of five
+    hides.
 
     The BLOCK SIZES are read off the patched YAML, not pinned, because they
     move with THE WIDTH TABLE: at BCH(63,30) the narrowed `filter_glb` is
@@ -903,6 +911,7 @@ def test_the_ert_bump_is_recomputed_from_the_patched_arch_and_the_dc_table():
     Pinning them made this test assert one arch revision rather than the rule.
     """
     try:
+        import dataclasses as _dc
         from eccenergy import archs
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"archs unavailable: {exc}")
@@ -921,7 +930,15 @@ def test_the_ert_bump_is_recomputed_from_the_patched_arch_and_the_dc_table():
                - b2["e_w_pj"] * geo2["filter_glb"]["weights_per_word"]) < 1e-9, b2
     assert abs(b4["access_delta_pj"]
                - b4["e_w_pj"] * geo4["weights_spad"]["weights_per_word"]) < 1e-9, b4
-    assert b2["leak_delta_pj"] == b4["leak_delta_pj"] == 2.8310811
+    # THE RULE: the leak row is the DC idle term x this design's clock / 1 ns.
+    scale = r2.dc_idle_scale()
+    assert b2["leak_delta_pj"] == b4["leak_delta_pj"], (b2, b4)
+    assert abs(b2["leak_delta_pj"] - 2.8310811 * scale) < 1e-9, (b2, scale)
+    # and both ends of it, spelled out: 1 ns is what DC measured, 5 ns is what
+    # eyeriss_like_wglb runs at (prompt_7 C1.5, env.sh section 6 TRAP 2).
+    at_1ns = archs.ert_bump(_P2_ARCH, _dc.replace(r2, arch_clock_mhz={}))
+    assert abs(at_1ns["leak_delta_pj"] - 2.8310811) < 1e-9, at_1ns
+    assert abs(b2["leak_delta_pj"] - 14.1554055) < 1e-6, (b2, "200 MHz")
     assert abs(b2["e_w_pj"] - 0.175060) < 1e-6 and b2["e_w_pj"] == b4["e_w_pj"]
     assert b2["narrow_levels"] == b4["narrow_levels"] == ["filter_glb"]
     # THE WIDTH TABLE, per level: the NARROWED GLB takes the q=4 width (96 x 4)

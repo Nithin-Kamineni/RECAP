@@ -165,7 +165,32 @@ stage_map_local() {
 # --------------------------------------------------------------------------
 #  submitting
 # --------------------------------------------------------------------------
+# THE ARCH PIN -- same contract as hpc/map_ert_arms.sh, see eccenergy/paths.py.
+# `archs/` is snapshotted at SUBMISSION and both the map array and the dependent
+# eval read the copy, so editing a declared value while the array is in flight
+# cannot split one run across two architectures.
+#
+# ONLY THE TOP-LEVEL SUBMITTER PINS. `submit_eval` re-invokes this script as
+# `hpc/run_all.sh --eval-only` inside the eval job, where ECC_ARCH_PIN_DIR is
+# already set by --export=ALL: taking a second snapshot there would read the
+# LIVE archs/ and undo the whole point.
+pin_archs() {
+    [ -z "${ECC_ARCH_PIN_DIR}" ] || return 0      # already pinned by our submitter
+    local pin="hpc/.runtime/archpin.$$"
+    mkdir -p hpc/.runtime
+    # Each pin is ~320 kB and is the record of what a run mapped, so it is kept
+    # for as long as anything could still want it -- but not forever. A week is
+    # far past ECC_MAP_TIME, so nothing queued can still be reading one.
+    find hpc/.runtime -maxdepth 1 -name 'archpin.*' -type d -mtime +7 -exec rm -rf {} + 2>/dev/null || true
+    rm -rf "${pin}"
+    cp -a archs "${pin}"
+    export ECC_ARCH_PIN_DIR="${PWD}/${pin}"
+    echo " arch pin   : ${ECC_ARCH_PIN_DIR}"
+    echo "              (this run maps THIS copy; edit archs/ freely from now on)"
+}
+
 submit_map() {
+    pin_archs >/dev/null
     ecc_write_taskfile
     local n
     n=$(grep -cve '^[[:space:]]*$' "${ECC_TASKFILE}")
@@ -225,6 +250,7 @@ banner() {
          "search=${ECC_MAPPER_SEARCH_SIZE:-uncapped} threads=${ECC_MAPPER_THREADS}"
     echo " figure     : ${ECC_RESULTS_DIR}/figures/${ECC_STEM:-<self-describing>}"
     [ "${n}" -gt 0 ] && echo " map tasks  : ${n} (arch, model) pairs, ${ECC_CONCURRENCY} at once"
+    [ -n "${ECC_ARCH_PIN_DIR}" ] && echo " arch pin   : ${ECC_ARCH_PIN_DIR}"
     echo "=============================================================================="
 }
 

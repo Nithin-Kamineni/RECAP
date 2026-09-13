@@ -337,15 +337,19 @@ _WS_PATH = (
                    "is designed to fetch only the message bits of each "
                    "codeword. The f_if array/interface split was removed "
                    "2026-09-09."),
-    Stage("operand_glb", "Global operand buffer (weight share)", "storage",
-          ("operand_glb",), reducible=True,
+    Stage("weight_glb", "Global weight buffer (36 kB)", "storage",
+          ("weight_glb",), reducible=True,
           evidence="Sec. 6's 'global/weight buffer'. "
                    "`archs/simple_weight_stationary/arch_paper.yaml` splits the "
-                   "stock 128 kB shared_glb by dataspace, and the 64 kB operand "
-                   "half keeps Inputs AND Weights; only its WEIGHT energy is "
-                   "read here, from the level's own Weights block, so reducing "
-                   "this stage cannot touch the activation share (checked by "
-                   "`non_weight_energy_identical`)."),
+                   "stock 128 kB shared_glb by DATASPACE into three levels, and "
+                   "this is the 36 kB weight one. It keeps Weights and nothing "
+                   "else (`dataspace: {keep: [Weights]}`), so every bit of its "
+                   "energy is weight energy -- which is also what lets it "
+                   "declare the arm's `datawidth: q`. Until 2026-09-13 this "
+                   "stage was a 64 kB `operand_glb` holding Inputs beside "
+                   "Weights, and Timeloop's one-datawidth-per-level rule meant "
+                   "the reduced representation could not be declared on it at "
+                   "all."),
     Stage("weight_noc", "Weight-distribution NoC to the PE array", "network",
           ("NoC: inter_PE_spatial",), reducible=True,
           evidence="Sec. 6's 'weight-distribution NoC'. The design declares ONE "
@@ -619,25 +623,28 @@ _WS_PLACEMENTS = (
         "recon2", "recon_global_buffer_output",
         "R2 - reconstruct at the global weight-buffer output",
         "R2\n@ buffer output", "3/5",
-        reduced=("dram", "operand_glb"),
-        site_stage="operand_glb", site_counter="reads",
+        reduced=("dram", "weight_glb"),
+        site_stage="weight_glb", site_counter="reads",
         description=(
-            "Sec. 6.2's R1, rated 3/5: the 64 kB operand buffer holds weight "
+            "Sec. 6.2's R1, rated 3/5: the 36 kB weight buffer holds weight "
             "tiles in the reduced form, so its weight capacity and its weight "
             "access bit-volume both fall, and one encoder at its read port "
-            "restores full width before the distribution network. The buffer "
-            "also holds input activations; only its weight share moves. "
-            "Downstream -- network, scratchpad, register -- is full width."),
+            "restores full width before the distribution network. Since "
+            "2026-09-13 this level keeps Weights alone, so the whole level "
+            "moves and the input activations -- now `input_glb` -- are a "
+            "separate array that nothing here touches. Downstream -- network, "
+            "scratchpad, register -- is full width."),
     ),
     Placement(
         "recon3", "recon_noc_output_pe_input",
         "R3 - reconstruct at the weight-NoC output / PE input",
         "R3\n@ PE input", "4/5",
-        reduced=("dram", "operand_glb", "weight_noc"),
+        reduced=("dram", "weight_glb", "weight_noc"),
         site_stage="pe_spad", site_counter="fills",
         description=(
-            "Sec. 6.2's R2, rated 4/5: the buffer AND the 256-PE distribution "
-            "network carry the reduced form, and an encoder at each PE input "
+            "Sec. 6.2's R2, rated 4/5: the weight buffer AND the 256-PE "
+            "distribution network carry the reduced form, and an encoder at "
+            "each PE input "
             "restores it before the scratchpad. The encoder runs once per "
             "weight FILLED into a PE, so a broadcast that reaches many PEs "
             "replicates the encoder rather than the reconstruction count of any "
@@ -648,7 +655,7 @@ _WS_PLACEMENTS = (
         "recon4", "recon_pe_rf_output",
         "R4a - reconstruct on every weight-RF read",
         "R4a\n@ RF output", "2/5",
-        reduced=("dram", "operand_glb", "weight_noc", "pe_spad"),
+        reduced=("dram", "weight_glb", "weight_noc", "pe_spad"),
         site_stage="pe_spad", site_counter="reads",
         description=(
             "Sec. 6.2's R3a, rated 2/5 and the one row of the WS table rated "
@@ -665,7 +672,7 @@ _WS_PLACEMENTS = (
         "recon5", "recon_mac_input",
         "R5 - reconstruct at the MAC input (stationary register reduced too)",
         "R5\n@ MAC input", "2/5",
-        reduced=("dram", "operand_glb", "weight_noc", "pe_spad",
+        reduced=("dram", "weight_glb", "weight_noc", "pe_spad",
                  "weight_reg"),
         site_stage="weight_reg", site_counter="reads",
         description=(
@@ -876,7 +883,30 @@ def placement_by_key(arch, key, cfg=None):
 ERT_ACTION_OF_COUNTER = {"reads": "read", "fills": "write"}
 
 
-def ert_injectable(placement, stages):
+def ert_leak_delta_pj(cfg):
+    """The per-cycle `leak` row of an ERT bump under this configuration:
+    `idle_per_cycle x (1 - g)`, prompt_7 Phase 0's clock-gating split.
+
+    It is a SEPARATE function because `ert_injectable()` condition 3 turns on
+    whether that row exists (prompt_7 6.3) and because reading it costs a
+    pandas import that a caller with no configuration should not pay. With no
+    configuration it is 0.0 -- "this bump has no per-cycle row", which is the
+    pre-clock-gating model and the honest answer when there is no gating
+    percentage and no DC table to derive one from. A configuration that cannot
+    be read RAISES rather than answering 0.0: a swallowed exception here would
+    change the arm list, silently, on a machine without pandas.
+    """
+    if cfg is None:
+        return 0.0
+    g = max(0.0, min(1.0, float(getattr(cfg, "recon_clock_gating_pct", 0.0)) / 100.0))
+    if g >= 1.0:
+        return 0.0                 # fully gated: the row is identically zero
+    from . import ecc as _ecc            # lazily: ecc needs pandas
+    _inc, idle, _prov = _ecc.load_recon_energy(cfg)
+    return float(idle) * (1.0 - g)
+
+
+def ert_injectable(placement, stages, leak_delta_pj=0.0):
     """prompt_6 3.3: is this boundary's encoder cost an ERT action the mapper
     can trade against? `(ok, why)`, DERIVED from the Placement record -- never
     `if key == "recon2"`.
@@ -886,9 +916,31 @@ def ert_injectable(placement, stages):
     1. the site stage is a STORAGE stage. DRAM is not a chip action the
        encoder attaches to, and a network delivery is billed by `noc.yaml`.
     2. the site counter is `reads` or `fills`, naming exactly one ERT action.
-    3. it is not the innermost weight level's `reads`: that count equals the
-       MAC count, which no mapping can move, so a constant added to every
-       mapping cannot move the argmax.
+    3. THE BUMP MUST NOT BE CONSTANT ACROSS THE MAPSPACE. A bump the mapper
+       cannot trade cannot move the argmax, so injecting it buys nothing.
+
+    CONDITION 3, RE-DERIVED 2026-09-12 (prompt_7 6.3). It used to read "it is
+    not the innermost weight level's `reads`", on the grounds that that count
+    equals the MAC count, which no mapping can move. That is still true of the
+    ACCESS row -- and the bump has TWO rows:
+
+        per access :  incremental + idle x g       on `reads`/`fills`
+        per cycle  :  idle x (1 - g)               on `leak`, which Timeloop
+                                                   bills as leak x UTILIZED
+                                                   instances x CYCLES
+
+    The per-cycle row is mapping-dependent whenever it is non-zero: both the
+    utilized instance count and the cycle count are the mapper's choice. So
+    the exclusion holds only when BOTH rows are constant, i.e. when the access
+    counter is the innermost level's reads AND `leak_delta_pj` is 0. At
+    `ECC_RECON_CLOCK_GATING_PCT=99.5` the row is 2.8311 x 0.005 = 0.01416
+    pJ/cycle/instance, which over 168 scratchpads is 2.38 pJ/cycle against the
+    MAC array's own 1.32 -- not negligible and not constant. At PCT=100 (or a
+    zero DC idle constant) it vanishes and the old exclusion comes back.
+
+    `leak_delta_pj` is that row, from `ert_leak_delta_pj(cfg)`. It defaults to
+    0.0 -- "this bump has no per-cycle row" -- so a caller with no
+    configuration gets the pre-clock-gating answer and says so in `why`.
     """
     by_key = {s.key: s for s in stages}
     site = by_key.get(placement.site_stage)
@@ -902,21 +954,174 @@ def ert_injectable(placement, stages):
     if action is None:
         return False, f"counter {placement.site_counter!r} names no ERT action"
     storage = [s for s in stages if s.kind == "storage"]
+    leak = abs(float(leak_delta_pj or 0.0))
     if site is storage[-1] and placement.site_counter == "reads":
-        return False, (f"{site.key} is the innermost weight level and its reads "
-                       f"equal the MAC count, which no mapping can move")
+        if leak == 0.0:
+            return False, (f"{site.key} is the innermost weight level and its reads "
+                           f"equal the MAC count, which no mapping can move, and the "
+                           f"per-cycle leak row is 0 pJ, so the whole bump is constant")
+        return True, (f"{site.key} + {placement.site_counter} -> ERT {action}: the "
+                      f"access row is the MAC count and constant, but the per-cycle "
+                      f"leak row is {leak:.7g} pJ/cycle/instance, which Timeloop bills "
+                      f"as leak x utilized instances x cycles -- both the mapper's "
+                      f"choice (prompt_7 6.3)")
     return True, f"{site.key} + {placement.site_counter} -> ERT {action}"
 
 
 def ert_arms(arch, cfg=None):
-    """The placements of `arch` that get their own mapping, in path order.
+    """The placements of `arch` whose encoder toll goes INTO THE ERT, in path
+    order -- `ert_injectable()`'s set, and nothing else.
+
+    This answers "which boundaries have an ERT-injectable encoder". It is NOT
+    the list of chips to map: that is `mapper_arms()` (prompt_7 B2), which is
+    this set widened by the two axes an ERT bump does not capture.
 
     Zero is legal (the figure is then Task 3's with the idle term added); the
-    code must work at 0, 1 or 2+. On Eyeriss v1 with the filter GLB this is
-    `recon2` (filter_glb reads) and `recon4` (weights_spad fills).
+    code must work at 0, 1 or 2+. On Eyeriss v1 with the filter GLB and the
+    clock-gating row present this is `recon2` (filter_glb reads), `recon4`
+    (weights_spad fills) and `recon5` (weights_spad reads, condition 3
+    re-derived); with no configuration to read the gating from, the first two.
     """
     stages = stages_for(arch, cfg)
-    return tuple(p for p in placements_for(arch, cfg) if ert_injectable(p, stages)[0])
+    leak = ert_leak_delta_pj(cfg)
+    return tuple(p for p in placements_for(arch, cfg)
+                 if ert_injectable(p, stages, leak)[0])
+
+
+#: Which stage kinds Timeloop can be given a bandwidth limit for, and which
+#: it cannot. A `per_dataspace_bandwidth_consumption_scale` on a storage or
+#: DRAM level reaches `ComputePerformance()`; on a NETWORK level there is
+#: nothing to reach -- `LegacyNetwork::ComputePerformance()` is an empty stub
+#: and a network stats block carries no Cycles and no bandwidth field
+#: (prompt_7 4.4, verified on disk; reporting rule R-3). A network stage is
+#: therefore carried in an arm's declared scale set and MARKED `no-op`, which
+#: is what makes R2 and R1 different arms on a design whose only difference is
+#: a network (Eyeriss v2), rather than silently the same one.
+BW_SCALE_TIMING = {"dram": "timed", "storage": "timed", "network": "no-op"}
+
+
+def arm_narrow_levels(placement, stages):
+    """The Timeloop storage levels this boundary declares `datawidth: q` on --
+    the storage stages in its `reduced` set, in path order.
+
+    The narrow weights stop AT the boundary, so for recon2 AND recon4 on
+    Eyeriss v1 this is (`filter_glb`,) and `weights_spad` stays at 8; recon5
+    is the only bar that adds `weights_spad` (prompt_7 3.2).
+    """
+    by_key = {s.key: s for s in stages}
+    return tuple(by_key[k].prefixes[0] for k in placement.reduced
+                 if k in by_key and by_key[k].kind == "storage")
+
+
+def arm_bw_scale(placement, stages):
+    """The per-dataspace bandwidth scale this boundary declares, as
+    `((level, timing), ...)` in path order -- prompt_7 6.4's third axis.
+
+    Every stage in the `reduced` set moves less weight data, so every stage in
+    it carries the scale. `timing` is `timed` where Timeloop has a speed model
+    to apply it to and `no-op` where it has none (`BW_SCALE_TIMING`). The
+    no-op entries are kept, not dropped: they are part of what the arm
+    DECLARES, and dropping them would merge two boundaries that differ only by
+    a network into one chip.
+    """
+    by_key = {s.key: s for s in stages}
+    return tuple((by_key[k].prefixes[0], BW_SCALE_TIMING[by_key[k].kind])
+                 for k in placement.reduced if k in by_key)
+
+
+def arm_bw_factors(placement, stages, cfg):
+    """The bandwidth scale each stage of this boundary DECLARES, with its
+    factor -- prompt_7 C1.2.
+
+    Returns `{level: {"factor", "timing", "kind", "dataspace", "why"}}` in path
+    order, for the stages `arm_bw_scale()` names.
+
+    TWO FACTORS, AND THEY ARE NOT THE SAME NUMBER (prompt_7 7.1). The scale
+    has to match `ECC_RECON_PACKING`, or the mapper and the evaluator disagree
+    about the same wire:
+
+        DRAM      a BIT stream off the die: only the k message bits are read
+                  out, so the demand is  K/N          (0.47619 at BCH(63,30))
+        on chip   whole weights in a narrower word: `datawidth: q` bits each,
+                  so the demand is       q/8          (0.5     at q=4)
+
+    They differ by 5% at BCH(63,30) and using one everywhere is a silent
+    inconsistency, not a rounding choice.
+
+    A NETWORK stage gets its factor computed and is marked `no-op`:
+    `LegacyNetwork::ComputePerformance()` is an empty stub, so nothing reads
+    it. It is still DECLARED -- dropping it would merge two boundaries that
+    differ only by a network into one chip (`BW_SCALE_TIMING`).
+    """
+    from . import code_widths
+    by_key = {s.key: s for s in stages}
+    q = code_widths.declared_datawidth(cfg.code_n, cfg.code_k)
+    bits = cfg.weight_bits
+    out = {}
+    for level, timing in arm_bw_scale(placement, stages):
+        kind = next(by_key[k].kind for k in placement.reduced
+                    if k in by_key and by_key[k].prefixes[0] == level)
+        if kind == "dram":
+            factor, why = (cfg.code_k / cfg.code_n,
+                           f"K/N = {cfg.code_k}/{cfg.code_n}: off the die the "
+                           f"weights are a BIT stream and only the message bits "
+                           f"are driven")
+        else:
+            factor, why = (q / bits,
+                           f"q/{bits} = {q}/{bits}: on chip the level holds WHOLE "
+                           f"weights, {q} bits each, in a word of the same width")
+        out[level] = {"factor": factor, "timing": timing, "kind": kind,
+                      "dataspace": REDUCED_BW_DATASPACE, "why": why}
+    return out
+
+
+#: The one dataspace a reconstruction boundary moves less of. Timeloop
+#: validates the name against the problem's dimensions and exits non-zero on a
+#: misspelling (`Weightz:` -> "is not a valid dimension name", prompt_7 A.2),
+#: so this cannot degrade into a silent no-op.
+REDUCED_BW_DATASPACE = "Weights"
+
+
+def mapper_arm_spec(arch, key, cfg=None):
+    """What ONE MAPPER ARM declares -- for ANY arm, ERT-injectable or not.
+
+    `key` is `reference` (or the empty string) or a placement key. Returns a
+    dict:
+
+        placement       the Placement record, or None for the reference
+        key             the arm's name
+        narrow_levels   `arm_narrow_levels()` -- the levels at `datawidth: q`
+        bw_scale        `arm_bw_scale()` -- the declared bandwidth scale
+        ert             the ERT half (`level`, `counter`, `action`) when this
+                        boundary is ERT-injectable, else None
+        ert_why         the derived reason, injectable or not
+
+    `ert_arm_spec()` is this plus a refusal when `ert` is None; it keeps its
+    pre-2026-09-12 meaning, so `archs.ert_bump()` and the `ert-` cache slug are
+    untouched for the arms that have a bump.
+
+    Raises `KeyError` for an unknown key.
+    """
+    if key in (None, "", "reference"):
+        return {"placement": None, "key": "reference", "narrow_levels": (),
+                "bw_scale": (), "ert": None,
+                "ert_why": "the reference arm declares no encoder"}
+    p = placement_by_key(arch, key, cfg)
+    if p is None:
+        raise KeyError(f"{arch} has no placement {key!r}; it has "
+                       f"{', '.join(q.key for q in placements_for(arch, cfg))}")
+    stages = stages_for(arch, cfg)
+    ok, why = ert_injectable(p, stages, ert_leak_delta_pj(cfg))
+    by_key = {s.key: s for s in stages}
+    ert = None
+    if ok:
+        site = by_key[p.site_stage]
+        ert = {"level": site.prefixes[0], "counter": p.site_counter,
+               "action": ERT_ACTION_OF_COUNTER[p.site_counter]}
+    return {"placement": p, "key": p.key,
+            "narrow_levels": arm_narrow_levels(p, stages),
+            "bw_scale": arm_bw_scale(p, stages),
+            "ert": ert, "ert_why": why}
 
 
 def ert_arm_spec(arch, key, cfg=None):
@@ -935,24 +1140,220 @@ def ert_arm_spec(arch, key, cfg=None):
                         this is (`filter_glb`,) and `weights_spad` stays at 8.
 
     Raises `KeyError` for an unknown key and `ValueError` for a placement that
-    is not ERT-injectable, naming the reason.
+    is not ERT-injectable, naming the reason. A mapper arm that is NOT
+    ERT-injectable is still a chip to map -- ask `mapper_arm_spec()` for it.
     """
-    p = placement_by_key(arch, key, cfg)
-    if p is None:
-        raise KeyError(f"{arch} has no placement {key!r}; it has "
-                       f"{', '.join(q.key for q in placements_for(arch, cfg))}")
-    stages = stages_for(arch, cfg)
-    ok, why = ert_injectable(p, stages)
-    if not ok:
-        raise ValueError(f"{arch}/{key} is not an ERT arm: {why}. The ERT arms of "
+    spec = mapper_arm_spec(arch, key, cfg)
+    if spec["placement"] is None:
+        raise ValueError(f"{arch}/reference is not an ERT arm: {spec['ert_why']}")
+    if spec["ert"] is None:
+        raise ValueError(f"{arch}/{key} is not an ERT arm: {spec['ert_why']}. The ERT arms of "
                          f"{arch} are {', '.join(a.key for a in ert_arms(arch, cfg)) or 'none'}")
-    by_key = {s.key: s for s in stages}
-    site = by_key[p.site_stage]
-    narrow = tuple(by_key[k].prefixes[0] for k in p.reduced
-                   if by_key[k].kind == "storage")
-    return {"placement": p, "key": p.key, "level": site.prefixes[0],
-            "counter": p.site_counter, "action": ERT_ACTION_OF_COUNTER[p.site_counter],
-            "narrow_levels": narrow}
+    return {"placement": spec["placement"], "key": spec["key"],
+            "level": spec["ert"]["level"], "counter": spec["ert"]["counter"],
+            "action": spec["ert"]["action"],
+            "narrow_levels": spec["narrow_levels"]}
+
+
+# ---------------------------------------------- prompt_7 B2: the MAPPER arms
+@dataclass(frozen=True)
+class MapperArm:
+    """ONE CHIP the mapper has to solve, and the boundaries it is the chip of.
+
+    prompt_7 6.4. `ert_arms()` answers "which boundaries have an ERT-injectable
+    encoder"; that is not the question a launcher has to answer. Two boundaries
+    the ERT cannot tell apart can still be different architectures to the
+    mapper, and mapping one and billing the other from it is Defect 3 -- R3
+    borrowed the REFERENCE's plan while its geometry was R2's, and R5a is a
+    chip that has never been mapped at all.
+
+    THE ARM IS THE TUPLE OF THREE AXES, and `distinct_key` is exactly that
+    tuple:
+
+        narrow_levels   `datawidth: q` on these storage levels
+        bw_scale        `per_dataspace_bandwidth_consumption_scale` here
+        ert             the ERT bump, as (level, action), or ()
+
+    `members` are the placement keys this arm is the chip of; it is longer than
+    one only when two boundaries agree on all three axes, in which case they
+    ARE one chip and one mapper job answers both.
+    """
+    key: str                  # `reference`, or the representative placement key
+    placement: object         # the Placement record, None for the reference
+    narrow_levels: tuple
+    bw_scale: tuple
+    ert: tuple                # (level, action) or ()
+    members: tuple
+
+    @property
+    def distinct_key(self):
+        return (self.narrow_levels, self.bw_scale, self.ert)
+
+    @property
+    def slug_part(self):
+        """The cache-slug component that keeps this arm's directory its own.
+
+        An arm WITH an ERT bump keeps prompt_6's `ert-<key>-<level>-<action>`
+        spelling, byte for byte, so every directory already on disk stays a
+        cache hit. An arm without one -- R1, R3 -- gets `arm-<key>`, because
+        without it R1's slug would be the REFERENCE's (its YAML is the
+        reference's until Phase C1.2 declares the bandwidth scale) and two
+        arms would share one directory, which is the failure prompt_6 RULE
+        4.4.5 exists to prevent. The reference arm contributes nothing.
+        """
+        if self.placement is None:
+            return None
+        if self.ert:
+            return f"ert-{self.key}-{self.ert[0]}-{self.ert[1]}"
+        return f"arm-{self.key}"
+
+    def describe(self):
+        return (f"{self.key:<10} datawidth q on "
+                f"{'+'.join(self.narrow_levels) or '-':<26} "
+                f"bw scale {','.join(l + ('' if t == 'timed' else '(no-op)') for l, t in self.bw_scale) or '-':<58} "
+                f"ERT {(self.ert[0] + '.' + self.ert[1]) if self.ert else '-'}")
+
+
+def mapper_arms(arch, cfg=None):
+    """THE CHIPS TO MAP: the reference plus every distinct boundary, in path
+    order (prompt_7 B2).
+
+    Distinctness is DERIVED from the three axes of `MapperArm.distinct_key` --
+    never from a key name and never from a hand-written list. Two boundaries
+    that agree on all three are one chip and share one arm; the second is then
+    a `member` of the first and is billed from its plan, which is a borrow
+    between two chips that are the SAME chip.
+
+    On `eyeriss_like_wglb` this is six: the reference, R1 (the DRAM scale
+    alone), R2 (filter_glb narrowed, ERT on its reads), R3 (the same geometry,
+    NO ERT bump -- which is why it is not R2's arm), R4 (the same geometry,
+    ERT on the scratchpad's fills) and R5a (the scratchpad narrowed too).
+    Eyeriss v2 has four boundaries and therefore five.
+    """
+    arms, by_key = [], {}
+    for p in (None,) + placements_for(arch, cfg):
+        spec = mapper_arm_spec(arch, p.key if p is not None else "reference", cfg)
+        ert = ((spec["ert"]["level"], spec["ert"]["action"]) if spec["ert"] else ())
+        arm = MapperArm(key=spec["key"], placement=spec["placement"],
+                        narrow_levels=spec["narrow_levels"],
+                        bw_scale=spec["bw_scale"], ert=ert,
+                        members=((spec["key"],) if p is not None else ()))
+        seen = by_key.get(arm.distinct_key)
+        if seen is None:
+            by_key[arm.distinct_key] = len(arms)
+            arms.append(arm)
+        else:
+            prev = arms[by_key[arm.distinct_key]]
+            arms[by_key[arm.distinct_key]] = replace(
+                prev, members=prev.members + arm.members)
+    return tuple(arms)
+
+
+def mapper_arm_for(arch, key, cfg=None):
+    """The `MapperArm` a placement key is billed from when its own plan exists
+    -- i.e. the arm whose `members` contain it."""
+    for a in mapper_arms(arch, cfg):
+        if key in a.members or (key in ("", "reference", None) and a.placement is None):
+            return a
+    raise KeyError(f"{arch} has no mapper arm for {key!r}")
+
+
+def arm_slugs(arch, cfg=None):
+    """`{arm key: slug part}` -- the check that no two arms share a cache
+    directory (prompt_6 RULE 4.4.5 defence 1, prompt_7 B2 gate 2)."""
+    return {a.key: a.slug_part for a in mapper_arms(arch, cfg)}
+
+
+def plan_assignment(arch, solved, cfg=None):
+    """WHICH ARM'S PLAN EACH BAR IS BILLED FROM -- prompt_6 RULE 4, prompt_7 B1.
+
+    `solved` is the set of arm keys whose OWN mapping is on disk at their own
+    fingerprint; `reference` is always in it (it is the run's own plan).
+    Returns `{placement key: record}` with
+
+        arm                 the arm whose plan this bar is billed from
+        kind                `own` | `borrowed` | `foreign`
+        geometry_matches    does that plan narrow exactly the levels this bar
+                            narrows? A plan is only VALID for a bar when it
+                            does: `datawidth: q` is what changes the words the
+                            loop nest moves, and no post-processing can re-tile
+                            a loop nest to use capacity it does not know about.
+        candidates          every solved arm with this bar's geometry
+        why                 the sentence that goes on the bar's record
+
+    THE RULE, in three lines, and derived -- never `if key == "recon3"`:
+
+      1. the bar's own arm is solved            -> `own`
+      2. else the FIRST solved arm in path order with the SAME
+         `narrow_levels`                        -> `borrowed`
+      3. else the reference plan                -> `foreign`, flagged
+
+    On `eyeriss_like_wglb` with only `recon2` and `recon4` mapped, that is
+    exactly prompt_7 6.2: R1 takes the reference (its geometry IS the
+    reference's -- nothing on chip is narrowed -- which is why `reference` is
+    only ever right for R1), R3 takes R2's (same `{filter_glb}` geometry, and
+    R2 is the outer of the two candidates), and R5a has no valid plan on disk
+    at all because no solved arm narrows `weights_spad`. Rule 3 is the one
+    that must be loud: it is 6.2(b), "a chip that has never been mapped".
+
+    A BORROWED PLAN IS NOT A FREE LUNCH. It was solved with the lending arm's
+    ERT toll in the objective and this bar does not pay that toll; what makes
+    it usable is that the toll changes the argmax, not the meaning of a plan,
+    while `datawidth: q` changes both. The lender's toll is MOVED OUT of the
+    bill before the borrower is billed from it, so the borrower pays the
+    un-bumped price of the shared geometry.
+    """
+    arms = mapper_arms(arch, cfg)
+    solved = set(solved) | {"reference"}
+    by_key = {a.key: a for a in arms}
+    order = {a.key: i for i, a in enumerate(arms)}
+    out = {}
+    for arm in arms:
+        if arm.placement is None:
+            continue
+        for key in arm.members:
+            cands = [a.key for a in arms
+                     if a.key in solved and a.narrow_levels == arm.narrow_levels]
+            cands.sort(key=lambda k: order[k])
+            if arm.key in solved:
+                out[key] = {"arm": arm.key, "kind": "own", "geometry_matches": True,
+                            "candidates": cands,
+                            "why": (f"billed from {arm.key}'s OWN mapping: "
+                                    f"{_geometry_phrase(arm)}")}
+            elif cands:
+                lender = by_key[cands[0]]
+                if lender.placement is None:
+                    why = (f"billed from the REFERENCE plan, and for this bar that is the "
+                           f"right plan: it narrows nothing on chip, so its storage "
+                           f"geometry IS the reference's. What separates the two chips is "
+                           f"the declared off-chip bandwidth scale, which changes the "
+                           f"throttling check and not one picojoule of energy "
+                           f"(prompt_7 7.1, measured bit-identical).")
+                else:
+                    why = (f"billed from {lender.key}'s mapping: this chip has no mapping "
+                           f"of its own yet, and {lender.key} is the outermost solved arm "
+                           f"with the SAME storage geometry ({_geometry_phrase(arm)}). What "
+                           f"separates the two is the ERT bump and the declared bandwidth "
+                           f"scale, neither of which changes what a loop nest means"
+                           + (f"; the other candidate was {', '.join(cands[1:])}"
+                              if len(cands) > 1 else "") + ".")
+                out[key] = {"arm": lender.key, "kind": "borrowed",
+                            "geometry_matches": True, "candidates": cands, "why": why}
+            else:
+                out[key] = {"arm": "reference", "kind": "foreign",
+                            "geometry_matches": False, "candidates": [],
+                            "why": (f"billed from the REFERENCE plan, whose geometry is NOT "
+                                    f"this bar's: it narrows {_geometry_phrase(arm)} and no "
+                                    f"solved arm does. This chip has never been mapped "
+                                    f"(prompt_7 6.2b); its own mapping is Phase C. No "
+                                    f"post-processing can re-tile a loop nest, so the plan "
+                                    f"cannot use capacity it does not know exists.")}
+    return out
+
+
+def _geometry_phrase(arm):
+    return (f"datawidth q on {'+'.join(arm.narrow_levels)}" if arm.narrow_levels
+            else "nothing on chip narrowed")
 
 
 def ert_deltas(incremental_pj, idle_pj, gran, block_size, clock_gating_pct=0.0):
@@ -2268,18 +2669,33 @@ class Granularity:
         }
 
 
-def feasibility(placement, arch, wpath, gran):
+def feasibility(placement, arch, wpath, gran, require_group_residency=False):
     """Can this boundary assemble a complete ECC group where it sits?
 
-    Returns `(ok, detail)`. Three ways to fail, and each is reported rather than
-    worked around:
+    Returns `(ok, detail)`. Two STRUCTURAL ways to fail, always refused:
 
     * the stage the encoder sits at is not in the model at all;
-    * the stage it would reduce is not in the model;
-    * the boundary is PE-local and a PE does not hold `G_rec` weights at once,
-      so the retained bits the rebuild needs were never sent to that PE. This
-      is the "reject infeasible local placements" the plan asks for, and it is
-      checked per layer against the mapping's own utilized capacity.
+    * the stage it would reduce is not in the model.
+
+    And one about GROUP RESIDENCY, which is a statement about the
+    RECONSTRUCTION DATAPATH and not about Timeloop: a PE-local boundary whose
+    level holds fewer than `G_rec` weights at once. Under the embedded layout a
+    63-bit codeword drifts across weight boundaries and reaches into up to 9
+    8-bit weights, so rebuilding from a level that holds 6 means 3 of those
+    weights' retained bits are not there AT THAT INSTANT.
+
+    **REPORTED, NOT REFUSED, SINCE 2026-09-13** (`ECC_RECON_REQUIRE_GROUP_RESIDENCY`,
+    default 0 -- the user's decision about their own engine). The refusal
+    assumed the engine can only rebuild from weights co-resident in the level
+    in one cycle. RECAP's engine does not work that way: it accumulates the
+    retained bits as they arrive and rebuilds when the group completes, so a
+    level holding 6 -- or 1 -- still feeds it, just over more accesses. The
+    residency figure is still MEASURED and still carried on the record and in
+    the manifest (`group_residency`), because it bounds how much buffering the
+    engine needs; it no longer deletes a bar.
+
+    Set the knob to 1 to restore the refusal -- the conservative reading, and
+    the right one for an engine with no group buffer.
     """
     missing_site = placement.site_stage not in wpath.stages or \
         wpath.stages[placement.site_stage].energy_pJ <= 0
@@ -2319,9 +2735,15 @@ def feasibility(placement, arch, wpath, gran):
                 bad.append({"layer": lp["layer"], "shape": lp["shape"],
                             "stage": key, "weights_resident": cap,
                             "G_rec_required": gran.g_rec})
-    ok = not bad
+    # THE SHORTFALL IS A FACT ABOUT THE MAPPING; WHETHER IT DISQUALIFIES THE
+    # BOUNDARY IS A FACT ABOUT THE ENGINE. Measure the first here, let the knob
+    # decide the second.
+    ok = (not bad) or (not require_group_residency)
     detail = {
         "G_rec": gran.g_rec,
+        "group_residency_required": bool(require_group_residency),
+        "layers_below_G_rec": len(bad),
+        "layers_total": len(wpath.per_layer),
         "rule": ("a PE-local boundary needs G_rec weights of the codeword group "
                  "resident at once; a smaller resident tile means the retained "
                  "bits the rebuild depends on were never sent to that PE"),
@@ -2331,16 +2753,31 @@ def feasibility(placement, arch, wpath, gran):
                    f"{len(bad)} (layer, stage) pair(s) hold fewer than G_rec "
                    f"weights -- the placement is rejected rather than estimated",
     }
-    if not ok:
-        # Every unsupported return has to carry `reason`: it is what the result
-        # store writes as `unavailable_reason`, and it refuses a variant that
-        # cannot say why it is unavailable.
+    if bad:
         names = ", ".join(sorted({b["layer"] for b in bad}))
-        detail["reason"] = (
-            f"infeasible local placement: {len(bad)} (layer, stage) pair(s) keep "
-            f"fewer than G_rec = {gran.g_rec} weights resident, so the retained "
-            f"bits this boundary would rebuild from were never delivered to that "
-            f"PE. Layers: {names}")
+        worst = min(b["weights_resident"] for b in bad)
+        note = (f"{len(bad)} (layer, stage) pair(s) keep fewer than G_rec = "
+                f"{gran.g_rec} weights resident (fewest: {worst}). Layers: {names}")
+        if ok:
+            # REPORTED. The engine accumulates retained bits across accesses,
+            # so a level holding fewer than G_rec still feeds it -- over more
+            # accesses, and with more buffering. The number is what bounds that
+            # buffer, so it travels with the bar instead of deleting it.
+            detail["group_residency_note"] = (
+                note + ". CHARGED ANYWAY (ECC_RECON_REQUIRE_GROUP_RESIDENCY=0): "
+                "the reconstruction engine assembles a group as the retained "
+                "bits arrive rather than needing all G_rec weights resident at "
+                "one instant, so a smaller tile costs buffering and accesses, "
+                "not feasibility. Set the knob to 1 for the conservative "
+                "reading, which refuses the bar instead.")
+        else:
+            # Every unsupported return has to carry `reason`: it is what the
+            # result store writes as `unavailable_reason`, and it refuses a
+            # variant that cannot say why it is unavailable.
+            detail["reason"] = (
+                f"infeasible local placement: {note} -- so the retained bits this "
+                f"boundary would rebuild from were never delivered to that PE "
+                f"(ECC_RECON_REQUIRE_GROUP_RESIDENCY=1)")
     return ok, detail
 
 
@@ -2474,7 +2911,9 @@ def evaluate_placement(cfg, arch, placement, wpath, base_w_by_cat, base_by_cat,
     """
     placement = effective_placement(placement, cfg)
     stage_defs = stages_for(arch, cfg)
-    ok, feas = feasibility(placement, arch, wpath, gran)
+    ok, feas = feasibility(placement, arch, wpath, gran,
+                           require_group_residency=getattr(
+                               cfg, "recon_require_group_residency", False))
     if not ok:
         return PlacementResult(placement, "unsupported", {}, 0.0,
                                {"feasibility": feas}, feas["reason"])

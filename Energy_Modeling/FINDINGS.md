@@ -2,8 +2,29 @@
 
 The only place empirical claims about the current model live.
 
-**The live plan is `prompt_6.md`.** Where this file and that one differ on what to
-do NEXT, prompt_6 wins; this file records what was LEARNED.
+**The live plan is `prompt_7.md`** (prompt_6's four RULES are still in force).
+Where this file and the plan differ on what to do NEXT, the plan wins; this file
+records what was LEARNED.
+
+> **PHASE C2 HAS RUN FOR resnet18** (2026-09-13, §3.10): 72 maps, six arms on their own
+> plans, +15.552 % vs conventional ECC and −12.56 % latency, at the ceiling. Those are the
+> live numbers for that model.
+>
+> **EVERY OTHER NUMBER IN §2 WAS PRODUCED AT A PRE-PHASE-C FINGERPRINT.**
+> prompt_7 Phase C1 (2026-09-13, §3.9) put the off-chip speed limit, the
+> per-dataspace bandwidth scale, a bit-aware port, the 200 MHz clock, the MAC
+> price and a bank count into the architecture THE MAPPER READS, so every cache
+> is cold on purpose and nothing in §2 can be reproduced until Phase C2 runs.
+> **Those numbers are SUPERSEDED, not wrong** — they are what the model said
+> about a machine whose memory had no speed limit. Two of them are known to
+> move: the reconstruction column by +0.1699 % (the DC idle term is now rescaled
+> to the design's clock) and any latency figure, which did not exist before.
+> The one command that ends the cold, per model (`ECC_RECON_MODEL` selects it):
+>
+>     ECC_RECON_LAYER=all ECC_RERUN_OPTIMISER=1 ECC_RECON_ERT_AWARE=1 \
+>         bash hpc/map_ert_arms.sh
+>
+> mobilenet_v2 has NOT been re-mapped since Phase C; its §2.9/§2.10 numbers are superseded.
 
 **Slimmed 2026-09-11.** Full working detail — every measurement pass, every
 withdrawn result, every table — is archived verbatim in
@@ -42,6 +63,8 @@ reach and `ModelSweep` not at all (§6.1) — none of the three is a model total
 | convergence of the mapper search | ✅ solved by constraining the mapspace, not by raising the budget (§2.2) |
 | Eyeriss v1 = `eyeriss_like_wglb` | DECIDED 2026-09-10, registered, validates |
 | placement study on other designs | not started; `eyeriss_v2_like_wglb` refused until its GLB boundary exists (prompt_6 Appendix B) |
+| 6 **TIME in the mapper** (prompt_7 Phase C) | ✅ **C1 authored and validated 2026-09-13**, §3.9 — off-chip limit, per-dataspace scale, bit-aware port, per-design clock, MAC price in the ERT, banked SRAM. **EVERY CACHE IS COLD ON PURPOSE**; C2 is the 186-job pass that refills it. Pre-tested on one `fc` shape: −37.6 % cycles and a different plan |
+| transformer workload (prompt_7 Phase D) | ❌ **dropped 2026-09-13**, the user's call — this study is about CNNs. The 52.4 % ceiling stays a PROJECTION with two independent derivations (§4.5, A.6) and the measured `fc`-layer result beside it |
 
 ---
 
@@ -281,6 +304,15 @@ dataspace**, always printed by `--levels`.
 ---
 
 ### 2.9 The encoder toll cannot move the constrained nest; idle decides the ranking
+
+> **STALE ON TWO COUNTS since 2026-09-12, and both move R3.** Clock gating is now
+> the default (`ECC_RECON_CLOCK_GATING_PCT=99.5`), which re-ranks the boundaries;
+> and prompt_7 Phase B stopped R3 borrowing the REFERENCE's plan — its geometry is
+> R2's, and on R2's plan the mapper owns the `filter_glb` narrowing instead of the
+> evaluator (§3.8: R3 +11.11 % → **+13.11 %** against conventional ECC on
+> mobilenet_v2). The rows below are the pre-gating, pre-Phase-B numbers and are
+> kept for the diff. **Regenerate before quoting.**
+
 
 **2026-09-11**, prompt_6 phases 1–9, `eyeriss_like_wglb`, resnet18 `layer3.0.conv1`,
 BCH(63,30), `aligned` packing, EDP, prompt_3's constrained mapspace, one job per
@@ -557,11 +589,23 @@ Two facts phase 3 must build in:
 
 ### 3.6 What the ERT-arm runs verified (prompt_6 phases 3–9)
 
-* **Leakage is outside the per-dataspace energies.** Timeloop prints `Leakage
-  energy (total)` as a separate per-level line; the raw record aggregates only
-  the per-dataspace `Energy (total)` rows and Compute, so it never held leakage
+* **Leakage is outside the per-dataspace energies — in the REPORT, never in the
+  MAPPER'S OBJECTIVE.** *(corrected 2026-09-12, prompt_7 Phase A step A4; the
+  earlier wording below said only the first half and read as "the model has no
+  leakage", which is wrong.)* Timeloop prints `Leakage energy (total)` as a
+  separate per-level line, and `parse_stats` aggregated only the per-dataspace
+  `Energy (total)` rows and Compute, so the RAW RECORD never held leakage
   (25.52 + 84.24 pJ on the reference — invisible until the ERT leak bump made it
-  163.6 µJ). Consequence for prompt_6 5.3: only the ACCESS toll is inside the
+  163.6 µJ). But Timeloop's own `Energy:` and `EDP(J*cycle)` — **the quantity the
+  mapper minimises** — already contain it, verified arithmetically on
+  `C128_M128_R3_S3_P28_Q28`, recon2 arm: `filter_glb` Weights 143,772.48 pJ +
+  leakage 76,777.31 pJ = 220,549.79 pJ over 115,605,504 computes = 1.908
+  fJ/compute, and Timeloop printed 1.91 (without leakage it would print 1.24).
+  **So the asymmetry was sharper than "leakage is missing": the mapper saw it, at
+  prices 10³–10⁴ too low, and the report threw the same number away.** That is
+  reporting rule R-4 (prompt_7 §12), and since Phase A the parsed value
+  reaches the record (`Raw.standby["timeloop_leakage_pJ"]`) whether or not
+  `ECC_STATIC_ENERGY` charges anything. Consequence for prompt_6 5.3: only the ACCESS toll is inside the
   bill and is moved into `Reconstruction`; the idle term is verified against the
   stats' leakage delta and charged by the evaluator. The first attempt subtracted
   both and drove `filter_glb` negative.
@@ -580,6 +624,316 @@ Two facts phase 3 must build in:
 * **Timeloop's own totals** (leakage included) on the one shape: reference
   231.56 µJ, `recon2` 232.46 µJ, `recon4` 395.44 µJ — the last is the reference
   plus 168 encoders' idle for the whole run.
+
+### 3.7 prompt_7 Phase A: the roofline reproduces Timeloop, and standby is symmetric
+
+*(2026-09-12. Evaluator-only; no mapper run, no cache colded, every pre-Phase-A
+number reproduced to the pJ.)*
+
+* **The roofline is Timeloop's own timing model with one missing term, not a
+  second one.** With no off-chip bandwidth declared, `latency_post.roofline()`
+  reproduces Timeloop's per-level **and** total cycle counts EXACTLY on all 43
+  cached shapes of `eyeriss_like_wglb` (301 storage levels) — including the 11
+  shapes `ifmap_glb` throttles and the 5 `psum_glb` throttles. The arithmetic
+  asserted: demand = items per COMPUTE cycle, slowdown = `min(1, declared /
+  demand)` per port, level cycles = `ceil(compute / slowdown)`, run = the WORST
+  level. `tests/test_latency.py` is the gate.
+* **Only `ifmap_glb` and `psum_glb` ever throttle, and only under the
+  CONSTRAINED mapspace.** Worst 0.184 (11 shapes) and 0.610 (5 shapes) — the
+  values printed as 0.18 and 0.61. On the retired `random_pruned`/unconstrained
+  cache `filter_glb` throttles to **0.320**, so reporting rule R-2 is a statement
+  about the dataflow in force, not about the design. `filter_glb` never
+  throttles under the live regime, which is not the same claim as never binding:
+  at the FC layers it sits exactly ON its declared 16 items/cycle.
+* **The one place time responds is off chip.** A narrow weight is still one
+  item, so `weight_scale` applies to DRAM only; on chip the item count is
+  identical by construction and a bit-aware port is an architecture change the
+  mapper must see (Phase C). On `C512_M1000_R1_S1_P1_Q1` (resnet18 `fc`) at
+  480 MB/s the reference takes 1,082,317 cycles and BCH(63,30) 523,587 — the
+  51.6 % an FC layer's ~99 % weight traffic predicts.
+* **Latency is FLAT across the five boundaries, as predicted.** mobilenet_v2 at
+  BCH(63,39), 480 MB/s: baseline and embedded 72,931,937 cycles, every one of
+  R1–R5a 69,784,911 — all five at the ceiling of **4.32 %** = weight share
+  11.3 % of off-chip items × (1 − K/N) 0.3810. The whole gain is at the DRAM
+  boundary, which every placement shares by construction (rule R-1).
+* **Standby energy is charged to all three arms or to none.** It lands in
+  `Raw.base["Standby"]`, which every arm and every placement bar starts from, so
+  no code path can give it to one arm and not another. mobilenet_v2, all six
+  bars moved by exactly **+42.050 µJ** at `ECC_STATIC_ENERGY=1`; the ECC result
+  moved from +11.160 % to +11.095 % against conventional ECC.
+* **The replacement densities are 3,000–4,600× Timeloop's own leakage bill** on
+  the same plan (42.050 µJ against 0.013938 µJ on mobilenet_v2; ×4,573 on the
+  reference-arm shape set). Squarely in §5.2c's 10³–10⁴, and measured rather
+  than asserted. Billed on **utilized** instances, as Timeloop bills leakage
+  (`leak × utilized × cycles`): `filter_glb` 7.39799e-05 × 32000 × 1 = 2.37 pJ,
+  `weights_spad` 2.67882e-06 × 32000 × 16 = 1.37 pJ, both to the printed
+  precision. DRAM is charged nothing, stated rather than left as a zero.
+* **A cache slug decides what is being measured.** An `ert-` arm was mapped with
+  the encoder's toll in its ERT, so its `Leakage energy (total)` is 147,351 pJ
+  against the reference arm's 14 — reading one while testing the replacement
+  densities measures an encoder. The suite resolves the LIVE configuration's
+  reference cache and refuses rather than falling back.
+
+### 3.8 prompt_7 Phase B: six chips, and R3 was on the wrong plan
+
+*(2026-09-12. Evaluator-only; no mapper run, no cache colded. `eyeriss_like_wglb`,
+mobilenet_v2, BCH(63,39), `ECC_RECON_ERT_AWARE=1`, gating 99.5 %.)*
+
+* **The mapper sees SIX chips on this design, not three.** `recon.mapper_arms()`
+  derives them from prompt_7 §6.4's three axes — `datawidth: q` × the ERT bump ×
+  the declared per-dataspace bandwidth scale — and gets six here and five on
+  `eyeriss_v2_like`, which has four boundaries. A NETWORK stage is carried in
+  the bandwidth-scale set and marked `no-op`: Timeloop has no network timing
+  model to apply it to, but a boundary that adds one is still a different
+  declaration, and dropping those entries collapses v2's R1 and R2 into one chip
+  (5 arms → 4). Measured, and the mutation is in `test_mapper_arms.py`.
+* **R3 was billed from the wrong plan, and it cost 2.00 pp.** Its geometry is
+  R2's — both narrow `filter_glb` and nothing else — and it was on the
+  REFERENCE's. Billed from R2's plan instead:
+
+  | bar | was (reference plan) | now (R2's plan) |
+  |---|---:|---:|
+  | R3 total | 6,376.502 µJ | **6,232.748 µJ** |
+  | vs conventional ECC | +11.11 % | **+13.11 %** |
+  | vs embedded only | +3.58 % | **+5.75 %** |
+  | who narrows `filter_glb` (RULE 1) | evaluator, ×0.6316 | **mapper, ×1.0000** |
+  | reconstruction | 9.094 µJ over 2,012,784 events | 7.718 µJ over 1,688,225 |
+
+  The ownership row is the mechanism: on R2's plan `filter_glb`'s `Word bits` is
+  5, so the mapper narrowed it and the evaluator applies 1.0. **No other bar
+  moved.** R1 stays on the reference plan and that is now a positive statement
+  rather than a default — R1 narrows nothing on chip, so the reference's
+  geometry IS its geometry.
+* **R5a is a chip that has never been mapped, and now says so.** It is the only
+  bar that narrows `weights_spad`; no solved arm does, so no plan on disk knows
+  that level is narrower. It is billed from the reference plan with
+  `geometry_matches: false` and an empty candidate list, and the run warns. (On
+  mobilenet_v2 it is separately `unsupported` — 14 layers keep fewer than
+  `G_rec` = 9 weights resident — so the flag is a statement about the plan, not
+  about this figure's bars.)
+* **`ert_injectable()` condition 3 no longer excludes R5a, and that is derived.**
+  The bump has two rows and the exclusion needs BOTH constant. The access row on
+  the innermost level's `reads` is the MAC count and is; the per-cycle `leak` row
+  is `idle × (1 − g)` and Timeloop bills it as `leak × utilized instances ×
+  cycles`. Measured from the live DC constants: **2.7891299 pJ/cycle/instance at
+  PCT=0, 0.0139456 at 99.5, exactly 0 at 100** — so R5a is ERT-injectable at both
+  settings §11 item 7 requires side by side, and not at the fully-gated limit.
+  Renaming the placement moves nothing.
+* **A bar can now pass the latency ceiling, and the cause is NOT reconstruction.**
+  The ceiling is `weight share × (1 − K/N)` on the REFERENCE plan's off-chip
+  traffic, so it bounds the weight term only. R2/R3/R4, billed from their own
+  plans, reach **5.84 % against a 4.32 % ceiling** — at *identical* weight reads
+  (×1.000) and **×0.983 activation items** (30,508,939 against 31,042,059). The
+  extra 1.52 pp is the arm's own loop nest moving less activation traffic off
+  chip: a MAPPING effect. (Those plans are also *slower* by Timeloop's own count
+  — 3,937,072 cycles against 3,855,536 — and faster under the 480 MB/s roofline,
+  which is what a DRAM-bound machine looks like.) Every row now prints `wt` and
+  `act`, and a check refuses a bar past the ceiling at ×1.000 on both.
+* **Phase B colded nothing.** `reference` `718d53aac189`, `recon2` `a18a5b15fd8b`
+  and `recon4` `55569ac34427` are the directories that were already on disk, at
+  43 solved shapes each. `recon1` `718d53aac189`, `recon3` `64af0cb88d0c` and
+  `recon5` `9211adf270da` are cold — Phase C's work. `bash run.sh baseline
+  --eval` still gives Task 1 = 317,290,433.48952 pJ.
+* **One collision was real, not theoretical.** R1's patched YAML **is** the
+  reference's until Phase C1.2 declares the bandwidth scale, so an arm with no
+  ERT bump and no narrowed level produced the reference's cache slug exactly.
+  `arm-<key>` for the bump-less arms is what keeps them apart; the arms that
+  have a bump keep prompt_6's `ert-<key>-<level>-<action>` spelling byte for
+  byte, which is why nothing on disk moved.
+
+### 3.9 prompt_7 Phase C1: TIME reaches the mapper, and two constants were wrong
+
+**2026-09-13. Authored and validated; NO MAPPER JOBS SUBMITTED.** Every arm and every
+design is now cold at a new fingerprint, on purpose. The numbers below are what C1
+MEASURED while building it; the placement study's own numbers are Phase C2's.
+
+**a. The off-chip limit binds, and it is one bus.** `shared_bandwidth: 2.40` on the DRAM
+level (480 MB/s at the published 200 MHz) — not `read_` + `write_bandwidth`, because the DQ
+bus is one wire set whose limit is on their SUM, which is the term the roofline already
+charged. On a real search (SLURM 41915350, mobilenet `classifier.1`) DRAM prints
+`Bandwidth throttling : 0.30` and is the binding level. Before this, no architecture in
+`archs/` declared an off-chip bandwidth at all and off-chip traffic cost ZERO cycles.
+
+**b. The bit-aware port moves the `fc` layer, and moves the PLAN.** Two real mapper
+searches on `C1280_M1000_R1_S1_P1_Q1`:
+
+| arm | `filter_glb` read bw | Bandwidth Consumption Scale | **Cycles** | Energy | PE utilisation |
+|---|---:|---:|---:|---:|---:|
+| reference | 16.00 | 1.00 | 540,117 | 89.88 µJ | 1.41 % |
+| `recon2` | **25.60** | **0.62** | **336,943 (−37.6 %)** | 89.13 µJ | **2.26 %** |
+
+Below that layer's own 51.7 % ceiling (§A.6), and the utilisation moved — so the mapper
+chose a DIFFERENT plan, not the same plan re-timed. **This is prompt_7's C2 gate 4 passing
+on one shape before the matrix is committed.** What C2 measures is how much survives
+aggregation, where `classifier.1` is 2.10 % of mobilenet's cycles.
+
+**c. A misspelled dataspace exits non-zero.** `{Weightz: 0.619048}` → Timeloop return code
+1, no `stats.txt`. The declaration cannot degrade into a silent no-op.
+
+**d. Banking was inert, and it is worth 30 % on a GLB read.** Upstream's `smartbuffer_SRAM`
+declares no `n_banks`, so every `n_banks:` in this study was dropped and CACTI priced one
+monolithic array. With `smartbuffer_SRAM_banked` forwarding it (Accelergy, 45 nm, this
+design's own geometry):
+
+| level | banks | read, monolithic | read, banked | |
+|---|---:|---:|---:|---:|
+| `ifmap_glb` | 13 | 23.5387 pJ | **16.5710** | ×0.704 |
+| `psum_glb` | 12 | 22.7292 | **16.0527** | ×0.706 |
+| `filter_glb` | 2 | 13.5910 | **11.7451** | ×0.864 |
+
+**Only levels that declare `n_banks` themselves are switched.** timeloopfe v4 hands EVERY
+storage level a default `n_banks: 2` — visible in the flattened architecture, published for
+none of them — and the CACTI wrapper floors depth at `64 × n_banks`, so on the depth-3
+`weights_spad` that default moves the price through the FLOOR rather than through any
+banking. **Recorded, not compensated:** CACTI is called at `2**ceil(log2(n_banks))`, so the
+13-bank ifmap GLB is modelled as 16; the wrapper computes `bankscale = 13/16` and never
+applies it (`cacti_wrapper.py:177-178` — dead in the plug-in), while leakage uses the
+declared count.
+
+**e. `ECC_RECON_IDLE_PJ` had never been rescaled for the clock, and it is ×5.** `env.sh`
+§6 TRAP 2 documents the rule in full and says where it belongs; it had never been written,
+because until C1.5 gave a design its own clock the factor was 1.0 on every run. The term is
+pJ **per cycle** measured by DC at 1 ns and it is CLOCK power (§5.3: the DC "idle" constant
+is 99.48 % clock, 0.52 % true leakage), so a 5 ns cycle burns five times as much —
+**on the reconstruction engines only, i.e. on the side of the comparison this study
+measures.**
+
+| | at DC's 1 ns | at 200 MHz |
+|---|---:|---:|
+| BCH(63,39) idle | 2.7891299 | **13.9456495** pJ/cycle/engine |
+| BCH(63,30) ERT `leak` row | 2.8310811 | **14.1554055** |
+
+The second row is the worked example `env.sh` already spelled out, now produced by the
+code. The INCREMENTAL term is per codeword (CV²) and is NOT rescaled; `ECC_LEAKAGE_NW` is
+POWER in nW and is NOT rescaled either — which is why the two are declared in different
+units. Effect on the sweep arm, on one raw record: **recon +0.1699 %**, baseline and
+embedded **bit-identical**.
+
+**f. Declaring the scale opened a double-count, caught before it shipped.** The evaluator
+has applied `weight_scale = K/N` to the off-chip weight items since Phase A, because no
+architecture declared a bandwidth scale. The moment C1.2 declares one, the MAPPER applies
+it too, and the reported saving would have been K/N **squared** — 0.6190 → 0.3832 on
+mobilenet's BCH(63,39), a 38 % "latency saving" that is arithmetic.
+`latency_post.relief_owner()` reads the answer off each bar's OWN stats
+(`Bandwidth Consumption Scale` = 1.00 → the evaluator owns it; = K/N → the mapper does),
+applies it exactly once, and REFUSES a third value as a bar billed from another code's plan.
+prompt_6 RULE 1, measured per bar rather than assumed.
+
+**g. The MAC price the mapper optimised against was never the one the report charged.**
+`ECC_MAC_PJ_OVERRIDE = 0.23` is evaluator-side, so the search priced a MAC at Accelergy's
+1.13555 pJ — 4.9× — and under `ECC_OPT_METRIC=edp` that can move the argmax. Every arm now
+gets a supplied ERT with each `compute` row **`set`** to 0.23, so `apply_mac_override`'s
+rescale ratio is exactly 1.0 and the two cannot double-count.
+
+**h. The first C2 launch died in ten seconds, and the gate had not lied — it had been
+asked the wrong question.** 72 jobs, all FAILED, the dependent eval on
+`DependencyNeverSatisfied`. Three bugs, and all five C1 gate checks were green on every
+one of them, because **every check ran without invoking the mapper**: `validate`,
+`diagnose`, `--dry-run`, the fingerprints and a patched-YAML read construct no `Mapper`,
+build no ERT and patch no YAML through the code a job runs.
+
+| bug | what it would have cost |
+|---|---|
+| a `@property` inserted into the middle of `Mapper.__init__` — a `def` ENDS the function, so `self._memo` and five counters never existed | a crash, loud and immediate |
+| **a `depth: 1024` written in a COMMENT read as the declaration**, and `re.sub(..., count=1)` then rewrote THE COMMENT; `filter_glb` declared `depth: 256` beside a fresh `width: 384` | **NOT a crash.** 98,304 bits where 16,512 were intended — six-fold, on the level R2's whole saving rides on — reported in one line of stdout and nowhere else |
+| `ErtTables.ensure()` dereferencing `self.bump['placement']` on the reference arm, which since C1.6 has a table and no bump | a crash, on the first job of every matrix |
+
+**The second one is the finding.** Had the first not killed the job, the matrix would have
+mapped a six-fold-too-large weight buffer and returned plausible numbers. The fix is not
+the comment: `archs.uncommented()` masks comments while preserving positions, 14 geometry
+reads go through it, and `write_attr()` RAISES when a rewrite lands on nothing — the silent
+half. **Any comment naming `depth:`/`width:`/`datawidth:`/`n_banks:` would have done it**,
+in a file where comments are the project's main defence against exactly this class of error.
+
+**C1 gained a sixth gate: one real shape, two arms, through `run.sh map` on a compute
+node** (`Claude-sandbox/_c2_smoke.sbatch`). Two jobs and a few minutes.
+
+### 3.10 prompt_7 Phase C2: the matrix ran — and RULE R-2 inverts
+
+**2026-09-13. 72 map jobs (resnet18, 12 shapes × 6 arms), all COMPLETED; five defects
+between the maps and the figure, every one of them in the EVALUATOR.** The expensive half
+was right the first time.
+
+**THE RESULT** (resnet18, BCH(63,39), Eyeriss v1 at its published 200 MHz, 120 MB/s off
+chip, **all six arms on their own plans — zero borrowed**, which is what Phases B and C
+were for):
+
+| | |
+|---|---:|
+| lowest-energy feasible placement vs **conventional ECC** | **+15.552 %** |
+| the same vs **embedded only** | **+9.961 %** |
+| baseline / embedded | 61,905,881 cycles = 309.529 ms |
+| every reconstruction bar | **54,132,176 cycles = 270.661 ms, −12.56 %** |
+| ceiling: weight share 33.0 % × (1 − K/N) 0.3810 | **12.56 %** |
+
+The bars sit **ON** the ceiling — to 9.3e-09 — and are **FLAT across all five boundaries**.
+That is rule R-1 by construction: every placement's `reduced` set contains `dram`, so every
+placement gets the same off-chip relief, and at 0.6 items/cycle against a 4.26 demand the
+design is hard off-chip-bound, so the relief converts 1:1 into time. **Latency does not rank
+the boundaries. Energy does.** §4.7 projected exactly this before the compute was spent.
+
+**RULE R-2 IS RESTATED, and it is the real finding of Phase C.** R-2 said the levels that
+bind carry INPUTS and PARTIAL SUMS, which reconstruction cannot touch — `ifmap_glb` 11 of 43
+shapes, `psum_glb` 5 of 43, DRAM never. **That was never a fact about the chip.** It was the
+absence of a declared number: no architecture declared an off-chip bandwidth, so Timeloop
+skipped the DRAM throughput check entirely. C1.1 declares it, and **DRAM binds on 21 of 21
+layers at worst throttling 0.074** — the binding resource is now exactly the one
+reconstruction relieves. `config.reporting_rules()` and `tests/test_latency.py` carry the
+restatement, and the test asserts it in BOTH directions: DRAM throttles if and only if the
+cache's own DRAM level declares a bandwidth.
+
+**BOTH MODELS, and the contrast IS the result** (2026-09-13; mobilenet_v2 ran after
+resnet18, 31 shapes × 6 arms, same six arms on their own plans):
+
+| | resnet18 | mobilenet_v2 |
+|---|---:|---:|
+| weight share of off-chip traffic | 33.0 % | **10.5 %** |
+| latency ceiling = share × (1 − K/N) | 12.56 % | **4.00 %** |
+| **measured latency saving** | **12.56 %** | **3.97 %** |
+| vs conventional ECC | **+15.552 %** | **+10.974 %** |
+| vs embedded only | +9.961 % | +3.285 % |
+| lowest-energy placement | `recon_weight_glb_output` | `recon_source_noc_ingress` |
+
+**The ceiling IS the weight share**, and this is §4.6's Reason 1 measured on two networks:
+mobilenet_v2 is depthwise-separable, so its weights are a tenth of off-chip traffic against
+resnet18's third, and the most any boundary can buy falls with it. Both land AT their own
+ceiling — mobilenet at 3.97 against 4.00 because its arms' own plans move ×1.003 of the
+reference's weight items, a MAPPING effect reported in the table's `wt` column. Latency is
+FLAT across all five boundaries on both (R-1), and **the best placement differs by model**,
+which is an ENERGY ranking and not a latency one — exactly the division §4.7 projected.
+
+**A Lustre race cost one job of 186 on the mobilenet matrix.** Job 41920766 WROTE
+`globals_eyeriss_like_wglb.yaml` at line 35 of its own log and hit `FileNotFoundError` on
+that path at line 78, eight seconds later. All 186 jobs write the same two shared files and
+`_write_atomic` REPLACED them in place — atomic in POSIX terms, and still not safe here: a
+Lustre client holding a handle to the old inode sees it go stale. One failed job is enough
+to leave the dependent eval on `DependencyNeverSatisfied`. **The fix is the NAME:** both
+files are a pure function of (architecture, configuration), so both are content-addressed
+and created with `O_EXCL`; nothing is ever replaced. No fingerprint moved and no compute was
+lost — `arch_fingerprint()` hashes the CONTENT of those files, never their paths — so the
+repair was one map job of 64 s.
+
+**Two of the five evaluator defects are worth keeping in mind, because both produced NUMBERS
+rather than crashes:**
+
+* **The roofline re-timed every reconstruction bar as if its relief did not exist** —
+  61,905,882 cycles against Timeloop's own 54,132,184 (×1.1436), while the reference
+  reproduced Timeloop at ×1.0000. One arm exact beside five at ×1.14 *is* the Phase A gate
+  failing. The cause was a wrong model of the double-count: **the roofline does not adjust
+  Timeloop's cycles, it recomputes them**, so the scale belongs in that computation exactly
+  once however many other places applied it.
+* **One cycle, and "exact" turned out to be unachievable.** With an off-chip limit
+  declared, both sides run a float ratio through a `ceil`. Sweeping all five candidate
+  orderings over the whole cache — **301 levels, 43 shapes** — the best two miss 2 levels
+  each, by exactly +1 cycle (6.4e-07 of the count); `ceil(items/rate)` misses 4.
+  **No ordering reproduces all 301**, because Timeloop's own float ordering is not
+  recoverable from the stats file. The gate now asserts the achievable precision — no level
+  more than ONE cycle out **and** at least 95 % exact (measured 299/301 = 99.3 %), with the
+  mutation at +2 — rather than an "exact" that was only ever true while DRAM had no declared
+  limit. Both the bound and the exact fraction are asserted, so a systematic drift cannot
+  hide inside the allowance.
+
+---
 
 ## §4 — Timeloop defects worth knowing
 

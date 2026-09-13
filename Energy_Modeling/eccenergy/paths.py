@@ -15,7 +15,9 @@ Two rules that the old scripts got wrong often enough to cost hours:
 from __future__ import annotations
 
 import json
+import os
 import pathlib
+import sys
 
 #: eccenergy/paths.py -> eccenergy/ -> project root
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -28,7 +30,39 @@ EX_REPO = WORK / "timeloop-accelergy-exercises"
 DESIGNS_DIR = EX_REPO / "workspace" / "example_designs" / "example_designs"
 
 #: Locally authored architectures, master copies (survive a wipe of WORK).
-ARCH_SRC = ROOT / "archs"
+#:
+#: `ECC_ARCH_PIN_DIR` REDIRECTS THIS AT A SNAPSHOT, and the launchers set it so
+#: that ONE SUBMISSION MAPS ONE ARCHITECTURE.
+#:
+#: THE FAILURE IT EXISTS FOR (2026-09-13, efficientnet_b0, 282 jobs wasted).
+#: `archs/eyeriss_like_wglb/arch_paper.yaml` was edited 78 seconds after the
+#: map array started -- a deliberate experiment with a new psum_spad depth.
+#: Every map job then solved the pre-edit chip and filed its result under
+#: `fp-eca1a94653f8`; the dependent eval, starting twelve minutes later, read
+#: the edited file, computed `fp-d20f19432878`, found an empty directory and
+#: reported all 82 layers as `mapper failed`. Nothing refused the run and
+#: nothing was wrong with either the model or the architecture: the maps and
+#: the eval simply described two different chips, because each resolved the
+#: architecture WHEN IT RAN rather than when the batch was submitted.
+#:
+#: A pin is not a relaxation of `arch_fingerprint()` -- the fingerprint is
+#: still computed, still names the cache directory, and is still what stops
+#: two geometries being averaged into one bar. It just fixes WHICH bytes
+#: everyone in one submission hashes, so editing `archs/` while jobs are in
+#: flight is free. Editing between submissions works as it always did: the
+#: next run snapshots the new file and maps it.
+#:
+#: Unset (an interactive run) this is `archs/` and nothing changes.
+_ARCH_PIN = os.environ.get("ECC_ARCH_PIN_DIR", "").strip()
+if _ARCH_PIN and pathlib.Path(_ARCH_PIN).is_dir():
+    ARCH_SRC = pathlib.Path(_ARCH_PIN).resolve()
+else:
+    if _ARCH_PIN:
+        # Warn, never stop: a missing pin is a stale launcher, and falling back
+        # to the live `archs/` is the behaviour that still produces a figure.
+        print(f"paths.py: ECC_ARCH_PIN_DIR={_ARCH_PIN!r} is not a directory; "
+              f"reading the live {ROOT / 'archs'} instead", file=sys.stderr)
+    ARCH_SRC = ROOT / "archs"
 
 #: The standardized-comparison contract every design is audited against, and
 #: the level-by-level record of where each design's numbers came from. Neither

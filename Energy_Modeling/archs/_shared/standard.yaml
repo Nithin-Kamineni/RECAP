@@ -220,6 +220,13 @@ architectures:
       word widths -- with the PE scratchpad holding Inputs instead of
       Weights or Outputs, per section 9 of
       01_project_context_and_architectures.txt.
+      DIVERGED 2026-09-13 IN ONE BLOCK, and only in how the operand half is
+      PARTITIONED: simple_weight_stationary's 64 kB operand_glb is now
+      input_glb (28 kB) + weight_glb (36 kB), because a level holding Weights
+      beside Inputs cannot declare the reconstruction arm's q-bit weights.
+      This design and simple_output_stationary keep the single shared
+      operand_glb. Total capacity, mesh and word widths are still identical;
+      the level SET on the weight-stationary sibling is not.
     accumulator_bits: 16
     accumulator_evidence: >-
       Matched to its two sibling reference dataflows so that the three

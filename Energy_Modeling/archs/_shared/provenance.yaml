@@ -170,6 +170,139 @@ dram_access_energy:
     carry the value used. Since 2026-09-11 the placement figure's heading is one
     line and does not; read the manifest beside it.
 
+# =============================================================================
+#  prompt_7 C1.4 -- THE BANDWIDTHS. Added 2026-09-13, when Phase C put them in
+#  the architecture the MAPPER reads. Until then they were evaluator-only or
+#  absent, and a number nothing optimises against is a number nobody checks.
+# =============================================================================
+
+offchip_bandwidth:
+  status: >-
+    ECC_DRAM_BANDWIDTH_MBPS = 480 MB/s (env.sh section 6). Since prompt_7 C1.1 it
+    is DECLARED on the DRAM level as `shared_bandwidth`, in items per cycle of
+    that design's own clock, as well as being charged by
+    latency_post.roofline(). One bus: reads and writes share it, which is why it
+    is `shared_bandwidth` and not read_ + write_bandwidth -- declaring the two
+    directions separately would let Timeloop deliver twice what the evaluator
+    caps.
+  value: 480
+  units: MB/s
+  set_on: 2026-09-12
+  at_this_designs_clock:
+    eyeriss_like_wglb: "480 MB/s at 200 MHz = 2.4 8-bit items/cycle"
+  candidates:
+    - source: "Chen, Krishna, Emer, Sze, IEEE JSSC 52(1), 2017, Sec. V / Table III"
+      device: "Eyeriss v1 test chip, 65nm"
+      quote: >-
+        The chip is characterised against a DRAM interface the paper describes
+        as insufficient -- the 8 kB filter GLB exists "to compensate for
+        insufficient off-chip traffic bandwidth" -- and the reported
+        configuration corresponds to 480 MB/s.
+      note: >-
+        THE ADOPTED VALUE. It is the reason the filter GLB exists at all, so a
+        study about weight traffic on this design has to model it.
+    - source: "JEDEC LPDDR4-3200, x16"
+      quote: "3.2 GT/s x 16 bit = 6.4 GB/s"
+      implied_items_per_cycle_at_200MHz: 32.0
+      note: >-
+        A MODERN part, an order of magnitude above the test chip's. MEASURED
+        (prompt_7 7.2, A.3): at this limit the check never binds, the mapper
+        returns the same plan it returns with no limit at all, and every
+        latency saving is exactly 0.000%. Kept as the sensitivity end of the
+        bracket, not as the operating point.
+  why_it_matters: >-
+    It is the third factor of `latency saving = (weight share of the binding
+    resource) x (1 - K/N) x (how bound you are)` (prompt_7 4.6). At 480 MB/s the
+    design is hard off-chip-bound and reconstruction buys time; at LPDDR4 speeds
+    it buys none, and that is a property of the accelerator rather than of the
+    scheme.
+
+onchip_bandwidth:
+  status: >-
+    NOT CITED. Every `read_bandwidth` / `write_bandwidth` on an on-chip level in
+    this study is inherited from the timeloop-accelergy-exercises reference
+    design. No paper in `source_document` publishes a per-level port width.
+    Recorded here rather than corrected: inventing a citation would be worse
+    than saying there is none.
+  values:
+    eyeriss_like_wglb:
+      ifmap_glb: 16
+      psum_glb: 16
+      filter_glb: 16
+      ifmap_spad: 2
+      weights_spad: 2
+      psum_spad: 2
+  units: items per cycle, per level, per direction
+  measured_effect: >-
+    THEY ARE NOT DECORATION. Across all 43 cached shapes of eyeriss_like_wglb
+    (reference arm, prompt_7 A.4): `ifmap_glb` throttles 11 shapes, worst 0.180;
+    `psum_glb` throttles 5, worst 0.610. And `filter_glb`'s 16 items/cycle is
+    LITERALLY what caps every fully-connected layer at 9.52% PE utilisation --
+    16 of 168 PEs on resnet18 `fc` and mobilenet `classifier.1`, where a 32-PE
+    candidate was rejected because it would have throttled (prompt_7 4.5, A.7).
+  rule: >-
+    A HEADLINE MAY NOT REST ON ONE OF THESE UNTIL IT IS CITED. In particular the
+    fc-layer latency gain that prompt_7 C1.3's bit-aware port produces is a gain
+    against an uncited limit; report it with this note attached. The aggregate
+    CNN effect is ~0.1-1% of cycles, which is why it is reportable as a
+    mechanism and not as a result.
+
+arch_clock:
+  status: >-
+    ECC_ARCH_CLOCK_MHZ (env.sh section 6), resolved per design by
+    Config.cycle_seconds_for() since prompt_7 C1.5 and carried into the mapper by
+    globals_<arch>.yaml.
+  values:
+    eyeriss_like_wglb: 200
+    eyeriss_like: 200
+  units: MHz
+  candidates:
+    - source: "Chen, Krishna, Emer, Sze, IEEE JSSC 52(1), 2017, Sec. VI"
+      device: "Eyeriss v1 test chip"
+      quote: "core clock 200 MHz at 1.0 V"
+      note: >-
+        THE ADOPTED VALUE for both v1 files. Every other design keeps the 1 GHz
+        model default, which is NOT cited for any of them -- it is the
+        study-wide ECC_GLOBAL_CYCLE_SECONDS.
+  why_it_matters: >-
+    Pairing a real chip's ABSOLUTE off-chip MB/s with a 5x faster model clock
+    makes the modelled chip ~5x more memory-starved than the one the paper
+    describes. It does not move the percentage once the design is fully
+    off-chip-bound -- both clocks then give the same absolute run time -- so the
+    clock buys defensibility, not a better number.
+
+sram_banking:
+  status: >-
+    KNOWN PLUG-IN BEHAVIOUR, recorded rather than compensated for. Since
+    prompt_7 C1.7 a level that declares `n_banks:` is instantiated as
+    `smartbuffer_SRAM_banked`, which forwards the count to the CACTI plug-in
+    (upstream's `smartbuffer_SRAM` declares no such attribute, so every
+    `n_banks:` in this study was inert and CACTI modelled one monolithic array).
+  measured_effect: >-
+    eyeriss_like_wglb, Accelergy at 45nm on this design's own geometry:
+    ifmap_glb read 23.539 -> 16.571 pJ, psum_glb read 22.729 -> 16.053,
+    filter_glb read 13.591 -> 11.745. A 52 kB array read as one block is dearer
+    per access than one bank of thirteen, which is the right direction.
+  caveats:
+    - >-
+      CACTI IS CALLED AT THE NEXT POWER OF TWO. cacti_wrapper.py computes
+      `scaled_n_banks = 2 ** ceil(log2(n_banks))`, so the 13-bank ifmap GLB is
+      modelled as 16 banks and the 12-bank psum GLB as 16. The wrapper also
+      computes the linear correction `bankscale = n_banks / scaled_n_banks` and
+      then NEVER APPLIES IT (cacti_wrapper.py:177-178) -- the factor is dead in
+      the plug-in, not here. Leakage does use the declared count
+      (cacti_wrapper.py:355), so dynamic and static energy are scaled from two
+      different bank counts.
+    - >-
+      ONLY LEVELS THAT DECLARE `n_banks:` THEMSELVES ARE SWITCHED. timeloopfe v4
+      gives EVERY storage level a default `n_banks: 2`, visible in the flattened
+      architecture and published for none of them; forwarding that wholesale
+      would have handed the depth-3 weights_spad a two-bank model out of a
+      front-end default, and the wrapper's `depth >= 64 * n_banks` floor makes
+      that move the price through the floor rather than through any banking.
+      A level whose paper says nothing about banking prices exactly as it did
+      before Phase C.
+
 # RETIRED 2026-09-09: dram_interface_share (f_if).
 #   The array/interface split of the DRAM term is GONE. f_if = 0.40 was an
 #   uncited assumption that credited a reconstruction boundary only 15.2% of the
@@ -362,19 +495,85 @@ eyeriss_like_wglb:
         weights to compensate for insufficient off-chip traffic bandwidth.
         While the PE array is working on a processing pass, the GLB preloads
         the filters used by the next processing pass."
-      modelled: "depth 1024 (2 x 512), width 64, n_banks 2, datawidth 8 -> 8192 weights"
+      modelled: "depth 256 (2 x 128), width 64, n_banks 2, datawidth 8 -> 2048 weights"
+      diverges_from_paper: true
+      divergence: >-
+        THE PAPER'S 8 kB IS depth 1024. This file declares 256 -- 2 kB, a
+        QUARTER of the published allocation. The entry count arrived in commit
+        3a770cc (2026-09-11) with no note, and this field went on saying 1024
+        until 2026-09-13. CONFIRMED AND KEPT on 2026-09-13 (prompt_7 C1.7, the
+        user's decision): the cold pass runs on the declared geometry. The BANK
+        SHAPE (64-b words, 2 banks) is the paper's, so the per-access energy is
+        the right array; only the depth is this study's.
       rationale: >-
-        The CAPACITY and the BANK GEOMETRY are published exactly; what is a
-        judgement call is whether a double-buffered prefetch store should be
-        declared as a Timeloop reuse level. Modelled as a reuse level here and
-        as !Nothing in eyeriss_like, so the two BRACKET the answer instead of
-        one of them silently choosing it.
+        The BANK GEOMETRY is published exactly and the CAPACITY is not modelled
+        at the published value (above); what is separately a judgement call is
+        whether a double-buffered prefetch store should be declared as a
+        Timeloop reuse level. Modelled as a reuse level here and as !Nothing in
+        eyeriss_like, so the two BRACKET the answer instead of one of them
+        silently choosing it -- with the 2 kB declaration making this end of the
+        bracket LOOSER than the published 8 kB would.
       why_it_matters: >-
         eyeriss_like refetches resnet18's weights 7.0x from DRAM against
         1.0-2.3x for every other design, and the ECC saving is very nearly
         0.3125 * E_dram_weights / (total + 0.3125 * E_dram_weights). So this
         single structural choice sets the largest saving in the study. It is
-        the reason this variant exists.
+        the reason this variant exists. Boundary R2's ENTIRE saving rides on
+        this level, and since prompt_7 C1.3 so does the fc-layer latency term.
+    weights_spad:
+      quote: >-
+        "the filter spad is implemented in a 224-b x 16-b SRAM due to its large
+        size" (JSSC 2017 Sec. V-B)
+      modelled: "depth 16, width 16, datawidth 8 -> 32 weights/PE, 5,376 on chip"
+      diverges_from_paper: true
+      divergence: >-
+        THE PAPER'S ARRAY IS depth 224 = 448 8-bit weights per PE. This file
+        declares 16 = 32 weights, a FOURTEENTH. Same commit and same decision as
+        filter_glb above. Consequence, recorded in prompt_5 and in
+        legacy/FINDINGS_detail_2026-09-11.md: THE WIDTH TABLE renormalises 256
+        bits to depth 3 at width 96 (+12.5%), which is barely a reuse level, and
+        the per-code spread it leaves in the 8-bit reference arm is what once
+        made BCH(63,39) read as a 37.69% win that was really the reference
+        falling off a tiling cliff. archs/eyeriss_like/arch_paper.yaml still
+        declares 224, so the two v1 files do NOT declare the same PE.
+      why_it_matters: >-
+        Boundary R5a is the only bar that narrows this level, so its saving and
+        its feasibility (`G_rec` against the resident tile) both ride on a
+        capacity that is not the published one.
+    psum_glb:
+      quote: >-
+        "100 kB of the GLB is allocated for ifmaps and psums ... divided into
+        25 banks, each of which is a 512-b x 64-b (4 kB) SRAM" (JSSC 2017
+        Sec. V-A)
+      modelled: "depth 6656, width 64, n_banks 12, datawidth 16"
+      diverges_from_paper: true
+      divergence: >-
+        12 BANKS OF 512 ENTRIES IS depth 6144; this file declares 6656, which
+        is 13 banks' worth of entries spread over the 12 banks it declares
+        (554.67 each), so the GLB totals 27 of its 25 banks. Raised from 6144
+        on 2026-09-13 (the user's decision, testing a larger psum store); the
+        comments in the arch file said 6144 for about forty minutes until this
+        entry and they were corrected, not the number. n_banks is what reaches
+        CACTI, so the per-access energy is still a 512 x 64b bank; only the
+        entry count is this study's.
+      why_it_matters: >-
+        Partial sums are not a dataspace reconstruction touches, so no ECC
+        percentage moves with it -- but psum_glb is a large share of on-chip
+        energy under ECC_OPT_METRIC=edp, so it moves every bar's DENOMINATOR
+        and with it every percentage in the figure. And it is in
+        arch_fingerprint(), so changing it re-maps the whole study.
+    psum_spad:
+      quote: "JSSC 2017: psum spad 24 x 16b, registers"
+      modelled: "depth 96, width 16, datawidth 16"
+      diverges_from_paper: true
+      divergence: >-
+        THE PAPER'S ARRAY IS depth 24; the stock example design declares 16;
+        this file declared 64 until 2026-09-13 and now declares 96. The 64 came
+        in with filter_glb and weights_spad above; the 96 is a separate and
+        later decision (the user's, 2026-09-13, testing a larger psum store).
+        It holds partial sums, which reconstruction never touches, so it moves
+        no ECC percentage -- but it is 4x the published register file and the
+        design must not be quoted as the published PE because of it.
 
 eyeriss_v2_like:
   source_document: "Chen, Yang, Emer, Sze, IEEE JETCAS 9(2), 2019 (arXiv:1807.07928)"
@@ -515,14 +714,83 @@ simple_weight_stationary:
   source_document: "timeloop-accelergy-exercises reference design; NO paper"
   verified: 2026-09-06
   levels:
-    operand_glb + psum_glb:
-      modelled: "the stock 128 kB shared_glb split 64 kB operand (8b) / 64 kB psum (16b)"
+    input_glb + weight_glb + psum_glb:
+      modelled: >-
+        the stock 128 kB shared_glb split by DATASPACE into 28 kB inputs (8b),
+        36 kB weights (8b, or q on the reconstruction arm) and 64 kB psums
+        (16b)
       rationale: >-
         The stock file declares datawidth 16 on EVERY level while declaring an
         8-bit multiplier, so an 8-bit-weight study charged it twice the DRAM
         energy per weight. Timeloop allows one datawidth per level, so the
-        shared buffer had to be split to give operands and psums their own.
-        Total capacity, word width and bank geometry are unchanged.
+        shared buffer had to be split to give each dataspace its own. The
+        psum split dates from 2026-09-06; the operand half was split into
+        input_glb and weight_glb on 2026-09-13, for the same one-datawidth
+        reason one level down: a level holding Weights beside Inputs cannot
+        declare the reconstruction arm's q-bit weights without also declaring
+        the input activations to be q bits, and under the default
+        ECC_WEIGHT_CAPACITY_SCOPE=exclusive it is not a weight level at all.
+        Total capacity and word width are unchanged (36 + 28 + 64 = 128 kB).
+      split_ratio:
+        value: "36 kB weights / 28 kB inputs = 56.25 / 43.75"
+        status: >-
+          NOT CITED, and there is no paper to cite: this is a reference design.
+          Chosen 2026-09-13 from this design's OWN cached mappings, 53 distinct
+          layer shapes at the 65,536-word shared operand_glb.
+        measured_demand: >-
+          summed partition size (the distinct values the level is asked to
+          hold) Weights 8,068,576 = 53.3 %, Inputs 7,064,919 = 46.7 %; refetch
+          (fills / partition) Weights 1.088x, Inputs 1.113x, so at 64 kB shared
+          NEITHER dataspace bound; peak utilized capacity Weights 64,000 words
+          (the fc shape C1280_M1000), Inputs 57,344 (early large-fmap shapes);
+          median Weights 4,320, Inputs 25,056.
+        rationale: >-
+          The measured demand is the base (53/47) and the tilt to 56/44 is the
+          dataflow: weights are the resident operand here and this design's low
+          DRAM weight refetch is the quantity the ECC study measures. The tilt
+          is kept to one bank-pair because the counter-argument is real -- the
+          input path has NO PE scratchpad (inputs go GLB ->
+          input_activation_reg, depth 1), so this is the only input reuse level
+          on chip and takes 90 % of the level's reads.
+        cost: >-
+          Both halves are smaller than the 64 kB either dataspace could reach
+          before, so fills -- DRAM traffic -- can only RISE on both, and the
+          peak-demand layers re-tile. Not corrected for: that is what a
+          partitioned buffer is.
+      bank_geometry: >-
+        CHANGED 2026-09-13, and this is where the old claim "bank geometry is
+        unchanged, so per-access energy is the stock number" stopped being
+        true. Splitting one 64 kB array into a 36 kB and a 28 kB one gives
+        CACTI two smaller arrays; recorded, not compensated for. n_banks is 8
+        on both, so the 16
+        operand banks are conserved and BOTH levels are priced on the same
+        banking model -- keeping the stock 512-entry bank instead would have
+        meant 9 banks and 7, and `sram_banking` below records that CACTI is
+        called at the next power of two, which would have priced a 36 kB array
+        as 16 banks against a 28 kB array as 8. Entries per bank move instead:
+        576 and 448.
+      measured_effect: >-
+        Accelergy at 45nm on this design's own geometry, reference arm (q=8),
+        per 8-bit value so the word widths are comparable -- the pre-split
+        operand_glb (8192 x 64b, 16 banks) read 2.2821 pJ and wrote 2.6656;
+        input_glb (3584 x 64b, 8 banks) reads 1.6305 (-28.6 %) and writes
+        1.7167 (-35.6 %); weight_glb (768 x 384b after THE WIDTH TABLE, 8
+        banks) reads 2.1394 (-6.3 %) and writes 2.3074 (-13.4 %). SMALLER
+        ARRAYS ARE CHEAPER PER ACCESS AND PER BIT, not dearer -- the direction
+        CACTI gives for shorter bitlines, and the same direction `sram_banking`
+        below measures for banking. LEAKAGE GOES THE OTHER WAY: two arrays
+        carry two sets of peripherals, so the declared leak rises from
+        0.0025893 pJ/cycle to 0.0010206 + 0.0020248 = 0.0030454, x1.177. The
+        arm-to-arm spread stays inside THE WIDTH TABLE's 2 % rule: weight_glb
+        reads 102.689 pJ/word at width 384 (q=8) against 101.941 at width 380
+        (q=5), 0.7 % apart.
+      port_bandwidth: >-
+        Each of the three levels declares read/write 16 items/cycle, the same
+        uncited reference-design inheritance `onchip_bandwidth` records for
+        every other level in the study, and the same pattern eyeriss_like_wglb
+        follows with three separate GLB levels. The operand path therefore has
+        two 16-item ports where it had one. Stated because the roofline
+        (latency_post) reads these.
     pe_spad:
       modelled: "192 x 16b at datawidth 8 -> 384 weights"
     mac:

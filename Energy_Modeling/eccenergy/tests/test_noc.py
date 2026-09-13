@@ -18,6 +18,7 @@ import re
 import sys
 import traceback
 
+import pytest
 import yaml
 
 FAILURES = []
@@ -352,13 +353,24 @@ def test_declared_pitches_match_the_cached_art():
     import math
     from .. import archs as A
     from ..paths import WORK
-    arts = sorted(glob.glob(str(WORK / "outputs" / "eyeriss_v2_like"
-                                / "*" / "*" / "*" / "timeloop-mapper.ART_summary.yaml")),
-                  key=os.path.getmtime)
+    # THE ART HAS TO BE THE ONE THIS DESIGN'S PITCHES WERE DERIVED FROM, and
+    # until 2026-09-13 this took the NEWEST cached ART instead. Any run that
+    # reshapes the weight levels -- the capacity sweep (`wcap`), the depth ladder
+    # (`wdepth`), THE WIDTH TABLE (`wt`/`ww`/`wdw`) -- builds a bigger or smaller
+    # PE and leaves a newer ART behind, so an ordinary experiment on an unrelated
+    # knob turned this into a red test comparing a declared pitch against a
+    # different chip. Measured on 2026-09-13: `wcap0.4038` gives 105.432 um and
+    # `wcap32` gives 199.520 um against the declared 108, while the undilated
+    # ARTs (59 of them) agree at 109.094 um.
+    WEIGHT_GEOMETRY = ("wcap", "wdepth", "ww", "wdw", "wt")
+    arts = [f for f in glob.glob(str(WORK / "outputs" / "eyeriss_v2_like"
+                                     / "*" / "*" / "*" / "timeloop-mapper.ART_summary.yaml"))
+            if not any(("__" + k) in pathlib.Path(f).parts[-4] for k in WEIGHT_GEOMETRY)]
+    arts.sort(key=os.path.getmtime)
     if not arts:
-        print("        (no cached eyeriss_v2_like ART on this machine -- skipped)")
-        return
-    art = yaml.safe_load(pathlib.Path(arts[-1]).read_text())      # the newest ART
+        pytest.skip("no cached eyeriss_v2_like ART at an undilated weight geometry "
+                    "on this machine -- the declared pitches cannot be re-derived")
+    art = yaml.safe_load(pathlib.Path(arts[-1]).read_text())   # newest UNDILATED ART
     area = {}
     # the summary is {"ART_summary": {"version":..., "table_summary": [{name, area, ...}]}}
     table = art["ART_summary"]["table_summary"]
@@ -481,11 +493,24 @@ def test_raw_record_is_stale_when_the_evaluator_terms_change():
         # a record aggregated while shapes were still mapping is stale too
         # (2026-09-09: a one-layer record was served as the whole model)
         raw.noc_post = noc_post.stamp("eyeriss_like", cfg)
-        raw.per_layer = [{"layer": "a", "shape": "s1", "status": "ok"},
+        # `physical` is REQUIRED on an `ok` layer since prompt_7 Phase A: the
+        # roofline and the standby charge both read it, so `load_raw` re-gathers
+        # a record without it. Omitted here until 2026-09-13, and the test
+        # passed only because an earlier module in the same pytest process had
+        # wiped every ECC_* variable, leaving ECC_STATIC_ENERGY and
+        # ECC_LATENCY_MODEL off and that rule dormant. With the environment
+        # restored per test (conftest.py) the rule fires, as it should -- so the
+        # record this test builds has to be a record the evaluator would write.
+        phys = {"levels": [{"level": "filter_glb", "instances": 1,
+                            "size": 256, "word_bits": 64, "arithmetic": False}]}
+        raw.per_layer = [{"layer": "a", "shape": "s1", "status": "ok",
+                          "repeat_count": 1, "physical": phys},
                          {"layer": "b", "shape": "s2", "status": "unmapped"}]
         E.save_raw(res, "eyeriss_like", "m", raw, "v", "fp")
         assert E.load_raw(res, cfg, "eyeriss_like", "m", "v", "fp") is None
         raw.per_layer[1]["status"] = "ok"
+        raw.per_layer[1]["physical"] = phys
+        raw.per_layer[1]["repeat_count"] = 1
         E.save_raw(res, "eyeriss_like", "m", raw, "v", "fp")
         assert E.load_raw(res, cfg, "eyeriss_like", "m", "v", "fp") is not None
 

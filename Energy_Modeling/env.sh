@@ -396,24 +396,35 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # that reads the config dies on it, including --dry-run.
 : "${RECON_OPTIMIZER:=True}"
 
-# prompt_6 -- RECONSTRUCTION-AWARE MAPPING. 1 puts the encoder's energy into
-# the mapper's objective: every ERT-injectable boundary (derived from the
-# placement record, prompt_6 3.3 -- recon2 and recon4 on Eyeriss v1) gets
-# its OWN mapping, solved with its encoder toll in the ERT (`read` or
-# `write` on the site level, `leak` for the idle term), and the figure marks
-# which bars came from one. Requires RECON_OPTIMIZER=True and ECC_PHASE=Post;
+# prompt_6 -- RECONSTRUCTION-AWARE MAPPING, ONE PLAN PER BOUNDARY. 1 puts the
+# encoder's energy into the mapper's objective and bills each boundary from
+# the plan of ITS OWN CHIP. Requires RECON_OPTIMIZER=True and ECC_PHASE=Post;
 # config.py refuses anything else. 0 = Task 4 as before.
+#
+# SINCE prompt_7 PHASE B (2026-09-12) the arms are the DISTINCT CHIPS, not
+# the ERT-injectable boundaries: SIX on Eyeriss v1 (+filter GLB), five on
+# v2. A bar whose own chip is not mapped yet is billed from a NAMED plan
+# that narrows the SAME storage levels and says so on its record -- R3 from
+# R2, never from the reference. `bash hpc/map_ert_arms.sh --progress` says
+# which arms are cached and which are cold; Phase C maps the cold ones.
 : "${ECC_RECON_ERT_AWARE:=0}"
 
 # WHICH ARM ONE MAPPER JOB SOLVES -- set by hpc/map_ert_arms.sh in --export,
 # not by hand. `reference` (or EMPTY) is the published 8-bit chip with no
-# toll; a placement key (recon2, recon4) is that boundary's chip: config.py
-# resolves it into ECC_WEIGHT_DATAWIDTH=q on the storage levels in the
-# placement's reduced set (filter_glb only, on Eyeriss v1 -- the narrow
-# weights stop AT the boundary) and archs.ert_bump() derives the ERT delta
-# (E_w x block_size on the access action, idle_per_cycle on leak). The arm is
-# in the cache slug (`ert-recon2-filter_glb-read`) AND the fingerprint, so
-# two arms with byte-identical YAML never share a directory (RULE 4.4.5).
+# toll; ANY placement key (recon1 .. recon5) is that boundary's chip.
+# config.py resolves it into ECC_WEIGHT_DATAWIDTH=q on the storage levels in
+# the placement's reduced set -- filter_glb on R2/R3/R4, filter_glb AND
+# weights_spad on R5a, and NOTHING on R1, which narrows nothing on chip and
+# must therefore leave the datawidth alone (q with an empty level list is the
+# spelling that narrows EVERY weight level, a different chip). Where the
+# boundary is ERT-injectable, archs.ert_bump() also derives the ERT delta
+# (incremental + idle x g on the access action, idle x (1 - g) on leak).
+# The arm is in the cache slug AND the fingerprint, so two arms with
+# byte-identical YAML never share a directory (RULE 4.4.5): an arm with a
+# bump is spelled `ert-recon2-filter_glb-read` and one without is
+# `arm-recon1`. R1's patched YAML IS the reference's until Phase C1.2
+# declares the bandwidth scale, so that second spelling is what keeps them
+# apart today.
 : "${ECC_RECON_ERT_ARM:=}"
 
 # The single point the placement study is run at. These REPLACE section 3's
@@ -437,7 +448,9 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #            bash hpc/run_all.sh --eval-only
 #    though `eyeriss_like`'s caches are cold after the 2026-09-10 swap.
 #    Unset, this falls back to ECC_RECON_ARCH, the old one-architecture knob.
-: "${ECC_RECON_MODEL:=mobilenet_v2}"          # ONE model
+# "resnet18", "resnet50", "densenet121", "squeezenet1_1",
+# "mobilenet_v2", "efficientnet_b0", "convnext_tiny", "xception"
+: "${ECC_RECON_MODEL:=resnet18}"          # ONE model
 # ONE LAYER of that model, or every layer of it (prompt_6 8.2). A single-layer
 # run is what makes an ERT-aware sweep affordable: (1 + ERT arms) jobs
 # instead of that many times the layer count. It SEEDS ECC_LAYERS in section
@@ -558,6 +571,38 @@ declare -A ECC_RECON_PLACEMENTS=(
 # Set `stream` with ECC_WEIGHT_DATAWIDTH empty to reproduce the pre-2026-09-10
 # evaluator-side model.
 : "${ECC_RECON_PACKING:=aligned}"
+
+# ---- does a PE-local boundary need a WHOLE group resident? ------------------
+# 0 (default) = NO. 1 = refuse the placement where it does not.
+#
+# WHAT G_rec IS. The embedded layout treats the weights as ONE BIT STREAM and
+# cuts it into n-bit codewords. 63 / 8 = 7.875 is not a whole number, so a
+# codeword drifts across weight boundaries and the worst-aligned one reaches
+# into ceil(63/8) + 1 = 9 weights. G_rec is that 9: the weights whose retained
+# bits one codeword touches.
+#
+# WHAT THE REFUSAL USED TO ASSUME. That an engine can only rebuild from weights
+# co-resident in the level AT ONE INSTANT, so a level holding 6 of the 9 could
+# never complete a group and the boundary was reported `unsupported`.
+#
+# WHY IT IS OFF (decided 2026-09-13). RECAP's reconstruction engine ACCUMULATES
+# the retained bits as they arrive and rebuilds when the group completes; it
+# does not need all 9 weights resident simultaneously. A level holding 6 -- or
+# 1 -- still feeds it, over more accesses and with more buffering. So a small
+# resident tile is a COST, not an impossibility, and deleting the bar overstated
+# what the hardware cannot do.
+#
+# WHAT IS STILL MEASURED AND REPORTED, on every bar, in the record and the
+# manifest (`group_residency`): how many (layer, stage) pairs sit below G_rec
+# and the fewest weights any of them holds. That number bounds the buffer the
+# engine needs, so it must not be lost -- it is reported rather than refused,
+# the same rule PE-count differences follow.
+#
+# MEASURED EFFECT of turning it off (mobilenet_v2, BCH(63,39), after prompt_7
+# Phase C): R2/R3 recover from 1 layer of 31 below G_rec, R4 from 4, R5a from
+# 14 -- four of five placements come back. resnet18 has no layer below G_rec at
+# all, so nothing there moves either way.
+: "${ECC_RECON_REQUIRE_GROUP_RESIDENCY:=0}"
 
 # ---- how encoder work is charged -------------------------------------------
 # Section 15: the encoder may work at CODEWORD granularity, because rebuilding
@@ -713,14 +758,134 @@ declare -A ECC_RECON_PLACEMENTS=(
 # 480 MB/s is the default Eyeriss-v1 configuration = 3.84 bits per 1 GHz model
 # cycle = 0.48 8-bit words/cycle.  Timeloop wants words/cycle, so section 10
 # converts:  words_per_cycle = MBps * 1e6 * ECC_GLOBAL_CYCLE_SECONDS / (ECC_WEIGHT_BITS/8)
-# Set 240 or 120 to halve/quarter it; EMPTY restores the old unlimited model.
+# Set 240 or 120 to halve/quarter it; EMPTY restores the old unlimited model --
+# and EMPTY is spelled with a bare `=` below, not `:=`, so that
+# `ECC_DRAM_BANDWIDTH_MBPS= bash run.sh ...` really does reach the unlimited
+# model. Under `:=` an explicitly empty value is null and bash substitutes the
+# default, so the documented way to switch the limit off silently kept it on.
+# prompt_7 Phase A's gate 1 -- "the roofline reproduces Timeloop's cycles at
+# UNLIMITED bandwidth" -- is run exactly that way, so it has to be reachable.
 #
-# CAVEAT worth knowing: the model clock is 1 GHz while Eyeriss v1 silicon runs
+# SINCE PHASE C IT IS ALSO DECLARED ON THE ARCHITECTURE (C1.1), as
+# `shared_bandwidth` on the DRAM level of the YAML the MAPPER reads, so the
+# search itself sees the speed limit and can spend parallelism to comply with
+# it -- measured: with a binding limit the mapper picks a DIFFERENT plan on both
+# test shapes (prompt_7 7.2). Before that it was evaluator-only and the mapper
+# optimised a machine with an infinitely fast memory.
+#
+# WHY `shared_bandwidth` AND NOT `read_bandwidth` + `write_bandwidth`: the DQ
+# bus is ONE wire set that reads and writes take turns on, so the limit is on
+# their SUM. eccenergy/latency_post.py's roofline already charges it that way
+# (`offchip_limit / (d_r + d_w)`), and declaring the two directions separately
+# would let Timeloop deliver 2x this number while the evaluator capped it at
+# 1x -- two timing models for one bus. One owner per effect (prompt_6 RULE 1).
+#
+# EMPTY therefore means BOTH: no attribute on the DRAM level, and no off-chip
+# term in the roofline -- the pre-Phase-A model, reachable because the line
+# below is a bare `=`.
+#
+# CAVEAT worth knowing: the model clock was 1 GHz while Eyeriss v1 silicon runs
 # at 200 MHz, so pairing the real chip's absolute MB/s with a 5x faster clock
-# makes the modelled chip ~5x more memory-starved than the real one.  At
-# 480 MB/s the design is off-chip-bound for ~89% of its run time.  See
-# prompt_7.md section 11 Q2.
-: "${ECC_DRAM_BANDWIDTH_MBPS:=480}"
+# made the modelled chip ~5x more memory-starved than the real one.  Phase C1.5
+# closed that: ECC_ARCH_CLOCK_MHZ below now resolves per design, and at 200 MHz
+# 480 MB/s is 2.4 8-bit items per cycle (prompt_7 4.7, A.5).
+# : "${ECC_DRAM_BANDWIDTH_MBPS=480}"
+: "${ECC_DRAM_BANDWIDTH_MBPS=120}"
+
+# ---- the latency model (prompt_7 Phase A) ----------------------------------
+# 1 = re-time the chosen mapping with a ROOFLINE computed AFTER mapping, in
+# eccenergy/latency_post.py -- the same evaluator-only pattern noc_post.py uses
+# for the two interconnect terms Timeloop cannot be given:
+#
+#     cycles = max( compute cycles,
+#                   every storage level's own declared-bandwidth limit,
+#                   off-chip items / ECC_DRAM_BANDWIDTH_MBPS )
+#
+# It never invokes the mapper and is NOT in the mapping fingerprint: the plan is
+# the one Timeloop already chose and this states how long that plan takes. With
+# ECC_DRAM_BANDWIDTH_MBPS EMPTY (unlimited) the roofline reproduces Timeloop's
+# own per-level and total cycle counts EXACTLY on every cached shape, which is
+# what stops it inventing time; only a declared off-chip limit moves a number.
+#
+# WHY IT EXISTS: `datawidth: q` makes energy fall and cycles stand still,
+# because Timeloop's speed model counts ITEMS per cycle and a narrow weight is
+# still one item (prompt_7 Defect 1). A reported "0.00% latency gain" is
+# therefore an ABSENT TERM, never a result. Off chip the weights are a BIT
+# stream, so there the reduced form really does move K/N of the traffic, and
+# that is the one place this roofline lets it buy time.
+#
+# It also decides the run length ECC_STATIC_ENERGY below is charged over: a plan
+# that waits on DRAM leaks for longer.
+#
+# DEFAULT 1 SINCE 2026-09-13 (prompt_7 Phase C). It shipped as 0 in Phase A
+# because the roofline was then the ONLY place the off-chip limit existed: the
+# mapper optimised a machine with an infinitely fast memory and the evaluator
+# re-timed the plan it chose, which is a second timing model and was rightly
+# opt-in. C1.1 declares the same limit on the DRAM level, so Timeloop's own
+# cycles already carry it and this re-states the plan's time per bar instead of
+# supplying the only estimate of it. With it OFF the placement study reports no
+# cycles at all, which for a phase about TIME is a missing column, not a
+# conservative default.
+#
+# WHO APPLIES THE OFF-CHIP WEIGHT RELIEF is now MEASURED per bar, not assumed
+# (latency_post.relief_owner, prompt_6 RULE 1): the mapper if that bar's stats
+# print `Bandwidth Consumption Scale` = K/N, this roofline if they print 1.00,
+# and a third value is refused. Without that rule C1.2 and this knob would each
+# apply K/N and the reported saving would be K/N squared.
+#
+# IT STILL MOVES NO ENERGY on its own -- it re-times, and only ECC_STATIC_ENERGY
+# below charges anything over that time (default 0).
+: "${ECC_LATENCY_MODEL:=1}"
+
+# ---- the DECLARED bandwidth scale of a reduced stage (prompt_7 C1.2) -------
+# 1 = every stage in the boundary's `reduced` set declares
+#
+#     per_dataspace_bandwidth_consumption_scale: {Weights: <factor>}
+#
+# in the arch YAML the MAPPER sees, so the reduced representation buys TIME and
+# not only energy. Timeloop multiplies that one dataspace's bandwidth demand by
+# the factor (buffer.cpp:2556); the attribute is declared in timeloopfe v4
+# (arch.py:538) and is printed in every stats file as `Bandwidth Consumption
+# Scale`, so a run that silently ignored it is visible on disk.
+#
+# WHICH FACTOR, PER STAGE -- the two differ by 5% and using one everywhere is a
+# silent inconsistency with ECC_RECON_PACKING (prompt_7 7.1):
+#     DRAM        a BIT stream off the die          -> K/N   (0.47619 at K=30)
+#     on chip     whole weights at q bits per word  -> q/8   (0.5     at q=4)
+# eccenergy/archs.py derives both from the code in play; neither is typed here.
+#
+# A NETWORK stage is DECLARED and marked no-op: LegacyNetwork::ComputePerformance()
+# is an empty stub, so there is nothing for the factor to reach (reporting rule
+# R-3). It still separates two boundaries that differ only by a network, which
+# is why recon.mapper_arms() carries it.
+#
+# TRAP: THIS COLDS EVERY CACHE. The attribute is in the patched YAML and
+# therefore in the mapping fingerprint. Batched into prompt_7 Phase C with the
+# other architecture changes -- never paid separately.
+#
+# 0 reproduces the pre-Phase-C architecture byte for byte, which is the mutation
+# eccenergy/tests/test_phase_c.py runs.
+: "${ECC_RECON_BW_SCALE:=1}"
+
+# ---- a narrowed level's port is BIT-aware (prompt_7 C1.3) ------------------
+# 1 = a storage level the arm narrows to `datawidth: q` declares
+# `read_bandwidth` and `write_bandwidth` scaled by 8/q, because the port moves
+# BITS per cycle and a q-bit weight is fewer bits than an 8-bit one.
+#
+# WHY IT MATTERS AND WHERE IT LANDS. Timeloop's throughput check counts ITEMS
+# per cycle and a narrow weight is still one item, so narrowing alone is
+# invisible to the clock (prompt_7 Defect 1). `filter_glb`'s declared 16
+# items/cycle is LITERALLY what caps every fully-connected layer at 9.52% PE
+# utilisation -- 16 of 168 PEs, measured on resnet18 `fc` and mobilenet
+# `classifier.1` (prompt_7 4.5, A.7). At q=5 this raises that level to 25.6
+# items/cycle in the narrowed arms and leaves the reference at 16.
+#
+# HOW BIG IS IT HERE: those layers are 0.28% of resnet18's cycles and 2.10% of
+# mobilenet's, so the aggregate CNN effect is ~0.1-1%. On a batch-1 transformer
+# every layer is that layer -- which is what prompt_7 Phase D exists to measure.
+#
+# TRAP: THIS COLDS EVERY CACHE, same as the knob above, and for the same reason.
+: "${ECC_ONCHIP_BW_BITAWARE:=1}"
 
 # ---- component standby (leakage) power -------------------------------------
 # prompt_7 Issue 5. The study charges NO standby power to the accelerator: the
@@ -752,8 +917,16 @@ declare -A ECC_LEAKAGE_NW=(
 # modelled chip ~5x more memory-starved than the real one (at 480 MB/s it would
 # wait on DRAM ~89% of the run, against ~44% for silicon).
 #
-# UNITS ARE MHz. 1000 = 1 GHz, 200 = the JSSC 2017 rate. Section 10 resolves the
-# design in play into ECC_GLOBAL_CYCLE_SECONDS = 1 / (MHz x 1e6).
+# UNITS ARE MHz. 1000 = 1 GHz, 200 = the JSSC 2017 rate. Section 10 flattens
+# this table into ECC_ARCH_CLOCK_MHZ_LIST and config.Config.cycle_seconds_for()
+# resolves it PER DESIGN into that design's own `global_cycle_seconds`, which is
+# what globals.yaml carries into the mapper and what every per-cycle term is
+# charged over. A design with no entry keeps ECC_GLOBAL_CYCLE_SECONDS (section
+# 5), so this table adds designs rather than replacing the default.
+#
+# A MULTI-ARCHITECTURE RUN IS FINE: globals.yaml is written once PER DESIGN
+# (ecc_energy_study/globals_<arch>.yaml), so two designs on one figure are each
+# clocked at their own rate instead of sharing whichever was written last.
 #
 # WHAT THIS DOES NOT CHANGE: when a design is fully off-chip-bound its wall-clock
 # time is set by bandwidth alone, so BOTH clocks give the same absolute run time
@@ -861,10 +1034,13 @@ declare -A ECC_ARCH_CLOCK_MHZ=(
 #              the extra room can only be spent on weights. This is the
 #              conservative bound and the default.
 #   shared     also a level holding Weights beside another dataspace
-#              (simple_weight_stationary's `operand_glb` keeps Inputs and
-#              Weights). Timeloop has one capacity per level, so dilating it
-#              hands the mapper free INPUT capacity that reconstruction does
-#              not pay for -- the optimistic bound.
+#              (simple_output_stationary's and simple_input_stationary's
+#              `operand_glb` keep Inputs and Weights). Timeloop has one
+#              capacity per level, so dilating it hands the mapper free INPUT
+#              capacity that reconstruction does not pay for -- the optimistic
+#              bound. simple_weight_stationary LEFT THIS SET 2026-09-13: its
+#              operand half is split into `input_glb` and a Weights-only
+#              `weight_glb`, so both scopes give it the same answer.
 # The two bracket one design and are quoted as a pair, the same rule CLAUDE.md
 # sets for the eyeriss `_wglb` variants. A declared `depth: 1` register is
 # never scaled under either: it is a pipeline latch, and turning it into a
@@ -1301,10 +1477,18 @@ declare -A ECC_RECON_IDLE_PJ=(          # pJ per CYCLE per ENGINE
 #
 # Set this to any non-empty string and the whole matrix colds deliberately;
 # EMPTY hashes byte-identically to every fingerprint made before the knob
-# existed, so Phase A can keep reading today's cache. Bump it in Phase C, when
-# the caches are being rebuilt anyway. Suggested form: a date plus what changed.
-#     ECC_ENERGY_MODEL_REV="2026-09-12-neurosim-adders"
-: "${ECC_ENERGY_MODEL_REV:=}"
+# existed. Form: a date plus what changed.
+#
+# SET 2026-09-13 (prompt_7 C1.8). It reaches BOTH fingerprints -- Config's, and
+# eccenergy/archs.arch_fingerprint(), which is the one the mapper CACHE
+# DIRECTORY is named after. Until Phase C it reached only the first, so the knob
+# re-labelled results while the cache it was supposed to invalidate stayed warm;
+# that is fixed here, and EMPTY still hashes byte-identically to every
+# pre-Phase-C directory.
+#
+# WHAT THIS REVISION CARRIES: the Neurosim address-generator price (0 pJ before
+# 2026-09-12, see above).
+: "${ECC_ENERGY_MODEL_REV:=2026-09-12-neurosim-adders}"
 
 # ---- weak ECC overlay ------------------------------------------------------
 # A light SRAM-side code on top of the strong one. Weights pay it under every
@@ -1373,6 +1557,22 @@ declare -A ECC_RECON_IDLE_PJ=(          # pJ per CYCLE per ENGINE
 # The task list is GENERATED from ECC_ARCHS x ECC_MODELS -- never hand-edited.
 : "${ECC_SIF:=${ECC_PROJECT_ROOT}/timeloop.sif}"
 : "${ECC_TASKFILE:=${ECC_PROJECT_ROOT}/hpc/.runtime/tasks.txt}"
+
+# WHICH COPY OF `archs/` THIS RUN IS. Set by hpc/map_ert_arms.sh in --export,
+# not by hand: the launcher copies `archs/` into hpc/.runtime/archpin.<pid>/ at
+# SUBMISSION and points every map job and the dependent eval at that copy, so
+# ONE SUBMISSION MAPS ONE ARCHITECTURE and editing `archs/` while the array is
+# in flight cannot reach it. Try a new depth the second after you hit submit;
+# the queued jobs keep mapping the chip you submitted, and the NEXT run
+# snapshots the new file.
+#
+# Empty (an interactive run) = read `archs/` live, which is what it always did.
+# Point it at any directory shaped like `archs/` to map that instead -- a
+# snapshot kept from an earlier run, for instance. A path that does not exist
+# warns on stderr and falls back to `archs/`; it never stops the run.
+# The fingerprint is computed from whichever bytes this names, so the cache
+# directory still moves when the architecture does -- see eccenergy/paths.py.
+: "${ECC_ARCH_PIN_DIR:=}"
 
 
 # =============================================================================
@@ -1526,12 +1726,54 @@ for _k in "${!ECC_RECON_IDLE_PJ[@]}"; do
     ECC_RECON_IDLE_PJ_LIST="${ECC_RECON_IDLE_PJ_LIST}${_k}=${ECC_RECON_IDLE_PJ[${_k}]};"
 done
 
+# prompt_7 Phase A: section 6's leakage densities, flattened the same way. They
+# are POWER in nW, so nothing here rescales them for the clock period -- the
+# evaluator multiplies by the cycle period at the point of use (section 6's
+# TRAP 2). `config._table` reads this into `Config.leakage_nw`.
+ECC_LEAKAGE_NW_LIST=""
+for _k in "${!ECC_LEAKAGE_NW[@]}"; do
+    ECC_LEAKAGE_NW_LIST="${ECC_LEAKAGE_NW_LIST}${_k}=${ECC_LEAKAGE_NW[${_k}]};"
+done
+
+# prompt_7 Phase C1.5: section 6's per-design clock, flattened the same way.
+# `config.Config.cycle_seconds_for(arch)` reads it; a design with no entry falls
+# back to ECC_GLOBAL_CYCLE_SECONDS. UNITS ARE MHz -- the inversion to seconds
+# happens once, in config.py, so no caller can do it twice or not at all.
+ECC_ARCH_CLOCK_MHZ_LIST=""
+for _k in "${!ECC_ARCH_CLOCK_MHZ[@]}"; do
+    ECC_ARCH_CLOCK_MHZ_LIST="${ECC_ARCH_CLOCK_MHZ_LIST}${_k}=${ECC_ARCH_CLOCK_MHZ[${_k}]};"
+done
+
 : "${ECC_SWEEP_ARCHS:=${ECC_ARCHS}}"
 : "${ECC_SWEEP_MODELS:=${ECC_MODELS}}"
 : "${ECC_SWEEP_KS:=${ECC_KS}}"
 : "${ECC_CONST_ARCH:=$(_ecc_first "${ECC_ARCHS}")}"
 : "${ECC_CONST_MODEL:=$(_ecc_first "${ECC_MODELS}")}"
 : "${ECC_CONST_K:=$(_ecc_first "${ECC_KS}")}"
+
+# ...BUT THE SIX ABOVE ARE `:=`, AND SECTION 4's POINT IS A BARE `=`.
+# Section 4 hard-assigns ECC_ARCHS/ECC_MODELS/ECC_CODE_N/ECC_KS precisely so a
+# value left over in the shell cannot silently widen a one-design study. The
+# names DERIVED from them here were still `:=`, so a leftover survived in the
+# derived name instead and the two disagreed without saying so:
+#
+#     source ./env.sh                                  # ECC_CONST_MODEL=resnet18
+#     ECC_RECON_MODEL=convnext_tiny bash hpc/tl.sh ...  # ECC_MODELS=convnext_tiny
+#                                                      # ECC_CONST_MODEL=resnet18 (!)
+#
+# and `config.load_config()` reads the CONST name on a held axis, so that maps
+# resnet18 while every banner says convnext_tiny. Found 2026-09-13 building
+# hpc/smoke_models.sh, which sources this file and then re-invokes per model.
+# Outside the placement study nothing changes: these stay `:=`, and inside it
+# the values are identical on a shell that sourced this file once.
+if [ "${ECC_RECON_MODELING}" = "1" ]; then
+    ECC_SWEEP_ARCHS="${ECC_ARCHS}"
+    ECC_SWEEP_MODELS="${ECC_MODELS}"
+    ECC_SWEEP_KS="${ECC_KS}"
+    ECC_CONST_ARCH="$(_ecc_first "${ECC_ARCHS}")"
+    ECC_CONST_MODEL="$(_ecc_first "${ECC_MODELS}")"
+    ECC_CONST_K="$(_ecc_first "${ECC_KS}")"
+fi
 
 # More than one model on an architecture sweep is the PANEL layout: one panel
 # per model, top to bottom, the same x axis repeated inside each. It adds no
@@ -1587,10 +1829,12 @@ export ECC_PROJECT_ROOT ECC_SIF ECC_TASKFILE ECC_USE_CONTAINER ECC_PYTHON \
        ECC_RECON_PACKING \
        ECC_RECON_ENCODER_GRANULARITY \
        ECC_RECON_ONCHIP_FRACTION ECC_RECON_PLACEMENT_CHARGES_DECODE \
+       ECC_RECON_REQUIRE_GROUP_RESIDENCY \
        ECC_RECON_DECODE_SITE ECC_RECON_ENCODER_SITE ECC_RECON_CLOCK_GATING_PCT ECC_ENERGY_MODEL_REV \
        ECC_DRAM_PJ_PER_BIT ECC_BASELINE_DRAM_PJ_PER_BIT \
        ECC_DRAM_BACKGROUND_PJ ECC_DRAM_REFRESH_PJ ECC_DRAM_BANDWIDTH_MBPS \
-       ECC_STATIC_ENERGY \
+       ECC_STATIC_ENERGY ECC_LEAKAGE_NW_LIST ECC_LATENCY_MODEL \
+       ECC_ARCH_CLOCK_MHZ_LIST ECC_RECON_BW_SCALE ECC_ONCHIP_BW_BITAWARE \
        ECC_WEIGHT_BITS ECC_ACTIVATION_BITS ECC_ACC_BITS ECC_ARCH_FIDELITY \
        ECC_FORCE_DATAWIDTH ECC_FORCE_TECHNOLOGY ECC_DRAM_DEPTH ECC_MAC_PJ_OVERRIDE \
        ECC_WEIGHT_CAPACITY_SCALE ECC_WEIGHT_CAPACITY_SCOPE \
@@ -1616,4 +1860,5 @@ export ECC_PROJECT_ROOT ECC_SIF ECC_TASKFILE ECC_USE_CONTAINER ECC_PYTHON \
        ECC_INPUT_HW ECC_SEQ ECC_INCLUDE_LM_HEAD ECC_INCLUDE_EMBEDDING \
        ECC_SWEEP_ARCHS ECC_SWEEP_MODELS ECC_SWEEP_KS \
        ECC_CONST_ARCH ECC_CONST_MODEL ECC_CONST_K \
-       ECC_EXPERIMENT ECC_PANEL_MODELS
+       ECC_EXPERIMENT ECC_PANEL_MODELS \
+       ECC_ARCH_PIN_DIR

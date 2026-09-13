@@ -22,6 +22,7 @@ HOUSE = {
     "Local (write)": "#A9781A",
     "NoC": "#7F8C8D",
     "Compute": "#B03A2E",
+    "Standby": "#5D6D7E",
     "ECC decode": "#7D3C98",
     "Reconstruction": "#1F9E8F",
     "Recon overhead": "#8E6C3A",
@@ -42,6 +43,7 @@ CVD.update({
     "Local (write)": "#A9781A",
     "NoC": "#999999",
     "Compute": "#D55E00",
+    "Standby": "#6E7B8B",
     "ECC decode": "#7D3C98",
     "Reconstruction": "#CC79A7",
     "Recon overhead": "#8E6C3A",
@@ -49,6 +51,7 @@ CVD.update({
 
 #: Category names as they should read in a legend.
 NICE_CATEGORY = {
+    "Standby": "Standby (leakage)",
     "Local (spads/RF)": "On-chip SRAM/RF",
     "Recon overhead": "Recon buffer/control",
     "NoC": "NoC / interconnect",

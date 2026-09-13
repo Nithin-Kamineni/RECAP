@@ -280,10 +280,11 @@ class Probe:
 
     def _spec_inputs(self):
         """The YAMLs `timeloop.Mapper` hands timeloopfe, for this arch and layer."""
-        archmod.write_globals(self.cfg)
+        archmod.write_globals(self.cfg, self.arch)
         arch_yaml = archmod.patched_arch_path(self.arch, self.cfg)
         problem = tlmod.problem_path(self.layer)
-        return [pathlib.Path(p) for p in tlmod.design_inputs(arch_yaml, problem)]
+        return [pathlib.Path(p)
+                for p in tlmod.design_inputs(arch_yaml, problem, self.arch, self.cfg)]
 
     def _model_input(self, sub, ert_path):
         """ONE v3 YAML for timeloop-model: the cached mapper's processed input

@@ -502,27 +502,73 @@ def test_placements_reconcile_by_hand_array_untouched_interface_x_k_over_n():
 
 
 def test_a_pe_local_boundary_is_rejected_when_the_tile_is_smaller_than_g_rec():
-    """"Reject infeasible local placements", checked, not assumed."""
+    """A tile smaller than G_rec is MEASURED either way, and what it costs the
+    bar is `ECC_RECON_REQUIRE_GROUP_RESIDENCY` -- both modes asserted.
+
+    THE DEFAULT CHANGED ON 2026-09-13 and this test changed with it. The
+    refusal assumed an engine that can only rebuild from weights co-resident in
+    the level at ONE INSTANT; RECAP's accumulates the retained bits as they
+    arrive, so a level holding 3 of the 9 still feeds it -- over more accesses
+    and with more buffering. The shortfall is therefore a COST, reported on the
+    bar, not an impossibility that deletes it. The knob restores the
+    conservative reading, and both readings are checked here so neither can
+    rot.
+    """
+    import dataclasses as _dc
     from eccenergy import recon as reconmod
     cfg, wp, base, base_w, gran, packing = _placement_setup()
     assert gran.g_rec == 9
 
-    # 24 resident weights >= 9: both PE-local boundaries are feasible
+    # 24 resident weights >= 9: the PE-local boundary is feasible under BOTH
+    # readings, and reports no shortfall under either
     for key in ("recon4",):
         p = reconmod.placement_by_key("eyeriss_v2_like", key)
-        ok, detail = reconmod.feasibility(p, "eyeriss_v2_like", wp, gran)
-        assert ok is True, detail
+        for strict in (False, True):
+            ok, detail = reconmod.feasibility(p, "eyeriss_v2_like", wp, gran,
+                                              require_group_residency=strict)
+            assert ok is True, detail
+            assert detail.get("layers_below_G_rec") == 0, detail
+            assert "group_residency_note" not in detail, detail
 
-    # a depthwise-style tile of 3 weights cannot assemble the group
+    # a depthwise-style tile of 3 weights cannot assemble the group IN ONE
+    # INSTANT -- which is measured identically either way
     wp.per_layer[0]["stages"]["weight_spad"]["weights_resident_per_instance"] = 3
     for key in ("recon4",):
         p = reconmod.placement_by_key("eyeriss_v2_like", key)
-        ok, detail = reconmod.feasibility(p, "eyeriss_v2_like", wp, gran)
+
+        # STRICT: refused, and it says which layer and how few
+        ok, detail = reconmod.feasibility(p, "eyeriss_v2_like", wp, gran,
+                                          require_group_residency=True)
         assert ok is False, detail
         assert detail["infeasible_layers"][0]["weights_resident"] == 3
+        assert detail["layers_below_G_rec"] == 1, detail
+        assert "fewest: 3" in detail["reason"], detail["reason"]
+        strict_cfg = _dc.replace(cfg, recon_require_group_residency=True)
+        res = reconmod.evaluate_placement(strict_cfg, "eyeriss_v2_like", p, wp,
+                                          base_w, base, 4.0, gran, packing)
+        assert res.status == "unsupported" and res.total_pJ == 0.0
+
+        # DEFAULT: charged, and the shortfall travels WITH the bar. Losing the
+        # number would be worse than losing the bar -- it is what bounds the
+        # buffering the engine needs.
+        ok, detail = reconmod.feasibility(p, "eyeriss_v2_like", wp, gran)
+        assert ok is True, detail
+        assert detail["layers_below_G_rec"] == 1, detail
+        assert "fewest: 3" in detail["group_residency_note"], detail
+        assert "reason" not in detail, "a charged bar must carry no refusal reason"
         res = reconmod.evaluate_placement(cfg, "eyeriss_v2_like", p, wp, base_w,
                                           base, 4.0, gran, packing)
-        assert res.status == "unsupported" and res.total_pJ == 0.0
+        assert res.status == "evaluated" and res.total_pJ > 0.0, res.status
+
+        # BREAKAGE: a shortfall that is neither refused NOR reported. That is
+        # the one outcome neither reading allows.
+        try:
+            assert detail.get("layers_below_G_rec") == 0
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError("a tile below G_rec was charged AND left "
+                                 "unrecorded")
 
     # ...while a boundary ABOVE the scratchpad is unaffected: the reduced form
     # is only in transit there, in codeword order from the ECC engine
@@ -1890,8 +1936,8 @@ def test_capacity_dilation_scales_only_weight_levels_and_never_a_latch():
                                                 "ifmap_spad", "psum_spad"}),
             ("eyeriss_v2_like", {"weights_spad"}, {"iact_glb", "psum_glb",
                                                    "ifmap_spad", "psum_spad"}),
-            ("simple_weight_stationary", {"pe_spad"},
-             {"operand_glb", "psum_glb", "weight_reg",
+            ("simple_weight_stationary", {"weight_glb", "pe_spad"},
+             {"input_glb", "psum_glb", "weight_reg",
               "input_activation_reg", "output_activation_reg"})):
         before = archmod.arch_source(arch, cfg).read_text()
         after = archmod._scale_weight_capacity(before, 1.6154, "exclusive",
@@ -1919,15 +1965,22 @@ def test_capacity_dilation_scales_only_weight_levels_and_never_a_latch():
 
 
 def test_a_shared_weight_level_is_a_bracket_and_is_named_as_one():
-    """`operand_glb` holds Inputs AND Weights, so it is a choice, not a fact."""
+    """`operand_glb` holds Inputs AND Weights, so it is a choice, not a fact.
+
+    ON `simple_output_stationary` SINCE 2026-09-13, not on
+    `simple_weight_stationary`: that design's operand half is now split into
+    `input_glb` and a Weights-only `weight_glb`, so it has no shared weight
+    level left to bracket. The two siblings still declare one and are what
+    the `shared` scope is for.
+    """
     from eccenergy import archs as archmod
     import re
     cfg = _cfg()
-    base = archmod.arch_source("simple_weight_stationary", cfg).read_text()
+    base = archmod.arch_source("simple_output_stationary", cfg).read_text()
     excl = archmod._scale_weight_capacity(base, 1.6154, "exclusive",
-                                          "simple_weight_stationary", quiet=True)
+                                          "simple_output_stationary", quiet=True)
     shar = archmod._scale_weight_capacity(base, 1.6154, "shared",
-                                          "simple_weight_stationary", quiet=True)
+                                          "simple_output_stationary", quiet=True)
 
     def depth_of(text, name):
         for part in re.split(r"(?=\n\s*-\s*!)", text):

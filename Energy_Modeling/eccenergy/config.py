@@ -35,6 +35,14 @@ _TRUE = {"1", "true", "yes", "on", "y"}
 _FALSE = {"0", "false", "no", "off", "n", ""}
 
 
+#: The clock the reconstruction datapath's DC power report was measured at, in
+#: ns. Every entry of `data/dc/BCH_N63_results.json` carries it as
+#: `measurement.clock_period_ns` and every one of them is 1.0; `ecc.py` checks
+#: the entry it actually reads against this and refuses on a mismatch rather
+#: than rescaling from the wrong base. env.sh section 6, TRAP 2.
+DC_MEASUREMENT_CLOCK_NS = 1.0
+
+
 class ConfigError(RuntimeError):
     pass
 
@@ -207,10 +215,13 @@ KNOWN_ARCHS = (
 #: only in a README does not travel with the numbers.
 #:
 #: THE EYERISS v1 PAIR IS RETIRED (2026-09-10, prompt_2.md / CLAUDE.md).
-#: `eyeriss_like_wglb` IS Eyeriss v1: JSSC 2017 Sec. V-A publishes the 8 kB
-#: filter-weight allocation of the 108 kB GLB, so the file that models it is
-#: the design and `eyeriss_like` -- which declares `!Nothing` where that
-#: allocation sits -- is retired rather than bracketed. Collapsing the two
+#: `eyeriss_like_wglb` IS Eyeriss v1: JSSC 2017 Sec. V-A publishes a
+#: filter-weight allocation inside the 108 kB GLB, so the file that models it
+#: as a reuse level is the design and `eyeriss_like` -- which declares
+#: `!Nothing` where that allocation sits -- is retired rather than bracketed.
+#: (The paper's allocation is 8 kB; this study declares 2 kB deliberately --
+#: see the divergence table at the top of the arch YAML. What makes the file
+#: the design is that the LEVEL EXISTS, not what size it is.) Collapsing the two
 #: files to ONE design makes an entry here self-referential: it would ask the
 #: run to plot a retired file beside the live one and stamp every manifest
 #: with a caveat that is no longer true.
@@ -230,9 +241,19 @@ TRANSFORMER_MODELS = ("distilgpt2", "gpt2", "bert_base", "gpt2_medium",
                       "opt_125m", "distilbert", "tinyllama")
 
 #: Human-facing names for figure axes.
+#:
+#: A LABEL MAY NAME A STRUCTURE, NEVER A CAPACITY (2026-09-13, prompt_7 C1.7).
+#: `eyeriss_like_wglb` was labelled "(+8kB filter GLB)" after JSSC 2017's
+#: allocation, but the file declares `depth: 256` = 2 kB -- confirmed and kept
+#: deliberately, with the divergence recorded in the arch YAML's own header and
+#: in `archs/_shared/provenance.yaml`. A figure title is the last place a reader
+#: meets the design, so it must not be the one place that still quotes a number
+#: the file does not declare. The label now says WHICH LEVEL EXISTS, which is
+#: the real difference from the retired `eyeriss_like`, and the capacity travels
+#: in the manifest where it can carry its divergence with it.
 ARCH_LABELS = {
     "eyeriss_like": "Eyeriss v1",
-    "eyeriss_like_wglb": "Eyeriss v1\n(+8kB filter GLB)",
+    "eyeriss_like_wglb": "Eyeriss v1\n(+filter GLB)",
     "eyeriss_v2_like": "Eyeriss v2",
     "eyeriss_v2_like_wglb": "Eyeriss v2\n(+weight NoC)",
     "simple_weight_stationary": "Weight stationary",
@@ -322,6 +343,13 @@ class Config:
     #: when the JSON has no entry for the (N,K) in play. ECC_RECON_INCLUDE_IDLE
     #: is retired: the two terms are never added, each has its own denominator.
     recon_incremental_table: dict
+    #: ECC_RECON_REQUIRE_GROUP_RESIDENCY (env.sh section 4). 1 = a PE-local
+    #: boundary whose level holds fewer than `G_rec` weights at once is refused
+    #: as `unsupported`; 0 (the default, decided 2026-09-13) charges it and
+    #: REPORTS the shortfall instead. RECAP's engine accumulates retained bits
+    #: as they arrive rather than needing the whole group resident in one
+    #: instant, so a small tile costs buffering and accesses, not feasibility.
+    recon_require_group_residency: bool
     recon_idle_table: dict
     recon_pj_override: Optional[float]
     recon_incremental_fallback_pj: float
@@ -405,6 +433,59 @@ class Config:
     #: pJ per bit per refresh window.
     dram_background_pj: float
     dram_refresh_pj: float
+
+    # ---- prompt_7 Phase A: standby power, and time ------------------------
+    #: ECC_STATIC_ENERGY (env.sh section 6). 1 = charge COMPONENT STANDBY
+    #: ENERGY -- the accelerator's own leakage -- as a physical category,
+    #: `Standby`, to ALL THREE ARMS. prompt_7 Defect 2: the reconstruction
+    #: engines are billed standby power from a Design Compiler run while the
+    #: accelerator beside them is billed none, because `parse_stats` never read
+    #: `Leakage energy (total)`, so the comparison charged one side only.
+    #: 0 (the default) reproduces every pre-Phase-A total to the pJ: the
+    #: category is not even in `phys_cats()`, so a cached raw record still
+    #: loads. Not in the mapper fingerprint -- this is evaluator arithmetic
+    #: over a mapping the mapper already chose.
+    static_energy: bool
+    #: ECC_LEAKAGE_NW, flattened by env.sh section 10 into
+    #: ECC_LEAKAGE_NW_LIST. Replacement leakage densities in nW: `sram_bit`
+    #: and `rf_bit` per STORED BIT, `mac_instance` per MAC. They replace the
+    #: ERT's own `leak` rows, which are 10^3-10^4 too low and in two cases
+    #: exactly 0 (prompt_7 section 5.2c: CACTI pinned to `itrs-lstp`, an
+    #: Aladdin table whose register leakage is a literal 0, and a Neurosim
+    #: plug-in that answered 0 pJ). POWER, not energy: the cycle period is
+    #: applied at the point of use, never here (env.sh section 6 TRAP 2).
+    leakage_nw: dict
+    #: ECC_LATENCY_MODEL. 1 = re-time the chosen mapping with
+    #: `latency_post.roofline()`. Evaluator-only and NOT in the fingerprint,
+    #: exactly like the two `noc_post` terms: the plan is Timeloop's, and this
+    #: states how long that plan takes once off-chip bandwidth is declared.
+    latency_model: bool
+    #: ECC_DRAM_BANDWIDTH_MBPS: the off-chip speed limit in MB/s, or None for
+    #: unlimited. Read by `latency_post.py` (the evaluator-side roofline) AND,
+    #: since prompt_7 C1.1, written onto the DRAM level of the YAML THE MAPPER
+    #: READS, as `shared_bandwidth` -- one bus that reads and writes share,
+    #: which is the same term the roofline charges. In the fingerprint through
+    #: the patched text, so changing it colds every cache.
+    dram_bandwidth_mbps: Optional[float]
+    #: ECC_ARCH_CLOCK_MHZ, flattened by env.sh section 10 into
+    #: ECC_ARCH_CLOCK_MHZ_LIST: `{arch: MHz}`. `cycle_seconds_for()` is the
+    #: ONLY place it is inverted to seconds (env.sh section 6 TRAP 2 -- two
+    #: conversions of one period is a silent 5x). A design with no entry keeps
+    #: `global_cycle_seconds`.
+    arch_clock_mhz: dict
+    #: ECC_RECON_BW_SCALE (prompt_7 C1.2). 1 = every stage in the arm's
+    #: `reduced` set declares `per_dataspace_bandwidth_consumption_scale:
+    #: {Weights: ...}` -- K/N at DRAM (a bit stream) and q/8 on chip (whole
+    #: weights in a narrower word). COLDS EVERY CACHE: it is in the patched
+    #: YAML.
+    recon_bw_scale: bool
+    #: ECC_ONCHIP_BW_BITAWARE (prompt_7 C1.3). 1 = a level the arm narrows to
+    #: `datawidth: q` declares its `read_bandwidth`/`write_bandwidth` x 8/q,
+    #: because the port moves BITS and a q-bit weight is fewer of them. This
+    #: is the lever that reaches the `fc` layers, where `filter_glb`'s declared
+    #: 16 items/cycle is what caps PE utilisation at 9.52% (prompt_7 4.5).
+    #: COLDS EVERY CACHE.
+    onchip_bw_bitaware: bool
 
     # ---- weak (SRAM-side) ECC overlay --------------------------------------
     weak_enabled: bool
@@ -887,9 +968,15 @@ class Config:
         if self.recon_ert_arm in ("", "reference"):
             self.recon_ert_arm = "reference"
         else:
-            # A placement key. The arm IS a datawidth configuration plus an ERT
-            # bump, so resolve the datawidth half here and let every consumer
-            # of `weight_datawidth` / `weight_datawidth_levels` see it.
+            # A placement key. The arm IS a datawidth configuration plus a
+            # declared bandwidth scale plus (sometimes) an ERT bump -- prompt_7
+            # 6.4's three axes -- so resolve the datawidth half here and let
+            # every consumer of `weight_datawidth` / `weight_datawidth_levels`
+            # see it. `mapper_arm_spec`, NOT `ert_arm_spec`: since prompt_7 B2
+            # the arms to map are every DISTINCT CHIP, and R1 and R3 are chips
+            # with no ERT bump at all. `ert_arm()` below still answers only for
+            # the arms that have one, so the bump and the `ert-` slug are
+            # unchanged for every directory already on disk.
             if len(self.archs) != 1:
                 raise ConfigError(
                     f"ECC_RECON_ERT_ARM={self.recon_ert_arm!r} names the arm of ONE "
@@ -897,11 +984,12 @@ class Config:
                     f"{len(self.archs)}: {', '.join(self.archs)}")
             from . import recon as _recon      # recon imports nothing of ours but embedded
             try:
-                spec = _recon.ert_arm_spec(self.archs[0], self.recon_ert_arm, self)
+                spec = _recon.mapper_arm_spec(self.archs[0], self.recon_ert_arm, self)
             except (KeyError, ValueError) as exc:
                 raise ConfigError(f"ECC_RECON_ERT_ARM={self.recon_ert_arm!r}: {exc}") from None
             q = code_widths.declared_datawidth(self.code_n, self.code_k)
-            if self.weight_datawidth is not None and self.weight_datawidth != q:
+            if (self.weight_datawidth is not None and spec["narrow_levels"]
+                    and self.weight_datawidth != q):
                 raise ConfigError(
                     f"ECC_RECON_ERT_ARM={self.recon_ert_arm} declares datawidth q = "
                     f"round({self.weight_bits}*{self.code_k}/{self.code_n}) = {q}, but "
@@ -911,12 +999,20 @@ class Config:
                     and tuple(self.weight_datawidth_levels) != tuple(spec["narrow_levels"])):
                 raise ConfigError(
                     f"ECC_RECON_ERT_ARM={self.recon_ert_arm} narrows "
-                    f"{'+'.join(spec['narrow_levels'])} (the storage levels in its "
-                    f"placement's reduced set), but ECC_WEIGHT_DATAWIDTH_LEVELS="
+                    f"{'+'.join(spec['narrow_levels']) or 'NOTHING on chip'} (the storage "
+                    f"levels in its placement's reduced set), but "
+                    f"ECC_WEIGHT_DATAWIDTH_LEVELS="
                     f"{'+'.join(self.weight_datawidth_levels)}. Leave it EMPTY: the arm "
                     f"sets it.")
-            self.weight_datawidth = q
-            self.weight_datawidth_levels = tuple(spec["narrow_levels"])
+            if spec["narrow_levels"]:
+                self.weight_datawidth = q
+                self.weight_datawidth_levels = tuple(spec["narrow_levels"])
+            # R1 NARROWS NOTHING ON CHIP, so it must leave `weight_datawidth`
+            # alone: setting q with an EMPTY level list is the spelling that
+            # narrows EVERY weight level, which is a different chip from the
+            # one R1 declares. Its architecture is the reference's until Phase
+            # C1.2 emits the DRAM bandwidth scale; what keeps the two caches
+            # apart meanwhile is the `arm-recon1` slug component below.
 
         unknown = [a for a in self.archs if a not in KNOWN_ARCHS]
         if unknown:
@@ -1175,8 +1271,11 @@ class Config:
             parts.append(f"tech{self.force_technology}")
         if self.dram_depth != 1048576:
             parts.append(f"dramdepth{self.dram_depth}")
-        if self.global_cycle_seconds != "1e-9":
-            parts.append(f"clk{self.global_cycle_seconds}")
+        # THE CLOCK IS NOT GLOBAL ANY MORE (prompt_7 C1.5). `ECC_ARCH_CLOCK_MHZ`
+        # gives each design its own rate, so the `clk` slug part is appended by
+        # `archs.effective_variant()`, which knows which design it is talking
+        # about. Left here it would label every design with whichever rate the
+        # STUDY default happened to be.
         if self.noc_enabled:
             # A costed interconnect is a different architecture to the mapper.
             # Every cache built before archs/_shared/noc.yaml existed was built
@@ -1225,8 +1324,19 @@ class Config:
 
         `archs.effective_variant()` decides both per architecture, by looking
         for the paper file and by diffing the patched YAML.
+
+        THE CLOCK JOINED THEM IN prompt_7 C1.5. `ECC_ARCH_CLOCK_MHZ` runs
+        Eyeriss v1 at its published 200 MHz and leaves every other design at
+        the study default, so `clk` is a treatment that touches SOME designs --
+        the same shape as `paper` fidelity, and it is decided the same way.
+        This property answers for the design the CONFIGURATION is about (the
+        first, and the placement study pins it to one); `effective_variant()`
+        answers per design and is what a cache path is built from.
         """
         parts = []
+        clk = self.cycle_seconds_for(self.archs[0]) if self.archs else self.global_cycle_seconds
+        if clk != "1e-9":
+            parts.append(f"clk{clk}")
         if self.arch_fidelity != "stock":
             parts.append(self.arch_fidelity)
         if self.force_datawidth:
@@ -1275,29 +1385,208 @@ class Config:
             # A relaxed dataflow constraint is a different MAPSPACE, so it is a
             # different architecture to the mapper and gets its own cache.
             parts.append("wrelax")
-        arm = self.ert_arm()
-        if arm is not None:
+        part = self.mapper_arm_slug()
+        if part is not None:
             # prompt_6 RULE 4.4.5, defence 1: recon2 and recon4 declare
             # byte-identical YAML and differ ONLY in the ERT, so without this
             # both would occupy one directory and the second map would
             # overwrite or skip the first. Legible in `ls`. MUST stay in step
             # with `archs.effective_variant()`.
-            parts.append(self.ert_slug(arm))
+            parts.append(part)
         return parts
 
-    def ert_arm(self):
-        """The ERT arm this configuration maps -- `recon.ert_arm_spec()`'s
-        record -- or None for the reference arm (prompt_6 8.3)."""
+    def mapper_arm(self):
+        """The MAPPER arm this configuration solves -- `recon.mapper_arm_spec()`'s
+        record -- or None for the reference arm (prompt_7 B2).
+
+        Every distinct chip has one, ERT bump or not. `ert_arm()` is the
+        subset that has one.
+        """
         key = getattr(self, "recon_ert_arm", "reference")
         if key in ("", "reference", None):
             return None
         from . import recon as _recon
-        return _recon.ert_arm_spec(self.archs[0], key, self)
+        return _recon.mapper_arm_spec(self.archs[0], key, self)
+
+    def ert_arm(self):
+        """The ERT arm this configuration maps -- `recon.ert_arm_spec()`'s
+        record -- or None when this arm has no ERT bump (prompt_6 8.3).
+
+        None now means two different things -- the reference arm, and a mapper
+        arm whose boundary is not ERT-injectable (R1, R3) -- and both are
+        right for every caller: `archs.ert_bump()` must produce no bump for
+        either, because neither declares one.
+        """
+        spec = self.mapper_arm()
+        if spec is None or spec["ert"] is None:
+            return None
+        return {"placement": spec["placement"], "key": spec["key"],
+                "level": spec["ert"]["level"], "counter": spec["ert"]["counter"],
+                "action": spec["ert"]["action"],
+                "narrow_levels": spec["narrow_levels"]}
+
+    def mapper_arm_slug(self):
+        """The cache-slug component that keeps this arm's directory its own,
+        or None for the reference arm.
+
+        `ert-<key>-<level>-<action>` where there IS a bump -- byte for byte
+        prompt_6's spelling, so every directory on disk stays a cache hit --
+        and `arm-<key>` where there is not. Without the second, R1's slug
+        would be the reference's (its patched YAML is the reference's until
+        Phase C1.2) and prompt_7 B2's gate 2 would fail on a real collision.
+        """
+        arm = self.ert_arm()
+        if arm is not None:
+            return self.ert_slug(arm)
+        spec = self.mapper_arm()
+        return None if spec is None else f"arm-{spec['key']}"
 
     @staticmethod
     def ert_slug(arm):
         """`ert-<placement key>-<level>-<action>`, the cache-directory part."""
         return f"ert-{arm['key']}-{arm['level']}-{arm['action']}"
+
+    # ------------------------------------------- prompt_7 Phase C: the clock
+    def cycle_seconds_for(self, arch):
+        """THIS DESIGN's clock period, as the string `globals.yaml` carries.
+
+        prompt_7 C1.5, Issue 14. `ECC_GLOBAL_CYCLE_SECONDS` is ONE number for
+        every design and it was 1 GHz, while Eyeriss v1 silicon runs at
+        200 MHz; pairing a real chip's ABSOLUTE off-chip MB/s with a 5x faster
+        model clock makes the modelled chip ~5x more memory-starved than the
+        one the paper describes.
+
+        THE ONLY PLACE MHz BECOMES SECONDS. env.sh section 6's TRAP 2 is that
+        a per-cycle constant converted twice, or not at all, is a silent 5x on
+        every standby and idle term; keeping the inversion here means no
+        caller can do either. A design with no entry in `ECC_ARCH_CLOCK_MHZ`
+        keeps `global_cycle_seconds` unchanged, so the table ADDS designs
+        rather than replacing the study default.
+
+        Returned as a STRING because that is what the fingerprint hashes and
+        what globals.yaml prints; `repr` of a float would make `5e-09` and
+        `5.0e-09` two different architectures.
+        """
+        mhz = (self.arch_clock_mhz or {}).get(arch)
+        if not mhz:
+            return self.global_cycle_seconds
+        if float(mhz) <= 0:
+            raise ConfigError(f"ECC_ARCH_CLOCK_MHZ[{arch}]={mhz}: a clock rate "
+                              f"must be positive")
+        secs = 1.0 / (float(mhz) * 1e6)
+        # A DESIGN THAT IS ALREADY AT THE STUDY DEFAULT KEEPS THE DEFAULT'S
+        # EXACT SPELLING. Seven of the eight entries in `ECC_ARCH_CLOCK_MHZ`
+        # are 1000 MHz, which is `global_cycle_seconds` itself -- and `%.6g` of
+        # 1e-9 is the string "1e-09" while env.sh writes "1e-9". Two spellings
+        # of one number are two architectures to the fingerprint and two
+        # directory names to the cache, so declaring a design at the rate it
+        # already ran at would have colded it for nothing.
+        try:
+            if secs == float(self.global_cycle_seconds):
+                return self.global_cycle_seconds
+        except (TypeError, ValueError):
+            pass
+        return f"{secs:.6g}"
+
+    def clock_mhz_for(self, arch):
+        """`cycle_seconds_for()` back in MHz, for a report line."""
+        return 1.0 / (float(self.cycle_seconds_for(arch)) * 1e6)
+
+    def dc_idle_scale(self, arch=None):
+        """What `ECC_RECON_IDLE_PJ` must be MULTIPLIED BY at this design's clock.
+
+        env.sh section 6, TRAP 2, and it is live for the first time in
+        prompt_7 C1.5. The DC tables give the reconstruction engine's idle term
+        in pJ PER CYCLE, measured at a 1 ns clock
+        (`data/dc/BCH_N63_results.json`, `measurement.clock_period_ns = 1.0`).
+        It is CLOCK POWER, so a 5 ns cycle burns five times as much of it:
+
+            idle_pJ_per_cycle(T) = idle_pJ_per_cycle(1 ns) x T / 1 ns
+
+        At Eyeriss v1's published 200 MHz that is x5 -- so until C1.5 gave the
+        design its own clock, this factor was 1.0 on every run and the code
+        that should apply it had never had to. It is NOT applied to the
+        INCREMENTAL term: that is switching energy per codeword, which is
+        CV^2 and does not depend on how long the cycle is.
+
+        `ECC_LEAKAGE_NW` is the opposite case and must NOT be rescaled -- it is
+        declared in nW, i.e. POWER, and the period is applied at the point of
+        use. That is why the two are declared in different units.
+
+        THE FACTOR LIVES HERE and `ecc.load_recon_terms()` applies it at one
+        site, so no caller can apply it twice or not at all.
+        """
+        if arch is None:
+            archs = self.archs or []
+            arch = archs[0] if len(archs) == 1 else None
+        secs = (float(self.cycle_seconds_for(arch)) if arch
+                else float(self.global_cycle_seconds))
+        return secs / (DC_MEASUREMENT_CLOCK_NS * 1e-9)
+
+    def dram_items_per_cycle_for(self, arch):
+        """`ECC_DRAM_BANDWIDTH_MBPS` as ITEMS per cycle of THIS design's clock,
+        or None for unlimited.
+
+        env.sh section 6 states the conversion and there are exactly two
+        implementations of it -- this one, which the ARCHITECTURE declares
+        (prompt_7 C1.1), and `latency_post.offchip_items_per_cycle()`, which
+        the evaluator charges. They must agree; `tests/test_phase_c.py` asserts
+        that they do, because a mapper optimising against one limit and a
+        roofline reporting another is two timing models for one bus.
+        """
+        if not self.dram_bandwidth_mbps:
+            return None
+        bytes_per_item = self.weight_bits / 8.0
+        if bytes_per_item <= 0:
+            return None
+        return (float(self.dram_bandwidth_mbps) * 1e6
+                * float(self.cycle_seconds_for(arch)) / bytes_per_item)
+
+    # ------------------------- prompt_7 Phase C: what THIS arm declares, C1.2/C1.3
+    def _arm_for(self, arch):
+        """This configuration's mapper arm ON `arch`, or None.
+
+        `ECC_RECON_ERT_ARM` names the arm of ONE mapper job on ONE design
+        (`__post_init__` refuses it otherwise), so a request about any OTHER
+        design is the reference arm rather than an error -- that is what
+        `archs.arch_fingerprint()` asks when a sweep enumerates designs.
+        """
+        if not self.archs or arch != self.archs[0]:
+            return None
+        return self.mapper_arm()
+
+    def arm_bw_factors_for(self, arch):
+        """`{level: {factor, timing, kind, dataspace, why}}` -- the per-dataspace
+        bandwidth scale THIS arm declares on `arch` (prompt_7 C1.2), or `{}`.
+
+        Empty for the reference arm and empty with `ECC_RECON_BW_SCALE=0`,
+        which is what reproduces the pre-Phase-C architecture byte for byte.
+        """
+        if not self.recon_bw_scale:
+            return {}
+        spec = self._arm_for(arch)
+        if spec is None or spec["placement"] is None:
+            return {}
+        from . import recon as _recon
+        return _recon.arm_bw_factors(spec["placement"],
+                                     _recon.stages_for(arch, self), self)
+
+    def onchip_bw_bitaware_factor(self):
+        """`weight_bits / q` -- how much MORE a narrowed level's port delivers
+        per cycle when it is priced in BITS rather than items (prompt_7 C1.3).
+
+        1.0 when the knob is off or the arm narrows nothing. At q=5 it is 1.6,
+        so `filter_glb`'s declared 16 items/cycle becomes 25.6 -- and that
+        level is what caps every `fc` layer at 9.52% PE utilisation
+        (prompt_7 4.5, A.7).
+
+        IT IS NOT ROUNDED. A declared bandwidth is a rate, not a word count,
+        and rounding 25.6 down to 25 would hand the reference arm a 2.4%
+        advantage that no wire has.
+        """
+        if not self.onchip_bw_bitaware or self.weight_datawidth is None:
+            return 1.0
+        return float(self.weight_bits) / float(self.weight_datawidth)
 
     @property
     def arch_variant_slug(self):
@@ -1416,16 +1705,30 @@ class Config:
 
     def mapping_regime_line(self):
         """WHICH MAPPING REGIME the placement bars come from -- the claim a reader
-        has to be able to check on the figure (prompt_6 9 names the arms)."""
+        has to be able to check on the figure (prompt_6 9 names the arms).
+
+        Since prompt_7 B2 the arms are the DISTINCT CHIPS -- `datawidth: q` x
+        ERT bump x declared bandwidth scale -- not the ERT-injectable
+        boundaries, so this line names the chips and says that WHICH PLAN each
+        bar was billed from is on the bar's own record. It cannot say it here:
+        that depends on which arms are mapped, which is a property of the
+        cache and not of the configuration.
+        """
         if getattr(self, "recon_ert_aware", False):
             try:
                 from . import recon as _recon
-                arms = sorted({p.key for a in self.archs for p in _recon.ert_arms(a, self)})
+                arms = sorted({a.key for d in self.archs
+                               for a in _recon.mapper_arms(d, self)
+                               if a.placement is not None})
             except Exception:                    # the title must never kill a run
                 arms = []
-            return (f"ERT-AWARE MAPPING: {', '.join(arms) or 'no boundary'} from their OWN "
-                    f"mapping (encoder toll in the ERT, datawidth q on the levels the "
-                    f"boundary narrows); the other boundaries fixed on the reference plan")
+            return (f"ERT-AWARE MAPPING, ONE PLAN PER BOUNDARY: {len(arms) + 1} distinct "
+                    f"chips -- reference"
+                    + (f" + {', '.join(arms)}" if arms else "")
+                    + f" -- each (datawidth q on the levels it narrows) x (its ERT bump) x "
+                      f"(its declared bandwidth scale). EVERY BAR NAMES THE PLAN IT WAS "
+                      f"BILLED FROM in `billed_from` on its own record, with whether that "
+                      f"plan's storage geometry is its own")
         if self.recon_optimizer:
             return ("RECONSTRUCTION-AWARE MAPPING (Task 4: the reconstruction bars come "
                     "from a second mapping solved with more weight room)")
@@ -1468,10 +1771,102 @@ class Config:
         lines += self.dram_model_line().split("\n")
         lines.append(f"{self.mac_line(mac_ert_pj)}  ·  the MAC cost is the "
                      f"denominator of every percentage on this figure")
+        lines += self.reporting_rules()
         if self.layers:
             lines.append(f"DEVELOPMENT RUN — {self.layer_scope} only: "
                          f"{', '.join(self.layers)}  (not a full-model result)")
         return lines
+
+    def reporting_rules(self):
+        """prompt_7 section 12 -- the six rules that must travel with every table.
+
+        They are not defects and not caveats about this run: they are facts
+        about the MODEL that a reader cannot infer from the figure, and each one
+        decides what a bar means. `recon_caveats()` carries them into the
+        manifest's `title_caveats` beside every placement figure. R-3 replaces
+        the former "Issue 9"; it is resolved, not open.
+        """
+        gate = float(getattr(self, "recon_clock_gating_pct", 0.0))
+        rules = [
+            "R-1 LATENCY IS FLAT ACROSS BOUNDARIES BY CONSTRUCTION. Every "
+            "placement's `reduced` set contains `dram`, so every placement gets "
+            "the same off-chip relief. A difference between two bars on a "
+            "latency figure is mapping noise unless it exceeds the per-shape "
+            "PE-count variation reported beside them.",
+
+            "R-2 WHICH LEVEL BINDS IS A PROPERTY OF WHAT THE ARCHITECTURE "
+            "DECLARES, AND IT CHANGED WITH prompt_7 C1.1. RESTATED 2026-09-13. "
+            "BEFORE: no architecture in archs/ declared an off-chip bandwidth, "
+            "so Timeloop skipped the DRAM throughput check entirely and only "
+            "ifmap_glb (11 of 43 shapes, worst throttling 0.180) and psum_glb "
+            "(5 of 43, worst 0.610) ever throttled -- levels carrying INPUTS "
+            "and PARTIAL SUMS, which reconstruction cannot touch. That was the "
+            "honest headline of Defect 1 and it was never a fact about the "
+            "chip: it was the absence of a declared number. NOW: the DRAM "
+            "level declares `shared_bandwidth` (ECC_DRAM_BANDWIDTH_MBPS at the "
+            "design's own clock) and DRAM BINDS. Measured on resnet18, 12 "
+            "shapes, 120 MB/s at 200 MHz = 0.6 items/cycle: DRAM is the "
+            "binding level on 21 of 21 layers, worst throttling 0.074, and the "
+            "reconstruction arms convert their K/N relief 1:1 into time -- "
+            "12.56 % against a 12.56 % ceiling. SO THE CAVEAT INVERTS: the "
+            "binding resource is now exactly the one reconstruction relieves, "
+            "and the number to report beside any latency claim is HOW BOUND "
+            "the design is, because at LPDDR4 speeds the limit never binds and "
+            "the saving is 0.000 % (prompt_7 7.2, A.3). filter_glb still never "
+            "throttles, and still sits exactly on its declared 16 items/cycle "
+            "at the fully-connected layers -- 'never throttles' and 'never "
+            "binds' remain different claims. Still a statement about the "
+            "CONSTRAINED mapspace in force (see R-5).",
+
+            "R-3 R3'S LATENCY EQUALS R2'S BY CONSTRUCTION, NOT BY MEASUREMENT. "
+            "Timeloop has no network timing model (LegacyNetwork::"
+            "ComputePerformance() is an empty stub; a network stats block "
+            "carries no Cycles and no bandwidth field), archs/_shared/noc.yaml "
+            "declares energy coefficients only, and no interconnect bandwidth "
+            "is cited anywhere in this study. R3's `reduced` set contains dram "
+            "and filter_glb, both real storage levels, so R3 receives exactly "
+            "the same latency saving as R2 and R4; what is unmodelled is the "
+            "INCREMENTAL benefit of the array multicast carrying reduced-width "
+            "words, i.e. the difference between R3 and R2. Report it as "
+            "\"R3 = R2 by construction\", never as \"R3 shows 0% latency "
+            "benefit\" -- the second claims a mechanism was tested and found "
+            "ineffective, and it was not tested. It is unmodelled, not "
+            "unfixable: NoC energy is already charged outside Timeloop by "
+            "noc_post.py, and latency_post.py could carry a declared NoC "
+            "items/cycle limit the same way once one is cited.",
+
+            "R-4 THE MAPPER SEES LEAKAGE; THE REPORT DID NOT. Timeloop's "
+            "`Energy:` and `EDP(J*cycle)` -- the mapper's objective -- already "
+            "include `Leakage energy (total)`, at ERT prices that are 10^3-10^4 "
+            "too low and in three cases exactly 0. Before Phase A parse_stats "
+            "discarded that number, so the accelerator's standby energy was "
+            "charged to no arm while the reconstruction engines were charged "
+            "theirs. Any statement of the form \"leakage is absent from the "
+            "model\" is wrong; the correct statement names which side dropped "
+            "it. ECC_STATIC_ENERGY=" + ("1: the replacement densities "
+            "(ECC_LEAKAGE_NW) are charged to all three arms as the `Standby` "
+            "category." if self.static_energy else "0: no arm is charged "
+            "standby energy on this figure."),
+
+            "R-5 LABELS. A constrained or relaxed dataflow is a DIFFERENT "
+            "ACCELERATOR -- label such bars \"constrained dataflow\" and never "
+            "quote them as the published chip. A design whose provenance is "
+            "`reference_design` is named after a paper, not published as one: "
+            "\"Simba-like (reference design)\".",
+
+            "R-6 build_stacks()'s `recon` ARM IS NOT A PLACEMENT. It is one "
+            "point applied to every design at once, at the chip ingress with a "
+            "single engine, and no physical boundary does what it does. It must "
+            "never be quoted as one of this figure's boundaries.",
+        ]
+        rules.append(
+            f"CLOCK GATING: this figure is ECC_RECON_CLOCK_GATING_PCT={gate:g}. "
+            f"The two settings that must be reported side by side are 0 (the "
+            f"pessimistic bound: the engine's whole DC idle constant is charged "
+            f"every cycle it is switched on) and 99.5 (the measured "
+            f"clock/dynamic share of that constant). They differ by ~193x on "
+            f"the idle term and they INVERT the ranking of the boundaries.")
+        return rules
 
     def recon_panel_title(self):
         """ONE line for a placement figure with one panel PER ARCHITECTURE.
@@ -1679,6 +2074,7 @@ def load_config():
 
         recon_json=_s("ECC_RECON_JSON", "data/dc/BCH_N63_results.json"),
         recon_incremental_table=_table("ECC_RECON_INCREMENTAL_PJ_LIST"),
+        recon_require_group_residency=_b("ECC_RECON_REQUIRE_GROUP_RESIDENCY", False),
         recon_idle_table=_table("ECC_RECON_IDLE_PJ_LIST"),
         recon_pj_override=_of("ECC_RECON_PJ"),
         recon_incremental_fallback_pj=_f("ECC_RECON_INCREMENTAL_FALLBACK_PJ", 1.8995),
@@ -1705,6 +2101,14 @@ def load_config():
         baseline_dram_pj_per_bit=_of("ECC_BASELINE_DRAM_PJ_PER_BIT"),
         dram_background_pj=_f("ECC_DRAM_BACKGROUND_PJ", 0.0),
         dram_refresh_pj=_f("ECC_DRAM_REFRESH_PJ", 0.0),
+
+        static_energy=_b("ECC_STATIC_ENERGY", False),
+        leakage_nw=_table("ECC_LEAKAGE_NW_LIST"),
+        latency_model=_b("ECC_LATENCY_MODEL", False),
+        dram_bandwidth_mbps=_of("ECC_DRAM_BANDWIDTH_MBPS"),
+        arch_clock_mhz=_table("ECC_ARCH_CLOCK_MHZ_LIST"),
+        recon_bw_scale=_b("ECC_RECON_BW_SCALE", False),
+        onchip_bw_bitaware=_b("ECC_ONCHIP_BW_BITAWARE", False),
 
         weak_enabled=_b("ECC_WEAK", False),
         weak_n=_i("ECC_WEAK_N", 63),

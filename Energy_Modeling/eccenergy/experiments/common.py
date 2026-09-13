@@ -45,9 +45,17 @@ class Session:
             tlmod.require_container()
             tlmod.ensure_exercises_repo()
             archmod.install_local_archs()
-            path, node = archmod.write_globals(cfg)
-            print(f"  globals.yaml: technology={node} "
-                  f"cycle={cfg.global_cycle_seconds} -> {path.name}")
+            # ONE globals.yaml PER DESIGN (prompt_7 C1.5): the clock is a
+            # per-architecture number now, so a shared file would run every
+            # design on a multi-design figure at whichever rate was written
+            # last. Written here, once, for every design in the run.
+            for arch in cfg.archs:
+                path, node = archmod.write_globals(cfg, arch)
+                # The name carries the content hash, so "already there" is
+                # proof the bytes are right -- not a reason to rewrite.
+                print(f"  {path.name}: technology={node} "
+                      f"cycle={cfg.cycle_seconds_for(arch)} "
+                      f"({cfg.clock_mhz_for(arch):g} MHz)")
         elif need_mapper:
             print("  ECC_FROM_CACHE=1: reading solved mappings only, "
                   "Timeloop will not be invoked")

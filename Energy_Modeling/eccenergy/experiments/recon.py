@@ -87,6 +87,7 @@ import pandas as pd
 import yaml
 
 from .. import archs as archmod
+from .. import latency_post
 from .. import recon as reconmod
 from .. import timeloop as tlmod
 from ..archs import accumulator_bits, load_provenance
@@ -408,7 +409,9 @@ def dilated_view(cfg, ses, arch, model, base_cats, ref_raw):
     # EVERY dataspace it holds, not just for weights, so the correction is
     # applied to the level's whole energy and to its weight share separately --
     # they differ whenever the dilated level is shared (ECC_WEIGHT_CAPACITY_
-    # SCOPE=shared puts Inputs in `operand_glb`).
+    # SCOPE=shared puts Inputs in the simple designs' `operand_glb`; since
+    # 2026-09-13 simple_weight_stationary is NOT one of them -- its operand
+    # half is split into `input_glb` and a Weights-only `weight_glb`).
     # THE CATEGORY MOVES BY EXACTLY WHAT THE STAGE MOVED. `wpath_d`'s stage is
     # the weight share of that level, re-derived from the cached stats with the
     # per-instance counts scaled up the way `read_weight_path()` does, and
@@ -500,17 +503,24 @@ def _capacity_of(paths, prefixes):
 EXPERIMENT_ERT = "task4_reconstruction_aware_mapping_ert"
 
 ERT_NOTE = (
-    "RECONSTRUCTION-AWARE MAPPING WITH THE ENCODER IN THE OBJECTIVE (prompt_6). "
-    "Each ERT-injectable boundary -- derived from its placement record: a storage "
-    "site whose counter names one real ERT action and is not the innermost weight "
-    "level's reads -- was RE-MAPPED with its encoder toll in Timeloop's energy "
-    "table (E_w x block_size on the site's access action, idle_per_cycle on "
-    "`leak`), so the mapper solved the loop nest knowing what reconstruction "
-    "costs at that boundary. Such a bar is billed from ITS OWN plan (bill, "
-    "discounts, cycles, DRAM reads), and the toll Timeloop billed inside the "
-    "level is MOVED into `Reconstruction`, never added a second time. The other "
-    "boundaries are post-processed on the reference plan. Two mapping regimes "
-    "share this figure; the bars that came from their own mapping are marked.")
+    "RECONSTRUCTION-AWARE MAPPING WITH THE ENCODER IN THE OBJECTIVE (prompt_6), "
+    "ONE PLAN PER BOUNDARY (prompt_7 B1/B2). The arms are the DISTINCT CHIPS the "
+    "mapper sees -- (datawidth q on the storage levels the boundary narrows) x "
+    "(its ERT bump, where its site is a storage level whose counter names one "
+    "real ERT action and whose bump is not constant across the mapspace) x (its "
+    "declared per-dataspace bandwidth scale) -- derived from the placement "
+    "records, never listed. An ERT-injectable arm was RE-MAPPED with its encoder "
+    "toll in Timeloop's energy table (E_w x block_size on the site's access "
+    "action, idle x (1 - g) on `leak`), so the mapper solved the loop nest "
+    "knowing what reconstruction costs at that boundary; such a bar is billed "
+    "from ITS OWN plan (bill, discounts, cycles, DRAM reads) and the toll "
+    "Timeloop billed inside the level is MOVED into `Reconstruction`, never "
+    "added a second time. A boundary whose own chip is not yet mapped is billed "
+    "from a NAMED plan that narrows the SAME storage levels, with the lender's "
+    "toll already moved out; a boundary for which no such plan exists on disk is "
+    "billed from the reference plan and flagged `geometry_matches: false`. EVERY "
+    "BAR'S RECORD NAMES THE PLAN IT WAS BILLED FROM in `billed_from`, and the "
+    "figure marks it.")
 
 
 @dataclasses.dataclass
@@ -576,9 +586,28 @@ def ert_split(bump, st, cycles, billed_vectors=None):
     stats' leakage delta and CHARGED by the evaluator, not subtracted.
     `st` is the site stage's StageStats from the arm's own weight path.
     """
-    count = float(st.counter(bump["counter"]))
     engine_cycles = float(st.engine_cycles or 0.0)
     engines = (engine_cycles / float(cycles)) if cycles else 0.0
+    # NO BUMP, NO TOLL. Since prompt_7 B2 the arms to map are the distinct
+    # CHIPS, and two of them (R1, R3 on Eyeriss v1) declare no ERT row at all:
+    # `ert_injectable()` refuses them, so Timeloop billed nothing extra inside
+    # any level and there is nothing to move out of the bill. The split is
+    # ZERO, stated -- not skipped, because the caller still reconciles it
+    # against the stats and a silently-absent split would reconcile trivially.
+    if bump is None:
+        return {"level": None, "action": None, "counter": None,
+                "access_toll_pJ": 0.0, "leak_toll_pJ": 0.0,
+                "engines": engines,
+                "engines_declared": float(st.declared_instances or 0.0),
+                "engine_cycles": engine_cycles, "billed_vectors": 0.0,
+                "no_bump": True,
+                "why": ("this boundary declares no ERT-injectable encoder row "
+                        "(recon.ert_injectable), so the mapper was given no toll "
+                        "and there is none inside the level's billed energy. Its "
+                        "reconstruction energy is charged wholly by the "
+                        "evaluator, on the same two denominators as every other "
+                        "bar (prompt_6 RULE 3).")}
+    count = float(st.counter(bump["counter"]))
     if billed_vectors is None:
         access = count * float(bump["e_w_pj"])
     else:
@@ -613,6 +642,45 @@ def _close(a, b, rel=1e-6, abs_tol=0.0):
                                            float(abs_tol))
 
 
+def arm_plan_state(cfg, ses, arch, model, arm, ref_shapes):
+    """Is this MAPPER ARM's own mapping on disk, at ITS OWN fingerprint?
+    `(state, detail)`, state one of `ready` | `cold` | `partial`.
+
+    A CHEAP PRE-FILTER, not a second acceptance rule. The fingerprint is in
+    the path (`<slug>/fp-<hash>/<shape>/`), and the ERT bump and the declared
+    datawidth are in the fingerprint, so a `timeloop-mapper.stats.txt` under
+    this arm's own directory can only be this arm's own mapping. Everything
+    that decides whether an entry may be USED -- the sidecar, the stored ERT
+    read back against the arm's own base table, the per-shape guards -- stays
+    in `ert_aware_view()`, which is called only for a `ready` arm and still
+    refuses rather than falling back.
+
+    Why a probe exists at all (prompt_7 B1/B4): since the arm list became the
+    six DISTINCT CHIPS rather than the two ERT-injectable boundaries, an arm
+    with no mapping is the NORMAL state until Phase C runs, and the figure has
+    to report a number for its bars. It gets one from a NAMED, geometry-
+    compatible plan (`recon.plan_assignment`) -- never silently.
+
+    `partial` is the dangerous middle and is NOT a borrow: a half-mapped arm
+    would mix its own plan on some shapes with a borrowed one on the rest, and
+    one bar would be two chips. The caller refuses on it.
+    """
+    acfg = dataclasses.replace(cfg, recon_ert_arm=arm.key,
+                               rerun_optimiser=False, from_cache=True)
+    variant = archmod.effective_variant(arch, acfg)
+    fp = archmod.arch_fingerprint(arch, acfg)
+    cache = pathlib.Path(ses.results.mapper_cache(arch, variant, fp, create=False))
+    have = sorted(s for s in ref_shapes
+                  if (cache / s / "timeloop-mapper.stats.txt").exists())
+    detail = {"arm": arm.key, "cache": str(cache), "fingerprint": fp,
+              "variant": variant, "shapes_wanted": len(ref_shapes),
+              "shapes_solved": len(have),
+              "missing": sorted(set(ref_shapes) - set(have))}
+    if len(have) == len(ref_shapes) and ref_shapes:
+        return "ready", detail
+    return ("cold" if not have else "partial"), detail
+
+
 def ert_aware_view(cfg, ses, arch, model, base_cats, ref_raw, ref_paths, placement):
     """Load, GUARD and split ONE ERT arm's own mapping (prompt_6 RULE 4).
 
@@ -642,6 +710,14 @@ def ert_aware_view(cfg, ses, arch, model, base_cats, ref_raw, ref_paths, placeme
     """
     acfg = dataclasses.replace(cfg, recon_ert_arm=placement.key)
     bump = archmod.ert_bump(arch, acfg)
+    # THE ARMS ARE THE DISTINCT CHIPS, AND TWO OF THEM HAVE NO ERT ROW (prompt_7
+    # B2): R1 and R3 on Eyeriss v1 are their own chips -- R1 by its declared
+    # off-chip bandwidth scale, R3 by the network stage it adds -- but
+    # `ert_injectable()` refuses both, so `ert_bump()` is None and there is no
+    # toll anywhere in their bills. Everything below that is ABOUT THE TOLL is
+    # guarded on `site`; everything about the PLAN (loop nest, PE count,
+    # cycles, DRAM width, delivered capacity) runs for every arm.
+    site = bump["level"] if bump else None
     variant = archmod.effective_variant(arch, acfg)
     fp = archmod.arch_fingerprint(arch, acfg)
     print(f"\n  ---- prompt_6: {placement.key}'s OWN mapping -- {tlmod.describe_bump(bump)} ----")
@@ -689,8 +765,12 @@ def ert_aware_view(cfg, ses, arch, model, base_cats, ref_raw, ref_paths, placeme
         own_base = shape_dir.parent / tlmod.ERT_DIR / "base.ERT.yaml"
         base_prices = (tlmod.ert_prices(yaml.safe_load(own_base.read_text()))
                        if own_base.exists() else None)
-        read_back[shape] = tlmod.read_back_ert(shape_dir, bump,
-                                               base_prices=base_prices)
+        # prompt_7 C1.6: and the MAC price the entry was mapped at. It is in
+        # the fingerprint, so a mismatch means a hand-copied entry -- which is
+        # exactly the case RULE 4.4.5's read-back exists for.
+        read_back[shape] = tlmod.read_back_ert(
+            shape_dir, bump, base_prices=base_prices,
+            mac_pj=getattr(cfg, "mac_pj_override", None))
 
     # ---- per-shape guards, off the arm's OWN stats -------------------------
     counts_by_shape = {}
@@ -706,27 +786,33 @@ def ert_aware_view(cfg, ses, arch, model, base_cats, ref_raw, ref_paths, placeme
         nests[shape] = a.is_file() and b.is_file() and a.read_text() == b.read_text()
         lv, sm = tlmod.parse_levels(path)
         rlv, rsm = tlmod.parse_levels(ref_paths[shape])
-        L = lv.get(bump["level"])
-        R = rlv.get(bump["level"])
-        if L is None or R is None or "Weights" not in L["ds"]:
-            raise SystemExit(f"{placement.key}/{shape}: level {bump['level']!r} carries no "
-                             f"Weights in the stats")
-        w = L["ds"]["Weights"]
-        updates = float(w.get("updates") or 0.0)
-        other = sorted(d for d in L["ds"] if d != "Weights")
         cyc_a, cyc_r = sm["cycles"] or 0, rsm["cycles"] or 0
-        n_inst = float(w.get("utilized_instances") or L["instances"] or 1)
+        # THE SITE LEVEL exists only for an arm with an ERT row. Without one
+        # there is no bumped action to audit, and the guards below that read
+        # `w`/`n_inst` are guards ON THE TOLL.
+        L = lv.get(site) if site else None
+        R = rlv.get(site) if site else None
+        if site and (L is None or R is None or "Weights" not in L["ds"]):
+            raise SystemExit(f"{placement.key}/{shape}: level {site!r} carries no "
+                             f"Weights in the stats")
+        w = L["ds"]["Weights"] if L else {}
+        updates = float(w.get("updates") or 0.0)
+        other = sorted(d for d in (L["ds"] if L else {}) if d != "Weights")
+        n_inst = float(w.get("utilized_instances")
+                       or (L["instances"] if L else None) or 1)
         n_inst_r = float((R["ds"].get("Weights") or {}).get("utilized_instances")
-                         or R["instances"] or 1)
+                         or R["instances"] or 1) if R else 1.0
         # the arm's OWN stored table, and the un-bumped prices under it
-        prices = tlmod.ert_prices(
-            yaml.safe_load((pathlib.Path(path).parent / tlmod.ERT_NAME).read_text()))
-        base_p = {a_: prices[(bump["level"], a_)] for a_ in ("read", "write", "update")
-                  if (bump["level"], a_) in prices}
-        base_p[bump["action"]] = base_p[bump["action"]] - bump["access_delta_pj"]
-        base_leak = prices.get((bump["level"], "leak"))
-        if base_leak is not None:
-            base_leak = base_leak - bump["leak_delta_pj"]
+        base_p, base_leak = {}, None
+        if site:
+            prices = tlmod.ert_prices(
+                yaml.safe_load((pathlib.Path(path).parent / tlmod.ERT_NAME).read_text()))
+            base_p = {a_: prices[(site, a_)] for a_ in ("read", "write", "update")
+                      if (site, a_) in prices}
+            base_p[bump["action"]] = base_p[bump["action"]] - bump["access_delta_pj"]
+            base_leak = prices.get((site, "leak"))
+            if base_leak is not None:
+                base_leak = base_leak - bump["leak_delta_pj"]
         # RULE 3, ARM-LOCALLY: Timeloop bills `leak x UTILIZED instances x
         # cycles` (buffer.cpp FinalizeBufferEnergy), and this arm's stored leak
         # price is its own base plus the bump. So the toll is the level's
@@ -747,7 +833,7 @@ def ert_aware_view(cfg, ses, arch, model, base_cats, ref_raw, ref_paths, placeme
         # about.
         leak_mult = None
         leak_delta_pJ = None
-        if L.get("leakage_pJ") is not None and base_leak is not None and cyc_a:
+        if site and L.get("leakage_pJ") is not None and base_leak is not None and cyc_a:
             leak_delta_pJ = L["leakage_pJ"] - base_leak * n_inst * cyc_a
             leak_mult = leak_delta_pJ / (bump["leak_delta_pj"] * cyc_a)
         mac_a = next((k for k in lv if "Compute" in lv[k]["ds"]), None)
@@ -760,10 +846,12 @@ def ert_aware_view(cfg, ses, arch, model, base_cats, ref_raw, ref_paths, placeme
         # a small depthwise layer (42 PEs x 60k cycles) the quotient lands at
         # 41.99996 and a bare 1e-6 relative test refuses a multiplier that IS
         # the utilized count (mobilenet_v2 G576, 2026-09-11).
-        leak_ok = (leak_delta_pJ is not None and _close(
+        # NO TOLL, NOTHING TO VERIFY: an arm with no ERT row is `ok` here by
+        # construction, and saying so beats a None that reads as a failure.
+        leak_ok = (not site) or (leak_delta_pJ is not None and _close(
             leak_delta_pJ, bump["leak_delta_pj"] * n_inst * cyc_a,
             abs_tol=0.01 * (1.0 + (cyc_a / cyc_r if cyc_r else 1.0))))
-        bs = float(L["block_size"] or 1)
+        bs = float((L["block_size"] if L else 1) or 1)
         # WHOLE WORDS, as Timeloop bills them: `ceil(scalar / block_size)`
         # vector accesses per instance (buffer.cpp), not `scalar / block_size`.
         # Dropping the ceiling under-counts the level's own energy by up to one
@@ -771,19 +859,19 @@ def ert_aware_view(cfg, ses, arch, model, base_cats, ref_raw, ref_paths, placeme
         # count (64 b / 4 b = 16) and stopped cancelling under prompt_2's WIDTH
         # TABLE (380 b / 5 b = 76): 0.195 % of the printed energy on EVERY
         # shape, on the reference arm as much as on this one.
-        vec = {a_: math.ceil(float(w.get(a_ if a_ != "write" else "fills") or 0.0) / bs)
-               for a_ in ("read", "write", "update")}
-        vec["read"] = math.ceil(float(w.get("reads") or 0.0) / bs)
-        vec["update"] = math.ceil(updates / bs)
-        at_base = ((vec["read"] * base_p.get("read", 0.0)
-                    + vec["write"] * base_p.get("write", 0.0)
-                    + vec["update"] * base_p.get("update", 0.0)) * n_inst)
         rep = counts_by_shape.get(shape, 1.0)
-        stats_access += (float(w["energy_pJ"]) - at_base) * rep
-        billed_vectors += vec[{"read": "read", "write": "write",
-                               "update": "update"}[bump["action"]]] * n_inst * rep
-        if leak_delta_pJ is not None:
-            stats_leak += leak_delta_pJ * rep
+        if site:
+            vec = {a_: math.ceil(float(w.get(a_ if a_ != "write" else "fills") or 0.0) / bs)
+                   for a_ in ("read", "write", "update")}
+            vec["read"] = math.ceil(float(w.get("reads") or 0.0) / bs)
+            vec["update"] = math.ceil(updates / bs)
+            at_base = ((vec["read"] * base_p.get("read", 0.0)
+                        + vec["write"] * base_p.get("write", 0.0)
+                        + vec["update"] * base_p.get("update", 0.0)) * n_inst)
+            stats_access += (float(w["energy_pJ"]) - at_base) * rep
+            billed_vectors += vec[bump["action"]] * n_inst * rep
+            if leak_delta_pJ is not None:
+                stats_leak += leak_delta_pJ * rep
         edp_a = float(sm["energy_uJ"] or 0.0) * float(cyc_a or 0)
         edp_r = float(rsm["energy_uJ"] or 0.0) * float(cyc_r or 0)
         row = dict(shape=shape, nest_identical=nests[shape], weights_updates=updates,
@@ -793,33 +881,36 @@ def ert_aware_view(cfg, ses, arch, model, base_cats, ref_raw, ref_paths, placeme
                    leak_multiplier_rule=("Timeloop bills leak x UTILIZED instances x "
                                          "cycles (buffer.cpp FinalizeBufferEnergy, "
                                          "power-gated per instance)"),
-                   declared_instances=L["instances"], utilized_instances=n_inst,
+                   declared_instances=(L["instances"] if L else None),
+                   utilized_instances=n_inst,
                    utilized_instances_reference=n_inst_r,
                    pes_used=pes_a, pes_used_reference=pes_r,
                    pes_differ=(pes_a != pes_r), dram_word_bits=dram_wb,
-                   level_word_bits=L["word_bits"], block_size=L["block_size"],
+                   site_level=site,
+                   level_word_bits=(L["word_bits"] if L else None),
+                   block_size=(L["block_size"] if L else None),
                    cycles=cyc_a, cycles_reference=cyc_r,
                    timeloop_edp_uJ_cycles=edp_a, timeloop_edp_uJ_cycles_reference=edp_r,
                    timeloop_edp_ratio_arm_over_reference=(edp_a / edp_r) if edp_r else None,
-                   vector_access_energy_source=L["source"],
+                   vector_access_energy_source=(L["source"] if L else None),
                    energy_uJ=sm["energy_uJ"], energy_uJ_reference=rsm["energy_uJ"])
         rows.append(row)
-        if updates:
-            problems.append(f"{shape}: Scalar updates for Weights at {bump['level']} = "
+        if site and updates:
+            problems.append(f"{shape}: Scalar updates for Weights at {site} = "
                             f"{updates:g}, not 0 -- put the toll on `update` too or stop (RULE 2)")
-        if other:
-            problems.append(f"{shape}: {bump['level']} also holds {other}; the toll on its "
+        if site and other:
+            problems.append(f"{shape}: {site} also holds {other}; the toll on its "
                             f"`{bump['action']}` would be billed to them as well")
-        if not leak_ok:
+        if site and not leak_ok:
             problems.append(f"{shape}: leak multiplier {leak_mult} != utilized instances "
-                            f"{n_inst:g} of {bump['level']} (declared {L['instances']}; "
+                            f"{n_inst:g} of {site} (declared {L['instances']}; "
                             f"RULE 3: Timeloop bills leak x UTILIZED instances x cycles, "
                             f"buffer.cpp FinalizeBufferEnergy -- verify the multiplier)")
         if dram_wb != cfg.weight_bits:
             problems.append(f"{shape}: DRAM Word bits {dram_wb} != {cfg.weight_bits} "
                             f"(RULE 1: DRAM is never narrowed)")
-        if L["source"] != "ERT":
-            problems.append(f"{shape}: {bump['level']} vector access energy source is "
+        if site and L["source"] != "ERT":
+            problems.append(f"{shape}: {site} vector access energy source is "
                             f"{L['source']!r}, not ERT -- the supplied table was not billed")
     if problems:
         raise SystemExit(f"{placement.key}'s own mapping fails its guards:\n  "
@@ -847,21 +938,32 @@ def ert_aware_view(cfg, ses, arch, model, base_cats, ref_raw, ref_paths, placeme
                   f"x{r_['timeloop_edp_ratio_arm_over_reference']:.3f} of the reference plan")
 
     # ---- prompt_6 6: quantisation delivers 8/q, never N/K ---------------------
+    # THE NARROWED LEVELS COME FROM THE ARM, not from the bump: R3 narrows
+    # `filter_glb` and declares no ERT row at all, and R1 narrows NOTHING on
+    # chip -- its whole difference from the reference is a declared off-chip
+    # bandwidth scale (prompt_7 6.4). `config` resolves both from the arm spec.
+    narrow = tuple(acfg.weight_datawidth_levels or ())
     q = acfg.weight_datawidth
-    want = cfg.weight_bits / q
-    narrow = tuple(bump["narrow_levels"])
+    want = (cfg.weight_bits / q) if q else 1.0
     cap_ref, cap_arm = _capacity_of(ref_paths, narrow), _capacity_of(paths_a, narrow)
     got = (cap_arm / cap_ref) if cap_ref else 0.0
-    if cap_ref and abs(got - want) > 0.05 * want:
+    if narrow and cap_ref and abs(got - want) > 0.05 * want:
         raise SystemExit(
             f"{placement.key}: {narrow[0]} reports Effective size {cap_arm:,} against the "
             f"reference's {cap_ref:,} -- x{got:.4f}, but a quantisation arm at q = {q} "
             f"delivers exactly {cfg.weight_bits}/q = {want:.4f} (prompt_6 6). The "
             f"`datawidth` edit missed the level, or the plan is not this arm's.")
-    capacity = {"level": narrow[0] if narrow else "?", "reference_weights_per_instance": cap_ref,
+    capacity = {"level": narrow[0] if narrow else None,
+                "reference_weights_per_instance": cap_ref,
                 "arm_weights_per_instance": cap_arm, "delivered_factor": got,
                 "wanted_factor": want, "q": q,
-                "rule": "a quantisation arm delivers weight_bits/q, never N/K (prompt_6 6)"}
+                "rule": ("a quantisation arm delivers weight_bits/q, never N/K "
+                         "(prompt_6 6)" if narrow else
+                         "this boundary narrows NOTHING on chip, so there is no "
+                         "capacity factor to deliver: its whole difference from "
+                         "the reference is the declared off-chip bandwidth scale "
+                         "(prompt_7 6.4), which changes the throttling check and "
+                         "not one picojoule of energy")}
 
     # ---- the weight path, reconciled with the arm's record BEFORE the split ---
     wpath_a = reconmod.weight_path(acfg, arch, model, ases.models[model], paths_a)
@@ -873,6 +975,9 @@ def ert_aware_view(cfg, ses, arch, model, base_cats, ref_raw, ref_paths, placeme
                      if s_.key == placement.site_stage)
     st = wpath_a.stages[placement.site_stage]
     split = ert_split(bump, st, wpath_a.cycles, billed_vectors=billed_vectors)
+    # An arm with no ERT row moved nothing, and the stats side must agree: the
+    # zero split is reconciled like any other rather than skipped, because a
+    # skipped check reconciles trivially and proves nothing.
     for name, stats_side, evaluator in (("access", stats_access, split["access_toll_pJ"]),
                                         ("leak", stats_leak, split["leak_toll_pJ"])):
         if not _close(stats_side, evaluator):
@@ -906,10 +1011,15 @@ def ert_aware_view(cfg, ses, arch, model, base_cats, ref_raw, ref_paths, placeme
     identical = bool(nests) and all(nests.values())
     print(f"       loop nest {'IDENTICAL to' if identical else 'DIFFERENT from'} the reference "
           f"on {sum(nests.values())}/{len(nests)} shape(s); cycles {wpath_a.cycles:,.0f}; "
-          f"moved {split['access_toll_pJ'] / 1e6:.4f} uJ (access) out of {cat} into "
-          f"Reconstruction; leak {split['leak_toll_pJ'] / 1e6:.3f} uJ ({split['engines']:.2f} "
-          f"engines cycle-weighted, of {split['engines_declared']:g} declared) verified "
-          f"against the stats' leakage and charged by the evaluator")
+          + (f"NO ERT row on this boundary, so nothing was moved out of {cat}; "
+             f"its reconstruction energy is charged wholly by the evaluator "
+             f"({split['engines']:.2f} engines cycle-weighted, of "
+             f"{split['engines_declared']:g} declared)" if split.get("no_bump") else
+             f"moved {split['access_toll_pJ'] / 1e6:.4f} uJ (access) out of {cat} into "
+             f"Reconstruction; leak {split['leak_toll_pJ'] / 1e6:.3f} uJ "
+             f"({split['engines']:.2f} engines cycle-weighted, of "
+             f"{split['engines_declared']:g} declared) verified "
+             f"against the stats' leakage and charged by the evaluator"))
     return ErtArmView(
         placement=placement, cfg=acfg, raw=raw_a, wpath=wpath_a,
         base_series=base_series, base_w=base_w, cycles=float(wpath_a.cycles),
@@ -920,20 +1030,109 @@ def ert_aware_view(cfg, ses, arch, model, base_cats, ref_raw, ref_paths, placeme
         reconciles=reconciles, recon_check=recon_check, stats_paths=paths_a)
 
 
+#: How far past the latency ceiling a bar must be before it is CALLED past it,
+#: in percentage points.
+#:
+#: IT IS NOT A FUDGE, AND 1e-9 WAS NOT "EXACT". The ceiling is
+#: `weight share x (1 - K/N)`, a ratio of real-valued item counts; a bar's gain
+#: is a ratio of CYCLE COUNTS, and cycles are integers that come from a
+#: per-layer `ceil(compute / throttling)`. The two therefore agree only to
+#: within the rounding of 21 ceilings, and on a fully off-chip-bound run --
+#: where the relief converts 1:1 into time and the bar lands exactly ON the
+#: ceiling -- the difference is real but meaningless: measured 9.3e-09 on
+#: resnet18 at 120 MB/s, which a 1e-9 tolerance flagged as a bar "past" it.
+#:
+#: 1e-4 pp is four orders of magnitude below the effect this check exists to
+#: catch (a bar past the ceiling on its own plan's ACTIVATION traffic, measured
+#: at 1.52 pp on mobilenet_v2, 2026-09-12) and four above the rounding.
+LATENCY_CEILING_TOL_PP = 1e-4
+
+
 def ert_checks(builder, cfg, arch, raw, views, results, base_components,
-               emb_components, e_parity, pricing, newly_mapped=0):
+               emb_components, e_parity, pricing, newly_mapped=0, billing=None,
+               arm_states=None, lat=None):
     """prompt_6 10 -- the checklist, recorded on the result file, one per arm."""
     frac = cfg.code_k / cfg.code_n
     space_ok, space = reconmod.validate_placement_space(arch, cfg)
     builder.check("placement_space_covers_the_whole_weight_path", space_ok, space)
     stages = reconmod.stages_for(arch, cfg)
+    leak = reconmod.ert_leak_delta_pj(cfg)
     builder.check(
         "ert_arms_are_derived_from_the_placement_records", True,
-        {"arms": sorted(views),
+        {"arms_with_their_own_plan": sorted(views),
+         "per_cycle_leak_row_pJ": leak,
+         "clock_gating_pct": float(getattr(cfg, "recon_clock_gating_pct", 0.0)),
          "per_placement": {p.key: dict(zip(("injectable", "why"),
-                                            reconmod.ert_injectable(p, stages)))
+                                            reconmod.ert_injectable(p, stages, leak)))
                            for p in reconmod.placements_for(arch, cfg)},
-         "rule": "prompt_6 3.3: never `if key == ...`"})
+         "rule": ("prompt_6 3.3 / prompt_7 6.3: never `if key == ...`. Condition 3 "
+                  "excludes a bump only when BOTH its rows are constant across the "
+                  "mapspace -- the innermost level's reads AND a zero per-cycle leak "
+                  "row. The leak row is idle x (1 - g) and Timeloop bills it as "
+                  "leak x utilized instances x cycles, both the mapper's choice.")})
+    # prompt_7 B2 gate 1 and 2: the arms are the DISTINCT CHIPS, and no two of
+    # them share a cache directory. Recorded on every ERT-aware result so the
+    # arm list a figure was drawn from is auditable after the fact.
+    arms = reconmod.mapper_arms(arch, cfg)
+    slugs = [a.slug_part for a in arms]
+    builder.check(
+        "mapper_arms_are_distinct_chips_with_distinct_cache_slugs",
+        len(set(slugs)) == len(slugs),
+        {"n_arms": len(arms),
+         "arms": [{"key": a.key, "slug": a.slug_part,
+                   "datawidth_q_on": list(a.narrow_levels),
+                   "bandwidth_scale_on": [list(x) for x in a.bw_scale],
+                   "ert": list(a.ert) if a.ert else None,
+                   "members": list(a.members)} for a in arms],
+         "cache_state_per_arm": arm_states or {},
+         "rule": ("prompt_7 6.4: an arm is (datawidth: q) x (ERT bump) x (per-dataspace "
+                  "bandwidth scale). Two arms with byte-identical YAML sharing one "
+                  "directory is the failure prompt_6 RULE 4.4.5 exists to prevent.")})
+    # prompt_7 B1 gate 4: which plan each bar was billed from, and whether that
+    # plan's storage geometry is the bar's own.
+    builder.check(
+        "no_bar_is_billed_from_a_plan_of_a_different_geometry_when_one_exists",
+        all(b["geometry_matches"] or not b["candidates"]
+            for b in (billing or {}).values()),
+        {"per_bar": billing or {},
+         "rule": ("a plan is VALID for a bar only when it narrows exactly the levels "
+                  "the bar narrows: `datawidth: q` changes the words the loop nest "
+                  "moves, and no post-processing can re-tile a loop nest. A bar with "
+                  "NO valid plan on disk is reported `geometry_matches: false` with "
+                  "`candidates: []` -- prompt_7 6.2b, a chip that has never been "
+                  "mapped -- never silently.")})
+    # prompt_7 A2 x B1: once the bars stop sharing one plan, a bar can pass the
+    # latency ceiling -- which is computed on the REFERENCE plan's traffic and
+    # bounds the WEIGHT term only. That is legitimate ONLY if that bar's plan
+    # moves different ACTIVATION traffic off chip. A bar at x1.000 on both
+    # weights and activations that still beat the ceiling would be the roofline
+    # inventing time.
+    if lat and lat.get("rows"):
+        ref_c = float(lat["reference_cycles"] or 0.0)
+        cap = float(lat["ceiling"]["latency_ceiling_pct"])
+        offenders = []
+        for r in lat["rows"]:
+            gain = ((ref_c - r["cycles"]) / ref_c * 100.0) if ref_c else 0.0
+            if gain <= cap + LATENCY_CEILING_TOL_PP:
+                continue
+            wt = r.get("weight_items_vs_reference")
+            act = r.get("activation_items_vs_reference")
+            offenders.append({"bar": r["bar"], "plan": r.get("plan"),
+                              "gain_pct": gain, "ceiling_pct": cap,
+                              "weight_items_vs_reference": wt,
+                              "activation_items_vs_reference": act,
+                              "explained_by_a_different_plans_activation_traffic":
+                                  act is not None and abs(act - 1.0) > 1e-9})
+        builder.check(
+            "every_bar_past_the_latency_ceiling_is_explained_by_its_own_plans_traffic",
+            all(o["explained_by_a_different_plans_activation_traffic"] for o in offenders),
+            {"ceiling_pct": cap, "bars_past_it": offenders,
+             "rule": ("the ceiling is weight share x (1 - K/N) on the REFERENCE plan's "
+                      "off-chip traffic, so it bounds the WEIGHT term only. Since "
+                      "prompt_7 B1 a bar can be billed from a plan of its own, and a "
+                      "different plan moves a different amount of ACTIVATION traffic off "
+                      "chip. A bar past the ceiling at x1.000 on BOTH is the roofline "
+                      "inventing time.")})
     ref_macs = float((getattr(raw, "mac", None) or {}).get("macs", 0.0) or 0.0)
     dram_ref_emb = emb_components.get("DRAM", 0.0)
     dram_w_ref = float(raw.base_w.get("DRAM", 0.0))
@@ -1092,6 +1291,147 @@ def _report(cfg, arch, model, wpath, gran, packing, rows, base_total, emb_total,
           f"RULE 3)")
 
 
+def latency_table(cfg, raw, packing, plans=None):
+    """Re-time every bar of the placement study. prompt_7 Phase A, step A2.
+
+    ONE table, built from the same `Raw` records the energy bars are billed
+    from (prompt_6 RULE 4), so a bar's time and its energy come from the same
+    plan. The reference bars drive every weight bit off the die
+    (`weight_scale` 1.0); every reconstruction bar drives K/N of them, because
+    off chip the weights are a BIT stream. Returns None when the roofline is
+    off, so a caller prints nothing rather than a column of zeros.
+
+    R-1 travels with it: every placement's `reduced` set contains `dram`, so
+    once DRAM binds, the bars are EQUAL by construction and any difference
+    between them is the per-shape variation of the plans they were billed from,
+    not a property of the boundary.
+    """
+    if not getattr(cfg, "latency_model", False):
+        return None
+    # THE PLAN'S OWN SCALE, not an assumed 1.0 (prompt_7 C1.2): the reference
+    # plan was solved at full weight demand and re-times there; every arm's own
+    # plan was solved at K/N and re-times THERE, or this table reports plans
+    # their mappers never chose.
+    ref = latency_post.model_cycles(raw, cfg)
+    if ref is None:
+        return None
+    frac = packing.frac                     # K/N, this run's reduced fraction
+    rows = [{"bar": "baseline", "weight_scale": 1.0, **ref},
+            {"bar": "embedded", "weight_scale": 1.0, **ref}]
+    ref_t = latency_post.offchip_items(raw, weight_scale=1.0)
+    for key, (bar_raw, tag) in sorted((plans or {}).items()):
+        one = latency_post.model_cycles(bar_raw, cfg, weight_scale=frac)
+        # `frac` is an assertion here, not an instruction: `relief_owner`
+        # refuses if the bar's own plan was solved at a different code's scale.
+        if one is None:
+            continue
+        # THE CEILING IS THE REFERENCE PLAN'S OFF-CHIP TRAFFIC, and it bounds
+        # the WEIGHT term only. A bar billed from its own mapping is a
+        # different plan, and a different plan moves a different amount of
+        # ACTIVATION traffic off chip -- which the ceiling says nothing about.
+        # Measured on mobilenet_v2 (2026-09-12): recon2's own plan drives
+        # 30,508,939 activation items off chip against the reference plan's
+        # 31,042,059, at IDENTICAL weight reads, which is the whole of the
+        # 1.52 pp by which that bar passes the 4.32% ceiling. Before prompt_7
+        # B1 every bar shared one plan and this was unreachable; it has to be
+        # separable now or the table contradicts its own ceiling line.
+        t = latency_post.offchip_items(bar_raw, weight_scale=1.0)
+        rows.append({"bar": key, "plan": tag, "weight_scale": frac,
+                     "offchip_items": t,
+                     "offchip_items_reference": ref_t,
+                     "weight_items_vs_reference": (
+                         t["weight_items"] / ref_t["weight_items"]
+                         if ref_t["weight_items"] else None),
+                     "activation_items_vs_reference": (
+                         t["other_items"] / ref_t["other_items"]
+                         if ref_t["other_items"] else None),
+                     **one})
+    return {"rows": rows,
+            "reference_cycles": ref["cycles"],
+            "timeloop_cycles": raw.cycles,
+            "ceiling": latency_post.ceiling(raw, cfg, weight_scale=frac),
+            "ceiling_scope": (
+                "THE CEILING IS COMPUTED ON THE REFERENCE PLAN'S OFF-CHIP TRAFFIC AND "
+                "BOUNDS THE WEIGHT TERM ONLY. Since prompt_7 B1 a bar can be billed from "
+                "a plan of its own, and a different plan moves a different amount of "
+                "ACTIVATION traffic off chip -- which this ceiling says nothing about. A "
+                "bar past the ceiling is therefore a MAPPING difference, not a "
+                "reconstruction one, and the two are separable on every row: "
+                "`weight_items_vs_reference` is the reconstruction side and "
+                "`activation_items_vs_reference` the mapping side. A bar at 1.000 on BOTH "
+                "that still beats the ceiling would be a bug"),
+            "model": latency_post.describe(cfg),
+            "rule_R1": ("latency is FLAT across the boundaries by construction: "
+                        "every placement's `reduced` set contains `dram`, so "
+                        "every placement gets the same off-chip relief. A "
+                        "difference between two bars here is the per-shape "
+                        "variation of the plans they are billed from"),
+            "rule_R3": ("R3 = R2 BY CONSTRUCTION. Timeloop has no network "
+                        "timing model, so the INCREMENTAL benefit of the array "
+                        "multicast carrying reduced-width words is unmodelled "
+                        "-- not measured and found ineffective"),
+            # prompt_6 RULE 1, for the off-chip relief specifically. Before
+            # prompt_7 C1.2 the evaluator was always the owner, because no
+            # architecture declared a bandwidth scale and the mapper could not
+            # know a reconstruction arm moves K/N of the weight bits. Now the
+            # arm declares it, the mapper solves against the reduced demand,
+            # and applying `weight_scale` here as well would take the relief
+            # twice. `latency_post.relief_owner()` reads the answer off each
+            # bar's OWN stats (`Bandwidth Consumption Scale`) and refuses a
+            # third value -- it is measured, not assumed.
+            "plans_solved_at": sorted({o for r in rows
+                                       for o in (r.get("plans_solved_at") or [])})}
+
+
+def _report_latency(cfg, table):
+    """The latency table on the console, CEILING FIRST like every other result."""
+    if not table:
+        return
+    c = table["ceiling"]
+    t = c["offchip_items"]
+    print(f"\n    --- LATENCY (prompt_7 Phase A roofline, evaluator-only) ---")
+    print(f"    {table['model']}")
+    print(f"      off-chip items          : {t['total_items']:,.0f}  "
+          f"(weights {t['weight_items']:,.0f} = {t['weight_share'] * 100:.1f}%, "
+          f"inputs+outputs {t['other_items']:,.0f})")
+    print(f"      CEILING on any boundary : weight share {t['weight_share'] * 100:.1f}% "
+          f"x (1 - K/N) {c['one_minus_k_over_n']:.4f} = "
+          f"{c['latency_ceiling_pct']:.2f}%  <-- the most RECONSTRUCTION can save")
+    print(f"      (an UPPER bound, reached only when off-chip bandwidth binds on "
+          f"every layer; total time is max(compute, movement), not their sum. It is "
+          f"computed on the")
+    print(f"       REFERENCE plan's traffic and bounds the WEIGHT term only -- the "
+          f"`wt` and `act` columns below are each bar's own off-chip traffic against it)")
+    ref = table["reference_cycles"]
+    print(f"\n    {'bar':26s} {'cycles':>14s} {'ms':>10s} {'vs reference':>13s} "
+          f"{'wt':>7s} {'act':>7s} {'plan':>21s} {'binding':>12s}")
+    for r in table["rows"]:
+        gain = ((ref - r["cycles"]) / ref * 100.0) if ref else 0.0
+        binding = ", ".join(f"{k} x{v}" for k, v in
+                            sorted(r["binding_levels"].items(), key=lambda kv: -kv[1]))
+        over = " *" if gain > c["latency_ceiling_pct"] + LATENCY_CEILING_TOL_PP else ""
+        wt = r.get("weight_items_vs_reference")
+        act = r.get("activation_items_vs_reference")
+        print(f"    {r['bar'][:26]:26s} {r['cycles']:14,} {r['seconds'] * 1e3:10,.3f} "
+              f"{gain:11.2f}%{over:>2s} "
+              f"{('x%.3f' % wt) if wt else '      -':>7s} "
+              f"{('x%.3f' % act) if act else '      -':>7s} "
+              f"{str(r.get('plan', '-'))[:21]:>21s} {binding[:12]:>12s}")
+    if any(((ref - r["cycles"]) / ref * 100.0 if ref else 0.0)
+           > c["latency_ceiling_pct"] + LATENCY_CEILING_TOL_PP for r in table["rows"]):
+        print(f"    (* past the ceiling. The ceiling bounds the WEIGHT term on the "
+              f"REFERENCE plan's traffic; a bar billed from a plan of its own moves a "
+              f"different amount of ACTIVATION traffic off chip, which the ceiling says "
+              f"nothing about. `act` is that difference -- a MAPPING effect, not a "
+              f"reconstruction one. A row at x1.000 on both wt and act that still passed "
+              f"the ceiling would be a bug.)")
+    print(f"    (Timeloop's own count for the reference plan was "
+          f"{table['timeloop_cycles']:,} cycles; the roofline reproduces it "
+          f"EXACTLY at unlimited off-chip bandwidth)")
+    print(f"    R-1: {table['rule_R1']}")
+    print(f"    R-3: {table['rule_R3']}")
+
+
 def _report_narrowing(results):
     """RULE 1 on the console: per bar, per narrow storage stop, who narrowed
     it and from what measurement (prompt_6 10, item 2)."""
@@ -1146,7 +1486,6 @@ def evaluate(cfg, ses, prov, arch, model, raw):
     aware = bool(getattr(cfg, "recon_ert_aware", False))
     dil = (dilated_view(cfg, ses, arch, model, cats, raw)
            if (cfg.recon_optimizer and not aware) else None)
-    ert_keys = {p.key for p in reconmod.ert_arms(arch, cfg)} if aware else set()
     # the run-wide reference record for the lines that describe the run as a
     # whole (the per-bar plans are chosen below)
     p_raw = dil.raw if dil else raw
@@ -1180,18 +1519,75 @@ def evaluate(cfg, ses, prov, arch, model, raw):
     wanted = cfg.recon_placements_for(arch)
     placements = [p for p in reconmod.placements_for(arch, cfg)
                   if not wanted or p.key in wanted or p.variant in wanted]
-    views = {p.key: ert_aware_view(cfg, ses, arch, model, cats, raw, paths, p)
-             for p in placements if p.key in ert_keys}
+
+    # prompt_7 B1/B2: ONE MAPPING PER BOUNDARY. The arms are the DISTINCT CHIPS
+    # (`recon.mapper_arms`), not the ERT-injectable boundaries, so an arm with
+    # no mapping of its own is normal until Phase C. Each bar is billed from a
+    # NAMED plan whose storage geometry is its own wherever one exists
+    # (`recon.plan_assignment`), and says so on its record.
+    arms = reconmod.mapper_arms(arch, cfg) if aware else ()
+    arm_states, solved = {}, set()
+    for a in arms:
+        if a.placement is None:
+            continue
+        state, detail = arm_plan_state(cfg, ses, arch, model, a, list(paths))
+        arm_states[a.key] = dict(detail, state=state)
+        if state == "partial":
+            raise SystemExit(
+                f"{arch}/{a.key}: {detail['shapes_solved']} of {detail['shapes_wanted']} "
+                f"shapes are mapped for this arm.\n"
+                f"  cache: {detail['cache']}\n"
+                f"  missing: {', '.join(detail['missing'])}\n"
+                f"  A HALF-MAPPED ARM IS TWO CHIPS IN ONE BAR -- its own plan on some "
+                f"shapes and a borrowed one on the rest. Finish the maps "
+                f"(bash hpc/map_ert_arms.sh --no-eval) or remove the partial cache "
+                f"directory so the bar borrows a named plan instead.")
+        if state == "ready":
+            solved.add(a.key)
+    billing = reconmod.plan_assignment(arch, solved, cfg) if aware else {}
+    if aware and not solved:
+        raise SystemExit(
+            f"ECC_RECON_ERT_AWARE=1 on {arch}/{model}, and NOT ONE boundary has a mapping "
+            f"of its own: every bar would be the reference plan under a heading that says "
+            f"otherwise, which is Task 3.\n"
+            + "".join(f"  {k:<10} {v['state']:<8} {v['cache']}\n"
+                      for k, v in arm_states.items())
+            + f"  -> map them:  bash hpc/map_ert_arms.sh --no-eval")
+    views = {a.key: ert_aware_view(cfg, ses, arch, model, cats, raw, paths, a.placement)
+             for a in arms if a.key in solved}
+    if aware:
+        for p in placements:
+            b = billing[p.key]
+            mark = {"own": "OWN", "borrowed": "borrowed", "foreign": "FOREIGN"}[b["kind"]]
+            print(f"  [plan] {p.key:<8} {mark:<8} <- {b['arm']}: {b['why']}")
 
     def plan(p):
         """RULE 4: the (wpath, weight bill, bill, raw, cycles) THIS bar is billed
-        from -- its own ERT arm, the Task 4 dilated plan, or the reference."""
-        v = views.get(p.key)
-        if v is not None:
-            return v.wpath, v.base_w, v.base_series, v.raw, v.cycles, "own mapping (ERT)"
+        from -- its own arm's mapping, a named geometry-compatible arm's, the
+        Task 4 dilated plan, or the reference."""
+        b = billing.get(p.key)
+        if b is not None:
+            v = views.get(b["arm"])
+            if v is not None:
+                tag = ("own mapping (ERT)" if b["kind"] == "own"
+                       else f"{b['arm']}'s mapping (ERT)")
+                return v.wpath, v.base_w, v.base_series, v.raw, v.cycles, tag
+            return wpath, base_w, base_series, raw, wpath.cycles, "reference"
         if dil is not None:
             return dil.wpath, dil.base_w, dil.base_series, dil.raw, dil.wpath.cycles, "dilated"
         return wpath, base_w, base_series, raw, wpath.cycles, "reference"
+
+    def own_view(p):
+        """This bar's view ONLY when the bar IS the arm that was mapped.
+
+        A BORROWED bar must not be handed the lender's `split`: the split is
+        the lender's own encoder toll, moved out of the lender's own level, on
+        the lender's own counter. The borrower charges reconstruction on ITS
+        OWN site counter, read off the borrowed plan's stats -- which is what
+        makes the borrow a plan and not a bill.
+        """
+        b = billing.get(p.key)
+        return views.get(b["arm"]) if (b and b["kind"] == "own") else None
 
     results, plans = [], {}
     for p in placements:
@@ -1204,7 +1600,7 @@ def evaluate(cfg, ses, prov, arch, model, raw):
                     if (cfg.decode_enabled and cfg.recon_placement_charges_decode) else 0.0)
         # An ERT bar charges the WORDS Timeloop billed inside its own level
         # (`billed_weights`); every other bar charges Timeloop's scalar count.
-        v_p = views.get(p.key)
+        v_p = own_view(p)
         results.append(reconmod.evaluate_placement(
             cfg, arch, p, p_wpath, p_base_w, p_base_series, recon_pj, gran,
             packing, decode_pj=decode_p, recon_idle_pj=recon_idle_pj,
@@ -1212,12 +1608,42 @@ def evaluate(cfg, ses, prov, arch, model, raw):
             accesses_override=(v_p.split.get("billed_weights")
                                if v_p is not None else None)))
     # 5.3: what the evaluator charged as Reconstruction on an ERT bar must be
-    # exactly what was moved out of the level -- a split, not an addition.
+    # exactly what was moved out of the level -- A SPLIT, NOT AN ADDITION.
+    #
+    # THE RULE HAS TWO BRANCHES, and which one applies is a property of the
+    # BOUNDARY, not of the run (prompt_7 B2):
+    #
+    #   the arm HAS an ERT row   Timeloop was given the toll and billed it
+    #                            INSIDE the level, so the evaluator's charge
+    #                            must equal what was moved out. A split.
+    #   the arm has NONE         Timeloop was never given a toll, so the
+    #                            level's billed energy contains not one
+    #                            picojoule of encoder. The evaluator's charge
+    #                            is an ADDITION, and must be, because nothing
+    #                            else in the run has charged it. Moving
+    #                            anything out here would REMOVE energy the
+    #                            accelerator really spends.
+    #
+    # R1 and R3 on Eyeriss v1 are the second kind -- they are distinct chips by
+    # their declared bandwidth scale and their network stage, not by an encoder
+    # row -- and `ert_injectable()` is what decides. So the check below is not
+    # relaxed for them; it is INVERTED: the moved amount must be exactly ZERO.
     for res in results:
-        v = views.get(res.placement.key)
+        v = own_view(res.placement)
         if v is None or res.status != "evaluated":
             continue
         c = res.detail["reconstruction_counts"]
+        if v.split.get("no_bump"):
+            for name, moved in (("access", v.split["access_toll_pJ"]),
+                                ("leak", v.split["stats_side_leak_pJ"])):
+                if not _close(moved, 0.0, abs_tol=1e-6):
+                    raise SystemExit(
+                        f"{arch}/{res.placement.key}: this boundary declares NO ERT row "
+                        f"({v.split['why']}), so Timeloop billed no toll and nothing may "
+                        f"be moved out of its bill -- but the {name} split says "
+                        f"{moved:.6f} pJ was. Either the arm grew an ERT row or the "
+                        f"split is reading another arm's stats (prompt_6 5.3).")
+            continue
         for name, charged, moved in (
                 ("access", c["reconstruction_energy_incremental_pJ"], v.split["access_toll_pJ"]),
                 ("leak", c["reconstruction_energy_idle_pJ"], v.split["stats_side_leak_pJ"])):
@@ -1283,25 +1709,68 @@ def evaluate(cfg, ses, prov, arch, model, raw):
             continue
         counts = res.detail["reconstruction_counts"]
         bar_raw, bar_tag = plans[p.key]
-        v = views.get(p.key)
+        v = own_view(p)
         if aware:
-            bar_extra = ({"reconstruction_aware_mapping": ERT_NOTE, "plan": bar_tag,
-                          "ert_arm": {"bump": v.bump, "fingerprint": v.fingerprint,
-                                      "cache_variant": v.variant,
-                                      "loop_nest_identical_to_reference": v.nest_identical,
-                                      "per_shape_nest_identical": v.per_shape_nest_identical,
-                                      "attribution_split": v.split,
-                                      "capacity": v.capacity,
-                                      "guards_per_shape": v.checks["per_shape"],
-                                      "ert_read_back": v.read_back},
-                          "dram_weight_reads_reference": float(raw.dram_w_reads),
-                          "dram_weight_reads_this_arm": float(bar_raw.dram_w_reads),
-                          "cycles_reference": float(raw.cycles or 0),
-                          "cycles_this_arm": float(v.cycles)}
-                         if v is not None else
-                         {"plan": bar_tag, "fixed_mapping": FIXED_MAPPING_NOTE,
-                          "note": ("post-processed on the reference plan; this boundary "
-                                   "is not ERT-injectable (prompt_6 3.3)")})
+            # prompt_6 RULE 4 / prompt_7 B1: EVERY BAR NAMES THE PLAN IT WAS
+            # BILLED FROM, and whether that plan's storage geometry is its own.
+            # `reference` is only ever correct for R1, whose geometry IS the
+            # reference's; a bar on a plan that narrows different levels says so
+            # in `plan_geometry_matches: false` and carries the reason.
+            b = billing[p.key]
+            barm = next((a for a in arms if a.key == p.key), None)
+            lender = views.get(b["arm"])
+            bar_extra = {
+                "reconstruction_aware_mapping": ERT_NOTE,
+                "plan": bar_tag,
+                "billed_from": {
+                    "arm": b["arm"], "kind": b["kind"],
+                    "geometry_matches": b["geometry_matches"],
+                    "candidate_arms_with_this_geometry": b["candidates"],
+                    "why": b["why"],
+                    "this_bar_declares": {
+                        "datawidth_q_on": list(barm.narrow_levels) if barm else [],
+                        "bandwidth_scale_on": [list(x) for x in (barm.bw_scale if barm else ())],
+                        "ert_bump": list(barm.ert) if (barm and barm.ert) else None},
+                    "this_arms_own_cache": arm_states.get(p.key),
+                    "lender_fingerprint": lender.fingerprint if lender is not None else None,
+                    "lender_cache_variant": lender.variant if lender is not None else None},
+                "dram_weight_reads_reference": float(raw.dram_w_reads),
+                "dram_weight_reads_this_arm": float(bar_raw.dram_w_reads),
+                "cycles_reference": float(raw.cycles or 0),
+                "cycles_this_arm": float(bar_raw.cycles or 0)}
+            if v is not None:
+                bar_extra["ert_arm"] = {
+                    "bump": v.bump, "fingerprint": v.fingerprint,
+                    "cache_variant": v.variant,
+                    "loop_nest_identical_to_reference": v.nest_identical,
+                    "per_shape_nest_identical": v.per_shape_nest_identical,
+                    "attribution_split": v.split,
+                    "capacity": v.capacity,
+                    "guards_per_shape": v.checks["per_shape"],
+                    "ert_read_back": v.read_back}
+                bar_extra["cycles_this_arm"] = float(v.cycles)
+            elif b["kind"] == "borrowed" and b["arm"] == "reference":
+                bar_extra["fixed_mapping"] = FIXED_MAPPING_NOTE
+                bar_extra["note"] = (
+                    "post-processed on the reference plan, which is the RIGHT plan for this "
+                    "bar: it narrows nothing on chip, so its storage geometry is the "
+                    "reference's. Only the off-chip bandwidth scale separates the two, and "
+                    "that changes the throttling check, not the energy.")
+            elif b["kind"] == "borrowed":
+                bar_extra["note"] = (
+                    f"post-processed on {b['arm']}'s plan, which narrows the SAME storage "
+                    f"levels this bar does. {b['arm']}'s own encoder toll was moved out of "
+                    f"the bill before this bar was billed from it, so this bar pays the "
+                    f"un-bumped price of the shared geometry and its own reconstruction "
+                    f"term on its own site counter.")
+            else:
+                bar_extra["fixed_mapping"] = FIXED_MAPPING_NOTE
+                bar_extra["note"] = (
+                    f"post-processed on the REFERENCE plan, whose storage geometry is not "
+                    f"this bar's (prompt_7 6.2b: a chip that has never been mapped). The "
+                    f"energy is right for a chip whose loop nest was chosen without knowing "
+                    f"the level is narrower; what it cannot show is a plan that uses the "
+                    f"capacity that narrowing frees.")
             bar_ids = audit.mapping_ids_of(bar_raw)
         else:
             bar_extra = None
@@ -1344,10 +1813,14 @@ def evaluate(cfg, ses, prov, arch, model, raw):
     # reads, so it legitimately pays less array energy. Task 4 therefore
     # replaces that check with a tighter one -- the array credit must equal
     # exactly the reads the mapper removed, and not a picojoule more.
+    # prompt_7 A2: ONE latency table, computed once and reused by the checks,
+    # the result file and the console -- three copies could disagree.
+    lat = latency_table(cfg, raw, packing, plans)
     if aware:
         ert_checks(builder, cfg, arch, raw, views, results, base_components,
                    emb_components, e_parity, pricing,
-                   newly_mapped=getattr(mapper, "n_mapped", 0))
+                   newly_mapped=getattr(mapper, "n_mapped", 0),
+                   billing=billing, arm_states=arm_states, lat=lat)
     elif dil:
         task4_checks(builder, cfg, arch, raw, dil, base_components,
                      emb_components, e_parity, results, wpath, base_w,
@@ -1364,16 +1837,29 @@ def evaluate(cfg, ses, prov, arch, model, raw):
     builder.approximate(CODEC_NOTE)
     if aware:
         builder.approximate(ERT_NOTE)
-        own = sorted(views)
-        rest = [p.key for p in placements if p.key not in views]
+        own = [p.key for p in placements if billing[p.key]["kind"] == "own"]
+        lent = [f"{p.key} <- {billing[p.key]['arm']}" for p in placements
+                if billing[p.key]["kind"] == "borrowed"]
+        foreign = [p.key for p in placements if billing[p.key]["kind"] == "foreign"]
         builder.warn(
-            f"TWO MAPPING REGIMES ON ONE FIGURE: {', '.join(own) or 'none'} come from "
-            f"their own mapping (encoder toll in the ERT); {', '.join(rest) or 'none'} "
-            f"are post-processed on the reference plan. Each ERT bar's loop-nest "
-            f"verdict is recorded on its own: "
+            f"ONE PLAN PER BAR, AND EVERY BAR NAMES ITS OWN (prompt_6 RULE 4, prompt_7 B1). "
+            f"From their OWN mapping, encoder toll in the ERT: {', '.join(own) or 'none'}. "
+            f"From a NAMED plan that narrows the same storage levels: "
+            f"{', '.join(lent) or 'none'}. "
+            f"On the reference plan although it narrows DIFFERENT levels -- a chip that has "
+            f"never been mapped, prompt_7 6.2b: {', '.join(foreign) or 'none'}. "
+            f"Each mapped arm's loop-nest verdict is recorded on its own: "
             + "; ".join(f"{k}: " + ("IDENTICAL to the reference -- the ERT changed nothing "
                                     "for this arm" if v.nest_identical else "CHANGED")
                         for k, v in views.items()))
+        if foreign:
+            builder.warn(
+                f"A CHIP THAT HAS NEVER BEEN MAPPED is on this figure: "
+                f"{', '.join(foreign)}. Its `reduced` set narrows storage levels no solved "
+                f"arm narrows, so no plan on disk knows the capacity that narrowing frees "
+                f"and no post-processing can re-tile a loop nest to use it. The energy is a "
+                f"valid number for the reference loop nest; it is NOT that chip's own "
+                f"mapping. -> bash hpc/map_ert_arms.sh (prompt_7 Phase C).")
     if dil:
         builder.approximate(TASK4_NOTE)
         builder.approximate(dil.correction.get("provenance", ""))
@@ -1474,14 +1960,35 @@ def evaluate(cfg, ses, prov, arch, model, raw):
                 for p in reconmod.placements_for(arch, cfg)],
             "placements_requested": wanted or "all",
         })
+    # prompt_7 Phase A. Recorded whether or not the roofline ran: `standby`
+    # always says who was charged, and a `latency_model` of None says plainly
+    # that time was not modelled, which is the thing Defect 1 is about.
+    builder.set_detail(
+        standby_energy=getattr(raw, "standby", None),
+        latency_model=(lat
+                       if cfg.latency_model else
+                       {"enabled": False,
+                        "reason": ("ECC_LATENCY_MODEL=0: cycles are Timeloop's "
+                                   "own, off-chip traffic costs none of them, "
+                                   "and `datawidth: q` changes no cycle at all "
+                                   "-- a 0.00% latency gain here is an ABSENT "
+                                   "TERM, never a result (prompt_7 Defect 1)")}))
 
     _report(cfg, arch, model, wpath, gran, packing, rows, base_total, emb_total,
             raw=raw)
+    # prompt_7 Phase A, A2: the latency table, from each bar's OWN plan
+    _report_latency(cfg, lat)
     _report_narrowing(results)
     path = builder.write()
     print(f"    -> {path}")
     return {"path": path, "rows": rows, "results": results, "wpath": wpath,
-            "views": views, "ert_bars": set(views),
+            "views": views, "ert_bars": set(views), "billing": billing,
+            "arm_states": arm_states,
+            "mapper_arms": [{"key": a.key, "slug": a.slug_part,
+                             "narrow_levels": list(a.narrow_levels),
+                             "bandwidth_scale": [list(x) for x in a.bw_scale],
+                             "ert": list(a.ert) if a.ert else None,
+                             "members": list(a.members)} for a in arms],
             "base_components": base_components, "emb_components": emb_components,
             "base_total": base_total, "emb_total": emb_total,
             # the WEIGHT share of each plotted category, straight off the `Raw`
@@ -1952,9 +2459,16 @@ def panel_for(cfg, arch, model, out):
             lines.append(f"{sign}{abs(moved) / 1e6:,.2f} \u00b5J on chip")
         if recon:
             lines.append(f"+{recon / 1e6:,.2f} \u00b5J recon")
+        bill = (out.get("billing") or {}).get(key)
         if key in out.get("ert_bars", ()):
             # prompt_6 9: mark which bars came from their own mapping
             lines.append("own mapping (ERT)")
+        elif bill is not None:
+            # prompt_7 B1: a bar that did NOT come from its own mapping names
+            # the plan it did come from, ON THE PIXELS. A figure gets separated
+            # from its manifest the moment it is dropped into a slide, and
+            # "which chip is this bar" is not recoverable from the bar.
+            lines.append(f"{bill['arm']}'s plan")
         if lines:
             notes[key] = "\n".join(lines)
 
@@ -2307,10 +2821,17 @@ def run(cfg):
         views = outs[arch].get("views") or {}
         if not views:
             continue
-        rest = [r["key"] for r in outs[arch]["rows"] if r["key"] not in views]
-        print(f"  prompt_6, {cfg.arch_label(arch).replace(chr(10), ' ')}: TWO MAPPING REGIMES "
-              f"on this panel -- {', '.join(sorted(views))} from their OWN mapping "
-              f"(marked 'own mapping (ERT)'); {', '.join(rest)} on the reference plan.")
+        billing = outs[arch].get("billing") or {}
+        print(f"  prompt_7 B1, {cfg.arch_label(arch).replace(chr(10), ' ')}: ONE PLAN PER "
+              f"BAR on this panel, and every bar names it --")
+        for r in outs[arch]["rows"]:
+            b = billing.get(r["key"])
+            if b is None:
+                continue
+            mark = {"own": "OWN mapping (ERT)", "borrowed": "plan borrowed",
+                    "foreign": "FOREIGN plan"}[b["kind"]]
+            print(f"    {r['key']:<8} {mark:<18} <- {b['arm']:<10} "
+                  f"geometry {'matches' if b['geometry_matches'] else 'DOES NOT MATCH'}")
         for key, v in views.items():
             verdict = ("IDENTICAL to the reference -- the ERT changed nothing for this arm"
                        if v.nest_identical else "DIFFERENT from the reference")

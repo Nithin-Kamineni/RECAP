@@ -220,7 +220,16 @@ def spatial_containers(text):
 
 
 _STORAGE_CLASSES = {"DRAM", "SRAM", "regfile", "storage", "smartbuffer_SRAM",
+                    "smartbuffer_SRAM_banked",
                     "smartbuffer_RF", "smartbuffer_RF_decoded"}
+
+#: prompt_7 C1.7. The upstream `smartbuffer_SRAM` compound declares no
+#: `n_banks`, so the bank count every architecture in this study writes down --
+#: 13 and 12 on the Eyeriss v1 GLB, 48/64/16 on v2, 16 on the simple designs --
+#: never reached the `SRAM` primitive and CACTI modelled ONE monolithic array.
+#: `archs/_shared/components/smartbuffer_SRAM_banked.yaml` forwards it.
+BANKED_SRAM_CLASS = "smartbuffer_SRAM_banked"
+PLAIN_SRAM_CLASS = "smartbuffer_SRAM"
 
 
 def _node_blocks(lines):
@@ -513,7 +522,7 @@ def _force_datawidth(text, bits, arch="?"):
     # split into "- !Node" blocks, keeping the delimiters so the text rebuilds
     parts = re.split(r"(\n\s*-\s*!)", text)
     for part in parts:
-        m = re.search(r"\bdatawidth:\s*(\d+)", part)
+        m = re.search(r"\bdatawidth:\s*(\d+)", uncommented(part))
         if not m:
             out.append(part)
             continue
@@ -521,7 +530,7 @@ def _force_datawidth(text, bits, arch="?"):
         name = name.group(1) if name else "?"
         keep = re.search(r"keep:\s*\[([^\]]*)\]", part)
         keep = [s.strip() for s in keep.group(1).split(",")] if keep else []
-        width = re.search(r"\bwidth:\s*(\d+)", part)
+        width = re.search(r"\bwidth:\s*(\d+)", uncommented(part))
         width = int(width.group(1)) if width else None
 
         if keep == ["Outputs"]:
@@ -575,7 +584,7 @@ def _force_acc_bits(text, bits, arch="?", quiet=False):
             touched.append("mac.adder_width")
             out.append(part)
             continue
-        if not re.search(r"\bdatawidth:\s*(\d+)", part):
+        if not re.search(r"\bdatawidth:\s*(\d+)", uncommented(part)):
             out.append(part)
             continue
         name = re.search(r"name:\s*(\S+)", part)
@@ -589,7 +598,7 @@ def _force_acc_bits(text, bits, arch="?", quiet=False):
             skipped.append(f"{name} (declared requantized, not a psum level)")
             out.append(part)
             continue
-        width = re.search(r"\bwidth:\s*(\d+)", part)
+        width = re.search(r"\bwidth:\s*(\d+)", uncommented(part))
         if width:
             old_w = int(width.group(1))
             new_w = max(bits, -(-old_w // bits) * bits)
@@ -610,12 +619,15 @@ def _force_acc_bits(text, bits, arch="?", quiet=False):
 #: `exclusive` only rewrites a level whose `keep:` list is Weights and nothing
 #: else, so the extra capacity can only be spent on weights -- which is what
 #: the reduced representation actually buys. `shared` also rewrites a level
-#: that holds Weights ALONGSIDE another dataspace (`simple_weight_stationary`'s
-#: `operand_glb` keeps Inputs and Weights): Timeloop has one capacity per
-#: level, so dilating it hands the mapper extra INPUT capacity for free, which
-#: reconstruction does not pay for. The two are an upper and a lower bound on
-#: one design and are quoted as a pair, the same rule CLAUDE.md sets for the
-#: eyeriss `_wglb` variants.
+#: that holds Weights ALONGSIDE another dataspace (`simple_output_stationary`'s
+#: and `simple_input_stationary`'s `operand_glb` keep Inputs and Weights):
+#: Timeloop has one capacity per level, so dilating it hands the mapper extra
+#: INPUT capacity for free, which reconstruction does not pay for. The two are
+#: an upper and a lower bound on one design and are quoted as a pair, the same
+#: rule CLAUDE.md sets for the eyeriss `_wglb` variants.
+#: `simple_weight_stationary` LEFT THAT SET on 2026-09-13: its operand half is
+#: now `input_glb` + a Weights-only `weight_glb`, so both scopes give it the
+#: same answer and its bracket has collapsed to a point.
 WEIGHT_CAPACITY_SCOPES = ("exclusive", "shared")
 
 
@@ -667,17 +679,18 @@ def _scale_weight_capacity(text, scale, scope="exclusive", arch="?", quiet=False
     parts = re.split(r"(\n\s*-\s*!)", text)
     out = []
     for part in parts:
-        depth = re.search(r"\bdepth:\s*(\d+)", part)
+        bare = uncommented(part)           # see `uncommented()`: a `depth:` in
+        depth = re.search(r"\bdepth:\s*(\d+)", bare)   # a COMMENT is prose
         if not depth:
             out.append(part)
             continue
-        name = re.search(r"name:\s*(\S+)", part)
+        name = re.search(r"name:\s*(\S+)", bare)
         name = name.group(1) if name else "?"
-        keep = re.search(r"keep:\s*\[([^\]]*)\]", part)
+        keep = re.search(r"keep:\s*\[([^\]]*)\]", bare)
         keep = [s.strip() for s in keep.group(1).split(",") if s.strip()] if keep else []
         d = int(depth.group(1))
 
-        if "class: DRAM" in part or name == "DRAM":
+        if "class: DRAM" in bare or name == "DRAM":
             out.append(part)               # never a candidate; not on-chip
             continue
         if "Weights" not in keep:
@@ -701,7 +714,7 @@ def _scale_weight_capacity(text, scale, scope="exclusive", arch="?", quiet=False
             skipped.append(f"{name} (depth {d} x {scale:g} rounds back to {d})")
             out.append(part)
             continue
-        part = re.sub(r"\bdepth:\s*\d+", f"depth: {nd}", part, count=1)
+        part = write_attr(part, "depth", nd)
         touched.append(f"{name} {d}->{nd}")
         out.append(part)
 
@@ -712,6 +725,53 @@ def _scale_weight_capacity(text, scale, scope="exclusive", arch="?", quiet=False
             note += "; skipped " + "; ".join(skipped)
         print(note)
     return "".join(out)
+
+
+#: A `#` comment, to the end of its line.
+_COMMENT_RE = re.compile(r"#[^\n]*")
+
+
+def uncommented(text):
+    """`text` with every `#` comment blanked to spaces, POSITIONS PRESERVED.
+
+    THE BUG THIS EXISTS FOR (found 2026-09-13, prompt_7 C1, on a real SLURM
+    run). Every geometry regex in this module is `re.search(r"\bdepth:\s*(\d+)",
+    part)` against the raw text, so it matches a `depth:` written in a COMMENT
+    just as readily as the attribute -- and `re.sub(..., count=1)` then rewrites
+    THE COMMENT and leaves the attribute alone.
+
+    It fired the moment a comment was added that names a geometry it is NOT
+    declaring: `# the paper's two banks of 512 x 64b would be `depth: 1024``
+    made `_set_weight_geometry` read 1024 instead of 256, renormalise to 171,
+    write "171" into the comment, and leave `depth: 256` beside the new
+    `width: 384` -- 98,304 bits where 16,512 were intended, a SIX-FOLD capacity
+    error with nothing on stdout to say so. The run's own log printed
+    `filter_glb 1024x64b/8b -> 171x384b/8b`, which is the only reason it was
+    caught.
+
+    Blanking rather than deleting keeps every match span valid against the
+    ORIGINAL string, so a caller can search the masked copy and splice into the
+    real one.
+    """
+    return _COMMENT_RE.sub(lambda m: " " * len(m.group(0)), text)
+
+
+def read_attr(text, key):
+    """The integer value of `key:` in `text`, ignoring comments. None if absent."""
+    m = re.search(rf"\b{re.escape(key)}:\s*(\d+)", uncommented(text))
+    return int(m.group(1)) if m else None
+
+
+def write_attr(text, key, value):
+    """Replace the first UNCOMMENTED `key: <int>` in `text`. Returns the new text.
+
+    Raises if there is none: a geometry rewrite that lands on nothing is the
+    silent half of the bug `uncommented()` documents.
+    """
+    m = re.search(rf"\b{re.escape(key)}:\s*(\d+)", uncommented(text))
+    if not m:
+        raise ValueError(f"no uncommented `{key}:` to rewrite in:\n{text[:300]}")
+    return text[:m.start(1)] + str(value) + text[m.end(1):]
 
 
 def _weight_level_parts(text, scope="exclusive"):
@@ -726,15 +786,20 @@ def _weight_level_parts(text, scope="exclusive"):
     Yields `(part, name, is_weight_level, why_not)`.
     """
     for part in re.split(r"(\n\s*-\s*!)", text):
-        depth = re.search(r"\bdepth:\s*(\d+)", part)
-        name = re.search(r"name:\s*(\S+)", part)
+        # COMMENT-BLIND REGEXES ARE HOW A COMMENT BECAME THE GEOMETRY
+        # (`uncommented()`): every read below is against the masked copy, and
+        # `_set_weight_geometry` writes through `write_attr()` for the same
+        # reason.
+        bare = uncommented(part)
+        depth = re.search(r"\bdepth:\s*(\d+)", bare)
+        name = re.search(r"name:\s*(\S+)", bare)
         name = name.group(1) if name else "?"
         if not depth:
             yield part, name, False, None
             continue
-        keep = re.search(r"keep:\s*\[([^\]]*)\]", part)
+        keep = re.search(r"keep:\s*\[([^\]]*)\]", bare)
         keep = [s.strip() for s in keep.group(1).split(",") if s.strip()] if keep else []
-        if "class: DRAM" in part or name == "DRAM":
+        if "class: DRAM" in bare or name == "DRAM":
             # DRAM `datawidth` STAYS 8 ON EVERY ARM. `recon.py` owns the DRAM
             # K/N scaling in the evaluator; narrowing DRAM in the YAML too
             # would charge the same reduction twice (prompt_2, BEFORE ANY
@@ -829,12 +894,15 @@ def _set_weight_geometry(text, bits, levels=(), glb_mult=4, scope="exclusive",
                 skipped.append(why_not)
             out.append(part)
             continue
-        w = re.search(r"\bwidth:\s*(\d+)", part)
-        d = re.search(r"\bdepth:\s*(\d+)", part)
-        dw = re.search(r"\bdatawidth:\s*(\d+)", part)
-        if not w or not dw:
+        # READ OFF THE COMMENT-MASKED COPY. A `width:` or `depth:` written in
+        # a comment is prose, not a declaration -- see `uncommented()` for the
+        # six-fold capacity error that taught this.
+        w0 = read_attr(part, "width")
+        d0 = read_attr(part, "depth")
+        dw0 = read_attr(part, "datawidth")
+        if w0 is None or dw0 is None:
             skipped.append(f"{name} declares no "
-                           + ("width:" if not w else "datawidth:"))
+                           + ("width:" if w0 is None else "datawidth:"))
             out.append(part)
             continue
         # WHICH datawidth this level ends up storing -- the arm's q only where
@@ -843,7 +911,6 @@ def _set_weight_geometry(text, bits, levels=(), glb_mult=4, scope="exclusive",
         q = int(bits) if narrowed else int(weight_bits)
         is_spad = name == spad
         want_w = code_widths.level_width(q, is_spad, glb_mult, weight_bits)
-        w0, d0, dw0 = int(w.group(1)), int(d.group(1)), int(dw.group(1))
         want_d = code_widths.renormalised_depth(d0, w0, is_spad, glb_mult,
                                                 weight_bits)
         if want_w % q != 0:                      # unreachable; a guard, not a path
@@ -854,9 +921,12 @@ def _set_weight_geometry(text, bits, levels=(), glb_mult=4, scope="exclusive",
             skipped.append(f"{name} already declares {d0}x{w0}b/{dw0}b")
             out.append(part)
             continue
-        part = re.sub(r"\bwidth:\s*\d+", f"width: {want_w}", part, count=1)
-        part = re.sub(r"\bdepth:\s*\d+", f"depth: {want_d}", part, count=1)
-        part = re.sub(r"\bdatawidth:\s*\d+", f"datawidth: {q}", part, count=1)
+        # WRITE THROUGH `write_attr`, which finds the attribute on the masked
+        # copy and splices into the real text -- `re.sub(..., count=1)` here
+        # rewrote a COMMENT and left the attribute alone.
+        part = write_attr(part, "width", want_w)
+        part = write_attr(part, "depth", want_d)
+        part = write_attr(part, "datawidth", q)
         touched.append(
             f"{name} {d0}x{w0}b/{dw0}b -> {want_d}x{want_w}b/{q}b "
             f"({want_w // q} weights/word, {d0 * w0:,} -> {want_d * want_w:,} bits)"
@@ -921,14 +991,14 @@ def _scale_weight_depth(text, scale, levels=(), scope="exclusive", arch="?",
             skipped.append(f"{name} (not in ECC_WEIGHT_DEPTH_LEVELS)")
             out.append(part)
             continue
-        d = int(re.search(r"\bdepth:\s*(\d+)", part).group(1))
+        d = read_attr(part, "depth")
         nd = max(1, int(round(d * scale)))
         if nd == d:
             skipped.append(f"{name} (depth {d} x {scale:g} rounds back to {d})")
             out.append(part)
             continue
         touched.append(f"{name} {d}->{nd}")
-        out.append(re.sub(r"\bdepth:\s*\d+", f"depth: {nd}", part, count=1))
+        out.append(write_attr(part, "depth", nd))
     unknown = want - seen
     if unknown:
         raise ValueError(
@@ -950,6 +1020,274 @@ def _scale_weight_depth(text, scale, levels=(), scope="exclusive", arch="?",
 #: on N, P or Q does not (weights do not index them) and is left alone, so the
 #: activation and partial-sum structure of the dataflow is untouched.
 WEIGHT_DIMENSIONS = ("M", "C", "R", "S")
+
+
+# ---------------------------------------- prompt_7 Phase C: TIME in the MAPPER
+def _component_attr_lines(text):
+    """`{component name: (attributes-line index, attribute indent)}`.
+
+    One reader for every Phase C patch below, so `read_bandwidth`, the
+    bandwidth scale and the bank geometry can never disagree about which
+    component they are editing. A component that declares no `attributes:`
+    block is absent from the map, and the caller refuses rather than inventing
+    one -- a level with no attributes is a level with no geometry, which is not
+    something this study has.
+    """
+    lines = text.split("\n")
+    out = {}
+    for b in _node_blocks(lines):
+        if b["kind"] != "Component" or b["name"] is None or b["attr"] is None:
+            continue
+        out[b["name"]] = (b["attr"], b["ind"] + 4)
+    return out
+
+
+def _insert_attributes(text, additions, arch="?"):
+    """Add attribute lines to named components. `additions` = {name: [lines]}.
+
+    Lines go DIRECTLY under the component's `attributes:` key, indented to
+    match it, and each carries its own trailing comment. A name the file does
+    not have is an ERROR: these attributes are what makes one mapper arm a
+    different chip from another, and one that silently failed to land would be
+    two arms sharing one architecture under two directory names -- exactly the
+    failure prompt_6 RULE 4.4.5 exists to prevent.
+    """
+    if not additions:
+        return text
+    where = _component_attr_lines(text)
+    missing = [n for n in additions if n not in where]
+    if missing:
+        raise ValueError(
+            f"{arch}: no component with an `attributes:` block called "
+            f"{', '.join(sorted(missing))}; the file has "
+            f"{', '.join(sorted(where)) or 'none'}. Refusing rather than "
+            f"dropping a declaration that separates two mapper arms.")
+    at = {where[n][0]: (where[n][1], additions[n]) for n in additions}
+    lines, out = text.split("\n"), []
+    for idx, line in enumerate(lines):
+        out.append(line)
+        if idx in at:
+            ind, add = at[idx]
+            out.extend(" " * ind + a for a in add)
+    return "\n".join(out)
+
+
+def _declare_dram_bandwidth(text, items_per_cycle, arch="?", quiet=False):
+    """prompt_7 C1.1: give the DRAM level the off-chip speed limit THE MAPPER
+    READS.
+
+    Until this landed no architecture in `archs/` declared an off-chip
+    bandwidth at all, so Timeloop skipped the DRAM throughput check entirely
+    (`buffer.cpp:2575` gates on `IsSpecified()`), off-chip traffic cost ZERO
+    cycles, and the search optimised a machine with an infinitely fast memory.
+    That is prompt_7's Defect 1, and it is why a reconstruction arm's K/N
+    traffic saving could never appear as latency.
+
+    `shared_bandwidth`, NOT `read_bandwidth` + `write_bandwidth`. The DQ bus is
+    one wire set that reads and writes take turns on, so the limit is on their
+    SUM -- which is exactly the term `latency_post.roofline()` already charges
+    (`offchip_limit / (d_r + d_w)`). Declaring the two directions separately
+    would let Timeloop deliver 2x this number while the evaluator capped it at
+    1x: two timing models for one bus, and one of them wrong.
+
+    UNITS ARE ITEMS PER CYCLE of THIS design's clock. `config` owns the
+    conversion from MB/s (`dram_items_per_cycle_for`), so the number here and
+    the number the roofline uses have one source.
+
+    MEASURED CONSEQUENCE (prompt_7 7.2, 12 real mapper searches): with a
+    binding limit the mapper picks a DIFFERENT plan on both test shapes -- one
+    of them spends parallelism to comply, folding onto 96 of 168 PEs. At
+    LPDDR4-3200 the limit never binds and nothing moves.
+    """
+    if items_per_cycle is None:
+        return text
+    add = [f"shared_bandwidth: {items_per_cycle:.6g}   # items/cycle: "
+           f"ECC_DRAM_BANDWIDTH_MBPS at this design's own clock",
+           "                     # ONE bus -- reads and writes share it, which is",
+           "                     # the term latency_post.roofline() charges."]
+    out = _insert_attributes(text, {"DRAM": add}, arch)
+    if not quiet and arch:
+        print(f"  [off-chip] {arch}: DRAM shared_bandwidth "
+              f"{items_per_cycle:.6g} items/cycle")
+    return out
+
+
+def _declare_bw_scale(text, factors, arch="?", quiet=False):
+    """prompt_7 C1.2: `per_dataspace_bandwidth_consumption_scale` on every
+    stage of this arm's boundary.
+
+    Timeloop multiplies ONE dataspace's bandwidth demand by the factor
+    (`buffer.cpp:2556`); timeloopfe v4 declares the attribute
+    (`arch.py:538`) and every stats file prints `Bandwidth Consumption Scale`,
+    so a version that ignored it would be visible on disk. Measured on fixed
+    mappings with off-chip bandwidth binding: -17.28% and -21.94% cycles, with
+    dynamic energy BIT-IDENTICAL (prompt_7 A.2) -- it is a timing declaration
+    and nothing else.
+
+    THE FACTOR IS PER STAGE and `recon.arm_bw_factors()` derives it: `K/N` at
+    DRAM, where the weights are a bit stream, and `q/8` on chip, where a level
+    holds whole weights in a narrower word. Using one everywhere is a 5%
+    silent inconsistency with `ECC_RECON_PACKING`, not a rounding choice.
+
+    NETWORK STAGES ARE SKIPPED HERE AND ONLY HERE. They are part of what the
+    arm DECLARES (`recon.arm_bw_scale`, which is what makes R3 a different
+    chip from R2), but `LegacyNetwork::ComputePerformance()` is an empty stub
+    and there is no YAML component to attach an attribute to. Reporting rule
+    R-3 is that fact, written down.
+    """
+    timed = {lvl: f for lvl, f in (factors or {}).items()
+             if f["kind"] in ("dram", "storage")}
+    if not timed:
+        return text
+    add = {}
+    for lvl, f in timed.items():
+        add[lvl] = [f"per_dataspace_bandwidth_consumption_scale: "
+                    f"{{{f['dataspace']}: {f['factor']:.6f}}}   # {f['why']}"]
+    out = _insert_attributes(text, add, arch)
+    if not quiet and arch:
+        print("  [bw-scale] " + arch + ": "
+              + ", ".join(f"{lvl} {f['dataspace']} x{f['factor']:.6f}"
+                          for lvl, f in timed.items())
+              + (("; declared but NOT timed (no network speed model, "
+                  "reporting rule R-3): "
+                  + ", ".join(lvl for lvl, f in factors.items()
+                              if f["kind"] == "network"))
+                 if any(f["kind"] == "network" for f in factors.values()) else ""))
+    return out
+
+
+def _bitaware_onchip_bandwidth(text, levels, factor, arch="?", quiet=False):
+    """prompt_7 C1.3: a narrowed level's declared port, priced in BITS.
+
+    Timeloop's throughput check counts ITEMS per cycle and a narrow weight is
+    still one item, so `datawidth: q` alone is invisible to the clock. A real
+    port moves BITS: a level storing `q`-bit weights delivers `8/q` times as
+    many of them per cycle through the same wires, and THAT is what the
+    architecture has to say for the mapper to see it.
+
+    WHERE IT LANDS. `filter_glb`'s declared `read_bandwidth: 16` is literally
+    what caps every fully-connected layer at 9.52% PE utilisation -- 16 of 168
+    PEs, measured on resnet18 `fc` and mobilenet `classifier.1`, where a
+    32-PE candidate was rejected because it would have throttled (prompt_7
+    4.5, A.7). Those layers are 0.28% / 2.10% of their models' cycles, so the
+    aggregate CNN effect is ~0.1-1%; on a batch-1 transformer every layer is
+    that layer (Phase D).
+
+    ONLY THE LEVELS THE ARM NARROWS. A level still storing 8-bit weights moves
+    the same bits per cycle it always did, and raising its port would be a
+    free architecture change credited to the code.
+    """
+    if not levels or factor == 1.0:
+        return text
+    # DRAM IS NEVER BIT-AWARE. `recon.py` owns the DRAM K/N term and C1.2
+    # declares it as a bandwidth SCALE; raising the off-chip limit by 8/q as
+    # well would charge one reduction twice -- the same trap
+    # `_weight_level_parts` records for `datawidth`. Unreachable today
+    # (`arm_narrow_levels` keeps only storage stages), which is exactly when a
+    # guard is cheap.
+    offchip = [n for n in levels if "dram" in n.lower()]
+    if offchip:
+        raise ValueError(
+            f"{arch}: ECC_ONCHIP_BW_BITAWARE reached {', '.join(offchip)}. The "
+            f"off-chip limit is ONE bus carrying a bit stream and its relief is "
+            f"already declared as per_dataspace_bandwidth_consumption_scale "
+            f"(prompt_7 C1.2); scaling it by 8/q as well would charge the "
+            f"reduced representation twice.")
+    where = _component_attr_lines(text)
+    missing = [n for n in levels if n not in where]
+    if missing:
+        raise ValueError(f"{arch}: cannot make {', '.join(missing)} bit-aware; "
+                         f"no such component with attributes")
+    lines, out, touched = text.split("\n"), [], []
+    current = None
+    starts = {idx: name for name, (idx, _ind) in where.items()}
+    for idx, line in enumerate(lines):
+        if idx in starts:
+            current = starts[idx]
+        m = re.match(r"^(\s*)(read_bandwidth|write_bandwidth|shared_bandwidth):"
+                     r"\s*([\d.eE+-]+)(.*)$", line)
+        if m and current in levels:
+            ind, key, val, rest = m.groups()
+            new = float(val) * factor
+            out.append(f"{ind}{key}: {new:.6g}"
+                       f"   # x{factor:g} = 8/q: this level stores q-bit weights "
+                       f"(was {val}){rest}")
+            touched.append(f"{current}.{key} {val} -> {new:.6g}")
+            continue
+        out.append(line)
+    if not touched:
+        raise ValueError(
+            f"{arch}: ECC_ONCHIP_BW_BITAWARE is on and the arm narrows "
+            f"{', '.join(levels)}, but none of those levels declares a "
+            f"bandwidth to scale. A bit-aware port that lands on nothing is a "
+            f"no-op reported as an architecture change.")
+    if not quiet and arch:
+        print(f"  [bit-aware bw] {arch}: " + ", ".join(touched))
+    return "\n".join(out)
+
+
+def _bank_geometry(text, arch="?", quiet=False):
+    """prompt_7 C1.7: let a level's DECLARED bank count reach CACTI.
+
+    `smartbuffer_SRAM` declares no `n_banks`, so every `n_banks:` in this
+    study's architectures was inert and CACTI priced one monolithic array. The
+    plug-in itself takes the attribute (`cacti_wrapper.py:137`) and hands it to
+    CACTI as `-UCA bank N`; only the compound in the way had to be replaced.
+    Measured on `eyeriss_like_wglb` (Accelergy, 45nm, this design's own
+    geometry): `ifmap_glb` read 23.539 -> 16.571 pJ, `psum_glb` 22.729 ->
+    16.053, `filter_glb` 13.591 -> 11.745.
+
+    ONLY LEVELS THAT DECLARE `n_banks:` THEMSELVES ARE SWITCHED, and that is
+    the whole subtlety. `timeloopfe` v4 gives EVERY storage level a default
+    `n_banks: 2`, which is visible in the flattened architecture and is a
+    published number for none of them. Forwarding it wholesale would hand the
+    depth-3 `weights_spad` a two-bank model out of a front-end default -- and
+    the CACTI wrapper floors depth at `64 x n_banks`, so on a shallow array
+    that default moves the price through the FLOOR rather than through any
+    banking. A level whose paper says nothing about banking therefore keeps
+    `smartbuffer_SRAM` and prices exactly as it did before Phase C.
+
+    KNOWN, RECORDED, NOT FUDGED: CACTI is called at
+    `2 ** ceil(log2(n_banks))`, so the 13-bank ifmap GLB is modelled as 16
+    banks; the wrapper computes the linear correction `bankscale = 13/16` and
+    then never applies it (`cacti_wrapper.py:177-178` -- it is dead in the
+    plug-in, not here). Leakage does use the declared count. That is stated in
+    `archs/_shared/provenance.yaml` and reported by `run.sh diagnose`; it is
+    not silently compensated for here.
+    """
+    lines, out, touched = text.split("\n"), [], []
+    blocks = {b["attr"]: b for b in _node_blocks(lines)
+              if b["kind"] == "Component" and b["attr"] is not None}
+    banked = set()
+    for attr_idx, b in blocks.items():
+        if b["cls"] != PLAIN_SRAM_CLASS:
+            continue
+        # the component's own body: from its `- !Component` line to the next
+        end = min([i for i in blocks if i > attr_idx] or [len(lines)])
+        body = "\n".join(lines[attr_idx:end])
+        m = re.search(r"^\s*n_banks:\s*(\d+)", uncommented(body), re.M)
+        if m and int(m.group(1)) > 1:
+            banked.add(b["name"])
+            touched.append(f"{b['name']} ({m.group(1)} banks)")
+    if not banked:
+        return text
+    current = None
+    for line in lines:
+        m = re.match(r"^\s*name:\s*(\S+)", line)
+        if m:
+            current = m.group(1).split("#")[0].strip()
+        c = re.match(r"^(\s*)class:\s*" + PLAIN_SRAM_CLASS + r"\s*(#.*)?$", line)
+        if c and current in banked:
+            out.append(f"{c.group(1)}class: {BANKED_SRAM_CLASS}"
+                       f"   # prompt_7 C1.7: this level's declared n_banks "
+                       f"reaches CACTI")
+            continue
+        out.append(line)
+    if not quiet and arch:
+        print(f"  [banks] {arch}: {BANKED_SRAM_CLASS} on " + ", ".join(touched)
+              + "  (CACTI rounds to the next power of two and drops its own "
+                "bankscale correction -- provenance.yaml `sram_banking`)")
+    return "\n".join(out)
 
 
 def _relax_weight_factors(text, arch="?", quiet=False):
@@ -996,7 +1334,7 @@ def _relax_weight_factors(text, arch="?", quiet=False):
         name = name.group(1) if name else "?"
         keep = re.search(r"keep:\s*\[([^\]]*)\]", part)
         keep = [s.strip() for s in keep.group(1).split(",") if s.strip()] if keep else []
-        depth = re.search(r"\bdepth:\s*(\d+)", part)
+        depth = re.search(r"\bdepth:\s*(\d+)", uncommented(part))
         if ("Weights" not in keep or not depth or "class: DRAM" in part
                 or name == "DRAM"):
             out.append(part)
@@ -1149,7 +1487,7 @@ def _constrain_mapspace(text, arch="?", quiet=False):
         # container (`system`, and the accelerator container itself) is
         # neither -- it carries no loops, so pinning every dimension to 1 on
         # it would be inventing a constraint on a level Timeloop does not map.
-        is_storage = re.search(r"\bdepth:\s*\d+", part) is not None
+        is_storage = re.search(r"\bdepth:\s*\d+", uncommented(part)) is not None
         is_spatial = re.search(r"\n\s*spatial:\s*\{[^}]*mesh", part) is not None
         if not (is_storage or is_spatial):
             out.append(part)
@@ -1215,7 +1553,7 @@ def weight_capacity_levels(arch, cfg):
     text = arch_source(arch, cfg).read_text()
     rows = []
     for part in re.split(r"(?=\n\s*-\s*!)", text):
-        depth = re.search(r"\bdepth:\s*(\d+)", part)
+        depth = re.search(r"\bdepth:\s*(\d+)", uncommented(part))
         name = re.search(r"name:\s*(\S+)", part)
         if not depth or not name or name.group(1) == "DRAM":
             continue
@@ -1223,8 +1561,8 @@ def weight_capacity_levels(arch, cfg):
         keep = [s.strip() for s in keep.group(1).split(",") if s.strip()] if keep else []
         if "Weights" not in keep:
             continue
-        width = re.search(r"\bwidth:\s*(\d+)", part)
-        dw = re.search(r"\bdatawidth:\s*(\d+)", part)
+        width = re.search(r"\bwidth:\s*(\d+)", uncommented(part))
+        dw = re.search(r"\bdatawidth:\s*(\d+)", uncommented(part))
         d = int(depth.group(1))
         per_word = (int(width.group(1)) // int(dw.group(1))) if width and dw else 1
         rows.append({"level": name.group(1), "depth": d, "weights_per_word": per_word,
@@ -1249,7 +1587,7 @@ def patched_weight_geometry(arch, cfg):
     text = _patched_text(arch, cfg, quiet=True)
     out = {}
     for part in re.split(r"(?=\n\s*-\s*!)", text):
-        depth = re.search(r"\bdepth:\s*(\d+)", part)
+        depth = re.search(r"\bdepth:\s*(\d+)", uncommented(part))
         name = re.search(r"name:\s*(\S+)", part)
         if not depth or not name or name.group(1) == "DRAM":
             continue
@@ -1257,8 +1595,8 @@ def patched_weight_geometry(arch, cfg):
         keep = [s.strip() for s in keep.group(1).split(",") if s.strip()] if keep else []
         if "Weights" not in keep:
             continue
-        width = re.search(r"\bwidth:\s*(\d+)", part)
-        dw = re.search(r"\bdatawidth:\s*(\d+)", part)
+        width = re.search(r"\bwidth:\s*(\d+)", uncommented(part))
+        dw = re.search(r"\bdatawidth:\s*(\d+)", uncommented(part))
         d = int(depth.group(1))
         w = int(width.group(1)) if width else None
         b = int(dw.group(1)) if dw else None
@@ -1392,6 +1730,30 @@ def _patched_text(arch, cfg, apply_per_arch=True, quiet=False):
     # of cancelling.
     if apply_per_arch and getattr(cfg, "mapspace_constrain", False):
         text = _constrain_mapspace(text, arch, quiet)
+    # ---------------------------------------------- prompt_7 Phase C: TIME
+    # Three declarations that give the MAPPER what only the evaluator had.
+    # They run AFTER the geometry so a bit-aware port is scaled from the width
+    # table's final numbers, and BEFORE the NoC so every one of them is hashed.
+    #
+    # C1.1 -- the off-chip speed limit, study-wide. Unconditional like
+    # `_patch_dram_depth`: it is a property of the modelled system, not of an
+    # arm, and every arm shares it.
+    text = _declare_dram_bandwidth(text, cfg.dram_items_per_cycle_for(arch),
+                                   arch, quiet)
+    if apply_per_arch:
+        # C1.2 -- what THIS boundary declares it moves less of. Per-arm by
+        # construction: it is one of the three axes that make two boundaries
+        # two chips (prompt_7 6.4).
+        text = _declare_bw_scale(text, cfg.arm_bw_factors_for(arch), arch, quiet)
+        # C1.3 -- and how fast the narrowed levels' own ports then run. Only
+        # the levels this arm narrows; a level still holding 8-bit weights
+        # moves the same bits per cycle it always did.
+        text = _bitaware_onchip_bandwidth(
+            text, tuple(getattr(cfg, "weight_datawidth_levels", ()) or ()),
+            cfg.onchip_bw_bitaware_factor(), arch, quiet)
+    # C1.7 -- the declared bank count, study-wide. An energy declaration, not
+    # a timing one, but it belongs to the same cold pass.
+    text = _bank_geometry(text, arch, quiet)
     # Last, so the coefficients land on the final text and are hashed by
     # arch_fingerprint(). Applied regardless of apply_per_arch: the NoC model
     # is a study-wide treatment, not a per-architecture no-op candidate.
@@ -1463,6 +1825,52 @@ def ert_hash_view(bump):
 
 
 # --------------------------------------------------------------- fingerprints
+def hashable_arch_text(text):
+    """`text` with everything Timeloop never reads taken out: comments, trailing
+    whitespace, blank lines.
+
+    WHY THE FINGERPRINT MUST NOT SEE A COMMENT (2026-09-13). `arch_fingerprint`
+    hashes the patched YAML, and it hashed it byte for byte -- so correcting a
+    comment that had gone stale re-keyed every mapper cache in the study and
+    threw away hours of solved mappings for a documentation edit. That made the
+    two things this project asks of an architecture file pull against each
+    other: `arch_paper.yaml` is meant to carry the citation for every number it
+    declares, and keeping those comments honest was priced at a full re-map.
+
+    Timeloop is handed the file with its comments intact. It parses YAML, so a
+    comment reaches no mapping decision and no energy. Hashing one therefore
+    reported a change in the ARCHITECTURE that had not happened -- the exact
+    false positive the fingerprint exists to avoid the mirror image of.
+
+    A geometry edit still colds the cache, which is the whole point: `depth: 64`
+    to `depth: 96` survives this normalisation and lands in the hash. What no
+    longer does is the comment beside it.
+
+    Quote-aware, so a `#` inside a YAML scalar (`name: "a#b"`) is data, not the
+    start of a comment. No arch file has one today; one added later must not
+    silently change meaning.
+    """
+    out = []
+    for line in text.splitlines():
+        quote = None
+        cut = None
+        for i, ch in enumerate(line):
+            if quote is not None:
+                if ch == quote:
+                    quote = None
+            elif ch in "\"'":
+                quote = ch
+            elif ch == "#" and (i == 0 or line[i - 1] in " \t"):
+                cut = i
+                break
+        if cut is not None:
+            line = line[:cut]
+        line = line.rstrip()
+        if line:
+            out.append(line)
+    return "\n".join(out) + "\n"
+
+
 def arch_fingerprint(arch, cfg, mapper_settings=None):
     """Content hash of the architecture the mapper will actually see.
 
@@ -1476,17 +1884,27 @@ def arch_fingerprint(arch, cfg, mapper_settings=None):
     The hash covers the fully patched YAML text plus every mapper setting that
     could change which mapping comes back. Change either and the cache moves.
 
+    THE TEXT IS NORMALISED FIRST (`hashable_arch_text`, 2026-09-13): comments,
+    trailing whitespace and blank lines are stripped, because Timeloop parses
+    YAML and none of them reaches a mapping decision. A geometry edit still
+    colds the cache; correcting the comment beside it no longer does. That one
+    change re-keyed every cache on disk once, on purpose -- the old directories
+    are untouched and simply unused.
+
     `mapper_settings` defaults to `cfg.mapper_settings()`. It is a parameter so
     a caller that has already resolved the effective thread count can pass the
     real one rather than the configured `None`.
     """
-    text = _patched_text(arch, cfg, quiet=True)
+    text = hashable_arch_text(_patched_text(arch, cfg, quiet=True))
     # globals.yaml is a mapper input too -- it sets the node DRAM is costed at,
     # which changes the energy the mapper is optimising. Hashing the values
     # rather than reading the file keeps this usable before it is written.
     globals_view = {
         "technology": cfg.force_technology or load_standard()["study"]["technology"],
-        "global_cycle_seconds": cfg.global_cycle_seconds,
+        # prompt_7 C1.5: THIS design's rate. `globals_<arch>.yaml` carries it
+        # into the mapper, so it has to be what is hashed -- hashing the study
+        # default would give two designs at two clocks one fingerprint.
+        "global_cycle_seconds": cfg.cycle_seconds_for(arch),
     }
     blob = {
         "arch": arch,
@@ -1501,6 +1919,25 @@ def arch_fingerprint(arch, cfg, mapper_settings=None):
         "components": components_digest(),
         "workload_shape_template_version": 1,
     }
+    # prompt_7 C1.8. THE FINGERPRINT HASHES THE ARCHITECTURE, NOT THE PRICE
+    # LIST Accelergy derives from it -- so a corrected ESTIMATOR (the Neurosim
+    # plug-in that answered 0 pJ for every address generator) changes every
+    # energy in the cache while leaving the directory it is stored under
+    # identical. `ECC_ENERGY_MODEL_REV` is the deliberate cold, and until Phase
+    # C it reached only `Config.fingerprint()` -- which labels a RESULT and
+    # names no cache directory, so the knob re-labelled results while the cache
+    # it was meant to invalidate stayed warm. Appended only when set, so EMPTY
+    # still hashes byte-identically to every directory that predates it.
+    if getattr(cfg, "energy_model_rev", ""):
+        blob["energy_model_rev"] = cfg.energy_model_rev
+    # prompt_7 C1.6. The MAC price the MAPPER optimises against. Until Phase C
+    # `ECC_MAC_PJ_OVERRIDE` was evaluator-only: the mapper priced a MAC from
+    # Accelergy's ERT at 1.16877 pJ and the report then rescaled Compute to
+    # 0.23, so under ECC_OPT_METRIC=edp the plan was chosen for a machine whose
+    # arithmetic cost 5x what the study charges. `timeloop.ErtTables` now
+    # supplies the price, and a supplied price is part of the architecture.
+    if getattr(cfg, "mac_pj_override", None) is not None:
+        blob["mac_pj_override"] = float(cfg.mac_pj_override)
     # prompt_6 RULE 4.4.5, defence 2: an ERT arm's toll is part of what the
     # mapper optimises against. Only added when there IS one, so every
     # reference fingerprint on disk is unchanged.
@@ -1534,6 +1971,15 @@ def effective_variant(arch, cfg):
     DRAM cost, or the search itself, for every design at once.
     """
     parts = list(cfg.global_variant_parts)
+    # prompt_7 C1.5: THIS design's clock, not the study's. `ECC_ARCH_CLOCK_MHZ`
+    # runs Eyeriss v1 at its published 200 MHz while the rest of the study stays
+    # at the 1 GHz model default, so the rate is a per-architecture treatment
+    # and the slug has to be written where the architecture is known. The
+    # historical `1e-9` contributes nothing, so every directory on disk keeps
+    # its name.
+    clk = cfg.cycle_seconds_for(arch)
+    if clk != "1e-9":
+        parts.append(f"clk{clk}")
     if cfg.arch_fidelity != "stock" and paper_source(arch) is not None:
         parts.append(cfg.arch_fidelity)
     if cfg.force_datawidth:
@@ -1619,10 +2065,15 @@ def effective_variant(arch, cfg):
         base = arch_source(arch, cfg).read_text()
         if _relax_weight_factors(base, arch, quiet=True) != base:
             parts.append("wrelax")
-    arm = cfg.ert_arm() if hasattr(cfg, "ert_arm") else None
-    if arm is not None:
-        # prompt_6 RULE 4.4.5, defence 1. Never a no-op: the toll is the arm.
-        parts.append(cfg.ert_slug(arm))
+    part = cfg.mapper_arm_slug() if hasattr(cfg, "mapper_arm_slug") else None
+    if part is not None:
+        # prompt_6 RULE 4.4.5, defence 1. Never a no-op: the arm is the
+        # directory. `ert-<key>-<level>-<action>` where the boundary declares
+        # an ERT bump -- unchanged, so every entry on disk stays a hit -- and
+        # prompt_7 B2's `arm-<key>` where it does not, because R1's patched
+        # YAML IS the reference's until Phase C1.2 and without a slug of its
+        # own the two would share one directory.
+        parts.append(part)
     return "stock" if not parts else "__".join(parts)
 
 
@@ -1930,18 +2381,65 @@ def arch_levels(arch, cfg):
     return loop_levels(_patched_text(arch, cfg, quiet=True))
 
 
-def _write_atomic(dst, text):
-    """Write `text` to `dst` so a concurrent reader never sees a partial file.
+def _content_tag(text):
+    """8 hex of the content -- the name a deterministic file is written under."""
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:8]
 
-    Both files this module writes -- the patched arch.yaml and globals.yaml --
-    are byte-identical for every process that shares an (architecture,
-    treatment), so parallel writers do not disagree about the CONTENT. What a
-    plain `write_text` cannot promise is that a reader arriving mid-write sees
-    all of it: the truncate-then-write window is real on a shared filesystem,
-    and a SLURM job array over architectures has many mapper processes reading
-    these two paths at once. Writing a private temp file in the same directory
-    and renaming makes the replacement atomic, so a reader sees either the old
-    complete file or the new one. Always LF, even when written from Windows.
+
+def _write_once(dst, text):
+    """Write `text` to `dst` if `dst` does not already exist. NEVER REPLACE IT.
+
+    THE BUG THIS EXISTS FOR (2026-09-13, prompt_7 C2, one job of 186).
+    `_write_atomic` wrote a private temp file and `os.replace`d it onto a
+    SHARED path. That is atomic in POSIX terms -- the path always points at a
+    complete file -- and it is still not safe here, because every one of 186
+    concurrent SLURM jobs replaced the SAME two paths (`globals_<arch>.yaml`
+    and the patched `arch_<arch>_patched__<variant>.yaml`) within seconds of
+    each other. On Lustre a client that has already looked the path up holds a
+    handle to the OLD inode, and a replacement leaves that handle stale:
+
+        job 41920766, line 35   globals_eyeriss_like_wglb.yaml: technology=45nm
+        job 41920766, line 78   FileNotFoundError: ... globals_eyeriss_like_wglb.yaml
+
+    written and then missing, in one process, eight seconds apart. One failed
+    job out of 186 was enough to leave the dependent eval on
+    `DependencyNeverSatisfied` and the whole matrix unreadable.
+
+    THE FIX IS THE NAME, NOT THE WRITE. Both files are a pure function of
+    (architecture, configuration), so they are content-addressed: identical
+    content means an identical name, and a name that exists already holds the
+    bytes this caller wanted. `O_CREAT | O_EXCL` then creates it exactly once,
+    atomically, and NOTHING EVER REPLACES AN EXISTING FILE -- so no reader can
+    be holding a handle to something that is about to be unlinked. A second
+    writer losing the race is not an error; it is the normal case.
+
+    Fingerprints do not move: `arch_fingerprint()` hashes the CONTENT of these
+    files (`globals_view`, `arch_yaml`), never their paths.
+    """
+    if dst.exists():
+        return dst
+    tmp = dst.with_name(f".{dst.name}.{os.getpid()}.tmp")
+    with open(tmp, "w", newline="\n") as fh:
+        fh.write(text)
+    try:
+        # O_EXCL via link(): create the name only if it is free, and never
+        # clobber. `os.replace` would overwrite, which is the whole problem.
+        os.link(tmp, dst)
+    except FileExistsError:
+        pass                       # another job wrote the same bytes first
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+    return dst
+
+
+def _write_atomic(dst, text):
+    """Replace `dst` with `text`, atomically. For a file only ONE process writes.
+
+    Use `_write_once` for anything a SLURM array writes concurrently -- see the
+    stale-handle failure recorded there. This remains for single-writer paths.
     """
     tmp = dst.with_name(f".{dst.name}.{os.getpid()}.tmp")
     with open(tmp, "w", newline="\n") as fh:
@@ -1951,19 +2449,55 @@ def _write_atomic(dst, text):
 
 
 def patched_arch_path(arch, cfg):
-    """Write and return the arch.yaml for this architecture + treatment."""
+    """Write and return the arch.yaml for this architecture + treatment.
+
+    CONTENT-ADDRESSED and written ONCE (`_write_once`): every job of a SLURM
+    array shares this path, and replacing it under a concurrent reader is what
+    cost one job of 186 on 2026-09-13. The tag is 8 hex of the text, so two
+    treatments that produce identical YAML share one file and a change makes a
+    NEW one rather than overwriting the old.
+    """
     text = _patched_text(arch, cfg)
     variant = effective_variant(arch, cfg)
     suffix = "" if variant == "stock" else f"__{variant}"
-    dst = WORK / f"arch_{arch}_patched{suffix}.yaml"
-    return _write_atomic(dst, text)
+    dst = WORK / f"arch_{arch}_patched{suffix}__{_content_tag(text)}.yaml"
+    return _write_once(dst, text)
 
 
-def write_globals(cfg):
+def globals_text(cfg, arch):
+    """The bytes THIS design's `globals.yaml` holds -- a pure function of
+    (configuration, architecture), which is what lets it be content-addressed."""
+    node = cfg.force_technology or load_standard()["study"]["technology"]
+    return ("variables:\n"
+            "  version: 0.4\n"
+            f"  global_cycle_seconds: {cfg.cycle_seconds_for(arch)}\n"
+            f'  technology: "{node}"\n')
+
+
+def globals_path(arch, cfg):
+    """Where THIS design's `globals.yaml` lives.
+
+    ONE FILE PER DESIGN since prompt_7 C1.5, because `global_cycle_seconds` is
+    no longer one number for the study: Eyeriss v1 runs at its published
+    200 MHz while the rest stays at the 1 GHz model default. A shared file
+    would clock every design on a multi-design figure at whichever rate was
+    written last -- silently, and only for the designs that are not first.
+
+    CONTENT-ADDRESSED since 2026-09-13: the name carries 8 hex of the bytes, so
+    186 concurrent jobs writing "the same" file write the SAME NAME and nothing
+    ever replaces a file a reader may be holding open. That replacement is what
+    cost one job of 186 (`_write_once` records the failure).
+    """
+    return WORK / f"globals_{arch}_{_content_tag(globals_text(cfg, arch))}.yaml"
+
+
+def write_globals(cfg, arch):
     """`globals.yaml` sets the node for anything OUTSIDE an arch container.
 
     DRAM sits above the accelerator container in every one of these designs, so
-    it takes its technology from here, identically for every architecture.
+    it takes its technology from here, identically for every architecture. The
+    CLOCK is per design (`Config.cycle_seconds_for`), which is why this takes
+    one.
 
     THE DEFAULT USED TO BE 65nm while every accelerator container declared 45nm,
     so DRAM -- the level this study spends most of its energy in, and the level
@@ -1974,13 +2508,9 @@ def write_globals(cfg):
     archs/_shared/standard.yaml, which is the same file the architectures are
     validated against, so the two cannot drift apart again.
     """
+    text = globals_text(cfg, arch)
     node = cfg.force_technology or load_standard()["study"]["technology"]
-    p = WORK / "globals.yaml"
-    _write_atomic(p, "variables:\n"
-                     "  version: 0.4\n"
-                     f"  global_cycle_seconds: {cfg.global_cycle_seconds}\n"
-                     f'  technology: "{node}"\n')
-    return p, node
+    return _write_once(globals_path(arch, cfg), text), node
 
 
 # ---------------------------------------------------------------------- audit

@@ -36,11 +36,58 @@ believe one must be cut or shortened, ASK THE USER FIRST and say which one and
 why** — do not decide it yourself, and never drop one as a side effect of "make
 this shorter". Today that is: THE WIDTH TABLE.
 
-**prompt_6 phases 1–9 are DONE (2026-09-11); prompt_7's Phase 0 is DONE
-(2026-09-12); its Phases A, B, C, D and E are NOT.** The placement study's numbers in
-FINDINGS §2.9 were produced under RULE 3 (two encoder terms, two denominators)
-from `bash hpc/map_ert_arms.sh`. The three sweep figures were regenerated only as
-far as their caches reach (FINDINGS §6.1); `ModelSweep.png` is stale on disk.
+**prompt_6 phases 1–9 are DONE (2026-09-11); prompt_7's Phase 0, A and B are DONE
+(2026-09-12) and its Phase C1 is DONE (2026-09-13). C2 and E are NOT. PHASE D IS
+DROPPED** — the user's call, 2026-09-13: this study is about CNNs, and §4.5/A.6
+already reach the transformer ceiling from the CNN side, so quote 52.4% as a
+PROJECTION and never as a measurement.
+
+<!-- PROTECTED -->
+## EVERY MAPPER CACHE IS COLD, ON PURPOSE, SINCE 2026-09-13
+
+*(PROTECTED: see the top of this file. Do not cut or condense without asking.)*
+
+**Phase C1 re-fingerprinted every arm and every design. Nothing was deleted.**
+**Phase C2 has since run for `resnet18`** (2026-09-13): six arms, 12 shapes, 72
+maps, all on their own plans. **Every other model is still cold**, and for those
+there is no solved mapping at the live configuration -- which is the phase
+working correctly rather than a cache that went missing.
+`bash run.sh baseline --eval`, `--replot`, the three sweep figures and
+`tests/test_latency.py` all have nothing to read; `test_latency` says so and
+skips. **Do not "fix" this by pointing anything at an older `fp-` directory — a
+comparison across two `fp-` directories is a comparison of two ARCHITECTURES.**
+
+The cold is six declarations that reach the architecture the mapper reads: the
+off-chip speed limit (`shared_bandwidth` on DRAM), the per-dataspace bandwidth
+scale, a bit-aware port on a narrowed level, the 200 MHz clock, the MAC price
+inside the ERT, and a bank count that now reaches CACTI — plus
+`ECC_ENERGY_MODEL_REV`, which since 2026-09-13 reaches `arch_fingerprint()` and
+not only `Config.fingerprint()`. prompt_7 §13 lists all of them with their
+measured effects.
+
+**`ECC_DRAM_BANDWIDTH_MBPS` IS NOW IN THE PATCHED YAML**, so changing it
+re-fingerprints all six arms and colds them again. That is the knob working.
+Never pin one of the new `fp-` hashes in a file — print the current set with
+`bash hpc/tl.sh bash -c 'source env.sh; PYTHONPATH=. python3 Claude-sandbox/_fp.py'`,
+and let `tests/test_mapper_arms.py` assert the rule (every arm moved off its
+pre-Phase-C hash, all six distinct, nothing deleted) rather than any value.
+
+**THE ONE COMMAND THAT ENDS THE COLD** (Phase C2 — hours of SLURM; 6 arms ×
+the model's distinct shapes, so 72 jobs on resnet18 and 186 on mobilenet_v2):
+
+    ECC_RECON_LAYER=all ECC_RERUN_OPTIMISER=1 ECC_RECON_ERT_AWARE=1 \
+        bash hpc/map_ert_arms.sh
+
+The pre-Phase-C directories are intact and are the only record of what FINDINGS
+§2.9's numbers were computed from: `fp-718d53aac189` (reference),
+`fp-a18a5b15fd8b` (recon2), `fp-55569ac34427` (recon4), 43 shapes each.
+`tests/test_mapper_arms.py` asserts they are still there.
+
+The placement study's numbers in FINDINGS §2.9 were produced under RULE 3 (two
+encoder terms, two denominators) from `bash hpc/map_ert_arms.sh` **at the
+pre-Phase-C fingerprints, so they are superseded rather than wrong.** The three
+sweep figures were regenerated only as far as their caches reach (FINDINGS
+§6.1); `ModelSweep.png` is stale on disk.
 
 `legacy/` is pre-rewrite and describes nothing current, except the dated
 `FINDINGS_detail_*`, `progress_*` and `PROJECT_STATUS_*` snapshots, which are the
@@ -82,6 +129,34 @@ Never run the mapper on a login node — use `srun`/`sbatch`. Keep
 `ECC_MAPPER_THREADS=18` and `--cpus-per-task=18`: the thread count is in the
 mapping fingerprint, so any other value is a cold cache. `hpc/HIPERGATOR.md` has
 transfer, image build and the cost model.
+
+## Changing a declared value is a normal thing to do
+
+**ONE SUBMISSION MAPS ONE ARCHITECTURE.** `hpc/map_ert_arms.sh` snapshots
+`archs/` at submit time into `hpc/.runtime/archpin.<pid>/` and exports
+`ECC_ARCH_PIN_DIR` (env.sh section 7) to every map job and the dependent eval,
+so **editing `archs/` while an array is in flight is free** — the queued jobs
+keep mapping the chip you submitted. It prints the pin and the reference
+fingerprint when it submits; quote those two lines when a run is questioned.
+`hpc/run_all.sh` pins the same way (only the top-level submitter takes the
+snapshot; the dependent eval inherits it). `map_by_shape.sh`,
+`map_capacity_sweep.sh` and `map_depth_sweep.sh` do NOT pin yet.
+Without it, an edit landing 78 seconds into a 282-job array cost the whole run
+(2026-09-13, `efficientnet_b0`): the maps solved one geometry and the eval went
+looking for another, and every layer reported `mapper failed`.
+
+**The fingerprint hashes the GEOMETRY, not the prose.** `archs.hashable_arch_text`
+strips comments, trailing whitespace and blank lines before hashing, so keeping
+`arch_paper.yaml`'s citations honest costs nothing while `depth: 64` ->
+`depth: 96` still colds the cache. `eccenergy/tests/test_arch_fingerprint.py`
+asserts both halves with mutations.
+
+**A cold cache is a SKIP, not a failure.** `eccenergy/tests/conftest.py` restores
+`os.environ` around every test and reports each module's home-grown `_Skip` as a
+skip. Before it the suite showed 64 failures at a cold cache with nothing wrong
+in the code; it is now green, and the data-backed properties come back as they
+are mapped. `bash hpc/tl.sh python3 -m pytest eccenergy/tests/ -q` runs it
+(pytest is a `--user` install, not in the image).
 
 **A cold map is hours.** Narrow before widening
 (`ECC_ARCHS=<one> ECC_MODELS=<one> bash hpc/run_all.sh --map-only`) and watch the
@@ -321,8 +396,22 @@ original audit skipped (FINDINGS §2.7).
 Three things the model refuses to fudge, each with a knob and a recorded check:
 **physical packing** (`stream` scales every reduced stage by K/N; `aligned` gives
 each weight whole bits), **reconstruction granularity** (`G_rec`, computed from the
-layout, not assumed), and **feasibility** (a PE-local boundary whose resident tile
-is smaller than `G_rec` is reported `unsupported` with the layers named).
+layout, not assumed), and **group residency** (how many weights a PE-local
+boundary's level holds against `G_rec`).
+
+**GROUP RESIDENCY IS REPORTED, NOT REFUSED** (`ECC_RECON_REQUIRE_GROUP_RESIDENCY`,
+default `0`, decided 2026-09-13). `G_rec` = 9 at BCH(63,·) over 8-bit weights:
+63/8 = 7.875 is not whole, so a codeword drifts across weight boundaries and the
+worst-aligned one reaches into `ceil(63/8)+1` weights. The old refusal assumed an
+engine that can only rebuild from weights co-resident **at one instant**; RECAP's
+accumulates the retained bits as they arrive, so a level holding 6 — or 1 — still
+feeds it, over more accesses and with more buffering. A small tile is a COST, not
+an impossibility. **The number is still measured and still on every bar's record**
+(`layers_below_G_rec`, `infeasible_layers`, `group_residency_note`) because it
+bounds the buffer the engine needs; set the knob to `1` for the conservative
+reading. Measured: this recovers R2/R3/R4/R5a on mobilenet_v2 (1, 1, 4 and 14
+layers of 31 below `G_rec`) and changes resnet18 by **nothing** — no layer of it
+is below `G_rec`.
 
 The DRAM term is ONE stage and the whole of it is reducible: only the k message
 bits are read out and driven off the die. `ECC_DRAM_PJ_PER_BIT` is the per-bit
@@ -335,6 +424,17 @@ reduce, times `1 − K/N`. Without it a sub-percent saving reads as a missing te
 rather than as arithmetic.
 
 ## Architecture rules
+
+**A LEVEL THAT DECLARES `n_banks:` IS INSTANTIATED AS `smartbuffer_SRAM_banked`**
+(Phase C1.7), the only compound in the study that forwards the count to CACTI --
+upstream's `smartbuffer_SRAM` drops it, so every `n_banks:` here was inert until
+2026-09-13. **A level that declares none keeps the plain class and prices exactly
+as it did**: timeloopfe hands EVERY storage level a default `n_banks: 2`,
+published for none of them, and the CACTI wrapper's `depth >= 64 x n_banks` floor
+would move a shallow array's price through the floor rather than through any
+banking. CACTI rounds to the next power of two and drops its own `bankscale`
+correction; `provenance.yaml` `sram_banking` records that rather than
+compensating for it.
 
 `archs/_shared/standard.yaml` states what must be IDENTICAL across designs;
 `provenance.yaml` records where every declared number came from; `noc.yaml` holds
@@ -351,9 +451,18 @@ shipped by timeloop-accelergy-exercises and merely *named* after a paper,
 it "Simba-like (reference design)".
 
 **Eyeriss v1 IS `eyeriss_like_wglb`** (decided 2026-09-10). JSSC 2017 publishes the
-8 kB filter-weight allocation of the 108 kB GLB, so the file that models it is the
+filter-weight allocation of the 108 kB GLB, so the file that models it is the
 design; `eyeriss_like`, which declares `!Nothing` in its place, is retired — still
-mappable by name for a diff, but no longer the design. The v1 bracketing-pair
+mappable by name for a diff, but no longer the design.
+
+**THREE OF ITS DECLARED CAPACITIES DIVERGE FROM JSSC 2017 ON PURPOSE**
+(confirmed and kept 2026-09-13, prompt_7 C1.7): `filter_glb` 2 kB against the
+paper's 8 kB, `weights_spad` 32 weights/PE against 448, `psum_spad` 64 against
+24. All three arrived in commit `3a770cc` with no note and in THIS FILE ONLY —
+`archs/eyeriss_like/arch_paper.yaml` still carries 224 and 24, so the two v1
+files do not declare the same PE. The divergence table heads the arch YAML and
+`provenance.yaml` marks each `diverges_from_paper: true`. **Quote the design's
+name for its STRUCTURE, never for its capacity.** The v1 bracketing-pair
 doctrine is over (`config.BRACKET_PAIRS` is empty); the bracket rule still holds
 for v2.
 
@@ -374,6 +483,23 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   --eval` and diff: Task 1 and 2 totals must not move.
 - **Never** read `os.environ` outside `config.py`, and never resolve a path outside
   `paths.py`.
+- **A COMMENT IS NEVER A DECLARATION. Read geometry through
+  `archs.uncommented()`, write it through `archs.write_attr()`** (2026-09-13).
+  Every geometry regex here used to match the raw text, so a `depth:` written
+  in a COMMENT was read as the attribute — and `re.sub(..., count=1)` then
+  rewrote the COMMENT and left the attribute alone. One explanatory comment
+  ("the paper's two banks would be `depth: 1024`") made `filter_glb` declare
+  98,304 bits where 16,512 were intended: a six-fold capacity error on the
+  level R2's whole saving rides on, with one line of stdout to say so.
+  `uncommented()` masks comments while PRESERVING POSITIONS, so a caller
+  searches the masked copy and splices into the real text; `write_attr()`
+  RAISES when the rewrite lands on nothing, which is the silent half.
+  **Adding a regex over an arch YAML? Mask first.**
+- **A `def` inside `__init__` ENDS `__init__`.** A `@property` added in the
+  middle of `timeloop.Mapper.__init__` orphaned every line after it, `self._memo`
+  included, and killed 72 SLURM jobs ten seconds in — because no test had ever
+  CONSTRUCTED a Mapper. `tests/test_phase_c.py` does now. Any class whose
+  constructor sets state the hot path depends on needs one.
 - **Handing Timeloop an energy table** (prompt_6): pass `ERT:` and `ART:` YAMLs
   beside `design_inputs()`, and pre-write them into the output directory as
   `timeloop-mapper.ERT.yaml` / `.ART.yaml` first -- with a supplied table Timeloop
@@ -385,19 +511,52 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   `paths.ert_probe_dir()`, never the mapper cache.
 - **An ERT arm is a configuration, not a design.** `ECC_RECON_ERT_ARM=<placement
   key>` (set per job by `hpc/map_ert_arms.sh`) resolves in `config.py` into
-  `datawidth: q` on the storage levels of that placement's `reduced` set and an
-  ERT bump derived by `archs.ert_bump()`; which placements qualify is DERIVED
-  (`recon.ert_arms()`: storage site, `reads`/`fills` counter, not the innermost
-  level's reads) -- never `if key == "recon2"`. The arm is in the cache slug
-  (`ert-recon2-filter_glb-read`) AND the fingerprint, and every entry's stored
-  ERT is read back before a number is used: two arms with byte-identical YAML
-  must never share a directory. `ECC_RECON_ERT_AWARE=1` (needs
-  `RECON_OPTIMIZER=True`, `ECC_PHASE=Post`) bills each ERT bar from ITS OWN plan
-  and the other boundaries from the reference plan; the toll Timeloop billed
-  inside the level is MOVED into `Reconstruction`. Timeloop prints leakage
+  `datawidth: q` on the storage levels of that placement's `reduced` set and,
+  where the boundary has one, an ERT bump derived by `archs.ert_bump()`. The arm
+  is in the cache slug AND the fingerprint, and every entry's stored ERT is read
+  back before a number is used: two arms with byte-identical YAML must never
+  share a directory. **Since Phase C1.6 the REFERENCE arm has a supplied table
+  too** -- no bump, only `ECC_MAC_PJ_OVERRIDE` on every `compute` row, `set`
+  rather than `add`, so `apply_mac_override`'s ratio is exactly 1.0 and the
+  mapper and the report price one MAC. `Mapper.supplies_ert` is the test, never
+  `ert_bump is not None`. `ECC_RECON_ERT_AWARE=1` (needs `RECON_OPTIMIZER=True`,
+  `ECC_PHASE=Post`) bills each bar from its own chip's plan; the toll Timeloop
+  billed inside the level is MOVED into `Reconstruction`. Timeloop prints leakage
   outside the per-dataspace energies and the raw record never held it, so only
   the access toll is in the bill; the idle term is verified against the stats'
   leakage and charged by the evaluator.
+- **THE ARMS TO MAP ARE THE DISTINCT CHIPS, not the ERT-injectable boundaries**
+  (prompt_7 Phase B, 2026-09-12). `recon.mapper_arms(arch, cfg)` is the reference
+  plus every boundary that differs on any of three axes -- `datawidth: q`, the
+  ERT bump, the declared per-dataspace bandwidth scale (a NETWORK stage is
+  carried in that set and marked `no-op`, because Timeloop has no network timing
+  model but a boundary that adds one is still a different declaration). Six on
+  `eyeriss_like_wglb`, five on v2. `recon.ert_arms()` keeps its older, narrower
+  meaning -- which boundaries have an ERT-injectable encoder -- and is a strict
+  subset. Never `if key == "recon2"`. An arm with a bump keeps prompt_6's
+  `ert-<key>-<level>-<action>` slug byte for byte; one without gets `arm-<key>`,
+  which is what stops R1 (whose patched YAML IS the reference's until Phase C1.2)
+  sharing the reference's directory.
+- **EVERY BAR NAMES THE PLAN IT WAS BILLED FROM** (`billed_from` on its record,
+  and on the figure). `recon.plan_assignment()` derives it: its own arm if that
+  arm is mapped, else the OUTERMOST mapped arm in path order that narrows exactly
+  the same storage levels, else the reference plan flagged
+  `geometry_matches: false`. A plan is only valid for a bar when the narrowed
+  levels match -- `datawidth: q` changes the words the loop nest moves and no
+  post-processing can re-tile a loop nest. So `reference` is only ever right for
+  R1, R3 borrows R2's plan (with R2's toll already moved out of the bill, so R3
+  pays the un-bumped price of the shared geometry), and R5a is billed from the
+  reference and FLAGGED as a chip that has never been mapped until Phase C maps
+  it. A HALF-mapped arm is refused, not borrowed: that would be two chips in one
+  bar. `ECC_RECON_ERT_AWARE=1` with no arm mapped at all is also refused -- that
+  is Task 3 under a heading that says otherwise.
+- **`ert_injectable()` condition 3 is derived from the CLOCK GATING**, not from a
+  key name (prompt_7 6.3). The bump has two rows and the exclusion holds only
+  when BOTH are constant across the mapspace: the access row on the innermost
+  weight level's `reads` is the MAC count and is, but the per-cycle `leak` row is
+  `idle x (1 - g)` and Timeloop bills it as `leak x utilized instances x cycles`
+  -- both the mapper's choice. So R5a IS ERT-injectable at
+  `ECC_RECON_CLOCK_GATING_PCT` 0 and 99.5, and is not at 100.
 - **Who narrows an on-chip stop is MEASURED, per bar per stage** (prompt_6 RULE
   1): `Word bits == q` in that bar's own stats means the mapper did (evaluator
   applies 1.0), `== weight_bits` means the evaluator does, anything else stops.
@@ -460,6 +619,45 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   `Config.recon_caveats()` and lands in the manifest beside the figure as
   `title_caveats` (with `title`). A new caveat goes THERE, never as a line on
   the figure.
+- **TIME IS IN THE ARCHITECTURE SINCE PHASE C1** (2026-09-13). The DRAM level
+  declares `shared_bandwidth` (**not** `read_`+`write_bandwidth` -- the DQ bus
+  is ONE wire set whose limit is on their SUM, which is what the roofline
+  charges); each arm's boundary declares
+  `per_dataspace_bandwidth_consumption_scale` (`K/N` at DRAM, `q/8` on chip --
+  they differ by 5% and one factor everywhere is a silent inconsistency); a
+  level the arm narrows declares its port `x 8/q`; and the design runs at its
+  own `ECC_ARCH_CLOCK_MHZ` through `globals_<arch>.yaml`. All four are in the
+  patched YAML and therefore in the fingerprint.
+- **WHO APPLIES THE OFF-CHIP WEIGHT RELIEF IS MEASURED PER BAR**
+  (`latency_post.relief_owner`, prompt_6 RULE 1). The evaluator applied `K/N`
+  from Phase A; C1.2 makes the MAPPER apply it, and both would give K/N
+  SQUARED. The answer is on disk in each bar's own stats -- `Bandwidth
+  Consumption Scale` is 1.00 where nothing was declared and K/N where it was --
+  and a third value is REFUSED as a bar billed from another code's plan.
+- **`ECC_RECON_IDLE_PJ` IS RESCALED TO THE DESIGN'S CLOCK, ONCE**
+  (`Config.dc_idle_scale()` owns the factor, `ecc.load_recon_terms()` applies
+  it after the three lookup branches converge). It is pJ per cycle at DC's 1 ns
+  clock and it is CLOCK power, so 200 MHz is **x5** -- on the reconstruction
+  engines only. `ECC_LEAKAGE_NW` is POWER in nW and must NOT be rescaled; that
+  is why the two are declared in different units. env.sh section 6 TRAP 2 had
+  documented this since before it existed in code.
+- **TIME and STANDBY POWER are still evaluator-only in the REPORT, and the
+  re-timing is not in the fingerprint** (prompt_7 Phase A). `latency_post.
+  roofline()` re-times a mapping Timeloop already chose -- `max(compute, each
+  level's declared-bandwidth limit, off-chip items / ECC_DRAM_BANDWIDTH_MBPS)`
+  -- and at an unlimited off-chip limit it reproduces Timeloop's per-level AND
+  total cycles EXACTLY on all 43 cached shapes, which is the gate that stops it
+  inventing time. `ECC_LATENCY_MODEL` defaults to **1** since Phase C1: the
+  mapper now optimises against the same declared limit, so the roofline
+  re-states a plan's time instead of being a second timing model. `ECC_STATIC_ENERGY=1` then charges
+  `ECC_LEAKAGE_NW x stored bits x utilized instances x cycles` as a `Standby`
+  category **in `Raw.base`** -- which every arm and every placement bar starts
+  from, so no code path can charge it to one arm and not another. With both
+  knobs off, `phys_cats()` is byte-identical to what predates them and every
+  earlier total reproduces to the pJ. Densities are POWER in nW and the cycle
+  period is applied once, in `standby_energy()`. `Raw.standby` reports what
+  TIMELOOP billed for leakage beside it: the mapper's own objective always
+  contained it and only the report dropped it (prompt_7 rule R-4).
 - **Line endings**: the shell scripts run inside a Linux container and a CRLF makes
   bash die on `set -o pipefail` with a mangled message. `.gitattributes` forces LF;
   `bash tools-fix-eol.sh` repairs anything that slips through. **Always emit LF.**
@@ -478,14 +676,22 @@ carry the rest.
                         map_by_shape.sh, map_ert_arms.sh (prompt_6: one job per
                         arm x shape, one dependent eval), map_capacity_sweep.sh,
                         map_depth_sweep.sh, summary.py, HIPERGATOR.md
-    eccenergy/          config.py (the ONLY reader of os.environ), paths.py (the
-                        ONLY resolver of paths), workloads.py, timeloop.py (the
-                        only module needing the container), energy.py, ecc.py,
-                        recon.py, parity.py, embedded.py, code_widths.py,
-                        noc_post.py, results_store.py (the ONLY writer of an
-                        evaluation JSON), plots/, experiments/, tests/, generate.py
+    eccenergy/          config.py (the ONLY reader of os.environ, and the ONLY
+                        place MHz becomes seconds), paths.py (the ONLY resolver
+                        of paths), workloads.py, timeloop.py (the only module
+                        needing the container), energy.py, ecc.py, recon.py,
+                        parity.py, embedded.py, code_widths.py, noc_post.py,
+                        latency_post.py (the roofline AND the ONE owner of the
+                        clock period every per-cycle term is charged over),
+                        results_store.py (the ONLY writer of an evaluation
+                        JSON), plots/, experiments/, tests/, generate.py
     archs/_shared/      standard.yaml, provenance.yaml, noc.yaml -- not an
-                        architecture; skipped by the installer
+                        architecture; skipped by the installer.
+                        components/ is IN THE FINGERPRINT: regfile_decoded.yaml
+                        (the address-decoded RF) and smartbuffer_SRAM_banked.yaml
+                        (the only compound that forwards n_banks to CACTI). A
+                        local file may never redefine an upstream class name --
+                        that is a duplicate-class error, not an override.
     ecc_energy_study/   AUTO-MANAGED: cloned repo + mapper cache. Do not delete.
     legacy/             pre-rewrite material, plus the dated FINDINGS_detail_*,
                         progress_* and PROJECT_STATUS_* snapshots that hold the

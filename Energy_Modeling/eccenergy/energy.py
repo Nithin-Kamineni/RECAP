@@ -11,8 +11,8 @@ import json
 
 import pandas as pd
 
-from . import noc_post
-from .timeloop import classify, parse_cycles, parse_stats
+from . import latency_post, noc_post
+from .timeloop import classify, parse_cycles, parse_levels, parse_stats, physical_record
 
 #: Categories that come from Timeloop.
 #: "NoC" is the interconnect between levels -- wire, router and ingress energy
@@ -21,6 +21,21 @@ from .timeloop import classify, parse_cycles, parse_stats
 #: Timeloop's wire model is a stub; it is a category of its own now that it
 #: is costed, and the Local label no longer claims to contain it.
 PHYS_CATS = ("DRAM", "Global buffer", "Local (spads/RF)", "NoC", "Compute")
+#: prompt_7 Phase A / Defect 2: the accelerator's own STANDBY energy, charged
+#: to ALL THREE ARMS or to none. It is appended by `phys_cats()` only when
+#: ECC_STATIC_ENERGY=1, so with the knob off the category layout is
+#: byte-identical to every layout that predates it and a cached raw record
+#: still loads -- that is what makes "ECC_STATIC_ENERGY=0 reproduces today's
+#: totals to the pJ" true by construction rather than by arithmetic.
+#: It is NOT in `onchip_cats()`: standby energy is power x time and carries no
+#: weight traffic, so the reconstruction arm does not scale it by K/N. What it
+#: DOES respond to is the run length, which is why ECC_LATENCY_MODEL feeds it.
+STANDBY_CAT = "Standby"
+#: Which ECC_LEAKAGE_NW density prices a level, and what it is a density OF.
+#: `sram`/`rf` are per STORED BIT, `mac` per instance; `dram` is off-chip and
+#: no density is declared for it (env.sh section 6), so it is charged nothing
+#: -- the same deliberate omission as ECC_DRAM_BACKGROUND_PJ.
+STANDBY_DENSITY = {"sram": "sram_bit", "rf": "rf_bit", "mac": "mac_instance"}
 #: Split variants, used when ECC_SPLIT_READ_WRITE=1. NoC is not split: a
 #: network has ingresses, not reads and writes.
 PHYS_CATS_SPLIT = ("DRAM", "Global buffer (read)", "Global buffer (write)",
@@ -38,7 +53,10 @@ SPLITTABLE = ("Global buffer", "Local (spads/RF)")
 
 
 def phys_cats(cfg):
-    return list(PHYS_CATS_SPLIT if cfg.split_read_write else PHYS_CATS)
+    cats = list(PHYS_CATS_SPLIT if cfg.split_read_write else PHYS_CATS)
+    if getattr(cfg, "static_energy", False):
+        cats.append(STANDBY_CAT)
+    return cats
 
 
 def onchip_cats(cfg):
@@ -98,7 +116,7 @@ class Raw:
 
     __slots__ = ("base", "base_w", "base_i", "e_dram_w", "dram_w_reads",
                  "layers_ok", "layers_skipped", "weights", "per_layer", "levels",
-                 "noc_post", "mac", "dram", "cycles")
+                 "noc_post", "mac", "dram", "cycles", "standby", "latency")
 
     def __init__(self, base, base_w, base_i, e_dram_w, dram_w_reads,
                  layers_ok, layers_skipped, weights, per_layer=None, levels=None,
@@ -138,6 +156,18 @@ class Raw:
         #: and the E_background / E_refresh terms, which are 0 and unmodelled).
         #: Evaluator-side only, like `mac`.
         self.dram = None
+        #: What COMPONENT STANDBY energy was charged in THIS record:
+        #: `apply_standby_energy()` fills it (the densities, the per-level
+        #: breakdown, what Timeloop billed for leakage beside it, and the run
+        #: length it was charged over). Evaluator-side only -- the raw cache
+        #: stays pure Timeloop output and ECC_LEAKAGE_NW is a price list, not
+        #: an architecture.
+        self.standby = None
+        #: This plan's own re-timing under `latency_post.roofline()`:
+        #: `apply_latency_model()` fills it, None when ECC_LATENCY_MODEL=0.
+        #: The reference arm's (weight_scale 1.0); a reconstruction arm's is
+        #: `latency_post.model_cycles(raw, cfg, weight_scale=K/N)`.
+        self.latency = None
 
     @property
     def total(self):
@@ -163,7 +193,14 @@ class Raw:
     def from_json(cls, d, cfg):
         cats = plot_cats(cfg)
         stored = set(d.get("base", {}))
-        missing = [c for c in phys_cats(cfg) if c not in stored]
+        # STANDBY_CAT is filled EVALUATOR-side (`apply_standby_energy`) and
+        # never carries gather-time energy, so its absence says nothing about
+        # the category layout the record was written under. Leaving it in this
+        # check would report every pre-Phase-A record as a layout mismatch
+        # instead of as what it is -- a record with no physical detail, which
+        # `load_raw` says plainly a few lines further on.
+        missing = [c for c in phys_cats(cfg)
+                   if c not in stored and c != STANDBY_CAT]
         if missing:
             # The record was written under a different category layout (a
             # different ECC_CLASSIFY or ECC_SPLIT_READ_WRITE). Reindexing would
@@ -284,6 +321,7 @@ def apply_dram_override(raw, cfg, verbose=True):
               raw.layers_ok, raw.layers_skipped, raw.weights,
               per_layer=per_layer, levels=levels,
               noc_post=raw.noc_post, mac=raw.mac, cycles=raw.cycles)
+    out.standby, out.latency = raw.standby, raw.latency
     out.dram = info
     if verbose:
         print(f"  [DRAM OVERRIDE] DRAM rescaled {ert:.4g} -> {tgt:g} pJ/bit "
@@ -362,6 +400,8 @@ def apply_mac_override(raw, cfg, verbose=True):
               raw.e_dram_w, raw.dram_w_reads, raw.layers_ok, raw.layers_skipped,
               raw.weights, per_layer=per_layer, levels=levels,
               noc_post=raw.noc_post, mac=info, cycles=raw.cycles)
+    out.standby, out.latency = raw.standby, raw.latency
+    out.dram = raw.dram
     if verbose:
         print(f"  [MAC OVERRIDE] Compute rescaled to {macs:,.0f} MACs x "
               f"{cfg.mac_pj_override:g} pJ = {compute * ratio / 1e6:,.3f} uJ "
@@ -373,6 +413,260 @@ def apply_mac_override(raw, cfg, verbose=True):
                   f"MACs from the ERT) -- a fixed-mapping result, not a re-optimised "
                   f"design")
     return out
+
+
+# ------------------------------------------------- prompt_7 Phase A: standby
+def standby_kind(level, instances=None, arithmetic=False):
+    """Which ECC_LEAKAGE_NW density prices this level.
+
+    The same PHYSICAL test `classify()` uses, for the same reason: a level with
+    one instance is a shared SRAM macro and a level replicated across the PE
+    array is a register file, whatever the YAML calls it. Every scratchpad in
+    this study declares `Technology: SRAM` and none of them is one.
+    """
+    low = str(level).lower()
+    if "dram" in low:
+        return "dram"
+    if arithmetic or "mac" in low or "compute" in low:
+        return "mac"
+    return "sram" if (instances or 1) <= 1 else "rf"
+
+
+def standby_components(raw, cfg):
+    """Per-level standby POWER and the run length it is charged over.
+
+    Aggregated across layers from `per_layer[*]["physical"]`, at the repeat
+    count, so it describes exactly the run `Raw.cycles` describes.
+
+    `instance_cycles` is the sum over layers of (UTILIZED instances x that
+    layer's cycles), which is what Timeloop itself bills leakage on -- it power-
+    gates every unused instance and charges `leak x utilized x cycles`
+    (`buffer.cpp FinalizeBufferEnergy`, verified on this design's own cached
+    ERT: filter_glb 7.39799e-05 x 32000 x 1 = 2.37 pJ, weights_spad 2.67882e-06
+    x 32000 x 16 = 1.37 pJ, both to the printed precision). The DECLARED count
+    is carried beside it, never used, and reported -- the same convention
+    prompt_6 RULE 3 fixed for the reconstruction engines.
+    """
+    per_level, seen = {}, {}
+    for lp in raw.per_layer:
+        if lp.get("status") != "ok" or not lp.get("physical"):
+            continue
+        n = float(lp.get("repeat_count", 1) or 1)
+        for row in lp["physical"]["levels"]:
+            name = row["level"]
+            kind = standby_kind(name, row.get("instances"), row.get("arithmetic"))
+            size, wb = row.get("size"), row.get("word_bits")
+            bits = (float(size) * float(wb)) if (size and wb) else None
+            c = per_level.setdefault(name, {
+                "level": name, "kind": kind,
+                "category": classify(name, row.get("instances"), cfg.classify_mode),
+                "bits_per_instance": bits,
+                "instances_declared": row.get("instances"),
+                "instance_cycles": 0.0, "declared_instance_cycles": 0.0,
+                "cycles": 0.0, "timeloop_leakage_pJ": 0.0})
+            # One architecture per fingerprint, so a level's geometry cannot
+            # legitimately move between the layers of one record. If it does,
+            # two chips are in one record and every total below is meaningless.
+            key = (kind, bits, row.get("instances"))
+            if seen.setdefault(name, key) != key:
+                raise ValueError(
+                    f"standby: level {name!r} changes geometry between layers of "
+                    f"one record ({seen[name]} then {key}) -- two architectures "
+                    f"are in one raw record and no per-level total is meaningful")
+            cyc = float(row.get("cycles") or 0.0)
+            c["instance_cycles"] += float(row.get("utilized") or 0.0) * cyc * n
+            c["declared_instance_cycles"] += float(row.get("instances") or 0.0) * cyc * n
+            c["cycles"] += cyc * n
+            c["timeloop_leakage_pJ"] += float(row.get("timeloop_leakage_pJ") or 0.0) * n
+    return [per_level[k] for k in sorted(per_level)]
+
+
+def latency_post_cycle_seconds(cfg):
+    """THIS DESIGN's clock period (prompt_7 C1.5), imported lazily.
+
+    `latency_post` owns the resolution because it is the module that has to
+    agree with the architecture's declared off-chip limit; standby energy has
+    to be charged over the same period or POWER x TIME and ITEMS / TIME would
+    be two different seconds.
+    """
+    from .latency_post import cycle_seconds
+    return cycle_seconds(cfg)
+
+
+def standby_energy(raw, cfg, *, cycle_scale=1.0):
+    """Component standby energy for THIS plan, per level and in total (pJ).
+
+    `E = density_nW x units x instance_cycles x cycle_period`, with `units` the
+    stored bits of one instance for an SRAM or a register file and 1 for a MAC.
+    `cycle_scale` re-times the run: 1.0 charges Timeloop's own cycle count,
+    and ECC_LATENCY_MODEL=1 charges the roofline's instead, because standby
+    energy is power x TIME and a plan that waits on DRAM leaks for longer.
+
+    A missing density is a REFUSAL, not a zero. The whole point of Defect 2 is
+    that a side of the comparison was silently charged nothing; a knob that
+    silently charges nothing is the same failure with a switch on it. `dram` is
+    the one deliberate omission -- env.sh declares no off-chip density, exactly
+    as ECC_DRAM_BACKGROUND_PJ and ECC_DRAM_REFRESH_PJ are 0 on purpose.
+    """
+    dens = getattr(cfg, "leakage_nw", None) or {}
+    # THIS DESIGN's clock, not the study's (prompt_7 C1.5). Standby energy is
+    # power x TIME and `ECC_LEAKAGE_NW` is POWER, so the period is applied here
+    # exactly once -- at 200 MHz that is 5 ns, and reading the 1 GHz study
+    # default instead would under-charge every level by 5x.
+    period = latency_post_cycle_seconds(cfg)
+    rows, total = [], 0.0
+    for c in standby_components(raw, cfg):
+        key = STANDBY_DENSITY.get(c["kind"])
+        row = dict(c)
+        if key is None:                       # dram: off chip, not modelled here
+            row.update(density_nW=None, units=None, power_nW=0.0, energy_pJ=0.0,
+                       note="off chip: env.sh section 6 declares no density, "
+                            "as E_background and E_refresh are also 0")
+            rows.append(row)
+            continue
+        if key not in dens:
+            raise ValueError(
+                f"ECC_STATIC_ENERGY=1 but ECC_LEAKAGE_NW has no {key!r} entry "
+                f"(it holds {sorted(dens) or 'nothing'}), so level {c['level']!r} "
+                f"would be charged zero standby energy -- which is the defect "
+                f"this knob exists to fix. Source env.sh, or set "
+                f"ECC_LEAKAGE_NW_LIST={key}=<nW>;...")
+        units = 1.0 if c["kind"] == "mac" else c["bits_per_instance"]
+        if not units:
+            raise ValueError(
+                f"standby: level {c['level']!r} is a {c['kind']} priced per "
+                f"stored bit, and its stats declare no Size x Word bits to "
+                f"multiply -- refusing to charge it zero")
+        nw = float(dens[key])
+        # nW x s = 1e-9 J = 1e3 pJ
+        e = nw * units * c["instance_cycles"] * cycle_scale * period * 1e3
+        row.update(density_nW=nw, density_key=key, units=units,
+                   power_nW=nw * units, energy_pJ=e)
+        rows.append(row)
+        total += e
+    return total, rows
+
+
+def apply_standby_energy(raw, cfg, verbose=True):
+    """Charge the accelerator's standby energy to the `Standby` category.
+
+    THE SYMMETRY FIX (prompt_7 Defect 2). Applied to the `Raw` record, beside
+    the MAC and DRAM overrides and after the raw cache, so it lands in
+    `raw.base` -- which is where `ecc.build_stacks()` and every placement bar in
+    `experiments/recon.py` start from. Charging it here rather than per arm is
+    what makes "all three arms or none" structural instead of a thing three
+    call sites have to remember: there is no code path that can give it to one
+    arm and not another.
+
+    It is NOT weight energy, so it is absent from `base_w` and the
+    reconstruction arm never scales it by K/N. What it responds to is TIME,
+    which is why ECC_LATENCY_MODEL decides the cycle count it is charged over.
+
+    With ECC_STATIC_ENERGY=0 the record is returned unchanged apart from
+    `standby` being filled with the reason, so a result file can say that no
+    arm was charged and what Timeloop's own leakage bill would have been.
+    """
+    tl_leak = sum(float(c["timeloop_leakage_pJ"])
+                  for c in standby_components(raw, cfg)) if raw.per_layer else 0.0
+    info = {"charged": bool(getattr(cfg, "static_energy", False)),
+            "densities_nW": dict(getattr(cfg, "leakage_nw", None) or {}),
+            "cycle_seconds": latency_post_cycle_seconds(cfg),
+            "timeloop_leakage_pJ": tl_leak,
+            "timeloop_leakage_note": (
+                "what Timeloop itself billed for leakage on this plan. It is "
+                "inside the `Energy:` and `EDP(J*cycle)` the MAPPER optimised "
+                "and was discarded by the report until prompt_7 Phase A "
+                "(reporting rule R-4). Its ERT prices are 10^3-10^4 too low "
+                "and three components price at exactly 0, which is why the "
+                "charge below uses ECC_LEAKAGE_NW instead"),
+            "energy_pJ": 0.0, "per_level": []}
+    if not info["charged"]:
+        info["reason"] = ("ECC_STATIC_ENERGY=0: NO arm is charged component "
+                          "standby energy, so the accelerator's side of the "
+                          "comparison carries none while the reconstruction "
+                          "engines carry theirs (prompt_7 Defect 2)")
+        raw.standby = info
+        return raw
+
+    scale, source = 1.0, "Timeloop cycles"
+    lat = getattr(raw, "latency", None)
+    if lat and raw.cycles:
+        scale = float(lat["cycles"]) / float(raw.cycles)
+        source = (f"roofline cycles ({lat['cycles']:,.0f} against Timeloop's "
+                  f"{raw.cycles:,.0f}, x{scale:.4f})")
+    total, rows = standby_energy(raw, cfg, cycle_scale=scale)
+    info.update(energy_pJ=total, per_level=rows, cycle_scale=scale,
+                cycles_source=source,
+                ratio_to_timeloop_leakage=(total / tl_leak) if tl_leak else None)
+
+    # Per layer, exactly -- not apportioned. Every layer's own utilized
+    # instances and own cycles, so sum(per_layer) still equals base.sum().
+    per_layer = []
+    for lp in raw.per_layer:
+        lp = dict(lp)
+        if lp.get("status") == "ok" and lp.get("physical"):
+            one = Raw(raw.base, raw.base_w, raw.base_i, 0.0, 0.0, 1, 0, 0,
+                      per_layer=[lp], levels=[])
+            e, _ = standby_energy(one, cfg, cycle_scale=scale)
+            lp["standby_energy_pJ"] = e
+            lp["total_energy_pJ"] = float(lp.get("total_energy_pJ", 0.0)) + e
+        per_layer.append(lp)
+
+    def with_standby(series):
+        out = series.copy()
+        out[STANDBY_CAT] = float(out.get(STANDBY_CAT, 0.0)) + total
+        return out
+
+    out = Raw(with_standby(raw.base), raw.base_w, raw.base_i,
+              raw.e_dram_w, raw.dram_w_reads, raw.layers_ok, raw.layers_skipped,
+              raw.weights, per_layer=per_layer, levels=raw.levels,
+              noc_post=raw.noc_post, mac=raw.mac, cycles=raw.cycles)
+    out.dram, out.latency, out.standby = raw.dram, raw.latency, info
+    if verbose:
+        print(f"  [STANDBY] {total / 1e6:,.3f} uJ charged to ALL THREE arms over "
+              f"{source}; Timeloop's own leakage bill on the same plan was "
+              f"{tl_leak / 1e6:,.6f} uJ"
+              f"{f' (x{total / tl_leak:,.0f})' if tl_leak else ''}")
+        for r in rows:
+            if r["energy_pJ"]:
+                print(f"            {r['level']:14s} {r['kind']:4s} "
+                      f"{r['power_nW'] / 1e6:9.4f} mW/instance x "
+                      f"{r['instance_cycles'] / max(raw.cycles or 1, 1):6.2f} mean "
+                      f"instances = {r['energy_pJ'] / 1e6:10,.3f} uJ")
+    return out
+
+
+def apply_latency_model(raw, cfg, verbose=True):
+    """Re-time this plan with `latency_post.roofline()`; fill `Raw.latency`.
+
+    Evaluator-only and arm-INDEPENDENT: this is the plan's own run length at
+    weight_scale 1.0, which is what the standby charge is spread over and what
+    a reconstruction arm's re-timing is measured against. A bar that drives
+    K/N of the weight bits off the die gets its own number from
+    `latency_post.model_cycles(raw, cfg, weight_scale=K/N)`.
+    """
+    if not getattr(cfg, "latency_model", False):
+        raw.latency = None
+        return raw
+    out = latency_post.model_cycles(raw, cfg)
+    if out is None:
+        raise ValueError(
+            "ECC_LATENCY_MODEL=1 but this raw record carries no per-layer "
+            "physical record to re-time (it predates prompt_7 Phase A). "
+            "Re-gather it from the mapper cache -- `load_raw` does this "
+            "automatically unless ECC_REPLOT_ONLY=1.")
+    out["timeloop_cycles"] = raw.cycles
+    out["vs_timeloop"] = (out["cycles"] / raw.cycles) if raw.cycles else None
+    raw.latency = out
+    if verbose:
+        print(f"  [LATENCY] {latency_post.describe(cfg)}")
+        print(f"            {out['cycles']:,} cycles = {out['seconds'] * 1e3:,.3f} ms "
+              f"against Timeloop's {raw.cycles:,} "
+              f"(x{out['vs_timeloop']:.4f}); binding: "
+              + ", ".join(f"{k} on {v} layer(s)"
+                          for k, v in sorted(out["binding_levels"].items(),
+                                             key=lambda kv: -kv[1])))
+    return raw
 
 
 def gather(cfg, mapper, model, layers, verbose=True):
@@ -409,6 +703,12 @@ def gather(cfg, mapper, model, layers, verbose=True):
         layer_rows = noc_post.augment(layer_rows, mapper.arch, cfg)
         rows += layer_rows
         n_ok += 1
+        # prompt_7 Phase A: the PHYSICAL record of this plan -- declared
+        # geometry, declared bandwidths, per-instance counts, and what Timeloop
+        # billed for leakage. Pure Timeloop output, so it is cached beside the
+        # energies and both the roofline (latency_post) and the standby charge
+        # (standby_energy) read the SAME rows for the same level.
+        physical = physical_record(parse_levels(stats)[0])
 
         ldf = pd.DataFrame(layer_rows)
         ldf = ldf[ldf.energy_pJ.notna()]
@@ -433,6 +733,7 @@ def gather(cfg, mapper, model, layers, verbose=True):
             "dram_weight_energy_pJ": (float(dw.energy_pJ.sum())
                                       if not dw.empty else 0.0),
             "cycles": None if cyc is None else cyc * layer.count,
+            "physical": physical,
         })
 
     if verbose:
@@ -481,6 +782,26 @@ def gather(cfg, mapper, model, layers, verbose=True):
         noc_post=noc_post.stamp(mapper.arch, cfg),
         cycles=cycles_total if cycles_known else None,
     )
+
+
+def finish(raw, cfg, verbose=True):
+    """Every evaluator-side model, in the one order they must be applied.
+
+    The raw cache holds pure Timeloop output; these four turn it into what is
+    reported, and NONE of them is in the mapping fingerprint, so a change to
+    any of them redraws in milliseconds:
+
+      1. `apply_mac_override`  -- the DENOMINATOR of every ECC percentage
+      2. `apply_dram_override` -- the per-bit DRAM price (the NUMERATOR knob)
+      3. `apply_latency_model` -- how long this plan actually takes
+      4. `apply_standby_energy` -- power x that time, to ALL THREE arms
+
+    The order is not arbitrary: standby energy is charged over the run length,
+    so the roofline has to exist before it.
+    """
+    raw = apply_dram_override(apply_mac_override(raw, cfg, verbose), cfg, verbose)
+    raw = apply_latency_model(raw, cfg, verbose)
+    return apply_standby_energy(raw, cfg, verbose)
 
 
 # ------------------------------------------------------------------ raw cache
@@ -532,6 +853,21 @@ def load_raw(results, cfg, arch, model, variant=None, fingerprint=None,
               f"(prompt_6 RULE 1; e.g. {unmeasured[0]}) -> re-gathering from the "
               f"mapper cache")
         return None
+    # prompt_7 Phase A: the roofline and the standby charge both read the
+    # per-layer PHYSICAL record. A record written before it existed cannot
+    # supply either, so it is re-gathered from the mapper cache (seconds) --
+    # but ONLY when a feature that needs it is on, so a run with both knobs
+    # off keeps reading every record written before this landed and reproduces
+    # its totals to the pJ.
+    if (cfg.static_energy or cfg.latency_model) and not cfg.replot_only:
+        no_phys = [lp.get("layer") for lp in blob.get("per_layer", [])
+                   if lp.get("status") == "ok" and not lp.get("physical")]
+        if no_phys:
+            print(f"  [stale] {arch}/{model}: raw record predates the per-layer "
+                  f"physical record (prompt_7 Phase A; e.g. {no_phys[0]}), which "
+                  f"ECC_STATIC_ENERGY / ECC_LATENCY_MODEL need -> re-gathering "
+                  f"from the mapper cache")
+            return None
     if blob.get("cycles") is None and not cfg.replot_only:
         print(f"  [stale] {arch}/{model}: raw record predates cycle recording "
               f"(prompt_6 RULE 3: the idle term is per cycle) -> re-gathering from "
@@ -590,14 +926,11 @@ def collect(cfg, results, arch, mapper_factory, models, variant=None,
     if raws:
         print(f"  raw cache hit: {', '.join(raws)}")
     if not need_mapping:
-        # The overrides are applied AFTER the cache, never to it
-        # (apply_mac_override, apply_dram_override).
-        return {m: apply_dram_override(apply_mac_override(r, cfg), cfg)
-                for m, r in raws.items()}, None
+        # The evaluator-side models are applied AFTER the cache, never to it.
+        return {m: finish(r, cfg) for m, r in raws.items()}, None
     if cfg.replot_only:
         print(f"  [skip] ECC_REPLOT_ONLY=1 and no raw cache for: {', '.join(need_mapping)}")
-        return {m: apply_dram_override(apply_mac_override(r, cfg), cfg)
-                for m, r in raws.items()}, None
+        return {m: finish(r, cfg) for m, r in raws.items()}, None
 
     mapper = mapper_factory()
     for model in need_mapping:
@@ -608,5 +941,4 @@ def collect(cfg, results, arch, mapper_factory, models, variant=None,
         raws[model] = raw
         save_raw(results, arch, model, raw, variant, fingerprint)
     print(f"  {mapper.summary()}")
-    return {m: apply_dram_override(apply_mac_override(r, cfg), cfg)
-            for m, r in raws.items()}, mapper
+    return {m: finish(r, cfg) for m, r in raws.items()}, mapper

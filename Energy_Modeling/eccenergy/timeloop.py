@@ -239,21 +239,41 @@ def problem_path(layer):
     return path
 
 
-def design_inputs(arch_yaml, problem_yaml):
+def design_inputs(arch_yaml, problem_yaml, arch, cfg):
     """Every YAML the mapper is handed, in order.
 
     Locally authored components come AFTER the cloned repo's, so this project
     can add a component the exercises repo does not have without editing the
     clone. Names must not collide -- a local file redefining an upstream class
     would be a duplicate-class error, not an override -- so the corrected
-    register file is called `smartbuffer_RF_decoded`, not `smartbuffer_RF`.
+    register file is called `smartbuffer_RF_decoded`, not `smartbuffer_RF`,
+    and the banked SRAM is `smartbuffer_SRAM_banked`.
+
+    `arch` and `cfg` select `globals_<arch>_<content>.yaml`. ONE PER DESIGN
+    since prompt_7 C1.5:
+    `global_cycle_seconds` is no longer one number for the study, and a shared
+    file would clock every design on a multi-design figure at whichever rate
+    was written last. It is a required argument, not a default, so a caller
+    cannot silently get somebody else's clock.
     """
+    g = archs_globals_path(arch, cfg)
+    if not g.exists():
+        raise SystemExit(
+            f"design_inputs: {g} has not been written. `archs.write_globals(cfg, "
+            f"{arch!r})` runs once per design in `experiments/common.Session.setup()`; "
+            f"a caller that reaches Timeloop without it would map at the wrong clock.")
     return ([str(arch_yaml)]
             + sorted(glob.glob(str(DESIGNS_DIR / "_components" / "*.yaml")))
             + sorted(glob.glob(str(ARCH_COMPONENTS / "*.yaml")))
             + [str(DESIGNS_DIR / "_include" / "mapper.yaml"),
-               str(WORK / "globals.yaml"),
+               str(g),
                str(problem_yaml)])
+
+
+def archs_globals_path(arch, cfg):
+    """`archs.globals_path`, imported lazily -- `archs` imports this module."""
+    from .archs import globals_path
+    return globals_path(arch, cfg)
 
 
 # ----------------------------------------------------- prompt_6: ERT tables
@@ -311,6 +331,48 @@ def ert_changes(bump):
             (bump["level"], "leak"): ("add", bump["leak_delta_pj"])}
 
 
+#: The action name Timeloop's arithmetic level bills per MAC.
+COMPUTE_ACTION = "compute"
+
+
+def compute_levels(doc):
+    """Every ERT level that bills a `compute` action -- the arithmetic ones.
+
+    DERIVED FROM THE TABLE, never from the name `mac`. Two designs in this
+    study spell the level differently and a hard-coded name would silently
+    leave one of them priced at Accelergy's own number while the report
+    charged another (prompt_6 RULE 1: one owner per effect).
+    """
+    return sorted({lvl for (lvl, action) in ert_prices(doc)
+                   if action == COMPUTE_ACTION})
+
+
+def mac_ert_changes(doc, mac_pj):
+    """prompt_7 C1.6: price every arithmetic row at `ECC_MAC_PJ_OVERRIDE`.
+
+    THE PROBLEM. `ECC_MAC_PJ_OVERRIDE` was evaluator-only: `energy.apply_mac_
+    override()` rescales the Compute category AFTER the raw cache, so the
+    mapper optimised a machine whose MAC cost Accelergy's 1.13555 pJ while
+    every published percentage was computed at Horowitz's 0.23. Under
+    `ECC_OPT_METRIC=edp` a 5x-too-expensive MAC can move the argmax -- the run
+    printed that warning and nothing acted on it.
+
+    `set`, NOT `add`: the override REPLACES a price rather than tolling it, so
+    the evaluator's ratio `(macs x override) / compute` comes back exactly 1.0
+    and the two cannot double-count. `tests/test_phase_c.py` asserts that.
+
+    Returns `{}` for `mac_pj` None, which is what reproduces the pre-Phase-C
+    table byte for byte.
+    """
+    if mac_pj is None:
+        return {}
+    levels = compute_levels(doc)
+    if not levels:
+        raise ValueError("no ERT row bills a `compute` action; this design has "
+                         "no arithmetic level to price a MAC at")
+    return {(lvl, COMPUTE_ACTION): ("set", float(mac_pj)) for lvl in levels}
+
+
 #: Tolerance for "the same delta": RULE 4.4.5 asks for 1e-9 of the intended value.
 ERT_TOL = 1e-9
 
@@ -362,10 +424,20 @@ class ErtTables:
     the requested bump.
     """
 
-    def __init__(self, cfg, arch, arch_yaml, out_root, bump):
-        if bump is None:
-            raise ValueError("ErtTables is for an ERT arm; the reference arm has none")
+    def __init__(self, cfg, arch, arch_yaml, out_root, bump, mac_pj=None):
+        if bump is None and mac_pj is None:
+            raise ValueError(
+                "ErtTables patches nothing: no ERT bump and no MAC price. The "
+                "reference arm needs a supplied table only when "
+                "ECC_MAC_PJ_OVERRIDE is set (prompt_7 C1.6); without either, "
+                "let Accelergy write its own.")
         self.cfg, self.arch, self.arch_yaml, self.bump = cfg, arch, arch_yaml, bump
+        #: prompt_7 C1.6: the MAC price the MAPPER optimises against, or None.
+        #: It goes into `base.ERT.yaml` as well as the patched one, so it is
+        #: part of what this arm's architecture COSTS rather than a toll on top
+        #: of it -- which is what keeps `read_back_ert`'s "every other row
+        #: untouched" check meaningful with a bump present.
+        self.mac_pj = None if mac_pj is None else float(mac_pj)
         self.dir = pathlib.Path(out_root) / ERT_DIR
         self.ert = self.dir / ERT_NAME
         self.art = self.dir / ART_NAME
@@ -374,9 +446,21 @@ class ErtTables:
         self.record_path = self.dir / ERT_RECORD
         self.record = None
 
+    def what_it_patches(self):
+        """One phrase naming every row this arm's table changes.
+
+        The reference arm patches only the MAC price, so `describe_bump` alone
+        is not enough and `self.bump['placement']` is a crash.
+        """
+        parts = [describe_bump(self.bump)]
+        if self.mac_pj is not None:
+            parts.append(f"MAC {self.mac_pj:g} pJ")
+        return ", ".join(parts)
+
     # ------------------------------------------------------------ validity
     def _load(self):
-        """The record on disk if it describes THIS bump and the files agree."""
+        """The record on disk if it describes THIS bump and MAC price, and the
+        files agree with it."""
         for f in (self.ert, self.art, self.base_ert, self.base_art, self.record_path):
             if not f.exists():
                 return None
@@ -384,9 +468,22 @@ class ErtTables:
             rec = json.loads(self.record_path.read_text())
             if not same_bump(rec.get("bump"), self.bump):
                 return None
+            # prompt_7 C1.6: a table generated before the MAC price existed,
+            # or at a different one, is not this arm's table. Without this the
+            # `_ert/` directory would survive a change to ECC_MAC_PJ_OVERRIDE
+            # and the mapper would optimise against the old price.
+            got_mac = rec.get("mac_pj")
+            if (got_mac is None) != (self.mac_pj is None):
+                return None
+            if self.mac_pj is not None and not _close(got_mac, self.mac_pj):
+                return None
             prices = ert_prices(yaml.safe_load(self.ert.read_text()))
-            for action, want in rec["patched_pj"].items():
-                if not _close(prices.get((self.bump["level"], action)), want):
+            if self.bump is not None:
+                for action, want in (rec.get("patched_pj") or {}).items():
+                    if not _close(prices.get((self.bump["level"], action)), want):
+                        return None
+            for lvl in (rec.get("mac_levels") or []):
+                if not _close(prices.get((lvl, COMPUTE_ACTION)), self.mac_pj):
                     return None
         except (OSError, ValueError, KeyError, TypeError):
             return None
@@ -398,7 +495,10 @@ class ErtTables:
         if self.record is not None:
             return self
         lock = ShapeLock(self.dir)
-        lock.acquire(shape=f"{self.arch} ERT tables ({self.bump['placement']})")
+        # `describe_bump(None)` is "reference (no ERT bump)" -- since prompt_7
+        # C1.6 the REFERENCE arm builds a table too, carrying only the MAC
+        # price, so nothing here may assume a bump exists.
+        lock.acquire(shape=f"{self.arch} ERT tables ({self.what_it_patches()})")
         try:
             self.record = self._load()
             if self.record is None:
@@ -414,7 +514,7 @@ class ErtTables:
         scratch.mkdir(parents=True, exist_ok=True)
         tl = load_timeloopfe()
         spec = tl.Specification.from_yaml_files(
-            *design_inputs(self.arch_yaml, problem_path(layer)))
+            *design_inputs(self.arch_yaml, problem_path(layer), self.arch, self.cfg))
         with open(scratch / "accelergy_console.log", "w") as logf, \
                 contextlib.redirect_stdout(logf), contextlib.redirect_stderr(logf):
             tl.call_accelergy_verbose(spec, output_dir=str(scratch),
@@ -427,23 +527,40 @@ class ErtTables:
         base_ert = yaml.safe_load(erts[0].read_text())
         base_art = yaml.safe_load(arts[0].read_text())
         prices = ert_prices(base_ert)
-        level = self.bump["level"]
-        for action in (self.bump["action"], "leak"):
-            if (level, action) not in prices:
-                raise SystemExit(f"ErtTables: the generated ERT has no row "
-                                 f"{level}.{action}; it has "
-                                 f"{sorted(k for k in prices if k[0] == level)}")
-        patched = patched_ert(base_ert, ert_changes(self.bump))
-        pprices = ert_prices(patched)
+        # prompt_7 C1.6: the MAC price is part of what THIS ARCHITECTURE COSTS,
+        # so it lands in `base.ERT.yaml` too -- not as a toll on top of it.
+        # That is what keeps `read_back_ert`'s "every other row untouched"
+        # check meaningful once a bump is also present: the base it compares
+        # against is the table the mapper was actually given, minus the bump.
+        mac_changes = mac_ert_changes(base_ert, self.mac_pj)
+        mac_levels = sorted({lvl for (lvl, _a) in mac_changes})
+        base_doc = patched_ert(base_ert, mac_changes)
+        base_prices = ert_prices(base_doc)
         record = {
             "bump": self.bump,
-            "base_pj": {a: prices[(level, a)] for a in (self.bump["action"], "leak")},
-            "patched_pj": {a: pprices[(level, a)] for a in (self.bump["action"], "leak")},
+            "mac_pj": self.mac_pj,
+            "mac_levels": mac_levels,
+            "mac_base_pj": {lvl: prices[(lvl, COMPUTE_ACTION)] for lvl in mac_levels},
             "arch_yaml": str(self.arch_yaml),
             "tool_versions": tool_versions(),
             "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         }
-        write_yaml(self.base_ert, patched_ert(base_ert, {}))
+        if self.bump is None:
+            patched = base_doc
+        else:
+            level = self.bump["level"]
+            for action in (self.bump["action"], "leak"):
+                if (level, action) not in prices:
+                    raise SystemExit(f"ErtTables: the generated ERT has no row "
+                                     f"{level}.{action}; it has "
+                                     f"{sorted(k for k in prices if k[0] == level)}")
+            patched = patched_ert(base_doc, ert_changes(self.bump))
+            pprices = ert_prices(patched)
+            record["base_pj"] = {a: base_prices[(level, a)]
+                                 for a in (self.bump["action"], "leak")}
+            record["patched_pj"] = {a: pprices[(level, a)]
+                                    for a in (self.bump["action"], "leak")}
+        write_yaml(self.base_ert, base_doc)
         write_yaml(self.base_art, base_art)
         write_yaml(self.ert, patched)
         write_yaml(self.art, base_art)
@@ -453,11 +570,19 @@ class ErtTables:
         os.replace(tmp, self.record_path)
         shutil.rmtree(scratch, ignore_errors=True)
         self.record = record
-        print(f"      [ert] {self.arch}: {describe_bump(self.bump)}  "
-              f"(base {level}.{self.bump['action']} {record['base_pj'][self.bump['action']]:g} "
-              f"-> {record['patched_pj'][self.bump['action']]:g} pJ, leak "
-              f"{record['base_pj']['leak']:g} -> {record['patched_pj']['leak']:g})",
-              flush=True)
+        note = f"      [ert] {self.arch}: {describe_bump(self.bump)}"
+        if self.bump is not None:
+            act = self.bump["action"]
+            note += (f"  (base {self.bump['level']}.{act} "
+                     f"{record['base_pj'][act]:g} -> {record['patched_pj'][act]:g} pJ, "
+                     f"leak {record['base_pj']['leak']:g} -> "
+                     f"{record['patched_pj']['leak']:g})")
+        if self.mac_pj is not None:
+            note += ("; MAC " + ", ".join(
+                f"{lvl}.{COMPUTE_ACTION} {record['mac_base_pj'][lvl]:g} -> "
+                f"{self.mac_pj:g} pJ" for lvl in mac_levels)
+                + " (ECC_MAC_PJ_OVERRIDE, now in the MAPPER's objective too)")
+        print(note, flush=True)
 
     # --------------------------------------------------------------- use
     def stage(self, out_dir):
@@ -475,10 +600,13 @@ class ErtTables:
         """What a mapping sidecar records about its ERT (RULE 4.4.5)."""
         rec = self.record or {}
         return {"bump": self.bump, "base_pj": rec.get("base_pj"),
-                "patched_pj": rec.get("patched_pj")}
+                "patched_pj": rec.get("patched_pj"),
+                "mac_pj": rec.get("mac_pj", self.mac_pj),
+                "mac_levels": rec.get("mac_levels"),
+                "mac_base_pj": rec.get("mac_base_pj")}
 
 
-def read_back_ert(out_dir, bump, base_prices=None, tol=ERT_TOL):
+def read_back_ert(out_dir, bump, base_prices=None, tol=ERT_TOL, mac_pj=None):
     """RULE 4.4.5, defence 3: re-open the ERT stored beside a cache entry and
     assert it is the one the bar asking for it expects.
 
@@ -500,12 +628,16 @@ def read_back_ert(out_dir, bump, base_prices=None, tol=ERT_TOL):
     if not side.exists():
         raise ErtMismatch(f"read_back_ert: {out_dir} has no {MAPPING_SIDECAR}")
     rec = json.loads(side.read_text()).get("ert_bump")
+    # prompt_7 C1.6: an entry can now carry an ERT record with NO bump -- the
+    # reference arm's, whose table exists only to price the MAC. So the test
+    # is on the BUMP, not on the presence of a record.
+    verified = _read_back_mac(out_dir, rec, mac_pj, tol)
     if bump is None:
-        if rec is not None:
+        if (rec or {}).get("bump") is not None:
             raise ErtMismatch(
                 f"read_back_ert: {out_dir} was mapped as an ERT arm "
                 f"({describe_bump(rec.get('bump'))}) but the reference arm asked for it")
-        return {"arm": "reference", "verified": ["no ERT bump recorded"]}
+        return {"arm": "reference", "verified": ["no ERT bump recorded"] + verified}
     if rec is None or rec.get("bump") is None:
         raise ErtMismatch(
             f"read_back_ert: {out_dir} records no ERT bump, but "
@@ -520,7 +652,6 @@ def read_back_ert(out_dir, bump, base_prices=None, tol=ERT_TOL):
         raise ErtMismatch(f"read_back_ert: {ert_path} is missing")
     prices = ert_prices(yaml.safe_load(ert_path.read_text()))
     level = bump["level"]
-    verified = []
     for action, delta in ((bump["action"], bump["access_delta_pj"]),
                           ("leak", bump["leak_delta_pj"])):
         stored = prices.get((level, action))
@@ -551,6 +682,41 @@ def read_back_ert(out_dir, bump, base_prices=None, tol=ERT_TOL):
         verified.append(f"{len(base_prices) - len(bumped)} other rows untouched")
     return {"arm": bump["placement"], "level": level, "action": bump["action"],
             "verified": verified}
+
+
+def _read_back_mac(out_dir, rec, mac_pj, tol=ERT_TOL):
+    """RULE 4.4.5 for the MAC price (prompt_7 C1.6): the entry was mapped at
+    the price this run charges, or it is not this run's entry.
+
+    Checks the recorded price AND the stored table's own `compute` rows, so a
+    sidecar that merely CLAIMS the price cannot pass on its own.
+    """
+    got = (rec or {}).get("mac_pj")
+    if mac_pj is None and got is None:
+        return []
+    if (mac_pj is None) != (got is None):
+        raise ErtMismatch(
+            f"read_back_ert: {out_dir} was mapped with MAC price {got!r} but "
+            f"this run charges {mac_pj!r}. ECC_MAC_PJ_OVERRIDE is in the "
+            f"mapper's objective since prompt_7 C1.6, so the two are different "
+            f"architectures, not two ways of reporting one.")
+    if not _close(got, mac_pj, tol):
+        raise ErtMismatch(f"read_back_ert: {out_dir} was mapped at "
+                          f"{got!r} pJ/MAC; this run charges {mac_pj!r}")
+    ert_path = pathlib.Path(out_dir) / ERT_NAME
+    if not ert_path.exists():
+        raise ErtMismatch(f"read_back_ert: {ert_path} is missing, so the MAC "
+                          f"price it was mapped at cannot be verified")
+    prices = ert_prices(yaml.safe_load(ert_path.read_text()))
+    levels = (rec or {}).get("mac_levels") or []
+    for lvl in levels:
+        if not _close(prices.get((lvl, COMPUTE_ACTION)), mac_pj, tol):
+            raise ErtMismatch(
+                f"read_back_ert: {out_dir}: {lvl}.{COMPUTE_ACTION} = "
+                f"{prices.get((lvl, COMPUTE_ACTION))!r} in the stored table, but the "
+                f"sidecar says it was mapped at {mac_pj!r}")
+    return [f"{lvl}.{COMPUTE_ACTION} = {mac_pj:g} pJ (ECC_MAC_PJ_OVERRIDE)"
+            for lvl in levels]
 
 
 class ShapeLock:
@@ -661,6 +827,10 @@ class Mapper:
         #: to match on every cache hit, read back after every fresh map.
         self.ert_bump = ert_bump
         self._ert_tables = None
+        #: prompt_7 C1.6: the MAC price the mapper optimises against, or None.
+        #: Independent of the arm -- every arm, reference included, is mapped
+        #: at the price the report charges.
+        self.mac_pj = getattr(cfg, "mac_pj_override", None)
         # Mapper effort is per architecture: a deeper loop nest needs more of
         # it to be searched as thoroughly. See Config.victory_for().
         self.levels = levels
@@ -680,6 +850,16 @@ class Mapper:
         self.n_failed = 0
         self.map_seconds = 0.0
         self.failures = []
+
+    @property
+    def supplies_ert(self):
+        """Is this run handing Timeloop a table at all?
+
+        True as soon as ANY row is patched: an arm's bump (prompt_6) or the MAC
+        price (prompt_7 C1.6). With neither, Accelergy writes the table itself
+        and there is nothing to read back.
+        """
+        return self.ert_bump is not None or self.mac_pj is not None
 
     # ------------------------------------------------------------- identity
     def mapping_id(self, layer):
@@ -709,11 +889,12 @@ class Mapper:
         }
 
     def _ert_record(self):
-        if self.ert_bump is None:
+        if not self.supplies_ert:
             return None
         if self._ert_tables is not None:
             return self._ert_tables.sidecar_record()
-        return {"bump": self.ert_bump, "base_pj": None, "patched_pj": None}
+        return {"bump": self.ert_bump, "base_pj": None, "patched_pj": None,
+                "mac_pj": self.mac_pj}
 
     def _accept_cached(self, out_dir, layer):
         """Decide whether an existing cache entry may be reused, and say why not.
@@ -744,6 +925,16 @@ class Mapper:
         if not same_bump(theirs, self.ert_bump):
             return None, (f"sidecar ERT bump is {describe_bump(theirs)} but this "
                           f"arm is {describe_bump(self.ert_bump)}")
+        # prompt_7 C1.6: and the MAC price, for the same reason. It is in the
+        # fingerprint, so this can only fire on a hand-copied entry -- but a
+        # cache entry that says in words what it was mapped at is the thing
+        # that makes a wrong pick findable.
+        their_mac = (rec.get("ert_bump") or {}).get("mac_pj")
+        if (their_mac is None) != (self.mac_pj is None) or (
+                self.mac_pj is not None and not _close(their_mac, self.mac_pj)):
+            return None, (f"sidecar was mapped at {their_mac!r} pJ/MAC but this "
+                          f"run charges {self.mac_pj!r} (ECC_MAC_PJ_OVERRIDE is "
+                          f"in the mapper's objective since prompt_7 C1.6)")
         return stats, "cached"
 
     def stats_for(self, layer):
@@ -823,14 +1014,17 @@ class Mapper:
               f"(victory {self.victory}, {threads} threads) ...", flush=True)
         t0 = time.time()
         tl = load_timeloopfe()
-        inputs = design_inputs(self.arch_yaml, problem_path(layer))
-        if self.ert_bump is not None:
+        inputs = design_inputs(self.arch_yaml, problem_path(layer), self.arch, self.cfg)
+        if self.supplies_ert:
             # prompt_6: the arm's table, generated once per (arch, arm,
             # fingerprint), pre-written under Timeloop's own names (FINDINGS
             # 3.5 fact 1) and handed to timeloopfe as two extra inputs.
+            # prompt_7 C1.6: the REFERENCE arm has one too now, carrying the
+            # MAC price and no bump.
             if self._ert_tables is None:
                 self._ert_tables = ErtTables(self.cfg, self.arch, self.arch_yaml,
-                                             self.out_root, self.ert_bump)
+                                             self.out_root, self.ert_bump,
+                                             mac_pj=self.mac_pj)
             self._ert_tables.ensure(layer)
             self._ert_tables.stage(out_dir)
             inputs = inputs + self._ert_tables.inputs()
@@ -886,10 +1080,13 @@ class Mapper:
             record["map_seconds"] = round(dt, 3)
             with open(out_dir / MAPPING_SIDECAR, "w", newline="\n") as fh:
                 fh.write(json.dumps(record, indent=1, default=str))
-            if self.ert_bump is not None:
+            if self.supplies_ert:
                 # The table must have been USED (not regenerated) and must
                 # still be the one staged: RULE 4.4.5's read-back, on the
-                # entry that was just written.
+                # entry that was just written. Since prompt_7 C1.6 this covers
+                # the REFERENCE arm too -- its table carries the MAC price, and
+                # a reference entry mapped at Accelergy's own 1.13 pJ/MAC while
+                # the report charges 0.23 is exactly the mismatch this catches.
                 log = (out_dir / "mapper_console.log").read_text(errors="replace")
                 if ERT_FOUND not in log or ERT_GENERATED in log:
                     self.n_mapped -= 1
@@ -897,7 +1094,7 @@ class Mapper:
                                f"branch; the supplied ERT was not used")
                     return None
                 try:
-                    read_back_ert(out_dir, self.ert_bump)
+                    read_back_ert(out_dir, self.ert_bump, mac_pj=self.mac_pj)
                 except ErtMismatch as exc:
                     self.n_mapped -= 1
                     self._fail(layer, out_dir, str(exc))
@@ -908,6 +1105,31 @@ class Mapper:
         else:
             self._fail(layer, out_dir, "mapper produced no stats.txt")
         return self._memo[sig]
+
+    def _sibling_fingerprints(self):
+        """Other `fp-*` directories under this treatment, and how many shapes each holds.
+
+        A cold cache has exactly two causes and they need opposite responses:
+        the architecture was never mapped, or it MOVED since it was. Listing the
+        neighbours tells them apart at a glance -- a sibling holding 47 shapes
+        an hour after a depth was edited is the second case.
+
+        Reported only. Reading one of them back would be a comparison of two
+        architectures, which is the thing `arch_fingerprint()` exists to stop.
+        """
+        try:
+            parent = self.out_root.parent
+            here = self.out_root.name
+            rows = []
+            for d in sorted(parent.glob("fp-*")):
+                if d.name == here or not d.is_dir():
+                    continue
+                n = sum(1 for _ in d.glob("*/timeloop-mapper.stats.txt"))
+                if n:
+                    rows.append((d.name[3:], n))
+            return sorted(rows, key=lambda r: -r[1])[:6]
+        except Exception:
+            return []
 
     def _fail(self, layer, out_dir, reason):
         self.n_failed += 1
@@ -959,12 +1181,30 @@ class Mapper:
 
         if self.cfg.from_cache:
             # Nothing was attempted, so nothing is broken: the cache for this
-            # architecture treatment is simply empty.
-            lines.append(f"    -> nothing is wrong with {self.arch}; this treatment "
-                         f"has no mapper cache yet.")
-            lines.append(f"       Run it in the container without ECC_FROM_CACHE to "
-                         f"build one:  bash run.sh")
-            lines.append(f"       cache dir: {self.out_root}")
+            # architecture treatment is simply empty. Say WHICH architecture is
+            # being looked for and what builds it -- "nothing is wrong with
+            # <arch>" on its own sent a reader hunting the model and the layers
+            # (2026-09-13, efficientnet_b0) when the answer was that the
+            # architecture had moved since the maps were solved.
+            lines.append(f"    -> nothing is wrong with {self.arch} and nothing is "
+                         f"wrong with the model: THE MAPPER CACHE FOR THIS EXACT "
+                         f"ARCHITECTURE IS EMPTY.")
+            lines.append(f"       looking for : fp-{self.fingerprint}")
+            lines.append(f"       cache dir   : {self.out_root}")
+            siblings = self._sibling_fingerprints()
+            if siblings:
+                lines.append(f"       BESIDE IT, solved for OTHER geometries -- each "
+                             f"is a different chip, so none of them may be read "
+                             f"back as this one:")
+                for fp, n in siblings:
+                    lines.append(f"         fp-{fp}  {n} shape(s)")
+                lines.append(f"       If one of those IS the architecture you meant, "
+                             f"put the YAML back the way it was and re-run; if this "
+                             f"one is, the mappings have to be solved for it.")
+            lines.append(f"       build it:  ECC_RECON_LAYER=all ECC_RERUN_OPTIMISER=1 "
+                         f"ECC_RECON_ERT_AWARE=1 bash hpc/map_ert_arms.sh")
+            lines.append(f"       (or, one architecture at a time, in the container: "
+                         f"bash run.sh)")
         elif self.n_mapped == 0 and self.n_cached == 0:
             lines.append(f"    -> EVERY shape failed on {self.arch}. One bad "
                          f"architecture specification fails them all identically, "
@@ -999,7 +1239,9 @@ def _grab_as(pattern, text, cast=float):
 def parse_levels(stats_path):
     """Per-level view of one stats file, for the prompt_6 guards:
 
-        {level: {instances, block_size, word_bits, leakage_pJ, gating, source,
+        {level: {instances, block_size, word_bits, size, leakage_pJ, gating,
+                 source, utilized_instances, cycles, computes, throttling,
+                 read_bandwidth, write_bandwidth, shared_bandwidth,
                  ds: {Weights|Inputs|Outputs|Compute: {reads, fills, updates,
                       energy_pJ}}}}, summary {energy_uJ, cycles, utilization}
 
@@ -1019,11 +1261,36 @@ def parse_levels(stats_path):
             instances=_grab_as(r"Instances\s*:\s*(\d+)", body, int),
             block_size=_grab_as(r"Block size\s*:\s*(\d+)", body, int),
             word_bits=_grab_as(r"Word bits\s*:\s*(\d+)", body, int),
+            # SPECS `Size`, in ITEMS of `word_bits` bits. Anchored on the line
+            # start so it cannot match `Block size` or `Effective size`. With
+            # `word_bits` it is the level's STORED BITS per instance, which is
+            # what a leakage DENSITY multiplies (prompt_7 Phase A / A1).
+            size=_grab_as(r"\n\s+Size\s*:\s*(\d+)", body, int),
             leakage_pJ=_grab_as(r"Leakage energy \(total\)\s*:\s*([\d.eE+-]+)\s*pJ", body),
             gating=_grab_as(r"Instances sharing power gating\s*:\s*([\d.eE+-]+)", body),
             source=_grab_as(r"Vector access energy source\s*:\s*(\S+)", body, str),
             utilized_instances=_grab_as(r"Utilized instances(?: \(max\))?\s*:\s*(\d+)", body, int),
             cycles=_grab_as(r"Cycles\s*:\s*(\d+)", body, int),
+            # DECLARED bandwidths, in ITEMS per cycle, from the SPECS block --
+            # the ceiling `latency_post.py` throttles against. Capitalised as
+            # Timeloop writes them there ("Read bandwidth"), which is what
+            # keeps them apart from the STATS block's achieved "Read Bandwidth
+            # (per-instance)". A level that declares none prints `-`, the regex
+            # misses, and None means UNLIMITED -- which is exactly what DRAM
+            # declares on every architecture in archs/ (prompt_7 section 4.3).
+            read_bandwidth=_grab(r"Read bandwidth\s*:\s*(\d[\d.eE+-]*)", body),
+            write_bandwidth=_grab(r"Write bandwidth\s*:\s*(\d[\d.eE+-]*)", body),
+            shared_bandwidth=_grab(r"Shared bandwidth\s*:\s*(\d[\d.eE+-]*)", body),
+            throttling=_grab(r"Bandwidth throttling\s*:\s*([\d.eE+-]+)", body),
+            # prompt_7 C1.2: what the MAPPER was told this level moves less of.
+            # Timeloop prints it on every level, 1.00 where nothing is
+            # declared, so it is the MEASURED answer to "who owns the off-chip
+            # weight relief for this bar" -- the mapper if it is K/N here, the
+            # evaluator's roofline if it is 1.00. Two live owners on one bar
+            # would apply the relief twice (prompt_6 RULE 1).
+            bw_consumption_scale=_grab(
+                r"Bandwidth Consumption Scale\s*:\s*([\d.eE+-]+)", body),
+            computes=_grab_as(r"Computes \(total\)\s*:\s*(\d+)", body, int),
             ds={})
         parts = re.split(r"\n\s+(Weights|Inputs|Outputs)\s*:\s*\n", body)
         if len(parts) > 1:
@@ -1045,6 +1312,66 @@ def parse_levels(stats_path):
                    cycles=_grab_as(r"\nCycles:\s*(\d+)", text, int),
                    utilization=_grab_as(r"\nUtilization:\s*([\d.eE+-]+)%", text))
     return levels, summary
+
+
+def physical_record(levels):
+    """The compact, ECC-INDEPENDENT physical record for one mapped layer.
+
+    One row per STORAGE level, from `parse_levels()[0]`: the declared geometry,
+    the declared bandwidths, the per-instance access counts, and what Timeloop
+    itself billed for leakage and cycles. Pure Timeloop output, so it belongs
+    in the raw cache beside the energies (`energy.Raw.per_layer`) and every ECC
+    configuration is then arithmetic on top of it.
+
+    Two consumers, one record, so they cannot disagree about the same level:
+    `latency_post.roofline()` re-times the plan from the counts and the
+    bandwidths, and `energy.standby_energy()` charges standby power from the
+    stored bits and the utilized instances. The ARITHMETIC level is not a row
+    -- it has no bandwidth and cannot throttle -- but it supplies
+    `compute_cycles`, which is how long the multiplies alone would take with
+    infinitely fast memory and the floor every storage level is measured
+    against.
+    """
+    compute, rows = None, []
+    for name, rec in levels.items():
+        if rec.get("computes") is not None:
+            compute = rec.get("cycles")
+            rows.append({
+                "level": name, "arithmetic": True, "offchip": False,
+                "instances": rec.get("instances"),
+                "utilized": rec.get("utilized_instances"),
+                "size": None, "word_bits": rec.get("word_bits"),
+                "cycles": rec.get("cycles"),
+                # Timeloop bills NO leakage on the arithmetic level: it prints
+                # no `Leakage energy (total)` there, although the ERT carries a
+                # `leak` row for the MAC. That absence is a term, not a zero.
+                "timeloop_leakage_pJ": rec.get("leakage_pJ"),
+                "read_bw": None, "write_bw": None, "shared_bw": None,
+                "throttling": None, "reads": {}, "writes": {}})
+            continue
+        reads, writes = {}, {}
+        for ds, d in (rec.get("ds") or {}).items():
+            reads[ds] = float(d.get("reads") or 0.0)
+            writes[ds] = float(d.get("fills") or 0.0) + float(d.get("updates") or 0.0)
+        rows.append({
+            "level": name, "arithmetic": False,
+            "offchip": "dram" in str(name).lower(),
+            "instances": rec.get("instances"),
+            "utilized": rec.get("utilized_instances"),
+            "size": rec.get("size"), "word_bits": rec.get("word_bits"),
+            "cycles": rec.get("cycles"),
+            "timeloop_leakage_pJ": rec.get("leakage_pJ"),
+            "read_bw": rec.get("read_bandwidth"),
+            "write_bw": rec.get("write_bandwidth"),
+            "shared_bw": rec.get("shared_bandwidth"),
+            "throttling": rec.get("throttling"),
+            # prompt_7 C1.2: whether THIS level's plan was already solved
+            # against the reduced weight demand. `latency_post` reads it to
+            # decide who owns the relief; 1.00 (or None on a cache entry that
+            # predates the field) means nobody did.
+            "bw_consumption_scale": rec.get("bw_consumption_scale"),
+            "reads": reads, "writes": writes})
+    return {"compute_cycles": compute, "levels": rows}
 
 
 def parse_stats(stats_path, layer_label, scale=1.0):

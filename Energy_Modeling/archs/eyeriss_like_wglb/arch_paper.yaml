@@ -1,13 +1,15 @@
 architecture:
   # ============================================================
-  # Eyeriss v1 + the PUBLISHED 8 kB filter GLB.
+  # Eyeriss v1 WITH a filter GLB -- the level JSSC 2017 Sec. V-A
+  # says exists and archs/eyeriss_like/arch_paper.yaml omits.
   # Selected by ECC_ARCH_FIDELITY=paper.
   #
-  # THE ONLY DIFFERENCE from archs/eyeriss_like/arch_paper.yaml is
-  # the Weights branch of the GLB !Parallel: where that file puts
-  # !Nothing, this one puts the 8 kB (two 512-b x 64-b banks) that
-  # JSSC 2017 Sec. V-A says the GLB allocates to filter weights.
-  # Every other byte of the two files is identical.
+  # THE STRUCTURAL DIFFERENCE from archs/eyeriss_like/arch_paper.yaml
+  # is the Weights branch of the GLB !Parallel: where that file puts
+  # !Nothing, this one puts a filter buffer.  It is NOT the only
+  # difference any more -- three declared capacities also diverge,
+  # deliberately; see the table below -- and this one is declared at
+  # 2 kB, not the paper's 8 kB.
   #
   # WHY BOTH EXIST.  The base model argues the 8 kB is a PREFETCH
   # buffer the RS dataflow does not need, so declaring it as a
@@ -20,8 +22,10 @@ architecture:
   #   eyeriss_like        no weight reuse below DRAM  -> upper bound
   #                       on DRAM weight traffic, and therefore on
   #                       the ECC saving
-  #   eyeriss_like_wglb   the paper's 8 kB as a full reuse level
-  #                       -> lower bound
+  #   eyeriss_like_wglb   a filter buffer as a full reuse level
+  #                       -> lower bound.  Declared at 2 kB, so
+  #                       this bound is LOOSER than the paper's
+  #                       8 kB would make it.
   #
   # Quote the pair, not either one alone.
   #
@@ -32,8 +36,7 @@ architecture:
   #   https://eems.mit.edu/wp-content/uploads/2016/11/eyeriss_jssc_2017.pdf
   #
   # This file differs from the stock example_designs/eyeriss_like
-  # in exactly three places, all of them corrections toward the
-  # paper.  Set ECC_ARCH_FIDELITY=stock to get the original back.
+  # in one structural place, a correction toward the paper:
   #
   #  1. The single 8-bit `shared_glb` is split into an 8b ifmap
   #     buffer and a 16b psum buffer.  The stock design declared
@@ -45,8 +48,45 @@ architecture:
   #     v1-beats-v2 gap.  The paper's own GLB is already banked
   #     and statically assigned per dataspace, so the split is
   #     also the more faithful structure.
-  #  2. weights_spad depth 192 -> 224 (paper: 224 x 16b).
-  #  3. psum_spad depth 16 -> 24 (paper: 24 x 16b).
+  #
+  # ============================================================
+  # THREE DECLARED CAPACITIES DIVERGE FROM JSSC 2017 ON PURPOSE.
+  # Read this before quoting a capacity, and before "fixing" one.
+  #
+  #                     this file    JSSC 2017 Sec. V
+  #   filter_glb        256 x 64b     1024 x 64b  (8 kB, two
+  #                     = 2 kB        512-b x 64-b banks)
+  #   weights_spad       16 x 16b      224 x 16b  ("the filter
+  #                     = 32 8-bit     spad is implemented in a
+  #                       weights      224-b x 16-b SRAM")
+  #   psum_spad          96 x 16b       24 x 16b
+  #   psum_glb         6656 x 64b     6144 x 64b  (12 of the 25
+  #                    (= 13 banks     512-b x 64-b banks)
+  #                     worth)
+  #
+  # They arrived in commit 3a770cc (2026-09-11) without a note,
+  # and the comments beside them went on quoting the PAPER's
+  # numbers while the file declared these -- which is how a
+  # reader came to believe filter_glb held 8 kB when it holds 2.
+  # CONFIRMED AND KEPT 2026-09-13 (prompt_7 C1.7, user's call):
+  # the cold pass runs on the geometry as declared here.  The
+  # comments are corrected to say what is declared; the numbers
+  # are not.
+  #
+  # WHAT THAT COSTS, so it is never quoted as the published chip:
+  #  * `archs/eyeriss_like/arch_paper.yaml` -- the retired v1
+  #    variant -- still carries 224 and 24, so the two v1 files
+  #    do NOT declare the same PE.
+  #  * prompt_5 and legacy/FINDINGS_detail_2026-09-11.md record
+  #    what the depth-16 spad does to THE WIDTH TABLE: at width
+  #    96 it renormalises to depth 3 (288 bits, +12.5%), which is
+  #    barely a reuse level, and the resulting per-code spread in
+  #    the 8-bit arm is what made BCH(63,39) once read as a
+  #    37.69% win that was really the reference breaking.
+  #  * `archs/_shared/provenance.yaml` (`v1_declared_capacities`)
+  #    carries the same table, so `run.sh validate` reports it.
+  # THE ONLY CAPACITY THIS FILE MAY BE QUOTED FOR is its own.
+  # ============================================================
   #
   # PRECISION CONVENTION.  Eyeriss v1 is a 16-bit fixed-point
   # design; this study quantizes OPERANDS to 8 bits and leaves
@@ -97,14 +137,29 @@ architecture:
   # (512 x 64b), which is what sets the per-access energy; only
   # the ifmap:psum capacity ratio is frozen.
   #
-  # The 8 kB filter allocation is NOT modelled as a reuse level.
-  # The paper is explicit that it is a prefetch buffer the RS
-  # dataflow does not need ("even though it is not required by
-  # the dataflow ... the GLB preloads the filters used by the
-  # next processing pass"); giving Timeloop a weight level here
-  # would hand v1 a full extra stage of weight reuse it does not
-  # have.  Weights therefore go DRAM -> filter spad, as in the
-  # stock model.
+  # THE FILTER ALLOCATION *IS* MODELLED AS A REUSE LEVEL HERE.
+  # That is the ONE thing that separates this file from
+  # archs/eyeriss_like/arch_paper.yaml, which puts `!Nothing` in
+  # its place; the paragraph that used to sit here said the
+  # opposite, copied from that file.  The argument for omitting
+  # it is the paper's own words -- the 8 kB is a prefetch buffer
+  # the RS dataflow does not need ("even though it is not
+  # required by the dataflow ... the GLB preloads the filters
+  # used by the next processing pass") -- and it is reasonable,
+  # unfalsifiable from the paper alone, and NOT neutral, because
+  # omitting the level maximises DRAM weight traffic, which is
+  # the exact quantity this study measures.  So the two files
+  # bracket the answer and `eyeriss_like_wglb` is the design
+  # (CLAUDE.md, decided 2026-09-10).
+  #
+  # DECLARED BANDWIDTHS BELOW ARE NOT CITED.  Every `read_bandwidth`
+  # and `write_bandwidth` in this file is inherited from the
+  # reference design; JSSC 2017 publishes no per-level port width.
+  # They are not decoration: `ifmap_glb` throttles 11 of 43 cached
+  # shapes and `filter_glb`'s 16 items/cycle is what caps every
+  # fully-connected layer at 9.52% PE utilisation.  Recorded in
+  # archs/_shared/provenance.yaml as `onchip_bandwidth`
+  # (prompt_7 C1.4) -- read it before resting a headline on one.
   # ------------------------------------------------------------
   - !Parallel
     nodes:
@@ -125,7 +180,13 @@ architecture:
       name: psum_glb
       class: smartbuffer_SRAM
       attributes:
-        depth: 6144          # 12 banks x 512 entries
+        depth: 6656          # DECLARED, not 12 x 512 = 6144. The bank
+                             # COUNT below is still the paper's 12, so this
+                             # is 554.67 entries per bank and the GLB totals
+                             # 13 + 12 + 2 = 27 of its 25 banks. Deliberate
+                             # (user's call, 2026-09-13): see the divergence
+                             # table above. n_banks is what CACTI prices, so
+                             # per-access energy is still a 512 x 64b bank.
         width: 64            # paper: 512-b x 64-b SRAM banks
         n_banks: 12
         datawidth: 16        # psums are 16b in v1: "The computation consists
@@ -136,7 +197,8 @@ architecture:
       constraints:
         dataspace: {keep: [Outputs], bypass: [Weights, Inputs]}
 
-    - !Component # filter GLB: the 2 remaining banks = 8 kB.  JSSC 2017 Sec. V-A:
+    - !Component # filter GLB: the 2 remaining banks. JSSC 2017 Sec. V-A calls
+      # them 8 kB; THIS FILE DECLARES 2 kB (see the divergence table above):
       #   "Even though it is not required by the dataflow, the remaining 8 kB
       #    (two banks of 512-b x 64-b SRAMs) of the GLB is allocated for filter
       #    weights to compensate for insufficient off-chip traffic bandwidth.
@@ -146,15 +208,24 @@ architecture:
       # THIS LEVEL IS IN THE PAPER; archs/eyeriss_like OMITS IT.  See README.md.
       # Bank geometry is exact (512 x 64b, 2 banks), so per-access energy is the
       # same CACTI array as the other 23 banks of the same GLB.
+      #
+      # DECLARED CAPACITY IS 2 kB, NOT THE PAPER'S 8 kB -- see the
+      # divergence table at the top of this file.  The paper's two banks
+      # of 512 x 64b would be `depth: 1024`; this declares 256, i.e. 128
+      # entries per bank.  Kept deliberately 2026-09-13.  BANK GEOMETRY
+      # is the paper's shape (64b words, 2 banks), which is what sets the
+      # per-access energy; only the entry count differs.
       name: filter_glb
       class: smartbuffer_SRAM
       attributes:
-        depth: 256          # 2 banks x 128 entries -> 1024 x 64b = 8 kB
-        width: 64            # paper: 256-b x 64-b SRAM banks
-        n_banks: 2
+        depth: 256           # 2 banks x 128 entries = 16,384 b = 2 kB
+                             # (JSSC 2017 says 8 kB -> depth 1024; see above)
+        width: 64            # paper: 64-b SRAM words
+        n_banks: 2           # reaches CACTI since prompt_7 C1.7
         datawidth: 8         # 8-bit weights (this study's quantization)
-        read_bandwidth: 16
-        write_bandwidth: 16
+        read_bandwidth: 16   # items/cycle. NOT CITED -- reference-design
+        write_bandwidth: 16  # inheritance; provenance.yaml `onchip_bandwidth`.
+                             # This is the level that binds every fc layer.
       constraints:
         dataspace: {keep: [Weights], bypass: [Inputs, Outputs]}
 
@@ -211,12 +282,22 @@ architecture:
       # CACTI like every other SRAM in the study. Measured effect: 4.39 pJ
       # -> see provenance.yaml.  Levels the papers call registers keep
       # smartbuffer_RF; there the clamp at 64 comparators bounds the error.
+      # THE STORAGE CLASS ARGUMENT IS THE PAPER'S; THE DEPTH IS NOT -- this
+      # file declares 16, not the published 224.  See the divergence table
+      # at the top.  It declares no `n_banks`, so it keeps the unbanked
+      # `smartbuffer_SRAM` and prices exactly as it did before prompt_7 C1.7.
       name: weights_spad
       class: smartbuffer_SRAM
       attributes:
-        depth: 16
+        depth: 16            # 16 x 16b = 256 b = 32 8-bit weights per PE.
+                             # THE PAPER SAYS 224 x 16b = 448 weights; this
+                             # file deliberately declares the smaller array
+                             # (divergence table at the top).  THE WIDTH
+                             # TABLE renormalises 256 b to depth 3 at width
+                             # 96, so this is a shallow reuse level -- which
+                             # is what prompt_5 warns about.
         width: 16
-        datawidth: 8         # 448 8-bit weights in the paper's 64 x 16b array
+        datawidth: 8         # 8-bit weights (this study's quantization)
         read_bandwidth: 2
         write_bandwidth: 2
       constraints:
@@ -225,8 +306,13 @@ architecture:
           permutation: [N, M, P, Q, S, C, R]
           factors: [N=1, M=1, P=1, Q=1, S=1]
 
-    - !Component # psum spad -- paper: 24 x 16b, registers.  The stock example
-      # design declared depth 16; 24 is the published number.
+    - !Component # psum spad -- paper: 24 x 16b, registers.
+      # DECLARED 96, NOT THE PAPER'S 24 (divergence table at the top of
+      # this file).  The stock example design declared 16, and this file
+      # declared 64 until 2026-09-13.  Raised to 96 deliberately
+      # (user's call, 2026-09-13); it holds partial sums, which
+      # reconstruction never touches, so it moves no ECC percentage --
+      # but it is not the published PE and must not be quoted as one.
       # Address-DECODED register file, not a CAM: see
       # archs/_shared/components/regfile_decoded.yaml. Upstream's
       # smartbuffer_RF fires all `depth` comparators per access, which
@@ -235,7 +321,7 @@ architecture:
       name: psum_spad
       class: smartbuffer_RF_decoded
       attributes:
-        depth: 64
+        depth: 96
         width: 16
         datawidth: 16        # partial sums stay at the accumulator width
         update_fifo_depth: 2

@@ -1,0 +1,71 @@
+compound_components:
+  version: 0.4
+  classes:
+  # ===========================================================================
+  #  smartbuffer_SRAM_banked -- smartbuffer_SRAM, plus the one attribute the
+  #  upstream class drops on the floor.
+  #
+  #  WHY IT IS A NEW NAME AND NOT AN EDIT.  Accelergy loads the cloned
+  #  exercises repo's `_components/` and this directory together; a local file
+  #  redefining `smartbuffer_SRAM` is a DUPLICATE-CLASS ERROR, not an override
+  #  (the same reason the corrected register file is `smartbuffer_RF_decoded`).
+  #
+  #  WHAT UPSTREAM DROPS.  `smartbuffer_SRAM` declares no `n_banks`, so the
+  #  `n_banks:` every architecture in this study writes -- 13 and 12 on the
+  #  Eyeriss v1 GLB, 48/64/16 on v2, 16 on the simple designs -- never reaches
+  #  the `SRAM` primitive and CACTI models one monolithic array.  The plug-in
+  #  itself takes `n_banks` (accelergy-cacti-plug-in/cacti_wrapper.py:137) and
+  #  passes it to CACTI as `-UCA bank N`.
+  #
+  #  prompt_7 C1.7.
+  # ===========================================================================
+  - name: smartbuffer_SRAM_banked
+    attributes:
+      technology: "must_specify"
+      width: "must_specify"
+      depth: "must_specify"
+      n_banks: 1
+      n_rw_ports: 1
+      global_cycle_seconds: "must_specify"
+
+    subcomponents:
+    - name: storage
+      class: SRAM
+      attributes:
+        width: width
+        depth: depth
+        n_banks: n_banks
+        n_rw_ports: n_rw_ports
+        technology: technology
+        global_cycle_seconds: global_cycle_seconds
+
+    - name: address_generators[0..1]
+      class: intadder
+      attributes:
+        n_bits: max(1, ceil(log2(depth))) if depth >= 1 else 1
+        precision: max(1, ceil(log2(depth))) if depth >= 1 else 1
+        width: max(1, ceil(log2(depth))) if depth >= 1 else 1
+        global_cycle_seconds: global_cycle_seconds
+
+    actions:
+    - &write_action
+      name: write
+      subcomponents:
+      - name: storage
+        actions: [{name: write}]
+      - name: address_generators[0]
+        actions: [{name: add}]
+    - name: read
+      subcomponents:
+      - name: storage
+        actions: [{name: read}]
+      - name: address_generators[1]
+        actions: [{name: add}]
+    - name: leak
+      subcomponents:
+      - name: storage
+        actions: [{name: leak}]
+      - name: address_generators[0..1]
+        actions: [{name: leak}]
+    - name: update
+      << : *write_action

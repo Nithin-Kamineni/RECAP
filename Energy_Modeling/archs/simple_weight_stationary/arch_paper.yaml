@@ -23,10 +23,14 @@ architecture:
   #
   # Timeloop allows one datawidth per storage level, so the stock
   # `shared_glb` -- which held all three dataspaces at 16b -- is
-  # split into an 8b operand buffer and a 16b psum buffer. Total
-  # capacity is unchanged at 128 kB (64 kB + 64 kB), the word
-  # width and bank count are unchanged, so per-access energy is
-  # the stock number and only the packing changes.
+  # split BY DATASPACE into three levels, one per dataspace, each
+  # declaring its own precision. Total capacity is unchanged at
+  # 128 kB (36 + 28 + 64) and the word width is unchanged; the
+  # ARRAYS ARE NOT THE STOCK ARRAYS, because splitting one 64 kB
+  # operand buffer into a 36 kB and a 28 kB one gives CACTI two
+  # smaller arrays to price. That is a real consequence of the
+  # split, recorded in ../_shared/provenance.yaml rather than
+  # compensated for.
   #
   # This makes ECC_FORCE_DATAWIDTH=8 unnecessary for this design:
   # it is now natively 8-bit on the operand path. Set
@@ -52,25 +56,103 @@ architecture:
       technology: "45nm"
 
   # ------------------------------------------------------------
-  # The stock single 128 kB shared_glb (depth 16384 x 64b, 32
-  # banks, datawidth 16) split by dataspace so partial sums can
-  # keep their own precision. 16 banks each, same 512-entry bank
-  # geometry, so CACTI sees the same array it saw before.
+  # THE STOCK 128 kB shared_glb (16384 x 64b, 32 banks, datawidth
+  # 16), SPLIT BY DATASPACE INTO THREE LEVELS.
+  #
+  # WHY WEIGHTS AND INPUTS ARE SEPARATE LEVELS (2026-09-13).
+  # Timeloop allows ONE `datawidth:` per storage level, so a level
+  # that holds Weights beside Inputs cannot store the
+  # reconstruction arm's q-bit weights without also declaring the
+  # 8-bit input activations to be q bits. The single `operand_glb`
+  # this replaces could therefore not carry the reduced
+  # representation AT ALL: under the default
+  # ECC_WEIGHT_CAPACITY_SCOPE=exclusive,
+  # `archs._weight_level_parts()` skips a level whose `keep:` is
+  # not Weights alone, so THE WIDTH TABLE never reshaped it and
+  # `ECC_WEIGHT_DATAWIDTH_LEVELS=weight_glb` had no level to name.
+  # With the split, `weight_glb` keeps Weights and nothing else
+  # and is this design's global weight-buffer stage -- recon.py's
+  # R2 boundary -- in the same sense `filter_glb` is Eyeriss v1's.
+  #
+  # THE 36 / 28 kB SPLIT, AND WHAT IT IS FROM.
+  # There is no paper to divide; the ratio is chosen from THIS
+  # DESIGN'S OWN cached mappings -- 53 distinct layer shapes at
+  # the 65,536-word shared `operand_glb`, read out of
+  # ecc_energy_study/outputs/simple_weight_stationary/:
+  #
+  #   summed partition size (the distinct values the level is
+  #     asked to hold)            Weights 8,068,576  53.3 %
+  #                               Inputs  7,064,919  46.7 %
+  #   refetch (fills / partition) Weights 1.088x  Inputs 1.113x
+  #   peak utilized capacity      Weights 64,000  Inputs 57,344
+  #   median utilized capacity    Weights  4,320  Inputs 25,056
+  #
+  # So the two dataspaces ask for the level in almost equal
+  # measure, and at 64 kB shared NEITHER binds -- both refetch
+  # within 12 % of ideal. The demand split (53/47) is the base;
+  # the tilt to 56/44 is the dataflow: this is the
+  # WEIGHT-stationary design, weights are the resident operand,
+  # and its low DRAM weight refetch (1.17 fetches/weight against
+  # Eyeriss v1's 3.47, README.md) is the quantity the ECC study
+  # measures. THE COUNTER-ARGUMENT IS REAL AND IS NOT IGNORED:
+  # the input path has no PE scratchpad in this design -- inputs
+  # go GLB -> input_activation_reg (depth 1) -- so this level is
+  # the ONLY input reuse level on chip and does 90 % of the
+  # level's reads, which is why the tilt is one bank-pair wide
+  # and not a half.
+  #
+  # WHAT IT COSTS, so it is never read as free: 36 kB and 28 kB
+  # are both smaller than the 64 kB either dataspace could reach
+  # before, so fills -- DRAM traffic -- can only RISE on both.
+  # The peak-demand layers re-tile: the fc shape (C1280_M1000)
+  # held 64,000 weights and now has room for 36,864 at q=8, and
+  # the early large-fmap shapes held up to 57,344 inputs against
+  # 28,672 now. At q=5 the weight half holds 58,368 weights, so
+  # the reduced representation reaches back over most of that fc
+  # tile -- which is the mechanism, not a tuning.
+  #
+  # BANKS: 8 and 8, so the 16 operand banks are conserved and
+  # BOTH levels are priced on the SAME banking model. CACTI is
+  # called at the next power of two (provenance.yaml
+  # `sram_banking`), so the 512-entry-bank split -- 9 banks and 7
+  # -- would have priced a 36 kB array as 16 banks and a 28 kB
+  # array as 8, a 2x disparity between two arrays 1.29x apart.
+  # The entries per bank move instead: 576 and 448, not 512.
   # ------------------------------------------------------------
   - !Parallel
     nodes:
-    - !Component # operand half of the shared buffer: 64 kB
-      name: operand_glb
+    - !Component # input-activation GLB: 28 kB of the 64 kB operand half
+      name: input_glb
       class: smartbuffer_SRAM
       attributes:
-        depth: 8192
+        depth: 3584        # 8 banks x 448 entries = 229,376 b = 28 kB
         width: 64
-        n_banks: 16
-        datawidth: 8       # weights and input activations
-        read_bandwidth: 16
-        write_bandwidth: 16
+        n_banks: 8
+        datawidth: 8       # 8-bit input activations
+        read_bandwidth: 16   # items/cycle. NOT CITED -- reference-design
+        write_bandwidth: 16  # inheritance; provenance.yaml `onchip_bandwidth`
       constraints:
-        dataspace: {keep: [Inputs, Weights], bypass: [Outputs]}
+        dataspace: {keep: [Inputs], bypass: [Weights, Outputs]}
+
+    - !Component # weight GLB: the design's global weight-buffer stage
+      # KEEPS WEIGHTS AND NOTHING ELSE, which is what lets it declare the
+      # reconstruction arm's `datawidth: q`.  DECLARED here at the design's
+      # own 64-b word; `archs._set_weight_geometry()` reshapes every weight
+      # level per arm from THE WIDTH TABLE and renormalises depth to hold
+      # these bits, so what the mapper sees is 768 x 384b (294,912 b, exact
+      # at every q) and NOT this shape.  Do not hand-pick a width here.
+      name: weight_glb
+      class: smartbuffer_SRAM
+      attributes:
+        depth: 4608        # 8 banks x 576 entries = 294,912 b = 36 kB
+        width: 64
+        n_banks: 8
+        datawidth: 8       # 8-bit weights on the baseline/embedded arm;
+                           # the reconstruction arm declares q here
+        read_bandwidth: 16   # items/cycle. NOT CITED -- reference-design
+        write_bandwidth: 16  # inheritance; provenance.yaml `onchip_bandwidth`
+      constraints:
+        dataspace: {keep: [Weights], bypass: [Inputs, Outputs]}
 
     - !Component # partial-sum half of the shared buffer: 64 kB
       name: psum_glb

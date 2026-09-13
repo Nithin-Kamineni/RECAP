@@ -10,7 +10,7 @@ that each PHASE is one working session with its own gate.**
 |---|---|
 | **Design** | `eyeriss_like_wglb` (Eyeriss v1) for the numbers. **The defects are study-wide** — no architecture in `archs/` declares an off-chip speed limit, no arm is charged component standby power, and every design's placement list shares one reference mapping. |
 | **Extends** | `prompt_6.md`, especially **RULE 3** (the idle term) and **RULE 4** (whose plan a bar is billed from). Does not replace either. |
-| **Status** | **Phase 0 landed 2026-09-12** (§13). **Phases A–E are the remaining work** (§9). Nothing in this document is blocked on a decision; every open question is an evidence gap with a stated fallback. |
+| **Status** | **Phases 0, A and B landed 2026-09-12** (§13). **Phases C, D and E are the remaining work** (§9). Nothing in this document is blocked on a decision; every open question is an evidence gap with a stated fallback. |
 | **Numbers** | *measured* = real, reproduced from the cache or from runs recorded in Appendix A. *projected* = arithmetic on measured inputs, **not adopted**. Every table says which. |
 | **Invalidates** | FINDINGS §2.9's placement ranking — clock gating is now the default, so R4 moves from −33.96% to about +9%. Regenerate before quoting. |
 | **Written / revised** | written 2026-09-11; revised 2026-09-12 (Defect 3 added, Issue 9 resolved into a reporting rule, phases restructured into sessions) |
@@ -27,8 +27,8 @@ previous one's gate has passed — the later phases read numbers the earlier one
 
 ```
    PHASE 0  DONE 2026-09-12 ............ five fixes already in the code (§13)
-   PHASE A  report what is already there  no compute, no cold .... 1 session
-   PHASE B  one mapping per boundary      no compute, no cold .... 1 session
+   PHASE A  DONE 2026-09-12 ............ standby energy, the roofline, §12's rules
+   PHASE B  DONE 2026-09-12 ............ six mapper arms, one named plan per bar
    PHASE C  the single cold pass          HOURS of SLURM ......... 2 sessions (C1 author, C2 run)
    PHASE D  transformer workload          hours .................. 1 session
    PHASE E  prompt_7.1's buffer sweep     see that file
@@ -740,14 +740,25 @@ All already declared in `env.sh` unless marked NEW. **`env.sh` is the only file 
 | `ECC_LEAKAGE_NW` | §6 | `sram_bit=2.693`, `rf_bit=70.0`, `mac_instance=7844.9` | replacement leakage densities, in nW (POWER — no cycle-period rescaling) | A |
 | `ECC_DRAM_BANDWIDTH_MBPS` | §6 | `480` | off-chip limit in MB/s; §10 converts to words/cycle. EMPTY = unlimited = today. | A (roofline) / C (arch) |
 | `ECC_ARCH_CLOCK_MHZ` | §6 | `eyeriss_like_wglb=200` | per-design clock → `ECC_GLOBAL_CYCLE_SECONDS`. **In the fingerprint.** | C |
-| `ECC_LATENCY_MODEL` | — | `0` | **NEW.** `1` applies `latency_post.py`'s roofline. | A |
-| `ECC_RECON_BW_SCALE` | — | `0` | **NEW.** `1` emits `per_dataspace_bandwidth_consumption_scale`. **Colds every cache.** | C |
-| `ECC_ONCHIP_BW_BITAWARE` | — | `0` | **NEW.** `1` scales a narrowed level's declared `read_/write_bandwidth` by `8/q`. **Colds every cache.** §4.5. | C |
+| `ECC_LATENCY_MODEL` | §6 | **`1`** | `1` applies `latency_post.py`'s roofline. Shipped as `0` in Phase A, when the roofline was the ONLY place the off-chip limit existed; C1.1 declares the same limit to the mapper, so it now re-states a plan's time rather than supplying the only estimate of it. With it off the placement study reports no cycles at all. | A / C |
+| `ECC_RECON_BW_SCALE` | §6 | **`1`** | `1` emits `per_dataspace_bandwidth_consumption_scale` on every stage of the arm's boundary. **Colds every cache.** | C |
+| `ECC_ONCHIP_BW_BITAWARE` | §6 | **`1`** | `1` scales a narrowed level's declared `read_/write_bandwidth` by `8/q`. **Colds every cache.** §4.5. | C |
+
+> **THE DEFAULT IS THE FEATURE.** All three ship ON, because `bash hpc/map_ert_arms.sh` with
+> nothing exported is what the study is run by. A knob that has to be exported to matter is a
+> capability, not a result — test them by reading `env.sh`, never by exporting them.
 
 > **TRAP, already documented in `env.sh` §6 and repeated because it costs 5× if missed:**
 > `ECC_RECON_IDLE_PJ` is pJ **per cycle** measured by DC at a 1 ns clock, so at 200 MHz it
 > must be rescaled (`×5`). `ECC_LEAKAGE_NW` is **power in nW** and must NOT be. The rescaling
 > belongs in `config.py` where the DC tables are read, never at the point of use.
+>
+> **IT HAD NEVER BEEN WRITTEN.** Found and fixed 2026-09-13 (§13, Phase C1): the factor was
+> 1.0 on every run until C1.5 gave a design its own clock, so nothing had ever exercised it.
+> `Config.dc_idle_scale()` owns the factor and `ecc.load_recon_terms()` applies it at ONE
+> site, after the three lookup branches converge. Measured: BCH(63,39) idle 2.7891299 →
+> **13.9456495** pJ/cycle/engine, and the ERT leak row 2.8310811 → **14.1554055** at
+> BCH(63,30) — the worked example above, now produced by the code.
 
 ---
 
@@ -756,30 +767,35 @@ All already declared in `env.sh` unless marked NEW. **`env.sh` is the only file 
 ```
   PHASE 0  DONE ........ five fixes already in the code                      (§13)
      |
-  PHASE A  report what is already there .... no compute, no cold .... 1 session
+  PHASE A  DONE 2026-09-12 ................ no compute, no cold      (§13)
      |        A1 standby energy reaches the report, all three arms
      |        A2 latency_post.py roofline + the first latency tables
      |        A3 the reporting rules (incl. the old Issue 9)
      |        A4 the FINDINGS correction about who sees leakage
      v
-  PHASE B  one mapping per boundary ....... no compute, no cold .... 1 session
+  PHASE B  DONE 2026-09-12 ................ no compute, no cold      (§13)
      |        B1 R3 stops borrowing the reference's plan
      |        B2 the arm list becomes 6
      |        B3 re-derive ert_injectable() condition 3 under gating
      |        B4 --dry-run / --progress prove the new arm list
      v
   PHASE C  THE SINGLE COLD PASS ........... HOURS ................. 2 sessions
-     |        C1 author every architecture change + validate (session 1)
-     |        C2 launch the 6-arm map, collect, regenerate (session 2)
+     |        C1 DONE 2026-09-13 -- every architecture change authored   (§13)
+     |        C2 launch the 6-arm map, collect, regenerate (next session)
      v
-  PHASE D  transformer workload ........... hours ................. 1 session
+  PHASE D  transformer workload ........... DROPPED 2026-09-13
+     |        The user's call: this study is about CNNs. The mechanism it was
+     |        going to measure is not lost -- §4.5 and A.6 both reach it from
+     |        the CNN side and C1.3's bit-aware port is measured on the `fc`
+     |        layers, which is the transformer case in miniature. Quote the
+     |        52.4% figure as a PROJECTION, never as a measurement.
      v
-  PHASE E  prompt_7.1's buffer sweep
+  PHASE E  prompt_7.1's buffer sweep ....... follows C2 directly
 ```
 
 ---
 
-### PHASE A — report what is already there
+### PHASE A — report what is already there  **(DONE 2026-09-12, §13)**
 **No mapper runs. No cache cold. One session.**
 
 Phase A adds no physics; it stops throwing away numbers the toolchain already produces and
@@ -811,7 +827,7 @@ and the reconstruction engines are charged standby power on the same terms.
 
 ---
 
-### PHASE B — one mapping per boundary
+### PHASE B — one mapping per boundary  **(DONE 2026-09-12, §13)**
 **No mapper runs. No cache cold. One session.** This is Defect 3.
 
 | step | what | where |
@@ -847,7 +863,7 @@ from a plan belonging to a different chip. **Do not submit the maps in this phas
 > **This is the only rebuild. Everything that changes what the mapper sees goes in here,
 > together.** Separately these are five multi-hour rebuilds.
 
-#### C1 — author and validate (session 1, no jobs submitted)
+#### C1 — author and validate **(DONE 2026-09-13, §13; no jobs submitted)**
 
 | step | what | colds? |
 |---|---|---|
@@ -860,7 +876,7 @@ from a plan belonging to a different chip. **Do not submit the maps in this phas
 | **C1.7** | Banked GLB geometry, so `n_banks` reaches CACTI (the log shows `n_banks=1`); absorbs the dead `bankscale` factor. **While you are there, check `filter_glb`'s `depth`:** it is `256 × 64 b = 2 kB`, while its own comment and JSSC 2017 both say **8 kB** (two banks of 512 × 64 b → `depth: 1024`), and `ifmap_glb` in the same file uses the 512-entries-per-bank convention (`6656 = 13 × 512`). **Confirm or correct before the cold pass — `filter_glb`'s capacity and bandwidth are exactly what R2's entire saving rides on.** | yes |
 | **C1.8** | **SET `ECC_ENERGY_MODEL_REV`** (e.g. `2026-09-12-neurosim-adders`) so Phase 0's Neurosim price correction actually lands. An estimator fix does NOT move the fingerprint on its own. | yes — deliberately |
 
-**C1 GATE:**
+**C1 GATE — ALL FIVE PASSED 2026-09-13 (§13).**
 
 ```
   1. bash run.sh validate && bash run.sh diagnose  -> clean.
@@ -872,6 +888,17 @@ from a plan belonging to a different chip. **Do not submit the maps in this phas
      so the attribute cannot pass as a silent no-op.
   5. ECC_ONCHIP_BW_BITAWARE=1 raises filter_glb's declared read bandwidth from
      16.00 to 32.00 in the narrowed arms and leaves it at 16.00 in the reference.
+
+  6. ONE REAL SHAPE THROUGH THE REAL PATH, on a compute node.  <-- ADDED 2026-09-13
+     Claude-sandbox/_c2_smoke.sbatch: two arms x one shape through `run.sh map`.
+     WHY IT IS A GATE AND NOT A NICETY: gates 1-5 all pass WITHOUT INVOKING THE
+     MAPPER, and the first C2 launch died in ten seconds on three bugs every
+     one of them was blind to -- a @property that truncated Mapper.__init__, a
+     comment read as the geometry, and the reference arm's new ERT table
+     dereferencing a bump it does not have. `--dry-run` prints what WOULD be
+     submitted; it constructs no Mapper, builds no ERT and patches no YAML
+     through the code the jobs run. Two jobs and a few minutes buys the whole
+     matrix.
 ```
 
 #### C2 — launch and collect (session 2)
@@ -880,10 +907,22 @@ from a plan belonging to a different chip. **Do not submit the maps in this phas
    ECC_RECON_LAYER=all ECC_RERUN_OPTIMISER=1 ECC_RECON_ERT_AWARE=1 \
        bash hpc/map_ert_arms.sh
 
-   6 arms x 43 shapes = 258 jobs of ECC_MAP_CPUS cores, one dependent eval.
+   6 arms x THE MODEL'S DISTINCT SHAPES, one dependent eval:
+       mobilenet_v2   31 shapes -> 186 jobs
+       resnet18       12 shapes ->  72 jobs
+   (43 is the two-model union; ECC_RECON_MODEL selects one.)
+   ECC_RECON_LAYER=all is already env.sh's default, so the three exports above
+   are the whole command. --dry-run prints the count for the model in play.
    Narrow first:  ECC_RECON_LAYER=<one layer>  -> 6 jobs, and check the gate
                   before committing the full matrix.
 ```
+
+> **C1 ALREADY PRE-TESTED GATE 4 ON ONE SHAPE** (SLURM 41915350, `classifier.1`, two real
+> mapper searches): reference **540,117** cycles at 1.41% PE utilisation, recon2 **336,943
+> (−37.6%)** at 2.26%. A changed cycle count AND a different plan, below that layer's own
+> 51.7% ceiling. So the mechanism is known to work before the matrix is committed; what C2
+> measures is how much of it survives aggregation over 31 shapes, where the `fc` layer is
+> 2.10% of mobilenet's cycles.
 
 **C2 GATE:**
 
@@ -901,16 +940,22 @@ from a plan belonging to a different chip. **Do not submit the maps in this phas
 
 ---
 
-### PHASE D — the transformer workload
-**One session, hours of compute.**
+### PHASE D — the transformer workload  **(DROPPED 2026-09-13)**
 
-The ceiling on these CNNs is 6–14% (§4.6) because weights are a minority of traffic. On a
-**batch-1 transformer every layer is `fc`-shaped**, so Reason 1 disappears and the ceiling
-approaches `1 − K/N = 52.4%` — reached independently by the off-chip analysis (A.6) and the
-on-chip `filter_glb` analysis (§4.5). **This is where the latency claim is worth making.**
+**The user's decision: this study is about CNNs.** Nothing in Phases A–C or E depends on it.
 
-**GATE:** the measured ceiling lands near 52%, and the weight share of traffic is reported
-beside it so the number can be checked by arithmetic.
+What it was for, and where that evidence now comes from: the ceiling on these CNNs is 6–14%
+(§4.6) because weights are a minority of traffic, and on a **batch-1 transformer every layer
+is `fc`-shaped**, so Reason 1 disappears and the ceiling approaches `1 − K/N = 52.4%`. Two
+independent analyses already reach that from the CNN side — the off-chip one (A.6) and the
+on-chip `filter_glb` one (§4.5) — and **C1.3's bit-aware port is measured on exactly those
+`fc` layers**: on mobilenet's `classifier.1`, 540,117 → 336,943 cycles (−37.6%), against
+that layer's own 51.7% ceiling.
+
+**So the transformer number stays a PROJECTION and must be labelled one.** The rule for
+quoting it: say "projected", give the two independent derivations, and give the measured
+`fc`-layer result beside it as the evidence that the mechanism is real. A measured
+transformer ceiling would need this phase; nothing else does.
 
 ---
 
@@ -930,10 +975,15 @@ Project practice: **property tests on real cached data, plus deliberate breakage
 | `test_latency_ceiling` | ceiling = weight share × (1 − K/N), 2 dp | change K/N | A |
 | `test_static_energy_is_symmetric` | `ECC_STATIC_ENERGY=1` moves all three arms; `=0` reproduces today to the pJ | charge it to recon only | A |
 | `test_leakage_is_parsed` | `Leakage energy (total)` reaches a reported category | drop the regex | A |
-| `test_mapper_arms_are_six` | `mapper_arms()` returns 6 distinct arms for `eyeriss_like_wglb`, 5 for v2 | remove one axis from the distinctness key | B |
-| `test_arm_slugs_are_distinct` | no two arms share a cache slug | force a collision | B |
-| `test_no_bar_borrows_a_foreign_plan` | every bar's record names a plan whose geometry matches its own `reduced` set | put R3 back on `reference` | B |
-| `test_ert_condition3_is_derived` | condition 3's outcome follows from the gating percentage, not a key name | set `PCT=0` and `PCT=99.5`; the answer must be derived either way | B |
+| `test_mapper_arms_are_the_distinct_chips` | `mapper_arms()` returns 6 distinct arms for `eyeriss_like_wglb`, 5 for v2 | drop the no-op network entries from the bandwidth-scale axis: v2's R1 and R2 must collapse, 5 arms into 4. Plus: two boundaries agreeing on all three axes must MERGE into one arm, and renaming every placement must move nothing | B — done |
+| `test_a_network_stage_is_carried_and_marked_no_op` | the `no-op` marking follows the stage KIND | declare the network a storage stage; the marking must follow the record | B — done |
+| `test_arm_slugs_are_distinct` | no two arms share a cache slug, on every registered design | force a collision (drop `arm-<key>`; the reference and R1 then share one directory) | B — done |
+| `test_the_config_resolves_every_arm_and_gives_each_its_own_slug` | `ECC_RECON_ERT_ARM=<any arm>` resolves, R1 leaves `weight_datawidth` alone | an unknown key must be refused, never resolved to the reference | B — done |
+| `test_no_bar_borrows_a_foreign_plan` | every bar's record names a plan whose geometry matches its own `reduced` set | put R3 back on `reference` | B — done |
+| `test_the_lender_is_the_outermost_candidate_and_the_others_are_recorded` | the choice between two plans of one geometry is path order, and the road not taken is on the record | solve only the INNER candidate; the answer must move | B — done |
+| `test_ert_condition3_is_derived` | condition 3's outcome follows from the per-cycle leak row, and so from the gating percentage, not a key name | set `PCT=0`, `99.5` and `100`; rename the placement and check nothing moves | B — done |
+| `test_the_cache_probe_separates_ready_cold_and_partial` | `cold` borrows a named plan, `partial` is refused | an empty shape directory must not count as a solved shape | B — done |
+| `test_the_arms_on_disk_are_still_where_phase_b_left_them` | the reference and the two prompt_6 arms keep their slug and fingerprint | none needed: a cold IS the breakage | B — done |
 | `test_bandwidth_scale_is_parsed` | a bad dataspace name is rejected | `Weightz:` must exit non-zero | C |
 | `test_onchip_bandwidth_is_bit_aware` | a narrowed level's declared bandwidth scales by `8/q` | pin it to the reference value | C |
 | `test_gating_reproduces_ungated` | `PCT=0` reproduces the pre-gating `reconstruction_uJ` to the pJ | any change to the idle formula | done |
@@ -1029,6 +1079,102 @@ the placement study's boundaries.
 > `ECC_ENERGY_MODEL_REV`.** Setting it earlier would cold the cache Phases A and B read, for
 > no benefit.
 
+### Phase A — landed 2026-09-12, gate passed
+
+| what | where |
+|---|---|
+| **`latency_post.roofline()`** — `max(compute, each level's declared-bandwidth limit, off-chip items / `ECC_DRAM_BANDWIDTH_MBPS`)`, on chip as well as off. At an unlimited off-chip limit it reproduces Timeloop's per-level AND total cycles EXACTLY on all 43 cached shapes of `eyeriss_like_wglb` (301 storage levels individually, the 11 shapes `ifmap_glb` throttles and the 5 `psum_glb` throttles included) and 3,855,536 cycles end to end on mobilenet_v2. `weight_scale` applies OFF CHIP ONLY. | `latency_post.py` **(NEW)**, `config.py`, `env.sh` |
+| **Component standby energy reaches the report**, as a `Standby` category **in `Raw.base`**, so every arm and every placement bar starts from it. `ECC_STATIC_ENERGY=0` reproduces every earlier total to the pJ; `=1` moves all three arms by the same amount. | `energy.py`, `timeloop.py`, `config.py` |
+| **§12's six reporting rules** into `Config.recon_caveats()` → the manifest's `title_caveats`. | `config.py` |
+| Three defects found while building it: `env.sh` spelled the off-chip limit `:=`, so the EMPTY its own comment documents as the unlimited model was substituted back to 480 and gate 1's condition was UNREACHABLE (now a bare `=`); the declared-bandwidth regex matched the literal `-` a level with no limit prints (anchored on a digit); and picking a cache "by most shapes" landed on an `ert-` arm and on the retired unconstrained cache, where `filter_glb` throttles to 0.320 and rule R-2 is false (the suite now resolves the live config's reference cache and refuses rather than falling back). | `env.sh`, `timeloop.py`, `test_latency.py` |
+
+### Phase B — landed 2026-09-12, gate passed
+
+| what | where |
+|---|---|
+| **`recon.mapper_arms(arch, cfg)`** — THE CHIPS TO MAP, derived from the three axes of §6.4 (`datawidth: q` × the ERT bump × the declared per-dataspace bandwidth scale). **Six** on `eyeriss_like_wglb`, **five** on v2. A NETWORK stage is carried in the bandwidth-scale set and MARKED `no-op`: Timeloop has no timing model to apply it to, but a boundary that adds one is still a different declaration, and dropping those entries collapses v2's R1 and R2 into one chip. `ert_arms()` keeps its older meaning (which boundaries have an ERT-injectable encoder) and is a strict subset. | `recon.py` |
+| **Every arm has its own cache slug.** An arm with a bump keeps prompt_6's `ert-<key>-<level>-<action>` byte for byte; one without gets `arm-<key>`. Without the second, **R1's slug WAS the reference's** — its patched YAML is the reference's until C1.2 declares the bandwidth scale — so this was a live collision, not a theoretical one. | `config.py`, `archs.py` |
+| **`recon.plan_assignment()` — R3 stops borrowing the reference's plan.** Each bar is billed from its own arm if that arm is mapped, else from the OUTERMOST mapped arm in path order that narrows exactly the same storage levels, else from the reference and FLAGGED `geometry_matches: false`. With only the two prompt_6 arms on disk: R1 → reference (right: it narrows nothing on chip), **R3 → R2**, R5a → reference and flagged as §6.2b's chip that has never been mapped. Every bar carries `billed_from` on its record and the figure marks it. A HALF-mapped arm is refused, not borrowed; `ERT_AWARE=1` with no arm mapped is refused as Task 3 under the wrong heading. | `recon.py`, `experiments/recon.py` |
+| **Condition 3 re-derived (§6.3).** The exclusion holds only when BOTH rows of the bump are constant: the access row on the innermost level's `reads` is the MAC count and is, but the per-cycle `leak` row is `idle × (1 − g)` and Timeloop bills it as `leak × utilized instances × cycles`. So **R5a IS ERT-injectable at PCT 0 and 99.5** (leak row 2.7891 and 0.01395 pJ/cycle/instance) and is not at 100. Derived, never `if key == "recon5"`. | `recon.py` |
+| `hpc/map_ert_arms.sh` fans out over `mapper_arms()` and refuses if two arms share a slug. `--dry-run` prints the six arms, what each declares, its slug and its jobs; `--progress` prints solved/cold per arm. | `hpc/map_ert_arms.sh` |
+| **The measured effect of the fix:** on mobilenet_v2, BCH(63,39), R3 moved from **+11.11% → +13.11%** against conventional ECC (+3.58% → +5.75% against embedded) and its narrowing owner moved from the evaluator (×0.6316) to the mapper (×1.0000) — R2's plan narrows `filter_glb`, the reference's does not. No other bar moved. | FINDINGS §2.9 |
+| **A bar can now pass the latency ceiling**, which is computed on the REFERENCE plan's off-chip traffic and bounds the WEIGHT term only. Measured: R2/R3/R4 reach 5.84% against a 4.32% ceiling, at IDENTICAL weight reads and ×0.983 activation items — a MAPPING effect, not a reconstruction one. The table now prints `wt` and `act` per bar and a check refuses a bar past the ceiling at ×1.000 on both. | `experiments/recon.py` |
+
+**What Phase B did NOT do:** submit a single map. `recon1`, `recon3` and `recon5` are cold at their own fingerprints (`718d53aac189`, `64af0cb88d0c`, `9211adf270da`) and that is Phase C's work. Nothing colded: `reference` `718d53aac189`, `recon2` `a18a5b15fd8b` and `recon4` `55569ac34427` are the directories that were already on disk, and `bash run.sh baseline --eval` still gives Task 1 = 317,290,433.48952 pJ.
+
+### Phase C1 — landed 2026-09-13, gate passed. **THE CACHE IS NOW COLD ON PURPOSE.**
+
+| what | where |
+|---|---|
+| **C1.1 the off-chip speed limit is in the ARCHITECTURE**, as `shared_bandwidth` on the DRAM level — not `read_` + `write_bandwidth`, because the DQ bus is ONE wire set whose limit is on the sum, which is the term `latency_post.roofline()` already charged. Two directions declared separately would let Timeloop deliver 2× what the evaluator caps. `Config.dram_items_per_cycle_for()` and `latency_post.offchip_items_per_cycle()` are asserted equal. Measured on a real search: `Shared bandwidth : 2.40`, throttling 0.30, DRAM binding. | `archs.py`, `config.py` |
+| **C1.2 `per_dataspace_bandwidth_consumption_scale` per stage**, `K/N` at DRAM and `q/8` on chip (`recon.arm_bw_factors()`); a NETWORK stage is declared in the arm and lands on no component (R-3). Measured: recon2's stats print `Bandwidth Consumption Scale : 0.62`. | `recon.py`, `archs.py` |
+| **C1.3 a narrowed level's port is bit-aware** (`× 8/q`), unrounded, and ONLY on the levels that arm narrows. DRAM is refused: its relief is already the C1.2 scale. | `archs.py`, `config.py` |
+| **C1.4 the bandwidths are cited — or recorded as uncited.** `provenance.yaml` gained `offchip_bandwidth`, `onchip_bandwidth` (NOT CITED, with the measured throttling and a rule that no headline may rest on one until it is), `arch_clock`, `sram_banking`. | `provenance.yaml` |
+| **C1.5 one clock per design**, Eyeriss v1 at 200 MHz. `Config.cycle_seconds_for()` is the only place MHz becomes seconds; `globals_<arch>.yaml` is written per design. A design already at the study default keeps the default's exact spelling, or seven of eight `ECC_ARCH_CLOCK_MHZ` entries would have colded designs that did not change. | `config.py`, `archs.py`, `timeloop.py` |
+| **C1.6 the MAC price the mapper sees is the one the report charges.** `ErtTables` supplies a table to EVERY arm, reference included, with each `compute` row **`set`** (not `add`) to `ECC_MAC_PJ_OVERRIDE` — so `apply_mac_override`'s ratio is exactly 1.0 and the two cannot double-count. The arithmetic level is derived from the table, never from the name `mac`. | `timeloop.py`, `archs.py` |
+| **C1.7 a DECLARED bank count reaches CACTI.** New `smartbuffer_SRAM_banked` forwards `n_banks`. Measured: `ifmap_glb` read 23.539 → 16.571 pJ, `psum_glb` 22.729 → 16.053, `filter_glb` 13.591 → 11.745. **Only levels that declare `n_banks` themselves** — timeloopfe hands every level a default `n_banks: 2`, published for none of them, and the wrapper's `64 × n_banks` depth floor would move the depth-3 spad's price through the floor. CACTI's power-of-two rounding and its dead `bankscale` are recorded, not compensated. | `components/`, `archs.py` |
+| **C1.7 the depth question: CONFIRMED, NOT CORRECTED** (the user's call, 2026-09-13). `filter_glb` 2 kB vs the paper's 8 kB, `weights_spad` 32 weights/PE vs 448, `psum_spad` 64 vs 24 — all three from commit `3a770cc`, all three in `eyeriss_like_wglb` only. Kept; the COMMENTS are corrected, a divergence table heads the file, and `provenance.yaml` marks each `diverges_from_paper: true`. **The design must not be quoted as the published chip on capacity.** | `arch_paper.yaml`, `provenance.yaml` |
+| **C1.8 `ECC_ENERGY_MODEL_REV` reaches the fingerprint the CACHE DIRECTORY is named after.** It only ever reached `Config.fingerprint()`, which labels a result and names no directory — so the deliberate cold re-labelled results while the cache stayed warm. Default is now `2026-09-12-neurosim-adders`. | `archs.py`, `env.sh` |
+
+**Two live defects found while building it.**
+
+| what | measured |
+|---|---|
+| **`ECC_RECON_IDLE_PJ` was never rescaled for the clock.** env.sh §6 TRAP 2 documents it in full and says where it belongs; it had never been written, because until C1.5 the factor was 1.0 on every run. At 200 MHz it is **×5, on the reconstruction engines only** — the side of the comparison this study measures. `Config.dc_idle_scale()` owns the factor, `ecc.load_recon_terms()` applies it at ONE site, and the JSON branch refuses an entry measured at another clock. BCH(63,39) idle 2.7891299 → **13.9456495** pJ/cycle/engine; the ERT leak row 2.8310811 → **14.1554055** at BCH(63,30), which is env.sh's own worked example. The incremental term is per codeword and is NOT rescaled; `ECC_LEAKAGE_NW` is POWER and is NOT either. |
+| **C1.2 opened a double-count on the off-chip relief.** The evaluator has applied `weight_scale = K/N` since Phase A; the moment the architecture declares the scale, the mapper applies it too, and the saving would be K/N **squared** (0.6190 → 0.3832 on mobilenet's BCH(63,39) — a 38% "saving" that is arithmetic). `latency_post.relief_owner()` reads the answer off each bar's OWN stats, applies it once, and refuses a third value. prompt_6 RULE 1, measured per bar. |
+
+**`ECC_LATENCY_MODEL` now defaults to 1.** It shipped as 0 in Phase A because the roofline
+was then the only place the limit existed — a second timing model, rightly opt-in. C1.1
+declares the same limit to the mapper, so Timeloop's cycles already carry it and the roofline
+re-states the plan's time. With it off the placement study reports no cycles at all. It still
+moves no energy on its own.
+
+**C1 gate — all five pass.** `validate` and `diagnose` clean (the only diff against
+pre-Phase-C is the empty raw cache, which is the cold itself). Every arm's fingerprint moved
+off its pre-Phase-C hash and all six are distinct; the three pre-Phase-C directories are
+**intact, 43 shapes each**. `--dry-run` → 6 arms × the model's shapes, nothing cached.
+
+> **THE NEW HASHES ARE SETTINGS-DEPENDENT AND ARE NOT PINNED ANYWHERE.**
+> `ECC_DRAM_BANDWIDTH_MBPS` is now in the patched YAML, so changing it re-fingerprints all
+> six arms — which is the knob working, not a fault. Print the current set with
+> `bash hpc/tl.sh bash -c 'source env.sh; PYTHONPATH=. python3 Claude-sandbox/_fp.py'`.
+> `tests/test_mapper_arms.py` asserts the RULE — every arm moved off its pre-Phase-C hash,
+> all six distinct, nothing deleted — so it survives a knob change. **Do not quote a hash in
+> a file:** they moved three times in one session (480 → 120 MB/s, then a parser fix) and
+> every move was correct.
+
+**Two bugs of mine killed the first C2 attempt** (72 jobs, all FAILED in ~10 s; the
+dependent eval sat on `DependencyNeverSatisfied`). Both are fixed and both now have the test
+neither had:
+
+| bug | why it got through |
+|---|---|
+| `AttributeError: 'Mapper' object has no attribute '_memo'` — a `@property` inserted into the MIDDLE of `Mapper.__init__`, and a `def` ENDS the function, so `self.levels`, `self.victory`, `self._memo` and five counters silently became class-body code that never ran. | **No test had ever constructed a `Mapper`.** One does now, and asserts every attribute the mapping path touches. |
+| **A COMMENT BECAME THE GEOMETRY.** Every geometry regex in `archs.py` read the RAW text, so the `depth: 1024` inside C1.7's divergence comment read as a DECLARATION — and `re.sub(..., count=1)` then rewrote THE COMMENT and left the attribute alone. `filter_glb` declared `depth: 256` beside a newly written `width: 384`: **98,304 bits where 16,512 were intended, a six-fold capacity error on the level R2's whole saving rides on**, silent but for one stdout line (`filter_glb 1024x64b/8b -> 171x384b/8b`). | A LATENT PROJECT BUG, not just a bad comment — any comment naming `depth:`/`width:`/`datawidth:`/`n_banks:` would have done it. `archs.uncommented()` masks comments preserving positions; 14 reads go through it and every write through `write_attr()`, which RAISES if the rewrite lands on nothing. |
+| `TypeError: 'NoneType' object is not subscriptable` — `ErtTables.ensure()` formatted `self.bump['placement']` into its lock message, and since C1.6 the REFERENCE arm builds a table with the MAC price and **no bump**. | Every `self.bump[...]` in the class is now behind a `bump is not None` guard, and the test WALKS THE AST to prove it rather than trusting a reading. |
+
+> **THE COMMON CAUSE MATTERS MORE THAN THE THREE FIXES.** Gates 1–5 all pass *without
+> invoking the mapper* — `--dry-run` prints what WOULD be submitted; it constructs no
+> `Mapper`, builds no ERT and patches no YAML through the code the jobs run. **C1 now ends
+> with gate 6: one real shape, two arms, through `run.sh map` on a compute node.** Two jobs
+> and a few minutes buys the whole matrix. A misspelled dataspace exits **non-zero** on a real search (SLURM 41915350).
+`ECC_ONCHIP_BW_BITAWARE=1` raises `filter_glb` 16.00 → 32.00 at q=4 (25.60 at the live q=5)
+and leaves the reference at 16.00. Gate 3's frozen-baseline check cannot run as written —
+there is no cache until C2 — so it ran as an A/B on the pre-Phase-C raw record: **baseline
+and embedded are bit-identical** with and without Phase C, and only the recon column moves
+(+0.1699%, the ×5 idle rescale).
+
+**C2 pre-tested on one shape** (SLURM 41915350, `classifier.1`, two real searches):
+reference 540,117 cycles at 1.41% PE utilisation, recon2 **336,943 (−37.6%)** at 2.26% —
+a CHANGED cycle count and a DIFFERENT plan, which is C2 gate 4 passing before the matrix is
+committed, and below that layer's own 51.7% ceiling.
+
+**New suite `tests/test_phase_c.py`: 10 tests, all pass, each with its mutation.** Two
+existing tests were updated because Phase C inverts their premise: `test_mapper_arms`'
+"Phase B colds nothing" became `test_phase_c_colded_every_arm_and_deleted_none`, and
+`test_dilation`'s ERT leak row now pins BOTH clocks. `test_latency` SKIPS loudly while the
+reference arm is deliberately cold rather than falling back to another treatment.
+
 ### Closed by this revision
 
 | was | now |
@@ -1073,7 +1219,7 @@ the placement study's boundaries.
 | `archs/_shared/provenance.yaml` | citations for the off-chip AND on-chip bandwidths | C1 |
 | `env.sh` | the three NEW knobs, one commented block each | A, C1 |
 | `eccenergy/tests/test_latency.py` | **NEW.** §10's Phase A rows | A |
-| `eccenergy/tests/test_mapper_arms.py` | **NEW.** §10's Phase B rows | B |
+| `eccenergy/tests/test_mapper_arms.py` | **NEW.** §10's Phase B rows — 10 tests, all passing | B |
 
 **Not edited:** `parity.py`, `baseline.py`, `external_parity()` — still frozen.
 
