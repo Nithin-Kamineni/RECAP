@@ -10,6 +10,61 @@ Rules for this file: newest entry at the top, one short block per day of work,
 no tables, no pasted output. Anything worth keeping longer than a week belongs
 in FINDINGS.md; anything that says what to do next belongs in the live plan.
 
+2026-09-13  RESTRUCTURE PHASE 0 -- THE GOLDEN SNAPSHOT AND ITS GATE
+-----------------------------------------------------------------------
+ProjectRestructure.md section 9.2, phase 0. No production code touched, no
+mapper run, no cache colded, nothing deleted.
+
+THE GATE IS ONE COMMAND. `bash hpc/tl.sh bash restructure/gate.sh` takes a
+fresh snapshot and diffs it against restructure/golden/, which is committed.
+It reports section 9.1's item 1 -- arch_fingerprint() for every (arch, model)
+-- FIRST and alone, because a moved hash is a cold mapper cache and the right
+response is to stop rather than to read on. `--update` re-takes the golden and
+is for the START of a phase only.
+
+WHAT IS PINNED. 302 rows of fingerprints (arch x model at env.sh's K and the
+reference arm, 120; arch x K x mapper arm at env.sh's model, 180; two digests);
+Task 1 = 9,619.412 uJ and Task 2 = 9,029.533 uJ on eyeriss_like_wglb/resnet18
+at BCH(63,39); the five ERT-aware placement bars (8,275.917 / 8,010.602 /
+8,021.784 / 8,181.539 / 11,737.014 uJ) with their per-layer and per-level
+detail; the validate and diagnose reports with their manifests; 220 passed,
+4 skipped.
+
+ENV.SH ALONE DECIDES WHAT IS SNAPSHOTTED. Every stage runs with ECC_* and
+RECON_OPTIMIZER stripped from the environment, so run.sh's own `source env.sh`
+supplies them and a knob left exported in a shell cannot enter the golden
+record. Two stages override env.sh and say why in snapshot.py: baseline and
+embedded need ECC_PHASE=Pre RECON_OPTIMIZER=False (Task 1 is Pre BY
+CONSTRUCTION; env.sh ships Task 4), and the placement study is snapshotted
+BOTH at env.sh's defaults and at ECC_RECON_ERT_AWARE=1. pytest is the one
+stage that sources env.sh instead: without its knobs 25 data-backed property
+tests fail on a configuration nobody runs.
+
+A REFUSAL IS BEHAVIOUR, SO IT IS SNAPSHOTTED. `run.sh recon --eval` at env.sh's
+defaults exits 1 -- Task 4's capacity cache is cold, and it refuses rather than
+falling back to Task 3's mapping. That exit code and its message are in the
+golden record. So are six REFUSED rows in fingerprints.tsv:
+simple_weight_stationary at recon5 narrows a `weight_reg` level that design's
+arch YAML does not declare (it has pe_spad and weight_glb). Both are recorded,
+neither is fixed here -- phase 0 changes nothing.
+
+PROVEN BOTH WAYS, BEFORE THE GOLDEN WAS TAKEN.
+  * REPRODUCIBLE: two consecutive snapshots of an unchanged tree are
+    byte-identical over the whole directory, no exclusions -- which also says
+    the evaluators are deterministic down to per-layer detail.
+  * SENSITIVE: filter_glb depth 256 -> 512 in eyeriss_like_wglb/arch_paper.yaml
+    moves 51 fingerprint rows (that design's 15 models and all 36 of its
+    K x arm pairs) and every downstream stage with it. Reverted; md5 checked.
+  * AND THE NEAR MISS THAT TAUGHT SOMETHING: depth 256 -> 257 moves NOTHING,
+    correctly. _set_weight_geometry() renormalises the declared depth onto the
+    arm's width (depth' = round(depth x width / 96); THE WIDTH TABLE), and 256
+    and 257 both land on 43. The fingerprint hashes the architecture the MAPPER
+    sees, not the text that was typed. validate and diagnose read the declared
+    file and DID notice -- which is how a first, too-small mutation was caught
+    instead of being taken for a blind gate.
+
+NEXT: phase 1 (test plumbing). Run the gate first, before touching anything.
+
 2026-09-12  PROMPT_7 PHASE B -- SIX CHIPS, AND R3 WAS ON THE WRONG PLAN
 -----------------------------------------------------------------------
 Defect 3. No mapper run, no cache colded, no job submitted.

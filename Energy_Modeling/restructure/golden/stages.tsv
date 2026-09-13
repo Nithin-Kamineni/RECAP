@@ -1,0 +1,9 @@
+# stage	exit	artefacts
+fingerprints	0	fingerprints.tsv
+baseline	0	baseline.txt + 1 result file(s)
+embedded	0	embedded.txt + 1 result file(s)
+recon_default	1	recon_default.txt
+recon_ert	0	recon_ert.txt + 3 result file(s)
+validate	0	validate.txt + 1 result file(s)
+diagnose	0	diagnose.txt + 2 result file(s)
+pytest	0	pytest.txt

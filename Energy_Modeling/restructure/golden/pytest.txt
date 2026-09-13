@@ -1,0 +1,19 @@
+.........................................................ss............. [ 32%]
+........................................................................ [ 64%]
+...........................................s.s.......................... [ 96%]
+........                                                                 [100%]
+=============================== warnings summary ===============================
+eccenergy/tests/test_dilation.py::test_the_energy_model_revision_colds_only_when_set
+  /home/vkamineni/.local/lib/python3.10/site-packages/_pytest/python.py:171: PytestReturnNotNoneWarning: Test functions should return None, but eccenergy/tests/test_dilation.py::test_the_energy_model_revision_colds_only_when_set returned <class 'str'>.
+  Did you mean to use `assert` instead of `return`?
+  See https://docs.pytest.org/en/stable/how-to/assert.html#return-not-none for more information.
+    warnings.warn(
+
+eccenergy/tests/test_recon.py::test_clock_gating_is_exact_at_zero_and_scales_the_idle_term
+  /home/vkamineni/.local/lib/python3.10/site-packages/_pytest/python.py:171: PytestReturnNotNoneWarning: Test functions should return None, but eccenergy/tests/test_recon.py::test_clock_gating_is_exact_at_zero_and_scales_the_idle_term returned <class 'str'>.
+  Did you mean to use `assert` instead of `return`?
+  See https://docs.pytest.org/en/stable/how-to/assert.html#return-not-none for more information.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+220 passed, 4 skipped, 2 warnings in <T>s

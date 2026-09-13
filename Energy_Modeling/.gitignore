@@ -49,3 +49,9 @@ ecc_energy_study/ert_probe/
 
 # Generated per run, like globals.yaml and arch_*_patched*.yaml above.
 ecc_energy_study/globals_*.yaml
+
+# ProjectRestructure section 9.1: every snapshot the gate takes to COMPARE
+# against restructure/golden/, which is committed and is the safety net itself.
+restructure/.fresh/
+restructure/.trial*/
+restructure/.mut/

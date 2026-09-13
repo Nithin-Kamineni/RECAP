@@ -22,6 +22,18 @@ it. `prompt_7.1.md` is a later buffer-size sweep, to be run after prompt_7.
 `prompt_3.md`'s constrained mapspace is carried by both and every mapper job runs
 under it.
 
+**`ProjectRestructure.md` is being implemented one phase per session**, in its
+§9.2 order, since 2026-09-13. It is organisation, not modelling: **every phase
+must reproduce today's numbers exactly**, and §9.1's gate is one command --
+
+    bash hpc/tl.sh bash restructure/gate.sh
+
+-- which refuses unless `arch_fingerprint()` is byte-identical for every (arch,
+model) and every evaluated total is unchanged to the pJ. Run it BEFORE touching
+anything, so a red gate is never ambiguous. `restructure/README.md` says what the gate
+covers and what it cannot; ProjectRestructure §10 is what not to do.
+**Phase 0 is DONE.**
+
 Phase-by-phase status lives in `progress.txt`, not here.
 
 **No empirical claims in this file.** Numbers live in `FINDINGS.md`; the live
@@ -693,6 +705,9 @@ carry the rest.
                         local file may never redefine an upstream class name --
                         that is a duplicate-class error, not an override.
     ecc_energy_study/   AUTO-MANAGED: cloned repo + mapper cache. Do not delete.
+    restructure/        ProjectRestructure.md's gate: golden/ is the committed
+                        snapshot, gate.sh compares a fresh one against it.
+                        Scaffolding -- deletable when the phase plan ends.
     legacy/             pre-rewrite material, plus the dated FINDINGS_detail_*,
                         progress_* and PROJECT_STATUS_* snapshots that hold the
                         full working record. Nothing imports it.

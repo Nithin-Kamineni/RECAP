@@ -1,0 +1,241 @@
+==============================================================================
+ecc-energy  |  placement (where the reconstruction boundary sits)  |  output=ReconSweep_optimiser__resnet18
+==============================================================================
+  sweeping              : eyeriss_like_wglb
+  holding               : model=resnet18   code=BCH(63,39) t=4
+  approaches            : baseline, embedded, recon
+  workload file         : cnn
+  layer scope           : full
+  weight precision      : 8b (the protected payload)
+  activation precision  : 8b
+  accumulator precision : per architecture, as published (v1 16b, v2 20b, Simba 24b, simple designs 16b)  [primary]
+  result phase          : Post   (mapping optimised for the reduced width)
+  code                  : BCH(63,39)  t=4  r=24
+  weights / codeword    : 4.0000
+  DRAM weight traffic   : identical on all three arms; baseline pays 22 pJ/bit against 20 pJ/bit (bigger array + indexing), recon fetches K/N = 0.6190 of the bits
+  recon on-chip scale   : 0.6190 (weights only)
+  reconstruction        : 1.4561000 pJ per codeword (incremental) + 13.9456495 pJ per cycle per engine (idle; RULE 3: separate denominators, never added)
+  recon provenance      : env.sh DC tables [BCH_63_39_t4]: incremental=1.4561000 pJ/codeword, idle=2.7891299 pJ/cycle/engine at the DC report's 1 ns; idle rescaled x5 to this design's clock (5 ns against the DC report's 1 ns) -> 13.9456495 pJ/cycle/engine. The INCREMENTAL term is per codeword and is NOT rescaled
+  PLACEMENT STUDY       : Task 3: fixed mapping, the boundary is the axis, one panel per architecture -> ReconSweep_optimiser__resnet18
+  panels                : Eyeriss v1 (+filter GLB): recon1, recon2, recon3, recon4, recon5
+  reduced form packing  : aligned   (whole bits per weight, no repacking: wire falls, SRAM access count may not)
+  encoder charging      : weight   (amortized: per weight, at the per-codeword energy per n/weight_bits weights)
+  mapping optimiser     : TASK 4: the reconstruction arm is re-mapped at weight capacity x1.6154 (= x1 x N/K), scope exclusive; the reference bars keep x1
+  ERT-aware mapping     : ON (prompt_6): the ERT-injectable boundaries are re-mapped with the encoder toll in the objective; the figure marks them
+  ERT arm               : reference (no ERT toll; the published 8-bit chip)
+  parity accounting     : grouping=layer, message padding charged
+  decode                : 0 pJ for every arm (ECC_DECODE=0; category hidden)
+  weak ECC overlay      : off
+  arch fidelity         : paper   (archs/<name>/arch_paper.yaml where present)
+  arch treatment        : vic2000__vicx__alg-linear_pruned__to100000000__noc__clk5e-09__paper__wt96__mcons__wrelax   (separate mapper cache)
+  level classifier      : instances
+  mapper objective      : edp   (WARNING: this is an energy study; 'edp' trades energy for latency and penalises the wider PE array)
+  mapper                : victory=2000 scaling=levels algorithm=linear_pruned timeout=100000000 perms/if=16 search_size=uncapped
+  palette / formats     : house / png, pdf @ 400 dpi
+  replot only           : False
+  cached mapper only    : True   (never invokes Timeloop)
+  re-run the optimiser  : False
+==============================================================================
+  ECC_FROM_CACHE=1: reading solved mappings only, Timeloop will not be invoked
+
+########## architecture: eyeriss_like_wglb ##########
+  raw cache hit: resnet18
+  [MAC OVERRIDE] Compute rescaled to 1,814,073,344 MACs x 0.23 pJ = 417.237 uJ (ERT: 0.23000 pJ/MAC, 417.237 uJ); Horowitz ISSCC 2014 int8 mult+add, 45 nm. Every percentage's DENOMINATOR moves; no saved pJ does.
+  [warn] ECC_OPT_METRIC=edp: a cheaper MAC can move an EDP-optimal mapping, and the mapper was not re-run (it prices MACs from the ERT) -- a fixed-mapping result, not a re-optimised design
+  [DRAM OVERRIDE] DRAM rescaled 8 -> 20 pJ/bit (x2.5): weight DRAM 765.919 -> 1,914.798 uJ. ECC_DRAM_PJ_PER_BIT=20 -- Horowitz, ISSCC 2014, "Computing's Energy Problem": 32b DRAM read = 640 pJ = 20 pJ/bit = 1.28 nJ/64b
+  [DRAM OVERRIDE] E_total(DRAM) = E_dynamic only; E_background and E_refresh are NOT modelled (both 0) -- the embedded arm holds fewer weight bits in DRAM and is given no credit for it
+  [LATENCY] latency model: roofline, off-chip limit 120 MB/s = 0.6 items/cycle at 5 ns; ALSO declared on the DRAM level since prompt_7 C1.1, so the mapper optimised against it -- the re-timing here is evaluator-only and not in the fingerprint
+            61,445,721 cycles = 307.229 ms against Timeloop's 61,445,721 (x1.0000); binding: DRAM on 21 layer(s)
+  resnet18           raw     9,029.53 uJ   DRAM weight reads     11,967,488
+
+  ---- prompt_6: recon1's OWN mapping -- reference (no ERT bump) ----
+       datawidth None on ; cache vic2000__vicx__alg-linear_pruned__to100000000__noc__clk5e-09__paper__wt96__mcons__wrelax__arm-recon1  fp 410ee95e7f78
+  ECC_FROM_CACHE=1: reading solved mappings only, Timeloop will not be invoked
+
+########## architecture: eyeriss_like_wglb ##########
+  raw cache hit: resnet18
+  [MAC OVERRIDE] Compute rescaled to 1,814,073,344 MACs x 0.23 pJ = 417.237 uJ (ERT: 0.23000 pJ/MAC, 417.237 uJ); Horowitz ISSCC 2014 int8 mult+add, 45 nm. Every percentage's DENOMINATOR moves; no saved pJ does.
+  [warn] ECC_OPT_METRIC=edp: a cheaper MAC can move an EDP-optimal mapping, and the mapper was not re-run (it prices MACs from the ERT) -- a fixed-mapping result, not a re-optimised design
+  [DRAM OVERRIDE] DRAM rescaled 8 -> 20 pJ/bit (x2.5): weight DRAM 784.794 -> 1,961.984 uJ. ECC_DRAM_PJ_PER_BIT=20 -- Horowitz, ISSCC 2014, "Computing's Energy Problem": 32b DRAM read = 640 pJ = 20 pJ/bit = 1.28 nJ/64b
+  [DRAM OVERRIDE] E_total(DRAM) = E_dynamic only; E_background and E_refresh are NOT modelled (both 0) -- the embedded arm holds fewer weight bits in DRAM and is given no credit for it
+  [LATENCY] latency model: roofline, off-chip limit 120 MB/s = 0.6 items/cycle at 5 ns; ALSO declared on the DRAM level since prompt_7 C1.1, so the mapper optimised against it -- the re-timing here is evaluator-only and not in the fingerprint
+            54,151,590 cycles = 270.758 ms against Timeloop's 54,151,598 (x1.0000); binding: DRAM on 21 layer(s)
+  resnet18           raw     8,995.69 uJ   DRAM weight reads     12,262,400
+  [note] recon1: PEs used differ from the reference on 1/12 shape(s) -- reported, not refused:
+         C128_M256_R3_S3_P14_Q14_ws2_hs2: PEs 96 vs 48, cycles x0.851, Timeloop EDP x0.906 of the reference plan
+       loop nest DIFFERENT from the reference on 10/12 shape(s); cycles 54,151,598; NO ERT row on this boundary, so nothing was moved out of DRAM; its reconstruction energy is charged wholly by the evaluator (1.00 engines cycle-weighted, of 1 declared)
+
+  ---- prompt_6: recon2's OWN mapping -- recon2: filter_glb.read += 147.966173 pJ, filter_glb.leak += 0.0697282475 pJ/instance/cycle ----
+       datawidth 5 on filter_glb; cache vic2000__vicx__alg-linear_pruned__to100000000__noc__clk5e-09__paper__wt96__wdw5-filter_glb__mcons__wrelax__ert-recon2-filter_glb-read  fp 1519e6934e32
+  ECC_FROM_CACHE=1: reading solved mappings only, Timeloop will not be invoked
+
+########## architecture: eyeriss_like_wglb ##########
+  ERT arm recon2: filter_glb.read += 147.966173 pJ, filter_glb.leak += 0.0697282475 pJ/instance/cycle  (block_size 76, E_w 1.946923 pJ/weight; narrow levels filter_glb)
+  raw cache hit: resnet18
+  [MAC OVERRIDE] Compute rescaled to 1,814,073,344 MACs x 0.23 pJ = 417.237 uJ (ERT: 0.23000 pJ/MAC, 417.237 uJ); Horowitz ISSCC 2014 int8 mult+add, 45 nm. Every percentage's DENOMINATOR moves; no saved pJ does.
+  [warn] ECC_OPT_METRIC=edp: a cheaper MAC can move an EDP-optimal mapping, and the mapper was not re-run (it prices MACs from the ERT) -- a fixed-mapping result, not a re-optimised design
+  [DRAM OVERRIDE] DRAM rescaled 8 -> 20 pJ/bit (x2.5): weight DRAM 784.794 -> 1,961.984 uJ. ECC_DRAM_PJ_PER_BIT=20 -- Horowitz, ISSCC 2014, "Computing's Energy Problem": 32b DRAM read = 640 pJ = 20 pJ/bit = 1.28 nJ/64b
+  [DRAM OVERRIDE] E_total(DRAM) = E_dynamic only; E_background and E_refresh are NOT modelled (both 0) -- the embedded arm holds fewer weight bits in DRAM and is given no credit for it
+  [LATENCY] latency model: roofline, off-chip limit 120 MB/s = 0.6 items/cycle at 5 ns; ALSO declared on the DRAM level since prompt_7 C1.1, so the mapper optimised against it -- the re-timing here is evaluator-only and not in the fingerprint
+            54,151,590 cycles = 270.758 ms against Timeloop's 54,151,598 (x1.0000); binding: DRAM on 21 layer(s)
+  resnet18           raw     8,754.25 uJ   DRAM weight reads     12,262,400
+  [note] recon2: PEs used differ from the reference on 3/12 shape(s) -- reported, not refused:
+         C128_M256_R3_S3_P14_Q14_ws2_hs2: PEs 96 vs 48, cycles x0.851, Timeloop EDP x0.829 of the reference plan
+         C256_M512_R3_S3_P7_Q7_ws2_hs2: PEs 96 vs 48, cycles x0.682, Timeloop EDP x0.662 of the reference plan
+         C512_M512_R3_S3_P7_Q7_ws1_hs1: PEs 96 vs 48, cycles x0.676, Timeloop EDP x0.675 of the reference plan
+       loop nest DIFFERENT from the reference on 6/12 shape(s); cycles 54,151,598; moved 23.8757 uJ (access) out of Global buffer into Reconstruction; leak 3.776 uJ (1.00 engines cycle-weighted, of 1 declared) verified against the stats' leakage and charged by the evaluator
+
+  ---- prompt_6: recon3's OWN mapping -- reference (no ERT bump) ----
+       datawidth 5 on filter_glb; cache vic2000__vicx__alg-linear_pruned__to100000000__noc__clk5e-09__paper__wt96__wdw5-filter_glb__mcons__wrelax__arm-recon3  fp 04320e626edd
+  ECC_FROM_CACHE=1: reading solved mappings only, Timeloop will not be invoked
+
+########## architecture: eyeriss_like_wglb ##########
+  raw cache hit: resnet18
+  [MAC OVERRIDE] Compute rescaled to 1,814,073,344 MACs x 0.23 pJ = 417.237 uJ (ERT: 0.23000 pJ/MAC, 417.237 uJ); Horowitz ISSCC 2014 int8 mult+add, 45 nm. Every percentage's DENOMINATOR moves; no saved pJ does.
+  [warn] ECC_OPT_METRIC=edp: a cheaper MAC can move an EDP-optimal mapping, and the mapper was not re-run (it prices MACs from the ERT) -- a fixed-mapping result, not a re-optimised design
+  [DRAM OVERRIDE] DRAM rescaled 8 -> 20 pJ/bit (x2.5): weight DRAM 784.794 -> 1,961.984 uJ. ECC_DRAM_PJ_PER_BIT=20 -- Horowitz, ISSCC 2014, "Computing's Energy Problem": 32b DRAM read = 640 pJ = 20 pJ/bit = 1.28 nJ/64b
+  [DRAM OVERRIDE] E_total(DRAM) = E_dynamic only; E_background and E_refresh are NOT modelled (both 0) -- the embedded arm holds fewer weight bits in DRAM and is given no credit for it
+  [LATENCY] latency model: roofline, off-chip limit 120 MB/s = 0.6 items/cycle at 5 ns; ALSO declared on the DRAM level since prompt_7 C1.1, so the mapper optimised against it -- the re-timing here is evaluator-only and not in the fingerprint
+            54,151,590 cycles = 270.758 ms against Timeloop's 54,151,598 (x1.0000); binding: DRAM on 21 layer(s)
+  resnet18           raw     8,730.37 uJ   DRAM weight reads     12,262,400
+  [note] recon3: PEs used differ from the reference on 3/12 shape(s) -- reported, not refused:
+         C128_M256_R3_S3_P14_Q14_ws2_hs2: PEs 96 vs 48, cycles x0.851, Timeloop EDP x0.825 of the reference plan
+         C256_M512_R3_S3_P7_Q7_ws2_hs2: PEs 96 vs 48, cycles x0.682, Timeloop EDP x0.654 of the reference plan
+         C512_M512_R3_S3_P7_Q7_ws1_hs1: PEs 96 vs 48, cycles x0.676, Timeloop EDP x0.665 of the reference plan
+       loop nest DIFFERENT from the reference on 6/12 shape(s); cycles 54,151,598; NO ERT row on this boundary, so nothing was moved out of NoC; its reconstruction energy is charged wholly by the evaluator (5.54 engines cycle-weighted, of 8 declared)
+
+  ---- prompt_6: recon4's OWN mapping -- recon4: weights_spad.write += 23.36308 pJ, weights_spad.leak += 0.0697282475 pJ/instance/cycle ----
+       datawidth 5 on filter_glb; cache vic2000__vicx__alg-linear_pruned__to100000000__noc__clk5e-09__paper__wt96__wdw5-filter_glb__mcons__wrelax__ert-recon4-weights_spad-write  fp 653c73722712
+  ECC_FROM_CACHE=1: reading solved mappings only, Timeloop will not be invoked
+
+########## architecture: eyeriss_like_wglb ##########
+  ERT arm recon4: weights_spad.write += 23.36308 pJ, weights_spad.leak += 0.0697282475 pJ/instance/cycle  (block_size 12, E_w 1.946923 pJ/weight; narrow levels filter_glb)
+  raw cache hit: resnet18
+  [MAC OVERRIDE] Compute rescaled to 1,814,073,344 MACs x 0.23 pJ = 417.237 uJ (ERT: 0.23000 pJ/MAC, 417.237 uJ); Horowitz ISSCC 2014 int8 mult+add, 45 nm. Every percentage's DENOMINATOR moves; no saved pJ does.
+  [warn] ECC_OPT_METRIC=edp: a cheaper MAC can move an EDP-optimal mapping, and the mapper was not re-run (it prices MACs from the ERT) -- a fixed-mapping result, not a re-optimised design
+  [DRAM OVERRIDE] DRAM rescaled 8 -> 20 pJ/bit (x2.5): weight DRAM 784.794 -> 1,961.984 uJ. ECC_DRAM_PJ_PER_BIT=20 -- Horowitz, ISSCC 2014, "Computing's Energy Problem": 32b DRAM read = 640 pJ = 20 pJ/bit = 1.28 nJ/64b
+  [DRAM OVERRIDE] E_total(DRAM) = E_dynamic only; E_background and E_refresh are NOT modelled (both 0) -- the embedded arm holds fewer weight bits in DRAM and is given no credit for it
+  [LATENCY] latency model: roofline, off-chip limit 120 MB/s = 0.6 items/cycle at 5 ns; ALSO declared on the DRAM level since prompt_7 C1.1, so the mapper optimised against it -- the re-timing here is evaluator-only and not in the fingerprint
+            54,151,590 cycles = 270.758 ms against Timeloop's 54,151,598 (x1.0000); binding: DRAM on 21 layer(s)
+  resnet18           raw     8,769.47 uJ   DRAM weight reads     12,262,400
+  [note] recon4: PEs used differ from the reference on 4/12 shape(s) -- reported, not refused:
+         C64_M128_R1_S1_P28_Q28_ws2_hs2: PEs 8 vs 32, cycles x0.997, Timeloop EDP x1.015 of the reference plan
+         C128_M256_R3_S3_P14_Q14_ws2_hs2: PEs 96 vs 48, cycles x0.851, Timeloop EDP x0.874 of the reference plan
+         C128_M256_R1_S1_P14_Q14_ws2_hs2: PEs 32 vs 64, cycles x0.955, Timeloop EDP x1.005 of the reference plan
+         C256_M512_R3_S3_P7_Q7_ws2_hs2: PEs 96 vs 48, cycles x0.682, Timeloop EDP x0.697 of the reference plan
+       loop nest DIFFERENT from the reference on 5/12 shape(s); cycles 54,151,598; moved 24.7544 uJ (access) out of Local (spads/RF) into Reconstruction; leak 165.755 uJ (43.90 engines cycle-weighted, of 168 declared) verified against the stats' leakage and charged by the evaluator
+
+  ---- prompt_6: recon5's OWN mapping -- recon5: weights_spad.read += 36.9915433 pJ, weights_spad.leak += 0.0697282475 pJ/instance/cycle ----
+       datawidth 5 on filter_glb+weights_spad; cache vic2000__vicx__alg-linear_pruned__to100000000__noc__clk5e-09__paper__wt96__wdw5-filter_glb+weights_spad__mcons__wrelax__ert-recon5-weights_spad-read  fp 32154e84bb0f
+  ECC_FROM_CACHE=1: reading solved mappings only, Timeloop will not be invoked
+
+########## architecture: eyeriss_like_wglb ##########
+  ERT arm recon5: weights_spad.read += 36.9915433 pJ, weights_spad.leak += 0.0697282475 pJ/instance/cycle  (block_size 19, E_w 1.946923 pJ/weight; narrow levels filter_glb+weights_spad)
+  raw cache hit: resnet18
+  [MAC OVERRIDE] Compute rescaled to 1,814,073,344 MACs x 0.23 pJ = 417.237 uJ (ERT: 0.23000 pJ/MAC, 417.237 uJ); Horowitz ISSCC 2014 int8 mult+add, 45 nm. Every percentage's DENOMINATOR moves; no saved pJ does.
+  [warn] ECC_OPT_METRIC=edp: a cheaper MAC can move an EDP-optimal mapping, and the mapper was not re-run (it prices MACs from the ERT) -- a fixed-mapping result, not a re-optimised design
+  [DRAM OVERRIDE] DRAM rescaled 8 -> 20 pJ/bit (x2.5): weight DRAM 765.919 -> 1,914.798 uJ. ECC_DRAM_PJ_PER_BIT=20 -- Horowitz, ISSCC 2014, "Computing's Energy Problem": 32b DRAM read = 640 pJ = 20 pJ/bit = 1.28 nJ/64b
+  [DRAM OVERRIDE] E_total(DRAM) = E_dynamic only; E_background and E_refresh are NOT modelled (both 0) -- the embedded arm holds fewer weight bits in DRAM and is given no credit for it
+  [LATENCY] latency model: roofline, off-chip limit 120 MB/s = 0.6 items/cycle at 5 ns; ALSO declared on the DRAM level since prompt_7 C1.1, so the mapper optimised against it -- the re-timing here is evaluator-only and not in the fingerprint
+            53,847,318 cycles = 269.237 ms against Timeloop's 53,847,326 (x1.0000); binding: DRAM on 21 layer(s)
+  resnet18           raw    12,307.30 uJ   DRAM weight reads     11,967,488
+  [note] recon5: PEs used differ from the reference on 4/12 shape(s) -- reported, not refused:
+         C64_M128_R1_S1_P28_Q28_ws2_hs2: PEs 8 vs 32, cycles x0.997, Timeloop EDP x1.192 of the reference plan
+         C128_M256_R3_S3_P14_Q14_ws2_hs2: PEs 96 vs 48, cycles x0.851, Timeloop EDP x1.586 of the reference plan
+         C128_M256_R1_S1_P14_Q14_ws2_hs2: PEs 32 vs 64, cycles x0.955, Timeloop EDP x1.439 of the reference plan
+         C256_M512_R3_S3_P7_Q7_ws2_hs2: PEs 96 vs 48, cycles x0.682, Timeloop EDP x1.057 of the reference plan
+       loop nest DIFFERENT from the reference on 6/12 shape(s); cycles 53,847,326; moved 3531.8920 uJ (access) out of Local (spads/RF) into Reconstruction; leak 165.245 uJ (44.01 engines cycle-weighted, of 168 declared) verified against the stats' leakage and charged by the evaluator
+  [plan] recon1   OWN      <- recon1: billed from recon1's OWN mapping: nothing on chip narrowed
+  [plan] recon2   OWN      <- recon2: billed from recon2's OWN mapping: datawidth q on filter_glb
+  [plan] recon3   OWN      <- recon3: billed from recon3's OWN mapping: datawidth q on filter_glb
+  [plan] recon4   OWN      <- recon4: billed from recon4's OWN mapping: datawidth q on filter_glb
+  [plan] recon5   OWN      <- recon5: billed from recon5's OWN mapping: datawidth q on filter_glb+weights_spad
+
+  --- eyeriss_like_wglb / resnet18 : Task 3, reconstruction placement, FIXED MAPPING ---
+    precisions            : weight 8b   activation 8b   accumulator 16b (published)
+    MAC energy            : 0.23000 pJ/op x 1,814,073,344 MACs = 417.237 uJ (ECC_MAC_PJ_OVERRIDE; Horowitz ISSCC 2014 int8 mult+add, 45 nm) <-- the DENOMINATOR of every percentage below
+                            ERT was 0.23000 pJ/op = 417.237 uJ; saved uJ are unchanged, only the total moved
+    reduced form          : 5.0000 of 8 bits per weight retained (K/N = 0.6190), packing=aligned
+    ECC group             : 7.8750 weights per codeword, G_rec = 9 weights must be co-resident
+
+    CEILING on any boundary's saving:
+      on-chip weight energy that CAN be reduced :       76.966 uJ =  0.85% of the embedded total
+      x (1 - K/N) = x 0.3810                     :       29.320 uJ =  0.32%   <-- the most ANY placement can save
+      DRAM weight energy (one term, all of it)  :    1,914.798 uJ = 21.21%   (ECC_DRAM_PJ_PER_BIT=20 -- Horowitz, ISSCC 2014, "Computing's Energy Problem": 32b DRAM read = 640 pJ = 20 pJ/bit = 1.28 nJ/64b)
+        x K/N on EVERY bar                     :    1,185.351 uJ  (only the k message bits are read out and driven off the die)
+
+    bar                             total uJ   vs base    vs emb  DRAM saved uJ     recon uJ   of it idle  engines            N_rec
+    R1 @ source                    8,275.917    13.97%     8.35%        747.422       27.650        3.776     1.00        1,557,130
+    R2 @ filter GLB                8,010.602    16.72%    11.28%        747.422       27.652        3.776     1.00        1,557,242
+    R3 @ column edge               8,021.784    16.61%    11.16%        747.422       45.683       20.930     5.54        1,614,474
+    R4 @ spad input                8,181.539    14.95%     9.39%        747.422      190.509      165.755    43.90        1,614,555
+    R5a @ spad output             11,737.014   -22.01%   -29.98%        729.447    3,697.138      165.245    44.01      230,360,497
+    (vs base / vs emb are SAVINGS: a negative number costs more than the reference; DRAM saved is the DRAM energy the bar REMOVED against the embedded reference; recon uJ = incremental x events + idle x engine-cycles over 61,445,721 cycles, engines = cycle-weighted mean of the instances that LEAK, i.e. the utilized ones, RULE 3)
+
+    --- LATENCY (prompt_7 Phase A roofline, evaluator-only) ---
+    latency model: roofline, off-chip limit 120 MB/s = 0.6 items/cycle at 5 ns; ALSO declared on the DRAM level since prompt_7 C1.1, so the mapper optimised against it -- the re-timing here is evaluator-only and not in the fingerprint
+      off-chip items          : 36,867,427  (weights 11,967,488 = 32.5%, inputs+outputs 24,899,939)
+      CEILING on any boundary : weight share 32.5% x (1 - K/N) 0.3810 = 12.37%  <-- the most RECONSTRUCTION can save
+      (an UPPER bound, reached only when off-chip bandwidth binds on every layer; total time is max(compute, movement), not their sum. It is computed on the
+       REFERENCE plan's traffic and bounds the WEIGHT term only -- the `wt` and `act` columns below are each bar's own off-chip traffic against it)
+
+    bar                                cycles         ms  vs reference      wt     act                  plan      binding
+    baseline                       61,445,721    307.229        0.00%         -       -                     -     DRAM x21
+    embedded                       61,445,721    307.229        0.00%         -       -                     -     DRAM x21
+    recon1                         54,151,590    270.758       11.87%    x1.025  x1.000     own mapping (ERT)     DRAM x21
+    recon2                         54,151,590    270.758       11.87%    x1.025  x1.000     own mapping (ERT)     DRAM x21
+    recon3                         54,151,590    270.758       11.87%    x1.025  x1.000     own mapping (ERT)     DRAM x21
+    recon4                         54,151,590    270.758       11.87%    x1.025  x1.000     own mapping (ERT)     DRAM x21
+    recon5                         53,847,318    269.237       12.37%    x1.000  x1.000     own mapping (ERT)     DRAM x21
+    (Timeloop's own count for the reference plan was 61,445,721 cycles; the roofline reproduces it EXACTLY at unlimited off-chip bandwidth)
+    R-1: latency is FLAT across the boundaries by construction: every placement's `reduced` set contains `dram`, so every placement gets the same off-chip relief. A difference between two bars here is the per-shape variation of the plans they are billed from
+    R-3: R3 = R2 BY CONSTRUCTION. Timeloop has no network timing model, so the INCREMENTAL benefit of the array multicast carrying reduced-width words is unmodelled -- not measured and found ineffective
+
+    narrowing ownership (RULE 1), from each bar's own stats:
+      recon1   no on-chip storage stop carries narrow weights
+      recon2   filter_glb: Word bits 5 -> mapper (x1.0000)
+      recon3   filter_glb: Word bits 5 -> mapper (x1.0000)
+      recon4   filter_glb: Word bits 5 -> mapper (x1.0000)
+      recon5   filter_glb: Word bits 5 -> mapper (x1.0000); weights_spad: Word bits 5 -> mapper (x1.0000)
+    -> <ROOT>/results/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/<RUNID>.json
+
+==============================================================================
+Done. reconstruction-placement study -> ReconSweep_optimiser__resnet18
+  results/figures/ReconSweep_optimiser__resnet18.png
+  results/figures/ReconSweep_optimiser__resnet18.pdf
+  results/tables/ReconSweep_optimiser__resnet18.csv
+  results/manifests/ReconSweep_optimiser__resnet18.json
+NOTE: ECC decode charged as ZERO for every arm; the category is omitted from the stacks and the legend (ECC_DECODE=1 restores it).
+Raw energies are cached in results/_raw/ -- set ECC_REPLOT_ONLY=1 to
+redraw at different constants without touching the mapper.
+==============================================================================
+==============================================================================
+prompt_6 reconstruction-AWARE MAPPING, encoder in the objective: resnet18, one panel per architecture.
+  reference plan      : the published 8-bit chip, no toll
+  ERT arms            : one mapping each, datawidth q on the storage levels the boundary narrows, its toll in the ERT; the other boundaries are post-processed on the reference plan
+  Eyeriss v1 (+filter GLB):
+    lowest-energy feasible placement: recon_weight_glb_output
+      vs conventional ECC : +16.725%
+      vs embedded only    : +11.284%
+  prompt_7 B1, Eyeriss v1 (+filter GLB): ONE PLAN PER BAR on this panel, and every bar names it --
+    recon1   OWN mapping (ERT)  <- recon1     geometry matches
+    recon2   OWN mapping (ERT)  <- recon2     geometry matches
+    recon3   OWN mapping (ERT)  <- recon3     geometry matches
+    recon4   OWN mapping (ERT)  <- recon4     geometry matches
+    recon5   OWN mapping (ERT)  <- recon5     geometry matches
+    recon1: reference (no ERT bump)
+      loop nest DIFFERENT from the reference (10/12 shapes identical); cycles 54,151,598; fp 410ee95e7f78
+      moved out of DRAM: access 0.0000 uJ (None x E_w), leak 0.000 uJ (1.00 engines x 54,151,598 cycles); both reconcile to 1e-6
+    recon2: recon2: filter_glb.read += 147.966173 pJ, filter_glb.leak += 0.0697282475 pJ/instance/cycle
+      loop nest DIFFERENT from the reference (6/12 shapes identical); cycles 54,151,598; fp 1519e6934e32
+      moved out of Global buffer: access 23.8757 uJ (reads x E_w), leak 3.776 uJ (1.00 engines x 54,151,598 cycles); both reconcile to 1e-6
+    recon3: reference (no ERT bump)
+      loop nest DIFFERENT from the reference (6/12 shapes identical); cycles 54,151,598; fp 04320e626edd
+      moved out of NoC: access 0.0000 uJ (None x E_w), leak 0.000 uJ (5.54 engines x 54,151,598 cycles); both reconcile to 1e-6
+    recon4: recon4: weights_spad.write += 23.36308 pJ, weights_spad.leak += 0.0697282475 pJ/instance/cycle
+      loop nest DIFFERENT from the reference (5/12 shapes identical); cycles 54,151,598; fp 653c73722712
+      moved out of Local (spads/RF): access 24.7544 uJ (fills x E_w), leak 165.755 uJ (43.90 engines x 54,151,598 cycles); both reconcile to 1e-6
+    recon5: recon5: weights_spad.read += 36.9915433 pJ, weights_spad.leak += 0.0697282475 pJ/instance/cycle
+      loop nest DIFFERENT from the reference (6/12 shapes identical); cycles 53,847,326; fp 32154e84bb0f
+      moved out of Local (spads/RF): access 3531.8920 uJ (reads x E_w), leak 165.245 uJ (44.01 engines x 53,847,326 cycles); both reconcile to 1e-6
+==============================================================================

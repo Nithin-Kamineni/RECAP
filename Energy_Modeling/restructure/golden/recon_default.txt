@@ -1,0 +1,93 @@
+==============================================================================
+ecc-energy  |  placement (where the reconstruction boundary sits)  |  output=ReconSweep_optimiser__resnet18
+==============================================================================
+  sweeping              : eyeriss_like_wglb
+  holding               : model=resnet18   code=BCH(63,39) t=4
+  approaches            : baseline, embedded, recon
+  workload file         : cnn
+  layer scope           : full
+  weight precision      : 8b (the protected payload)
+  activation precision  : 8b
+  accumulator precision : per architecture, as published (v1 16b, v2 20b, Simba 24b, simple designs 16b)  [primary]
+  result phase          : Post   (mapping optimised for the reduced width)
+  code                  : BCH(63,39)  t=4  r=24
+  weights / codeword    : 4.0000
+  DRAM weight traffic   : identical on all three arms; baseline pays 22 pJ/bit against 20 pJ/bit (bigger array + indexing), recon fetches K/N = 0.6190 of the bits
+  recon on-chip scale   : 0.6190 (weights only)
+  reconstruction        : 1.4561000 pJ per codeword (incremental) + 13.9456495 pJ per cycle per engine (idle; RULE 3: separate denominators, never added)
+  recon provenance      : env.sh DC tables [BCH_63_39_t4]: incremental=1.4561000 pJ/codeword, idle=2.7891299 pJ/cycle/engine at the DC report's 1 ns; idle rescaled x5 to this design's clock (5 ns against the DC report's 1 ns) -> 13.9456495 pJ/cycle/engine. The INCREMENTAL term is per codeword and is NOT rescaled
+  PLACEMENT STUDY       : Task 3: fixed mapping, the boundary is the axis, one panel per architecture -> ReconSweep_optimiser__resnet18
+  panels                : Eyeriss v1 (+filter GLB): recon1, recon2, recon3, recon4, recon5
+  reduced form packing  : aligned   (whole bits per weight, no repacking: wire falls, SRAM access count may not)
+  encoder charging      : weight   (amortized: per weight, at the per-codeword energy per n/weight_bits weights)
+  mapping optimiser     : TASK 4: the reconstruction arm is re-mapped at weight capacity x1.6154 (= x1 x N/K), scope exclusive; the reference bars keep x1
+  ERT-aware mapping     : off (ECC_RECON_ERT_AWARE=0)
+  ERT arm               : reference (no ERT toll; the published 8-bit chip)
+  parity accounting     : grouping=layer, message padding charged
+  decode                : 0 pJ for every arm (ECC_DECODE=0; category hidden)
+  weak ECC overlay      : off
+  arch fidelity         : paper   (archs/<name>/arch_paper.yaml where present)
+  arch treatment        : vic2000__vicx__alg-linear_pruned__to100000000__noc__clk5e-09__paper__wt96__mcons__wrelax   (separate mapper cache)
+  level classifier      : instances
+  mapper objective      : edp   (WARNING: this is an energy study; 'edp' trades energy for latency and penalises the wider PE array)
+  mapper                : victory=2000 scaling=levels algorithm=linear_pruned timeout=100000000 perms/if=16 search_size=uncapped
+  palette / formats     : house / png, pdf @ 400 dpi
+  replot only           : False
+  cached mapper only    : True   (never invokes Timeloop)
+  re-run the optimiser  : False
+==============================================================================
+  ECC_FROM_CACHE=1: reading solved mappings only, Timeloop will not be invoked
+
+########## architecture: eyeriss_like_wglb ##########
+  raw cache hit: resnet18
+  [MAC OVERRIDE] Compute rescaled to 1,814,073,344 MACs x 0.23 pJ = 417.237 uJ (ERT: 0.23000 pJ/MAC, 417.237 uJ); Horowitz ISSCC 2014 int8 mult+add, 45 nm. Every percentage's DENOMINATOR moves; no saved pJ does.
+  [warn] ECC_OPT_METRIC=edp: a cheaper MAC can move an EDP-optimal mapping, and the mapper was not re-run (it prices MACs from the ERT) -- a fixed-mapping result, not a re-optimised design
+  [DRAM OVERRIDE] DRAM rescaled 8 -> 20 pJ/bit (x2.5): weight DRAM 765.919 -> 1,914.798 uJ. ECC_DRAM_PJ_PER_BIT=20 -- Horowitz, ISSCC 2014, "Computing's Energy Problem": 32b DRAM read = 640 pJ = 20 pJ/bit = 1.28 nJ/64b
+  [DRAM OVERRIDE] E_total(DRAM) = E_dynamic only; E_background and E_refresh are NOT modelled (both 0) -- the embedded arm holds fewer weight bits in DRAM and is given no credit for it
+  [LATENCY] latency model: roofline, off-chip limit 120 MB/s = 0.6 items/cycle at 5 ns; ALSO declared on the DRAM level since prompt_7 C1.1, so the mapper optimised against it -- the re-timing here is evaluator-only and not in the fingerprint
+            61,445,721 cycles = 307.229 ms against Timeloop's 61,445,721 (x1.0000); binding: DRAM on 21 layer(s)
+  resnet18           raw     9,029.53 uJ   DRAM weight reads     11,967,488
+
+  ---- Task 4: the reconstruction arm's own mapping (weight capacity x1.6154 = x1 x N/K, N/K = 1.6154) ----
+  ECC_FROM_CACHE=1: reading solved mappings only, Timeloop will not be invoked
+
+########## architecture: eyeriss_like_wglb ##########
+    [skip] resnet18/conv1 C3_M64_R7_S7_P112_Q112_ws2_hs2: mapper failed
+    [skip] resnet18/layer1.0.conv1 C64_M64_R3_S3_P56_Q56_ws1_hs1: mapper failed
+    [skip] resnet18/layer1.0.conv2 C64_M64_R3_S3_P56_Q56_ws1_hs1: mapper failed
+    [skip] resnet18/layer1.1.conv1 C64_M64_R3_S3_P56_Q56_ws1_hs1: mapper failed
+    [skip] resnet18/layer1.1.conv2 C64_M64_R3_S3_P56_Q56_ws1_hs1: mapper failed
+    [skip] resnet18/layer2.0.conv1 C64_M128_R3_S3_P28_Q28_ws2_hs2: mapper failed
+    [skip] resnet18/layer2.0.conv2 C128_M128_R3_S3_P28_Q28_ws1_hs1: mapper failed
+    [skip] resnet18/layer2.0.downsample.0 C64_M128_R1_S1_P28_Q28_ws2_hs2: mapper failed
+    [skip] resnet18/layer2.1.conv1 C128_M128_R3_S3_P28_Q28_ws1_hs1: mapper failed
+    [skip] resnet18/layer2.1.conv2 C128_M128_R3_S3_P28_Q28_ws1_hs1: mapper failed
+    [skip] resnet18/layer3.0.conv1 C128_M256_R3_S3_P14_Q14_ws2_hs2: mapper failed
+    [skip] resnet18/layer3.0.conv2 C256_M256_R3_S3_P14_Q14_ws1_hs1: mapper failed
+    [skip] resnet18/layer3.0.downsample.0 C128_M256_R1_S1_P14_Q14_ws2_hs2: mapper failed
+    [skip] resnet18/layer3.1.conv1 C256_M256_R3_S3_P14_Q14_ws1_hs1: mapper failed
+    [skip] resnet18/layer3.1.conv2 C256_M256_R3_S3_P14_Q14_ws1_hs1: mapper failed
+    [skip] resnet18/layer4.0.conv1 C256_M512_R3_S3_P7_Q7_ws2_hs2: mapper failed
+    [skip] resnet18/layer4.0.conv2 C512_M512_R3_S3_P7_Q7_ws1_hs1: mapper failed
+    [skip] resnet18/layer4.0.downsample.0 C256_M512_R1_S1_P7_Q7_ws2_hs2: mapper failed
+    [skip] resnet18/layer4.1.conv1 C512_M512_R3_S3_P7_Q7_ws1_hs1: mapper failed
+    [skip] resnet18/layer4.1.conv2 C512_M512_R3_S3_P7_Q7_ws1_hs1: mapper failed
+    [skip] resnet18/fc C512_M1000_R1_S1_P1_Q1_ws1_hs1: mapper failed
+  resnet18           0/21 layers ok, 21 skipped
+
+RECON_OPTIMIZER=True needs the reconstruction arm's OWN mapping for eyeriss_like_wglb/resnet18 at weight capacity x1.6154, and it is not in the cache.
+  expected: <ROOT>/ecc_energy_study/outputs/eyeriss_like_wglb/multimodel__vic2000__vicx__alg-linear_pruned__to100000000__noc__clk5e-09__paper__wcap1.6154__wt96__mcons__wrelax/fp-edba76488a8c
+  -> map it:  ECC_PHASE=Post ECC_WEIGHT_CAPACITY_SCALE=1.6154 \
+                ECC_RECON_ARCHS=eyeriss_like_wglb bash hpc/map_by_shape.sh --no-eval
+     or the whole sweep:  bash hpc/map_capacity_sweep.sh
+  Refusing rather than falling back to the reference mapping: that fallback IS Task 3, and this heading says otherwise.
+  !! resnet18: no valid layers on eyeriss_like_wglb
+  eyeriss_like_wglb: 0 cached, 0 newly mapped, 12 failed  [objective=edp victory=2000 fp=edba76488a8c]
+    12 shape(s): not usable from the mapper cache (no stats.txt), and ECC_FROM_CACHE=1 forbids mapping it
+      e.g. C3_M64_R7_S7_P112_Q112_ws2_hs2
+    -> nothing is wrong with eyeriss_like_wglb and nothing is wrong with the model: THE MAPPER CACHE FOR THIS EXACT ARCHITECTURE IS EMPTY.
+       looking for : fp-edba76488a8c
+       cache dir   : <ROOT>/ecc_energy_study/outputs/eyeriss_like_wglb/multimodel__vic2000__vicx__alg-linear_pruned__to100000000__noc__clk5e-09__paper__wcap1.6154__wt96__mcons__wrelax/fp-edba76488a8c
+       build it:  ECC_RECON_LAYER=all ECC_RERUN_OPTIMISER=1 ECC_RECON_ERT_AWARE=1 bash hpc/map_ert_arms.sh
+       (or, one architecture at a time, in the container: bash run.sh)
+  !! eyeriss_like_wglb: no results

@@ -1,0 +1,105 @@
+==============================================================================
+ecc-energy  |  sweep=arch (architecture)  |  output=ReconSweep_optimiser__resnet18
+==============================================================================
+  sweeping              : eyeriss_like_wglb
+  holding               : model=resnet18   code=BCH(63,39) t=4
+  approaches            : baseline, embedded, recon
+  workload file         : cnn
+  layer scope           : full
+  weight precision      : 8b (the protected payload)
+  activation precision  : 8b
+  accumulator precision : per architecture, as published (v1 16b, v2 20b, Simba 24b, simple designs 16b)  [primary]
+  result phase          : Post   (mapping optimised for the reduced width)
+  code                  : BCH(63,39)  t=4  r=24
+  weights / codeword    : 4.0000
+  DRAM weight traffic   : identical on all three arms; baseline pays 22 pJ/bit against 20 pJ/bit (bigger array + indexing), recon fetches K/N = 0.6190 of the bits
+  recon on-chip scale   : 0.6190 (weights only)
+  reconstruction        : 1.4561000 pJ per codeword (incremental) + 13.9456495 pJ per cycle per engine (idle; RULE 3: separate denominators, never added)
+  recon provenance      : env.sh DC tables [BCH_63_39_t4]: incremental=1.4561000 pJ/codeword, idle=2.7891299 pJ/cycle/engine at the DC report's 1 ns; idle rescaled x5 to this design's clock (5 ns against the DC report's 1 ns) -> 13.9456495 pJ/cycle/engine. The INCREMENTAL term is per codeword and is NOT rescaled
+  parity accounting     : grouping=layer, message padding charged
+  decode                : 0 pJ for every arm (ECC_DECODE=0; category hidden)
+  weak ECC overlay      : off
+  arch fidelity         : paper   (archs/<name>/arch_paper.yaml where present)
+  arch treatment        : vic2000__vicx__alg-linear_pruned__to100000000__noc__clk5e-09__paper__wt96__mcons__wrelax   (separate mapper cache)
+  level classifier      : instances
+  mapper objective      : edp   (WARNING: this is an energy study; 'edp' trades energy for latency and penalises the wider PE array)
+  mapper                : victory=2000 scaling=levels algorithm=linear_pruned timeout=100000000 perms/if=16 search_size=uncapped
+  palette / formats     : house / png, pdf @ 400 dpi
+  replot only           : False
+  cached mapper only    : False
+  re-run the optimiser  : False
+==============================================================================
+
+==============================================================================
+STATIC AUDIT  --  what each arch.yaml declares
+==============================================================================
+                        eyeriss_like_wglb
+fidelity                            paper
+technology                           45nm
+DRAM datawidth (b)                      8
+DRAM word width (b)                    64
+GLB keeps Weights                    True
+on-chip weight capacity             7,424
+accumulator width (b)                  16
+psum datawidth (b)                  16/16
+total PE fanout                       168
+loop levels                             9
+mapper victory                       4000
+
+  eyeriss_like_wglb  (<ROOT>/archs/eyeriss_like_wglb/arch_paper.yaml)
+    ifmap_glb            smartbuffer_SRAM       depth=6656    width=64    dw=8   entries=53248   x1     keeps Inputs  bypass Weights,Outputs
+    psum_glb             smartbuffer_SRAM       depth=6656    width=64    dw=16  entries=26624   x1     keeps Outputs  bypass Weights,Inputs
+    filter_glb           smartbuffer_SRAM       depth=256     width=64    dw=8   entries=2048    x1     keeps Weights  bypass Inputs,Outputs
+    ifmap_spad           smartbuffer_RF_decoded depth=12      width=16    dw=8   entries=24      x168   keeps Inputs
+    weights_spad         smartbuffer_SRAM       depth=16      width=16    dw=8   entries=32      x168   keeps Weights
+    psum_spad            smartbuffer_RF_decoded depth=96      width=16    dw=16  entries=96      x168   keeps Outputs
+    -> weights fit: filter_glb 2048 x 1 = 2,048
+    -> weights fit: weights_spad 32 x 168 = 5,376
+
+==============================================================================
+CONFOUNDS  --  1 found
+==============================================================================
+
+  1. MAPPER IS OPTIMISING EDP, NOT ENERGY. This study reports energy, but the mapper is choosing mappings by a different objective. Under 'edp' an architecture with more MACs can buy latency by spending energy, so the wider array is systematically pushed to a costlier mapping. Set ECC_OPT_METRIC=energy.
+
+==============================================================================
+MEASURED COMPARISON  --  from results/_raw/ (energies in uJ)
+==============================================================================
+                                 DRAM  Global buffer  Local (spads/RF)      NoC  Compute  total_uJ  DRAM_weight_uJ  DRAM_weight_reads  pJ_per_DRAM_weight_read  DRAM_refetch_x  layers_ok  layers_skipped
+eyeriss_like_wglb / resnet18 2,359.52         602.82            961.45 1,149.24   417.24  5,490.26          765.92      11,967,488.00                    64.00            1.02      21.00            0.00
+
+==============================================================================
+ORDERING  --  cheapest architecture first
+==============================================================================
+  eyeriss_like_wglb / resnet18                     5,490.26 uJ    1.00x   DRAM weight reads     11,967,488  (1.02 fetches per weight)
+
+  Reading this table:
+    * DRAM_refetch_x is how many times the average weight crosses the DRAM
+      boundary. It is set by on-chip weight capacity and by whether the
+      global buffer keeps Weights -- not by the dataflow name.
+    * pJ_per_DRAM_weight_read should be IDENTICAL across architectures at
+      the same node and datawidth. If it differs by ~2x, one design
+      declares datawidth 16 while another declares 8.
+
+  table written to <ROOT>/results/tables/diagnose.csv
+
+==============================================================================
+NEXT STEPS
+==============================================================================
+  The mapper is minimising edp, not energy. Set
+  ECC_OPT_METRIC=energy before comparing architectures by energy.
+
+  Equalise the storage datawidth -- one variable, and the cheapest fix:
+     ECC_FORCE_DATAWIDTH=8 bash run.sh
+  That is a no-op on any design already declared at the weight width, so
+  those architectures keep their existing mapper cache and only the
+  mis-declared ones are re-mapped.
+  The treated results get their own raw-cache subtree, so nothing
+  already collected is overwritten or mixed in.
+
+  ECC_FORCE_TECHNOLOGY changes globals.yaml, which costs DRAM for EVERY
+  design at once, so it invalidates every cache. Only worth it if you
+  specifically want DRAM costed at the same node as the accelerators;
+  all five arch containers already declare 45nm.
+
+  audit written to <ROOT>/results/manifests/diagnose.json

@@ -1,0 +1,82 @@
+==============================================================================
+ecc-energy  |  sweep=arch (architecture)  |  output=ReconSweep_optimiser__resnet18
+==============================================================================
+  sweeping              : eyeriss_like_wglb
+  holding               : model=resnet18   code=BCH(63,39) t=4
+  approaches            : baseline, embedded, recon
+  workload file         : cnn
+  layer scope           : full
+  weight precision      : 8b (the protected payload)
+  activation precision  : 8b
+  accumulator precision : per architecture, as published (v1 16b, v2 20b, Simba 24b, simple designs 16b)  [primary]
+  result phase          : Post   (mapping optimised for the reduced width)
+  code                  : BCH(63,39)  t=4  r=24
+  weights / codeword    : 4.0000
+  DRAM weight traffic   : identical on all three arms; baseline pays 22 pJ/bit against 20 pJ/bit (bigger array + indexing), recon fetches K/N = 0.6190 of the bits
+  recon on-chip scale   : 0.6190 (weights only)
+  reconstruction        : 1.4561000 pJ per codeword (incremental) + 13.9456495 pJ per cycle per engine (idle; RULE 3: separate denominators, never added)
+  recon provenance      : env.sh DC tables [BCH_63_39_t4]: incremental=1.4561000 pJ/codeword, idle=2.7891299 pJ/cycle/engine at the DC report's 1 ns; idle rescaled x5 to this design's clock (5 ns against the DC report's 1 ns) -> 13.9456495 pJ/cycle/engine. The INCREMENTAL term is per codeword and is NOT rescaled
+  parity accounting     : grouping=layer, message padding charged
+  decode                : 0 pJ for every arm (ECC_DECODE=0; category hidden)
+  weak ECC overlay      : off
+  arch fidelity         : paper   (archs/<name>/arch_paper.yaml where present)
+  arch treatment        : vic2000__vicx__alg-linear_pruned__to100000000__noc__clk5e-09__paper__wt96__mcons__wrelax   (separate mapper cache)
+  level classifier      : instances
+  mapper objective      : edp   (WARNING: this is an energy study; 'edp' trades energy for latency and penalises the wider PE array)
+  mapper                : victory=2000 scaling=levels algorithm=linear_pruned timeout=100000000 perms/if=16 search_size=uncapped
+  palette / formats     : house / png, pdf @ 400 dpi
+  replot only           : False
+  cached mapper only    : False
+  re-run the optimiser  : False
+==============================================================================
+
+==============================================================================
+THE SHARED CONTRACT  --  archs/_shared/standard.yaml
+==============================================================================
+  weight precision      : 8b   (the protected payload)
+  activation precision  : 8b
+  accumulator policy    : paper_native
+                          per architecture, as published. Partial-sum
+                          width is a design property; equalising it
+                          would equalise the architectures.
+  packing rule          : dense_bytes
+                          a level holds floor(physical_bits / operand_bits)
+                          operands, applied to EVERY level of EVERY design
+  technology            : 45nm  (logic and DRAM)
+  DRAM                  : LPDDR4, 64b word, 8b operand, depth 1,048,576
+
+==============================================================================
+PER ARCHITECTURE
+==============================================================================
+
+  eyeriss_like_wglb  (Eyeriss v1 (+8kB filter GLB))
+    source        : <ROOT>/archs/eyeriss_like_wglb/arch_paper.yaml
+    origin        : derived   provenance recorded: yes
+    fingerprint   : 2db6a4d92ff5
+    precisions    : weight/activation 8b   multiplier 8b   accumulator 16b
+    acc. evidence : inherited from eyeriss_like
+    DRAM          : width 64b  datawidth 8b  depth 1048576
+    PE fanout     : 168 instances
+    weight levels : filter_glb 2,048x1; weights_spad 32x168
+    weight capacity: 7,424 weights on chip   (GLB keeps weights: True)
+    . published at 65nm, modelled at 45nm. Deliberate: a mixed-node comparison would report silicon as architecture.
+    . interconnect: multicast_network_no_routers -- wire 0.12 pJ/b/mm (shared); PE_column: router 0 pJ, ingress 0.915206 pJ, hop from area; PE: router 0 pJ, ingress 0.915206 pJ, hop from area (archs/_shared/noc.yaml)
+
+==============================================================================
+PRESERVED DIFFERENCES  --  these are the architectures, not defects
+==============================================================================
+  architecture                acc b   fanout   on-chip weights  GLB keeps W
+  eyeriss_like_wglb              16      168             7,424         True
+
+  On-chip weight capacity spanning a wide range is EXPECTED and is one
+  of the things this study measures: less capacity means more DRAM
+  refetch, which is where the BCH parity cost lands.
+
+==============================================================================
+RESULT
+==============================================================================
+  PASS: 1 architecture(s) obey the shared contract.
+  Operand precision, DRAM geometry and process node are identical;
+  topology, capacity, weight bypass rules and accumulator width are
+  each design's own, and are recorded with their sources.
+  Full report: <ROOT>/results/manifests/validate.json
