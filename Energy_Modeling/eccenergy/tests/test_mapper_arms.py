@@ -269,7 +269,7 @@ def test_the_config_resolves_every_arm_and_gives_each_its_own_slug():
     arch = cfg.archs[0]
     seen = {}
     for arm in arms_mod.mapper_arms(arch, cfg):
-        acfg = dataclasses.replace(cfg, recon_ert_arm=arm.key)
+        acfg = cfg.with_(recon_ert_arm=arm.key)
         _assert_eq(acfg.mapper_arm_slug(), arm.slug_part)
         _assert_eq(tuple(acfg.weight_datawidth_levels or ()), arm.narrow_levels)
         # R1 NARROWS NOTHING ON CHIP: setting q with an empty level list is the
@@ -285,7 +285,7 @@ def test_the_config_resolves_every_arm_and_gives_each_its_own_slug():
 
     # BREAKAGE: an arm key this design does not define must be refused, not
     # silently resolved to the reference.
-    expect_raises(lambda: dataclasses.replace(cfg, recon_ert_arm="recon9"),
+    expect_raises(lambda: cfg.with_(recon_ert_arm="recon9"),
                   "an unknown arm key was accepted")
 
 
@@ -387,7 +387,7 @@ def test_ert_condition3_is_derived():
     cfg = config.load_config()
     rows = {}
     for pct in (0.0, 99.5, 100.0):
-        c = dataclasses.replace(cfg, recon_clock_gating_pct=pct)
+        c = cfg.with_(recon_clock_gating_pct=pct)
         rows[pct] = (arms_mod.ert_leak_delta_pj(c),
                      tuple(p.key for p in arms_mod.ert_arms(ARCH, c)))
     assert rows[0.0][0] > rows[99.5][0] > 0.0, rows
@@ -473,7 +473,7 @@ def test_phase_c_colded_every_arm_and_deleted_none():
         return
     found = []
     for arm in arms_mod.mapper_arms(arch, cfg):
-        acfg = dataclasses.replace(cfg, recon_ert_arm=arm.key)
+        acfg = cfg.with_(recon_ert_arm=arm.key)
         variant = fingerprint.effective_variant(arch, acfg)
         fp = fingerprint.arch_fingerprint(arch, acfg)
         d = pathlib.Path(Results(acfg).mapper_cache(arch, variant, fp, create=False))

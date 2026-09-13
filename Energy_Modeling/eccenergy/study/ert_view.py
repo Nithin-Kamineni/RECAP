@@ -210,8 +210,7 @@ def arm_plan_state(cfg, ses, arch, model, arm, ref_shapes):
     would mix its own plan on some shapes with a borrowed one on the rest, and
     one bar would be two chips. The caller refuses on it.
     """
-    acfg = dataclasses.replace(cfg, recon_ert_arm=arm.key,
-                               rerun_optimiser=False, from_cache=True)
+    acfg = cfg.with_(recon_ert_arm=arm.key, rerun_optimiser=False, from_cache=True)
     variant = fingerprint_mod.effective_variant(arch, acfg)
     fp = fingerprint_mod.arch_fingerprint(arch, acfg)
     cache = pathlib.Path(ses.results.mapper_cache(arch, variant, fp, create=False))
@@ -253,7 +252,7 @@ def ert_aware_view(cfg, ses, arch, model, base_cats, ref_raw, ref_paths, placeme
 
     The loop-nest verdict is recorded PER ARM and never collapsed (4.4.4).
     """
-    acfg = dataclasses.replace(cfg, recon_ert_arm=placement.key)
+    acfg = cfg.with_(recon_ert_arm=placement.key)
     bump = fingerprint_mod.ert_bump(arch, acfg)
     # THE ARMS ARE THE DISTINCT CHIPS, AND TWO OF THEM HAVE NO ERT ROW (prompt_7
     # B2): R1 and R3 on Eyeriss v1 are their own chips -- R1 by its declared

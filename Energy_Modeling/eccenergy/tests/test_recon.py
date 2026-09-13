@@ -578,7 +578,7 @@ def test_a_pe_local_boundary_is_rejected_when_the_tile_is_smaller_than_g_rec():
         assert detail["infeasible_layers"][0]["weights_resident"] == 3
         assert detail["layers_below_G_rec"] == 1, detail
         assert "fewest: 3" in detail["reason"], detail["reason"]
-        strict_cfg = _dc.replace(cfg, recon_require_group_residency=True)
+        strict_cfg = cfg.with_(recon_require_group_residency=True)
         res = placement_eval.evaluate_placement(strict_cfg, "eyeriss_v2_like", p, wp,
                                           base_w, base, 4.0, gran, packing)
         assert res.status == "unsupported" and res.total_pJ == 0.0

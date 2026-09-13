@@ -9,14 +9,15 @@ be fooled by an import that only runs on some paths.
 
 WHY THE EXCEPTION LIST IS THE POINT. The rule does not hold today -- there is one
 import cycle and it is the reason `config.py`, `archs.py` and `recon.py` cannot
-be changed independently (section 2.3). Eight edges point upward -- phase 3 removed eight more, and re-spelled
-the rest at the module granularity the split created -- and every one of them is
-DECLARED below with the phase that removes it. So:
+be changed independently (section 2.3). NO EDGE POINTS UPWARD ANY MORE. Phase 2 declared sixteen, phase 3 removed eight,
+and phase 4 removed the rest: the knobs went down into `settings/` (L0) and the
+RESOLUTION -- which needs the designs -- went up into `config.py` (L3), so the
+cycle that made `config.py`, `archs.py` and `recon.py` one unit is gone rather
+than hidden behind a lazy import. So:
 
   * a NEW upward edge fails immediately -- the rule cannot rot further;
-  * a declared edge that is GONE also fails, which makes the list shrink rather
-    than accumulate. Phase 3 emptied everything but the cycle; PHASE 4 IS
-    FINISHED WHEN THE LIST IS EMPTY.
+  * a declared edge that is GONE also fails, which is what made the list shrink
+    to nothing instead of accumulating.
 
 That is the same shape as the `fp-` fingerprint rule: assert the invariant, list
 the exceptions, and make the list expensive to leave alone.
@@ -32,48 +33,39 @@ ROOT = pathlib.Path(__file__).resolve().parents[2] / "eccenergy"
 #: (dotted-name prefix, layer). First match wins, so exact names come first.
 #: A prefix ending in "." matches a package; anything else must match exactly.
 LAYERS = (
-    ("contracts.", 0),          # the shared types
+    ("contracts.", 0),          # the shared types, and ConfigError
     ("paths", 0),               # the ONLY resolver of paths
-    ("config", 0),              # -> settings/ in phase 4
+    ("settings.", 0),           # the KNOBS: six frozen groups, read from env once
     ("physics.", 1),            # parity, embedding, widths, packing, the DRAM price
     ("arch.", 2),               # the designs, their weight paths and their arms
-    ("toolchain.", 3),          # Timeloop in, its output parsed, what is charged after
-    ("study.", 4),              # the arms, the placement study, Task 4
-    ("report.", 5),             # the renderers, and the drivers that draw
-    ("__main__", 6),            # the CLI: may import anything
+    # `config.py` RESOLVES the knobs against the designs -- the ERT arm has to
+    # exist on THIS chip, the axis lists have to name real models -- so it sits
+    # ABOVE `arch/`, not beside the settings it is built from. That is what ended
+    # the cycle in section 2.3: `arch/` and `physics/` do not import it, and the
+    # lazy imports that used to hide the deadlock are plain top-level ones now.
+    ("config", 3),
+    ("toolchain.", 4),          # Timeloop in, its output parsed, what is charged after
+    ("study.", 5),              # the arms, the placement study, Task 4
+    ("report.", 6),             # the renderers, and the drivers that draw
+    ("__main__", 7),            # the CLI: may import anything
     ("__init__", 0),            # the package docstring; imports nothing
 )
 
 #: (importer, imported) -> why it points the wrong way, and what removes it.
 #: DELETE A LINE WHEN THE PHASE THAT OWNS IT LANDS. A stale entry fails.
 KNOWN_UPWARD = {
-    # ---- the import cycle. `Config` resolves things it should be given. ----
-    ("config", "physics.widths"):
-        "Config resolves q from THE WIDTH TABLE at construction. Phase 4: "
-        "CodeSettings holds q and physics is handed it.",
-    ("config", "physics.embedded"):
-        "Config asks EmbeddedLayout how many weights a codeword holds. Phase 4.",
-    ("config", "arch.load"):
-        "Config reads mac_candidates off the design to pick a MAC price. "
-        "Phase 4: ArchSettings is data, not a reader.",
-    ("config", "arch.fingerprint"):
-        "Config asks for the effective variant slug while resolving itself. "
-        "THE CYCLE (section 2.3). Phase 4.",
-    ("config", "arch.placements"):
-        "Config validates ECC_RECON_PLACEMENTS against the design's boundaries. "
-        "Phase 4: the validation moves to the arch layer, which owns the table.",
-    ("config", "arch.arms"):
-        "Config resolves ECC_RECON_ERT_ARM through mapper_arm_spec. THE CYCLE, "
-        "and the half phase 3 could not cut: the arm list is what a knob names. "
-        "Phase 4.",
-    # ---- two arch modules price a reconstruction engine ----
-    ("arch.fingerprint", "study.stacks"):
-        "ert_bump() reaches for the reconstruction energy to build the ERT bump "
-        "the mapper is given. Phase 4: the bump is computed from settings, so "
-        "the DC table is handed in rather than looked up. (Was archs -> ecc.)",
-    ("arch.arms", "study.stacks"):
-        "ert_leak_delta_pj() needs the same DC table, to decide whether a bump "
-        "has a per-cycle row at all. Phase 4, with the edge above.",
+    # EMPTY SINCE PHASE 4, 2026-09-13, and that is the point of the file.
+    #
+    # It held sixteen edges when phase 2 wrote it, eight after phase 3, and none
+    # now. THE RULE IS THE DEFAULT AGAIN: an upward import fails the suite where
+    # it is written, rather than being argued about later.
+    #
+    # If you must add one, it goes here with the phase that removes it -- and
+    # `test_every_declared_exception_is_still_real` then fails the day it is
+    # fixed, so the list shrinks instead of accumulating. What emptied the last
+    # two was moving the DC reconstruction table out of `study/stacks.py` into
+    # `physics/recon_dc.py`: `arch/` prices an ERT bump from it, and reaching UP
+    # into a driver for that was the last cycle left.
 }
 def _modules():
     out = {}
@@ -187,17 +179,16 @@ def test_every_declared_exception_is_still_real():
 
 
 def test_the_layer_rule_holds_below_the_drivers():
-    """L0-L3 -- config, physics, arch, toolchain -- must not reach into L4/L5.
+    """L0-L4 -- settings, physics, arch, config, toolchain -- may not reach up.
 
     Stated separately because it is the half that actually blocks work: an
-    architecture cannot be added as data while `config` and `archs` still call
-    up into `recon`. It is expected to fail until phase 4, so it is marked
-    xfail; when phase 4 lands it passes and the marker comes off.
+    architecture cannot be added as DATA while `config` and `arch` call up into a
+    driver. It was xfail until phase 4 and is a plain assertion now -- the rule
+    holds, and a regression here is a failure rather than an expected one.
     """
-    offenders = sorted((s, d) for s, d in _upward() if layer_of(s) <= 3)
-    if offenders:
-        pytest.xfail("the import cycle is still here: " +
-                     ", ".join(f"{s}->{d}" for s, d in offenders))
+    offenders = sorted((s, d) for s, d in _upward() if layer_of(s) <= 4)
+    assert not offenders, (
+        "the import cycle is back: " + ", ".join(f"{s}->{d}" for s, d in offenders))
 
 
 def test_the_exception_list_is_documented():

@@ -304,7 +304,7 @@ def test_no_pair_on_disk_is_reported_as_capacity_without_held_rising():
     # test only swept `exclusive`, where no such pair existed; the shared-scope
     # caches had four of them.
     for scope in ("exclusive", "shared"):
-      cfg = dataclasses.replace(cfg, weight_capacity_scope=scope)
+      cfg = cfg.with_(weight_capacity_scope=scope)
       for arch in ("eyeriss_like", "eyeriss_v2_like", "simple_weight_stationary",
                  "eyeriss_like_wglb", "eyeriss_v2_like_wglb"):
         for ref_scale in (0.03125, 0.0625, 0.125, 0.25, 0.5, 0.75, 0.875,
@@ -478,9 +478,9 @@ def _p2_cfgs(**over):
                 os.environ.pop(k, None)
             else:
                 os.environ[k] = v
-    cfg = dataclasses.replace(cfg, **over) if over else cfg
-    emb = dataclasses.replace(cfg, weight_datawidth=None)
-    rec = dataclasses.replace(cfg, weight_datawidth=4)
+    cfg = cfg.with_(**over) if over else cfg
+    emb = cfg.with_(weight_datawidth=None)
+    rec = cfg.with_(weight_datawidth=4)
     return cfg, emb, rec
 
 
@@ -532,8 +532,8 @@ def test_the_two_arms_declare_identical_silicon_at_every_swept_depth():
     import dataclasses
     _, emb, rec = _p2_cfgs()
     for s in (1.0, 0.7071, 0.5, 0.3536, 0.25, 0.1768, 0.125):
-        e = dataclasses.replace(emb, weight_depth_scale=round(s, 4))
-        r = dataclasses.replace(rec, weight_depth_scale=round(s, 4))
+        e = emb.with_(weight_depth_scale=round(s, 4))
+        r = rec.with_(weight_depth_scale=round(s, 4))
         info = patch.assert_pair_geometry(_P2_ARCH, e, r)   # raises if not
         assert info, s
         for level, v in info.items():
@@ -561,7 +561,7 @@ def test_a_depth_mismatch_between_the_arms_is_refused_but_a_width_one_is_not():
         raise _Skip(f"archs unavailable: {exc}")
     import dataclasses
     _, emb, rec = _p2_cfgs()
-    dilated = dataclasses.replace(rec, weight_depth_scale=2.0)  # the old model
+    dilated = rec.with_(weight_depth_scale=2.0)  # the old model
     try:
         patch.assert_pair_geometry(_P2_ARCH, emb, dilated)
     except ValueError as e:
@@ -571,7 +571,7 @@ def test_a_depth_mismatch_between_the_arms_is_refused_but_a_width_one_is_not():
             "a reconstruction arm with 2x the DEPTH was accepted as a fair "
             "pair. That is exactly the geometry FINDINGS 7.8 withdrew.")
     # ... and the knob that lets a deliberate depth study through.
-    allowed = dataclasses.replace(dilated, disable_pair_geometry_assert=True)
+    allowed = dilated.with_(disable_pair_geometry_assert=True)
     patch.assert_pair_geometry(_P2_ARCH, emb, allowed)          # must not raise
 
     # A WIDTH DIFFERENCE IS NOT A DEFECT. BCH(63,39) declares 95 against the
@@ -581,8 +581,8 @@ def test_a_depth_mismatch_between_the_arms_is_refused_but_a_width_one_is_not():
         os.environ["ECC_KS"] = os.environ["ECC_CONST_K"] = "39"
         os.environ["ECC_RECON_K"] = "39"
         cfg39 = config.load_config()
-        e39 = dataclasses.replace(cfg39, weight_datawidth=None)
-        r39 = dataclasses.replace(cfg39, weight_datawidth=5)
+        e39 = cfg39.with_(weight_datawidth=None)
+        r39 = cfg39.with_(weight_datawidth=5)
         info = patch.assert_pair_geometry(_P2_ARCH, e39, r39)   # must not raise
     finally:
         os.environ.clear()
@@ -615,8 +615,8 @@ def test_the_reduced_arm_gets_exactly_two_times_the_capacity_at_bch_63_30():
     import dataclasses
     _, emb, rec = _p2_cfgs()
     for s in (1.0, 0.7071, 0.5, 0.3536, 0.25, 0.1768, 0.125):
-        e = dataclasses.replace(emb, weight_depth_scale=round(s, 4))
-        r = dataclasses.replace(rec, weight_depth_scale=round(s, 4))
+        e = emb.with_(weight_depth_scale=round(s, 4))
+        r = rec.with_(weight_depth_scale=round(s, 4))
         for level, v in patch.assert_pair_geometry(_P2_ARCH, e, r).items():
             assert v["capacity_ratio"] == 2.0, (
                 f"x{s:g} {level}: capacity ratio {v['capacity_ratio']} != "
@@ -641,7 +641,7 @@ def test_the_embedded_arm_spelled_8b_reads_the_same_cache_as_unset():
         raise _Skip(f"archs unavailable: {exc}")
     import dataclasses
     cfg, emb, _ = _p2_cfgs()
-    eight = dataclasses.replace(emb, weight_datawidth=8)
+    eight = emb.with_(weight_datawidth=8)
     assert (fingerprint.effective_variant(_P2_ARCH, emb)
             == fingerprint.effective_variant(_P2_ARCH, eight)), (
         fingerprint.effective_variant(_P2_ARCH, emb),
@@ -667,8 +667,8 @@ def test_the_depth_sweep_has_its_own_cache_and_never_shares_wcap_s():
         raise _Skip(f"archs unavailable: {exc}")
     import dataclasses
     cfg, _, _ = _p2_cfgs()
-    depth = dataclasses.replace(cfg, weight_depth_scale=0.5)
-    cap = dataclasses.replace(cfg, weight_capacity_scale=0.5)
+    depth = cfg.with_(weight_depth_scale=0.5)
+    cap = cfg.with_(weight_capacity_scale=0.5)
     vd = fingerprint.effective_variant(_P2_ARCH, depth)
     vc = fingerprint.effective_variant(_P2_ARCH, cap)
     assert "wdepth0.5" in vd and "wcap" not in vd, vd
@@ -710,8 +710,7 @@ def test_naming_a_level_the_design_does_not_have_is_refused():
         raise _Skip(f"archs unavailable: {exc}")
     import dataclasses
     cfg, _, _ = _p2_cfgs()
-    bad = dataclasses.replace(cfg, weight_depth_scale=0.5,
-                              weight_depth_levels=("filter_gbl",))  # typo
+    bad = cfg.with_(weight_depth_scale=0.5, weight_depth_levels=("filter_gbl",))  # typo
     try:
         patch.patched_weight_geometry(_P2_ARCH, bad)
     except ValueError as e:
@@ -732,8 +731,7 @@ def test_a_single_named_level_moves_only_that_level():
     import dataclasses
     cfg, _, _ = _p2_cfgs()
     base = patch.patched_weight_geometry(_P2_ARCH, cfg)
-    only = dataclasses.replace(cfg, weight_depth_scale=0.25,
-                               weight_depth_levels=("filter_glb",))
+    only = cfg.with_(weight_depth_scale=0.25, weight_depth_levels=("filter_glb",))
     got = patch.patched_weight_geometry(_P2_ARCH, only)
     assert got["filter_glb"]["depth"] == round(base["filter_glb"]["depth"] * 0.25)
     assert got["weights_spad"]["depth"] == base["weights_spad"]["depth"], (
@@ -781,7 +779,7 @@ def test_naming_filter_glb_narrows_filter_glb_and_leaves_the_spad_at_eight():
         raise _Skip(f"archs unavailable: {exc}")
     import dataclasses
     _, emb, rec = _p2_cfgs()
-    glb_only = dataclasses.replace(rec, weight_datawidth_levels=("filter_glb",))
+    glb_only = rec.with_(weight_datawidth_levels=("filter_glb",))
     geo = patch.patched_weight_geometry(_P2_ARCH, glb_only)
     assert geo["filter_glb"]["datawidth"] == 4, geo["filter_glb"]
     assert geo["weights_spad"]["datawidth"] == 8, geo["weights_spad"]
@@ -801,7 +799,7 @@ def test_naming_filter_glb_narrows_filter_glb_and_leaves_the_spad_at_eight():
     assert "wdw4-filter_glb" in v_glb and "wdw4-filter_glb" not in v_all, (v_all, v_glb)
     assert fingerprint.arch_fingerprint(_P2_ARCH, rec) != fingerprint.arch_fingerprint(_P2_ARCH, glb_only)
     # the embedded arm is untouched by the field: no datawidth, nothing to filter
-    emb_glb = dataclasses.replace(emb, weight_datawidth_levels=("filter_glb",))
+    emb_glb = emb.with_(weight_datawidth_levels=("filter_glb",))
     assert fingerprint.arch_fingerprint(_P2_ARCH, emb) == fingerprint.arch_fingerprint(_P2_ARCH, emb_glb)
 
 
@@ -816,7 +814,7 @@ def test_a_misspelt_datawidth_level_is_refused():
         raise _Skip(f"archs unavailable: {exc}")
     import dataclasses
     _, _, rec = _p2_cfgs()
-    bad = dataclasses.replace(rec, weight_datawidth_levels=("filter_gbl",))
+    bad = rec.with_(weight_datawidth_levels=("filter_gbl",))
     try:
         patch.patched_weight_geometry(_P2_ARCH, bad)
     except ValueError as e:
@@ -825,7 +823,7 @@ def test_a_misspelt_datawidth_level_is_refused():
         raise AssertionError("a misspelt weight level was accepted and would "
                              "have narrowed every level instead")
     # DRAM is not a weight level the filter can name either
-    bad2 = dataclasses.replace(rec, weight_datawidth_levels=("DRAM",))
+    bad2 = rec.with_(weight_datawidth_levels=("DRAM",))
     try:
         patch.patched_weight_geometry(_P2_ARCH, bad2)
     except ValueError:
@@ -850,10 +848,9 @@ def _ert_cfgs():
     # prompt_7 Issue 15: prompt_6 Table 5.1 is the UNGATED table, so these
     # assertions are pinned to PCT=0. The gated rows are checked in
     # test_recon.test_clock_gating_is_exact_at_zero_and_scales_the_idle_term.
-    cfg = dataclasses.replace(cfg, recon_incremental_table={}, recon_idle_table={},
-                              recon_clock_gating_pct=0.0)
-    return (cfg, dataclasses.replace(cfg, recon_ert_arm="recon2"),
-            dataclasses.replace(cfg, recon_ert_arm="recon4"))
+    cfg = cfg.with_(recon_incremental_table={}, recon_idle_table={}, recon_clock_gating_pct=0.0)
+    return (cfg, cfg.with_(recon_ert_arm="recon2"),
+            cfg.with_(recon_ert_arm="recon4"))
 
 
 def test_the_energy_model_revision_colds_only_when_set():
@@ -869,18 +866,18 @@ def test_the_energy_model_revision_colds_only_when_set():
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"config unavailable: {exc}")
     cfg, _, _ = _p2_cfgs()
-    base = dataclasses.replace(cfg, energy_model_rev="")
-    same = dataclasses.replace(cfg, energy_model_rev="")
+    base = cfg.with_(energy_model_rev="")
+    same = cfg.with_(energy_model_rev="")
     assert base.fingerprint() == same.fingerprint()
     # the deliberate breakage: any non-empty value must move it, and two
     # different values must not collide
-    a = dataclasses.replace(cfg, energy_model_rev="2026-09-12-neurosim-adders")
-    b = dataclasses.replace(cfg, energy_model_rev="something-else")
+    a = cfg.with_(energy_model_rev="2026-09-12-neurosim-adders")
+    b = cfg.with_(energy_model_rev="something-else")
     assert a.fingerprint() != base.fingerprint(), "a set revision must cold the cache"
     assert b.fingerprint() != base.fingerprint()
     assert a.fingerprint() != b.fingerprint(), "two revisions must not share a cache"
     # and it must be the ONLY thing that moved -- an empty string is not a value
-    assert dataclasses.replace(cfg, energy_model_rev="").fingerprint() == base.fingerprint()
+    assert cfg.with_(energy_model_rev="").fingerprint() == base.fingerprint()
 
 
 def test_the_wrong_sibling_guard_two_arms_identical_yaml_different_fingerprints():
@@ -919,11 +916,11 @@ def test_the_wrong_sibling_guard_two_arms_identical_yaml_different_fingerprints(
     assert fingerprint.arch_fingerprint(_P2_ARCH, ref) not in (f2, f4)
     # BREAKAGE: the same toll spelled twice is ONE architecture
     import dataclasses
-    again = dataclasses.replace(ref, recon_ert_arm="recon2")
+    again = ref.with_(recon_ert_arm="recon2")
     assert fingerprint.arch_fingerprint(_P2_ARCH, again) == f2
     # and the fingerprint tracks the DELTA itself: codeword charging makes
     # E_w the whole incremental figure, so the toll moves on IDENTICAL YAML
-    other = dataclasses.replace(ref, recon_granularity="codeword", recon_ert_arm="recon2")
+    other = ref.with_(recon_granularity="codeword", recon_ert_arm="recon2")
     assert patch._patched_text(_P2_ARCH, other, quiet=True) == t2
     assert fingerprint.effective_variant(_P2_ARCH, other) == v2
     assert fingerprint.arch_fingerprint(_P2_ARCH, other) != f2, "the delta is not in the hash"
@@ -975,7 +972,7 @@ def test_the_ert_bump_is_recomputed_from_the_patched_arch_and_the_dc_table():
     assert abs(b2["leak_delta_pj"] - 2.8310811 * scale) < 1e-9, (b2, scale)
     # and both ends of it, spelled out: 1 ns is what DC measured, 5 ns is what
     # eyeriss_like_wglb runs at (prompt_7 C1.5, env.sh section 6 TRAP 2).
-    at_1ns = fingerprint.ert_bump(_P2_ARCH, _dc.replace(r2, arch_clock_mhz={}))
+    at_1ns = fingerprint.ert_bump(_P2_ARCH, r2.with_(arch_clock_mhz={}))
     assert abs(at_1ns["leak_delta_pj"] - 2.8310811) < 1e-9, at_1ns
     assert abs(b2["leak_delta_pj"] - 14.1554055) < 1e-6, (b2, "200 MHz")
     assert abs(b2["e_w_pj"] - 0.175060) < 1e-6 and b2["e_w_pj"] == b4["e_w_pj"]
@@ -1229,7 +1226,7 @@ def test_the_capacity_target_is_8_over_q_and_every_code_passes_its_own():
     table = {57: (7, 1.143), 51: (6, 1.333), 45: (6, 1.333), 39: (5, 1.600),
              36: (5, 1.600), 30: (4, 2.000)}
     for k, (q_want, room) in table.items():
-        c = dataclasses.replace(cfg, const_k=k)
+        c = cfg.with_(const_k=k)
         want, q = capacity.capacity_target(c)
         assert q == q_want, (k, q, q_want)
         assert abs(want - room) < 5e-4, (k, want, room)
@@ -1396,7 +1393,7 @@ def test_the_onchip_narrowing_is_applied_exactly_once():
         raise _Skip(f"recon unavailable: {exc}")
     import dataclasses
     cfg, _, _ = _p2_cfgs()
-    both = dataclasses.replace(cfg, recon_packing="stream", weight_datawidth=4)
+    both = cfg.with_(recon_packing="stream", weight_datawidth=4)
     try:
         narrowing.assert_onchip_narrowing_once(both)
     except ValueError as e:
@@ -1406,10 +1403,10 @@ def test_the_onchip_narrowing_is_applied_exactly_once():
             "stream packing beside a mapper-side datawidth was accepted; the "
             "on-chip saving would be counted twice")
     # the prompt_2 configuration passes
-    good = dataclasses.replace(cfg, recon_packing="aligned", weight_datawidth=4)
+    good = cfg.with_(recon_packing="aligned", weight_datawidth=4)
     assert narrowing.assert_onchip_narrowing_once(good)["n_sites"] == 1
     # and a datawidth that disagrees with the code is refused
-    wrong = dataclasses.replace(cfg, recon_packing="aligned", weight_datawidth=5)
+    wrong = cfg.with_(recon_packing="aligned", weight_datawidth=5)
     try:
         narrowing.assert_onchip_narrowing_once(wrong)
     except ValueError as e:
@@ -1431,7 +1428,7 @@ def test_aligned_without_a_mapper_datawidth_is_the_old_bound_not_an_error():
         raise _Skip(f"recon unavailable: {exc}")
     import dataclasses
     cfg, _, _ = _p2_cfgs()
-    old = dataclasses.replace(cfg, recon_packing="aligned", weight_datawidth=None)
+    old = cfg.with_(recon_packing="aligned", weight_datawidth=None)
     audit = narrowing.onchip_narrowing_audit(old)
     assert audit["ok"] and audit["n_sites"] == 0 and "note" in audit, audit
 

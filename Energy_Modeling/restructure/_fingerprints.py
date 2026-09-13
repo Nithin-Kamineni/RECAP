@@ -81,9 +81,7 @@ def main():
     for arch in config.KNOWN_ARCHS:
         for model in models:
             out.append(_row(
-                arch, lambda a=arch, m=model: dataclasses.replace(
-                    cfg0, const_arch=a, sweep_archs=[a],
-                    const_model=m, sweep_models=[m], recon_ert_arm="reference"),
+                arch, lambda a=arch, m=model: cfg0.with_(const_arch=a, sweep_archs=[a], const_model=m, sweep_models=[m], recon_ert_arm="reference"),
                 model, cfg0.const_k, "reference", ""))
 
     out.append("# grid B: arch x K x mapper arm, at env.sh's model")
@@ -93,10 +91,7 @@ def main():
         for k in sorted(config.BCH63_KTOD):
             for arm in arms:
                 out.append(_row(
-                    arch, lambda a=arch, kk=k, ar=arm: dataclasses.replace(
-                        cfg0, const_arch=a, sweep_archs=[a],
-                        const_model=model, sweep_models=[model],
-                        const_k=kk, sweep_ks=[kk], recon_ert_arm=ar),
+                    arch, lambda a=arch, kk=k, ar=arm: cfg0.with_(const_arch=a, sweep_archs=[a], const_model=model, sweep_models=[model], const_k=kk, sweep_ks=[kk], recon_ert_arm=ar),
                     model, k, arm, note))
 
     # The two digests that sit INSIDE every fingerprint above. Printing them

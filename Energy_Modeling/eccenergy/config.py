@@ -1,1029 +1,576 @@
-"""All configuration in one place, read from the environment.
+"""THE RESOLVED CONFIGURATION of one run -- six frozen settings objects, checked
+against the designs they name.
 
-`run.sh` exports ECC_* variables; this module turns them into a validated
-`Config` object. No other module reads os.environ.
+    cfg = config.load_config()          # the environment, read once
+    cfg.weight_bits                     # any knob, by its own name
+    cfg.code                            # or the group it belongs to
+    cfg2 = cfg.with_(const_k=39)        # a changed copy, re-resolved and re-checked
 
-THE SWEEP MODEL
----------------
-A run walks exactly ONE axis and holds the other two fixed. All three ECC arms
-are always drawn, so the arms are never an axis:
+WHAT IS HERE AND WHAT IS IN `settings/`
+---------------------------------------
+`settings/` (L0) holds the KNOBS: six frozen dataclasses, each owning its own
+`ECC_*` variables, its own registry of legal values, and the declaration of which
+of its fields reach the mapper. It imports nothing of ours but `contracts`.
 
-    ECC_SWEEP=bch     x = BCH(63, K) for K in ECC_SWEEP_KS
-                      held: ECC_CONST_ARCH, ECC_CONST_MODEL
-    ECC_SWEEP=model   x = the models in ECC_SWEEP_MODELS
-                      held: ECC_CONST_ARCH, ECC_CONST_K
-    ECC_SWEEP=arch    x = the architectures in ECC_SWEEP_ARCHS
-                      held: ECC_CONST_MODEL, ECC_CONST_K
+This module holds the RESOLUTION, which is a different job and sits at a
+different level: the swept axis takes its list and the held axes their constant;
+`ECC_RECON_ERT_ARM` is looked up in THIS DESIGN's arm list and the datawidth it
+implies is filled in; `code_t` comes out of the BCH table. Resolution needs
+`arch/` and `physics/`, so this module sits ABOVE them -- which is what ended
+`ProjectRestructure.md` section 2.3's import cycle. Nothing in `physics/`,
+`arch/` or `settings/` imports this file, and the layer rule now says so.
 
-`archs`, `models` and `code_k` are DERIVED from that choice -- the swept axis
-takes its list, the two held axes take their constant. One figure comes out,
-named after the sweep (BCHsweep, ModelSweep, ArchitectureSweep), so a run
-overwrites its own output instead of accumulating directories.
+THE CONFIGURATION IS FROZEN. `load_config()` resolves once; `with_()` is the only
+way to a different one and it re-runs every check, so a Config that exists has
+been validated. `dataclasses.replace(cfg, ...)` no longer works and must not:
+replacing one field of a six-part object would leave the other five holding
+values that were derived from the old one.
+
+ONE VALIDATOR, NOT SIX. `_resolve()` is `Config.__post_init__` as it stood,
+moved: the rules it enforces are about a WHOLE configuration -- the sweep against
+the code, the experiment against the phase, the arm against the design -- and
+splitting them into the six parts would have meant six partial validators that
+each see a third of the picture, plus an order of error messages nobody chose.
+
+    cfg.to_dict()     the flat 119-key record every manifest and result carries.
+                      ITS KEY ORDER IS `FIELD_ORDER` AND IS PART OF THE FILE
+                      BYTES -- `tests/contract/test_settings.py` pins it.
+    cfg.fingerprint() the mapper cache key: the union of the six groups'
+                      `IN_FINGERPRINT` sets, hashed sorted. A moved hash is a
+                      cold matrix, so that union is pinned by the same test.
 """
 from __future__ import annotations
 
 import hashlib
 import json
-import os
-from dataclasses import dataclass, field, asdict
-from typing import Optional
+from dataclasses import asdict, dataclass
 
+from .arch import arms as arms_mod
+from .arch import fingerprint as fingerprint_mod
+from .arch import placements
+from .arch.load import mac_candidates
+from .contracts.errors import ConfigError
 from .physics import widths
+from .physics.embedded import EmbeddedLayout
+from .settings import arch as arch_settings
+from .settings import banner as banner_mod
+from .settings import code as code_settings
+from .settings import energy as energy_settings
+from .settings import mapper as mapper_settings
+from .settings import recon as recon_settings
+from .settings import run as run_settings
+from .settings.arch import (ARCH_FIDELITIES, ARCH_LABELS, BRACKET_PAIRS,
+                            CNN_MODELS, KNOWN_ARCHS, TRANSFORMER_MODELS,
+                            WEIGHT_CAPACITY_SCOPES, ArchSettings)
+from .settings.code import BCH63_KTOD, PARITY_GROUPINGS, CodeSettings
+from .settings.energy import DC_MEASUREMENT_CLOCK_NS, EnergySettings
+from .settings.mapper import (OPT_METRICS, VICTORY_MAX_SCALE,
+                              VICTORY_REFERENCE_LEVELS, VICTORY_SCALINGS,
+                              MapperSettings)
+from .settings.recon import (RECON_DECODE_SITES, RECON_ENCODER_SITES,
+                             RECON_GRANULARITIES, RECON_PACKINGS, ReconSettings)
+from .settings.run import (APPROACH_LABELS, APPROACH_TAGS, APPROACHES,
+                           EXPERIMENTS, PHASES, SWEEP_ALIASES, SWEEP_STEMS,
+                           SWEEPS, RunSettings)
 
-# ---------------------------------------------------------------- env helpers
-_TRUE = {"1", "true", "yes", "on", "y"}
-_FALSE = {"0", "false", "no", "off", "n", ""}
+#: The six groups, in the order a flat record lists them.
+GROUPS = ("run", "code", "arch", "mapper", "recon", "energy")
 
+_CLASSES = {"run": RunSettings, "code": CodeSettings, "arch": ArchSettings,
+            "mapper": MapperSettings, "recon": ReconSettings,
+            "energy": EnergySettings}
 
-#: The clock the reconstruction datapath's DC power report was measured at, in
-#: ns. Every entry of `data/dc/BCH_N63_results.json` carries it as
-#: `measurement.clock_period_ns` and every one of them is 1.0; `ecc.py` checks
-#: the entry it actually reads against this and refuses on a mismatch rather
-#: than rescaling from the wrong base. env.sh section 6, TRAP 2.
-DC_MEASUREMENT_CLOCK_NS = 1.0
+#: knob name -> the group that owns it. Built from the six classes, so a field
+#: added to one of them is addressable by its own name the same day.
+_OWNER = {f: g for g, c in _CLASSES.items() for f in c.__dataclass_fields__}
 
+#: The six groups' own declarations of which of their fields reach the MAPPER.
+#: `Config.fingerprint()` hashes the union, so a knob is marked in the module
+#: that declares it and not in a list kept by hand at the other end of a file.
+_FINGERPRINT_MODULES = {"run": run_settings, "code": code_settings,
+                        "arch": arch_settings, "mapper": mapper_settings,
+                        "recon": recon_settings, "energy": energy_settings}
 
-class ConfigError(RuntimeError):
-    pass
-
-
-def _s(name, default=""):
-    return os.environ.get(name, default).strip()
-
-
-def _b(name, default):
-    raw = _s(name)
-    if raw == "":
-        return default
-    low = raw.lower()
-    if low in _TRUE:
-        return True
-    if low in _FALSE:
-        return False
-    raise ConfigError(f"{name}={raw!r} is not a boolean (use 1/0, true/false, on/off)")
-
-
-def _i(name, default):
-    raw = _s(name)
-    if raw == "":
-        return default
-    try:
-        return int(raw)
-    except ValueError as exc:
-        raise ConfigError(f"{name}={raw!r} is not an integer") from exc
-
-
-def _f(name, default):
-    raw = _s(name)
-    if raw == "":
-        return default
-    try:
-        return float(raw)
-    except ValueError as exc:
-        raise ConfigError(f"{name}={raw!r} is not a number") from exc
-
-
-def _oi(name):
-    raw = _s(name)
-    return None if raw == "" else _i(name, 0)
-
-
-def _of(name):
-    raw = _s(name)
-    return None if raw == "" else _f(name, 0.0)
-
-
-def _table(name):
-    """`key=value;key=value` -> `{key: float(value)}` (env.sh section 10's
-    flattening of a `declare -A` table, which bash cannot export)."""
-    out = {}
-    for entry in os.environ.get(name, "").split(";"):
-        entry = entry.strip()
-        if not entry:
-            continue
-        key, _, val = entry.partition("=")
-        try:
-            out[key.strip()] = float(val)
-        except ValueError:
-            raise ConfigError(f"{name}: entry {entry!r} is not `key=number`") from None
-    return out
-
-
-def _list(name, default="", sep=None):
-    """Space- or comma-separated list; anything after '#' is a comment.
-
-    `sep=";"` splits on semicolons and keeps each entry whole, spaces and all --
-    for `ECC_RECON_PLACEMENT_LIST`, whose entries are `arch=key key key`.
-    """
-    raw = _s(name, default).split("#", 1)[0]
-    if sep:
-        return [e.strip() for e in raw.split(sep) if e.strip()]
-    return [tok for tok in raw.replace(",", " ").split() if tok]
-
-
-def _one(name, default=""):
-    """A single token. Extra tokens are an error, not a silent truncation."""
-    got = _list(name, default)
-    if len(got) > 1:
-        raise ConfigError(f"{name} takes ONE value, not {len(got)}: {' '.join(got)}\n"
-                          f"  -> only the swept axis takes a list")
-    return got[0] if got else ""
-
-
-# ------------------------------------------------------------------ registries
-EXPERIMENTS = ("sweep", "diagnose", "baseline", "embedded", "recon", "validate", "dilation",
-               "map", "panels")
-APPROACHES = ("baseline", "embedded", "recon")
-
-#: The three axes a run can walk. The other two are held at their constant.
-SWEEPS = ("bch", "model", "arch")
-
-#: Fixed output name per sweep. The whole point of the naming scheme is that a
-#: re-run at different constants OVERWRITES rather than adding another file.
-SWEEP_STEMS = {"bch": "BCHsweep", "model": "ModelSweep", "arch": "ArchitectureSweep"}
-
-#: Spellings accepted for ECC_SWEEP.
-SWEEP_ALIASES = {
-    "bch": "bch", "code": "bch", "k": "bch", "ksweep": "bch", "bchsweep": "bch",
-    "model": "model", "models": "model", "modelsweep": "model",
-    "arch": "arch", "archs": "arch", "architecture": "arch",
-    "architectures": "arch", "architecturesweep": "arch",
-}
-
-#: BCH(63, K) minimum distance, from the code tables behind the DC synthesis runs.
-BCH63_KTOD = {57: 3, 51: 5, 45: 7, 39: 9, 36: 11, 30: 13}
-
-#: What the mapper is allowed to minimise. Timeloop's own metric names.
-#:
-#: `energy` is the default because this is an ENERGY study. The stock
-#: `_include/mapper.yaml` that ships with the exercises repo asks for `edp`,
-#: and EDP systematically penalises the wider PE array: an architecture with
-#: more parallelism can buy latency by spending energy, so EDP steers it to a
-#: costlier mapping. Measured on mobilenet_v2's C160_M960_R1_S1_P7_Q7 layer,
-#: Eyeriss v2 (384 MACs) discarded a 6.84 pJ/MAC mapping for a 15.32 pJ/MAC one
-#: because the latter was 4x faster; Eyeriss v1 (168 MACs) gave up only 1.24x
-#: on the same layer. Set ECC_OPT_METRIC=edp to reproduce the old numbers.
-OPT_METRICS = ("energy", "edp", "delay", "last_level_accesses")
-
-#: How faithfully an architecture is modelled.
-#:
-#: `paper`  -- archs/<name>/arch_paper.yaml, where the storage precisions and
-#:             scratchpad geometries follow the published tables. Every number
-#:             in those files is commented with the paper it came from.
-#: `stock`  -- the design exactly as timeloop-accelergy-exercises ships it (or,
-#:             for the locally authored v2 designs, arch.yaml). Reproduces every
-#:             pre-correction figure.
-ARCH_FIDELITIES = ("paper", "stock")
-
-#: How mapper effort scales with the depth of the architecture's loop nest.
-#:
-#: Timeloop's random search gives up after `victory_condition` consecutive
-#: non-improving mappings, so a deeper hierarchy is searched less thoroughly at
-#: the same setting. Eyeriss v2 has 9 loop levels to v1's 8 and a strictly
-#: larger spatial search space, and at a flat victory_condition it converged
-#: visibly less well. `levels` doubles the effort per level beyond the
-#: reference depth; `none` uses ECC_VICTORY flat, as before.
-VICTORY_SCALINGS = ("levels", "none")
-
-#: Loop-nest depth that `ECC_VICTORY` is quoted for: Eyeriss v1 at paper
-#: fidelity (6 storage levels + 2 spatial). Deeper designs scale up from here.
-VICTORY_REFERENCE_LEVELS = 8
-
-#: Cap on the scaling, so a deep hierarchy cannot make a run open-ended.
-VICTORY_MAX_SCALE = 8
-
-#: Architectures this dense CNN/transformer problem can map onto. eyeriss_v2_like
-#: is authored in this repo (archs/); the rest ship with
-#: timeloop-accelergy-exercises' example_designs.
-KNOWN_ARCHS = (
-    "eyeriss_like",
-    "eyeriss_like_wglb",
-    "eyeriss_v2_like",
-    "eyeriss_v2_like_wglb",
-    "simple_weight_stationary",
-    "simple_output_stationary",
-    "simple_input_stationary",
-    "simba_like",
+#: EVERY field, in the order `to_dict()` emits it -- which is the order it
+#: appears in every manifest and every result JSON on disk. Changing this order
+#: rewrites those files without changing a number in them, so it is pinned by a
+#: test rather than left to the order the six groups happen to be listed in.
+FIELD_ORDER = (
+    "experiment", "sweep", "sweep_archs", "sweep_models", "sweep_ks",
+    "panel_models", "const_arch", "const_model", "const_k", "approaches",
+    "weight_bits", "activation_bits", "acc_bits_override", "code_n",
+    "emb_weights_per_cw_override", "parity_grouping", "parity_charge_padding",
+    "decode_enabled", "decode_pj_base", "decode_pj_emb",
+    "recon_charges_decode", "recon_json", "recon_incremental_table",
+    "recon_require_group_residency", "recon_idle_table", "recon_pj_override",
+    "recon_incremental_fallback_pj", "recon_idle_fallback_pj",
+    "recon_clock_gating_pct", "energy_model_rev", "recon_modeling",
+    "recon_optimizer", "recon_placement_keys", "recon_stem", "recon_packing",
+    "recon_granularity", "recon_onchip_fraction",
+    "recon_placement_charges_decode", "recon_decode_site",
+    "recon_encoder_site", "recon_ert_aware", "recon_ert_arm", "recon_layer",
+    "dram_pj_per_bit", "baseline_dram_pj_per_bit", "dram_background_pj",
+    "dram_refresh_pj", "static_energy", "leakage_nw", "latency_model",
+    "dram_bandwidth_mbps", "arch_clock_mhz", "recon_bw_scale",
+    "onchip_bw_bitaware", "weak_enabled", "weak_n", "weak_k",
+    "baseline_inflates_onchip", "split_read_write", "classify_mode",
+    "arch_fidelity", "force_technology", "force_datawidth", "dram_depth",
+    "global_cycle_seconds", "weight_capacity_scale", "weight_capacity_scope",
+    "weight_factor_relax", "mapspace_constrain", "weight_datawidth",
+    "weight_depth_scale", "weight_width_glb_mult",
+    "disable_pair_geometry_assert", "weight_depth_levels",
+    "weight_datawidth_levels", "depth_sweep_gate_victories",
+    "depth_sweep_gate_scales", "noc_enabled", "noc_wire_pj_per_bit_mm",
+    "noc_router_pj", "noc_pe_latch_pj", "noc_scale", "mac_pj_override",
+    "layers", "phase", "overwrite", "cache_strict", "rerun_optimiser",
+    "run_note", "opt_metric", "victory", "victory_scaling", "mapper_threads",
+    "mapper_timeout", "mapper_algorithm", "mapper_seed", "mapper_search_size",
+    "mapper_max_permutations", "results_dir", "replot_only", "from_cache",
+    "palette", "dpi", "formats", "title_note", "nice_labels", "stem_override",
+    "archs", "models", "code_k", "code_t", "workload",
 )
 
-#: Designs whose number is a BOUND, not a measurement, unless the partner named
-#: here is plotted beside them.
-#:
-#: A pair differs in ONE modelling judgement that the design's paper does not
-#: settle, and `Session.setup()` writes the caveat into the run manifest
-#: whenever a design appears without its partner, because a caveat that lives
-#: only in a README does not travel with the numbers.
-#:
-#: THE EYERISS v1 PAIR IS RETIRED (2026-09-10, prompt_2.md / CLAUDE.md).
-#: `eyeriss_like_wglb` IS Eyeriss v1: JSSC 2017 Sec. V-A publishes a
-#: filter-weight allocation inside the 108 kB GLB, so the file that models it
-#: as a reuse level is the design and `eyeriss_like` -- which declares
-#: `!Nothing` where that allocation sits -- is retired rather than bracketed.
-#: (The paper's allocation is 8 kB; this study declares 2 kB deliberately --
-#: see the divergence table at the top of the arch YAML. What makes the file
-#: the design is that the LEVEL EXISTS, not what size it is.) Collapsing the two
-#: files to ONE design makes an entry here self-referential: it would ask the
-#: run to plot a retired file beside the live one and stamp every manifest
-#: with a caveat that is no longer true.
-#:
-#: The mechanism is kept, not deleted: it is how any future undecided
-#: modelling judgement is carried onto the numbers, and CLAUDE.md's bracket
-#: rule still holds for `eyeriss_v2_like_wglb`, whose extra weight level is
-#: NOT in its paper -- that pair has never been registered here and is not
-#: registered now, because prompt_2 does not ask for it.
-BRACKET_PAIRS = {}
 
-#: Which workload file a model comes from. Mixing the two in one sweep is an
-#: error: they live in different JSONs and have different problem generators.
-CNN_MODELS = ("resnet18", "resnet50", "densenet121", "squeezenet1_1",
-              "mobilenet_v2", "efficientnet_b0", "convnext_tiny", "xception")
-TRANSFORMER_MODELS = ("distilgpt2", "gpt2", "bert_base", "gpt2_medium",
-                      "opt_125m", "distilbert", "tinyllama")
+# --------------------------------------------------------------- resolving one
+class _Draft:
+    """A whole configuration, mutable, while it is being resolved.
 
-#: Human-facing names for figure axes.
-#:
-#: A LABEL MAY NAME A STRUCTURE, NEVER A CAPACITY (2026-09-13, prompt_7 C1.7).
-#: `eyeriss_like_wglb` was labelled "(+8kB filter GLB)" after JSSC 2017's
-#: allocation, but the file declares `depth: 256` = 2 kB -- confirmed and kept
-#: deliberately, with the divergence recorded in the arch YAML's own header and
-#: in `archs/_shared/provenance.yaml`. A figure title is the last place a reader
-#: meets the design, so it must not be the one place that still quotes a number
-#: the file does not declare. The label now says WHICH LEVEL EXISTS, which is
-#: the real difference from the retired `eyeriss_like`, and the capacity travels
-#: in the manifest where it can carry its divergence with it.
-ARCH_LABELS = {
-    "eyeriss_like": "Eyeriss v1",
-    "eyeriss_like_wglb": "Eyeriss v1\n(+filter GLB)",
-    "eyeriss_v2_like": "Eyeriss v2",
-    "eyeriss_v2_like_wglb": "Eyeriss v2\n(+weight NoC)",
-    "simple_weight_stationary": "Weight stationary",
-    "simple_output_stationary": "Output stationary",
-    "simple_input_stationary": "Input stationary",
-    # NOT "Simba". The exercises' reference design has 256 MACs, which cannot
-    # deliver the paper's published 4 TOPS at its published clock (that needs
-    # ~1024), and its PE buffers are 4-21x the published PE geometry. See
-    # archs/_shared/provenance.yaml.
-    "simba_like": "Simba-like\n(reference design)",
-}
+    `_resolve()` is `Config.__post_init__` as it stood before phase 4, and it
+    both checks and DERIVES -- `archs`, `models`, `code_t`, the arm's datawidth.
+    A frozen object cannot be derived into, and six frozen objects cannot see
+    each other's fields, so the resolution runs once on this and the six are
+    built from the answer.
 
-#: Which half of the study a result belongs to. See docs/RESULTS_SCHEMA.md.
-#:
-#: Pre   the mapping was chosen WITHOUT knowing about reconstruction; the ECC
-#:       effect is applied during energy evaluation only. Tasks 1-3.
-#: Post  the mapping itself was optimised for the reduced weight width. Task 4+.
-#: Task 1 produces `Pre` results by construction: there is no reconstruction
-#: yet, so there is nothing a mapper could have been made aware of.
-PHASES = ("Pre", "Post")
+    It carries exactly the fields a `Config` does, so it is also what
+    `arch.arms.mapper_arm_spec()` is handed while the arm is being looked up --
+    the same duck it was handed before, at the same point in the same order.
+    """
 
-#: Where codeword boundaries fall when parity is counted. See parity.py.
-PARITY_GROUPINGS = ("layer", "model")
-
-#: How the reduced representation is physically stored and transported, and how
-#: encoder work is charged. Both are `recon.py`'s, and both are answers to
-#: sections 15/16 of `02_reconstruction_dse_and_implementation.txt` rather than
-#: free parameters -- the docstrings there say what each one claims.
-RECON_PACKINGS = ("stream", "aligned")
-RECON_GRANULARITIES = ("weight", "codeword")
-
-#: Where the BCH decoder sits (env.sh section 4). `ondie` is the model since
-#: 2026-09-09: the decoder is on the DRAM die and off the fetch path, so only
-#: the k message bits cross the DRAM interface and every placement's DRAM
-#: interface term scales by K/N. `controller` is the pre-2026-09-09 model kept
-#: as a runnable row for the diff. `recon.DECODE_SITES` must stay in step.
-RECON_DECODE_SITES = ("ondie", "controller")
-#: Where a NETWORK boundary's encoders sit, and therefore how many times they
-#: run: `destination` (one per destination, count = the network's
-#: destination-side arrivals) or `source` (one before the fanout, count = its
-#: ingresses). `recon.ENCODER_SITES` must stay in step.
-RECON_ENCODER_SITES = ("destination", "source")
-#: Which levels a Task 4 capacity dilation may rewrite.
-#: `archs.WEIGHT_CAPACITY_SCOPES` must stay in step with this tuple.
-WEIGHT_CAPACITY_SCOPES = ("exclusive", "shared")
-
-APPROACH_LABELS = {"baseline": "Baseline", "embedded": "Embedded", "recon": "Recon+"}
-APPROACH_TAGS = {"baseline": "Base.", "embedded": "Embe.", "recon": "Recon+"}
+    def __init__(self, flat):
+        self.__dict__.update(flat)
 
 
-@dataclass
+def _resolve(self):
+    """Check a whole configuration and fill in everything derived from it.
+
+    Moved from `Config.__post_init__`; the checks, their order and their
+    messages are unchanged, because each of them is a finding somebody paid for.
+    """
+    if self.experiment not in EXPERIMENTS:
+        raise ConfigError(f"ECC_EXPERIMENT={self.experiment!r}; choose one of "
+                          f"{', '.join(EXPERIMENTS)}")
+
+    self.sweep = SWEEP_ALIASES.get(self.sweep, self.sweep)
+    if self.sweep not in SWEEPS:
+        raise ConfigError(f"ECC_SWEEP={self.sweep!r}; choose one of "
+                          f"{', '.join(SWEEPS)}")
+
+    bad = [a for a in self.approaches if a not in APPROACHES]
+    if bad:
+        raise ConfigError(f"ECC_APPROACHES has unknown entries {bad}; choose from "
+                          f"{', '.join(APPROACHES)}")
+    if not self.approaches:
+        raise ConfigError("ECC_APPROACHES is empty -- nothing to compare")
+    # canonical left-to-right bar order, however it was typed
+    self.approaches = [a for a in APPROACHES if a in self.approaches]
+
+    # ---- resolve the three axes ----------------------------------------
+    if self.sweep == "arch":
+        if not self.sweep_archs:
+            raise ConfigError("ECC_SWEEP=arch but ECC_SWEEP_ARCHS is empty")
+        self.archs = list(dict.fromkeys(self.sweep_archs))
+    else:
+        if not self.const_arch:
+            raise ConfigError(f"ECC_SWEEP={self.sweep} holds the architecture "
+                              f"fixed, but ECC_CONST_ARCH is empty")
+        self.archs = [self.const_arch]
+
+    if self.sweep == "model":
+        if not self.sweep_models:
+            raise ConfigError("ECC_SWEEP=model but ECC_SWEEP_MODELS is empty")
+        self.models = list(dict.fromkeys(self.sweep_models))
+    else:
+        if not self.const_model:
+            raise ConfigError(f"ECC_SWEEP={self.sweep} holds the model fixed, "
+                              f"but ECC_CONST_MODEL is empty")
+        self.models = [self.const_model]
+
+    # ---- the panel layout (ECC_EXPERIMENT=panels) ----------------------
+    # One panel per model, the swept axis repeated inside each. `models` is
+    # widened to every panel model so ONE collection pass fills all the
+    # panels; the swept axis is untouched, which is what keeps this a page
+    # layout rather than a fourth axis.
+    if self.experiment == "panels":
+        if self.sweep not in ("arch", "model"):
+            raise ConfigError(
+                f"ECC_EXPERIMENT=panels with ECC_SWEEP={self.sweep}: a panel "
+                f"per model would then vary the model AND the code between "
+                f"panels, which is two axes at once.\n"
+                f"  -> use ECC_SWEEP=arch (an architecture sweep per model)")
+        if not self.panel_models:
+            raise ConfigError(
+                "ECC_EXPERIMENT=panels needs ECC_PANEL_MODELS, e.g.\n"
+                '  ECC_PANEL_MODELS="resnet18 mobilenet_v2"')
+        self.panel_models = list(dict.fromkeys(self.panel_models))
+        self.models = list(self.panel_models)
+
+    if self.sweep == "bch":
+        if not self.sweep_ks:
+            raise ConfigError("ECC_SWEEP=bch but ECC_SWEEP_KS is empty")
+        self.sweep_ks = list(dict.fromkeys(self.sweep_ks))
+        bad_k = [k for k in self.sweep_ks if k >= self.code_n]
+        if bad_k:
+            raise ConfigError(f"ECC_SWEEP_KS entries must be < N={self.code_n}: {bad_k}")
+    self.code_k = self.const_k
+
+    if self.code_k >= self.code_n:
+        raise ConfigError(f"need K < N; got N={self.code_n} "
+                          f"K={self.code_k} (ECC_CONST_K)")
+    if self.weight_bits <= 0:
+        raise ConfigError("ECC_WEIGHT_BITS must be positive")
+
+    if self.activation_bits <= 0:
+        raise ConfigError("ECC_ACTIVATION_BITS must be positive")
+    if self.acc_bits_override is not None:
+        # The SENSITIVITY STUDY only. The primary comparison keeps each
+        # design's published accumulator width, because psum precision is
+        # an architectural property (v1 truncates to 16b, v2 accumulates at
+        # 20b, Simba at 24b) and equalising it equalises the architectures.
+        if self.acc_bits_override < self.weight_bits:
+            raise ConfigError(
+                f"ECC_ACC_BITS={self.acc_bits_override} is narrower than "
+                f"ECC_WEIGHT_BITS={self.weight_bits}; an accumulator cannot "
+                f"be narrower than the operands it accumulates")
+    if self.parity_grouping not in PARITY_GROUPINGS:
+        raise ConfigError(f"ECC_PARITY_GROUPING must be one of "
+                          f"{', '.join(PARITY_GROUPINGS)}")
+
+    # ---- Task 3: the placement study --------------------------------
+    if self.recon_packing not in RECON_PACKINGS:
+        raise ConfigError(f"ECC_RECON_PACKING must be one of "
+                          f"{', '.join(RECON_PACKINGS)}")
+    if self.recon_granularity not in RECON_GRANULARITIES:
+        raise ConfigError(f"ECC_RECON_ENCODER_GRANULARITY must be one of "
+                          f"{', '.join(RECON_GRANULARITIES)}")
+    if self.mac_pj_override is not None and self.mac_pj_override <= 0:
+        raise ConfigError(
+            f"ECC_MAC_PJ_OVERRIDE={self.mac_pj_override}: the per-MAC energy "
+            f"must be positive (pJ per 8-bit MAC), or empty for the ERT's value")
+    if self.recon_encoder_site not in RECON_ENCODER_SITES:
+        raise ConfigError(
+            f"ECC_RECON_ENCODER_SITE must be one of "
+            f"{', '.join(RECON_ENCODER_SITES)} -- `destination` is one "
+            f"encoder per destination of a multicast network (the count is "
+            f"Timeloop's destination-side arrivals, ingresses x multicast "
+            f"factor); `source` is one encoder before the fanout and is the "
+            f"pre-2026-09-09 row, kept for the diff. See recon.ENCODER_SITES")
+    if self.recon_decode_site not in RECON_DECODE_SITES:
+        raise ConfigError(
+            f"ECC_RECON_DECODE_SITE must be one of "
+            f"{', '.join(RECON_DECODE_SITES)} (got {self.recon_decode_site!r}): "
+            f"`ondie` puts the BCH decoder on the DRAM die, off the fetch "
+            f"path, so only the k message bits cross the DRAM interface; "
+            f"`controller` is the pre-2026-09-09 model kept for the diff")
+    if self.dram_pj_per_bit is not None and self.dram_pj_per_bit <= 0:
+        raise ConfigError(
+            f"ECC_DRAM_PJ_PER_BIT={self.dram_pj_per_bit}: the per-bit DRAM "
+            f"dynamic access energy must be > 0 (8 = Accelergy LPDDR4 as "
+            f"modelled, 20 = Horowitz ISSCC 2014, 40 = this study's default)")
+    if (self.baseline_dram_pj_per_bit is not None
+            and self.baseline_dram_pj_per_bit <= 0):
+        raise ConfigError(
+            f"ECC_BASELINE_DRAM_PJ_PER_BIT={self.baseline_dram_pj_per_bit}: the "
+            f"baseline arm's per-bit DRAM dynamic access energy must be > 0 "
+            f"(70 = this study's value for the bigger, indexed conventional-ECC "
+            f"array; EMPTY = the pre-2026-09-10 parity-traffic model)")
+    for _n, _v in (("ECC_DRAM_BACKGROUND_PJ", self.dram_background_pj),
+                   ("ECC_DRAM_REFRESH_PJ", self.dram_refresh_pj)):
+        if _v < 0:
+            raise ConfigError(f"{_n}={_v} must be >= 0 (0 = term not modelled)")
+    if self.recon_optimizer:
+        # TASK 4 IS IMPLEMENTED (2026-09-09), and the guarantee the old
+        # placeholder existed to give is KEPT INTACT: a `True` here must
+        # never produce fixed-mapping numbers under a heading that says the
+        # mapping was optimised for reconstruction. That is now enforced
+        # where it can actually be checked instead of by refusing outright.
+        # `study.dilated_view.dilated_view()` stops the run when the
+        # reconstruction arm's OWN mapper cache is absent, when the design
+        # has no weight level to dilate, or when the dilated capacity does
+        # not come back N/K times the reference's; and `task4_checks()`
+        # records the two mapping fingerprints side by side on every
+        # result, so a figure drawn from one cache cannot claim two.
+        # What is refused here is the one combination that cannot mean
+        # anything: a re-optimised mapping filed as a `Pre` result.
+        if self.phase != "Post":
+            raise ConfigError(
+                f"RECON_OPTIMIZER=True is TASK 4: the mapping itself is "
+                f"re-optimised for the reduced weight width, so the result "
+                f"is a `Post` result by construction -- not ECC_PHASE="
+                f"{self.phase}, which means 'the mapping is ECC-unaware and "
+                f"the ECC effect is applied when evaluating'.\n"
+                f"  -> ECC_PHASE=Post RECON_OPTIMIZER=True   is Task 4\n"
+                f"  -> RECON_OPTIMIZER=False                 is Task 3, the "
+                f"fixed-mapping placement study")
+    if self.experiment == "recon" and not self.recon_optimizer \
+            and self.phase != "Pre":
+        # The other half of the pair above. Caught HERE rather than only in
+        # `report.recon_view.run()` so `--dry-run` reports it too: a
+        # configuration this contradictory should never survive to a run.
+        raise ConfigError(
+            f"ECC_PHASE={self.phase} but RECON_OPTIMIZER=False is Task 3, "
+            f"which is a `Pre` result by construction: the mapping is "
+            f"fixed and ECC-unaware, and the placement effect is applied "
+            f"when evaluating.\n"
+            f"  -> ECC_PHASE=Pre                         is Task 3\n"
+            f"  -> ECC_PHASE=Post RECON_OPTIMIZER=True   is Task 4, where "
+            f"the mapping itself is solved for the reduced width")
+    if self.experiment == "recon":
+        if not self.archs:
+            raise ConfigError(
+                "the reconstruction placement study needs at least one "
+                "architecture.\n  -> set ECC_RECON_ARCHS (env.sh section 4)")
+        # SEVERAL ARCHITECTURES ARE ONE PANEL EACH, NOT ONE AXIS. Each
+        # design has its own weight path and therefore its own list of
+        # feasible boundaries, so they cannot share an x axis -- env.sh
+        # section 4 and CLAUDE.md both say so, and `study/placement_study.py`
+        # `figure()` honours it by giving every design its own axes, its own
+        # boundary list and its own two reference bars. What is shared is
+        # the page, the legend, the category set and the energy unit.
+        # A repeated name is not an error: `archs` is de-duplicated above
+        # (`dict.fromkeys`), so "a a" draws ONE panel for `a` rather than
+        # the same design twice. The panel list is printed in the config
+        # table and every panel heading names its design, so a typo that
+        # collapses two panels into one is visible in the run.
+        if len(self.models) != 1:
+            raise ConfigError(
+                f"the reconstruction placement study runs on ONE model, not "
+                f"{len(self.models)} ({', '.join(self.models)}).\n"
+                f"  -> set ECC_RECON_MODEL (env.sh section 4)")
+        if self.split_read_write:
+            raise ConfigError(
+                "ECC_SPLIT_READ_WRITE=1 splits the on-chip categories in "
+                "proportion to their ACCESS COUNTS, but a reconstruction "
+                "placement changes the read and write bit-volumes by "
+                "different factors, so the split would be attributed "
+                "wrongly.\n  -> run the placement study with "
+                "ECC_SPLIT_READ_WRITE=0")
+    if self.phase not in PHASES:
+        raise ConfigError(f"ECC_PHASE must be one of {', '.join(PHASES)}")
+
+    d = BCH63_KTOD.get(self.code_k) if self.code_n == 63 else None
+    self.code_t = (d - 1) // 2 if d else max(1, (self.code_n - self.code_k) // 6)
+
+    # ---- which workload file the models come from ----------------------
+    cnn = [m for m in self.models if m in CNN_MODELS]
+    tfm = [m for m in self.models if m in TRANSFORMER_MODELS]
+    if cnn and tfm:
+        raise ConfigError(
+            "one sweep cannot mix CNNs and transformers -- they come from "
+            f"different workload files.\n  CNNs        : {' '.join(cnn)}\n"
+            f"  transformers: {' '.join(tfm)}")
+    self.workload = "transformer" if tfm else "cnn"
+
+    # ECC_FROM_CACHE forbids invoking Timeloop at all, so it cannot also be
+    # asked to re-run the mapper. Silently preferring one would mean a run
+    # asked to refresh its mappings quietly refreshing nothing.
+    if self.rerun_optimiser and (self.from_cache or self.replot_only):
+        blocker = "ECC_FROM_CACHE=1 (--eval)" if self.from_cache \
+            else "ECC_REPLOT_ONLY=1 (--replot)"
+        raise ConfigError(
+            f"ECC_RERUN_OPTIMISER=1 asks the mapper to re-solve every shape, "
+            f"but {blocker} never invokes Timeloop at all.\n"
+            f"  -> re-map with `bash run.sh map`, then evaluate with `--eval`")
+
+    if self.weak_enabled and self.weak_k >= self.weak_n:
+        raise ConfigError(f"need WEAK_K < WEAK_N; got {self.weak_n}/{self.weak_k}")
+    if self.classify_mode not in ("instances", "name"):
+        raise ConfigError("ECC_CLASSIFY must be 'instances' or 'name'")
+    if self.weight_capacity_scale <= 0:
+        raise ConfigError(
+            f"ECC_WEIGHT_CAPACITY_SCALE={self.weight_capacity_scale}: the "
+            f"weight-capacity multiplier must be positive. 1.0 is the "
+            f"declared design; N/K = {self.code_n / self.code_k:.4f} at "
+            f"BCH({self.code_n},{self.code_k}) is the reconstruction arm's "
+            f"effective capacity; below 1 shrinks the design")
+    if self.weight_capacity_scope not in WEIGHT_CAPACITY_SCOPES:
+        raise ConfigError(
+            f"ECC_WEIGHT_CAPACITY_SCOPE must be one of "
+            f"{', '.join(WEIGHT_CAPACITY_SCOPES)} -- `exclusive` dilates "
+            f"only a level whose keep list is Weights alone, so the room "
+            f"can only go to weights; `shared` also dilates a level that "
+            f"holds Weights beside another dataspace, which hands the "
+            f"mapper free capacity for that dataspace too. They bracket "
+            f"one design and are quoted as a pair")
+    if self.weight_depth_scale <= 0:
+        raise ConfigError(
+            f"ECC_WEIGHT_DEPTH_SCALE={self.weight_depth_scale}: the depth "
+            f"multiplier must be positive. 1.0 is the declared design; "
+            f"prompt_2's search grid is the sqrt(2) ladder "
+            f"1 / 0.71 / 0.5 / 0.35 / 0.25 / 0.18 / 0.125")
+    if self.weight_width_glb_mult < 1:
+        raise ConfigError(
+            f"ECC_WEIGHT_WIDTH_GLB_MULT={self.weight_width_glb_mult}: a "
+            f"weight GLB's word is a positive multiple of the "
+            f"scratchpad's. 4 is Eyeriss v1's published ratio.")
+    # NO "the width must also divide ECC_WEIGHT_BITS" CHECK LIVES HERE.
+    # It used to, and it was wrong: it asserted that both arms share one
+    # declared width, which made prompt_2's 98 (q=7) and 95 (q=5) look
+    # illegal and got them replaced by lcm(q, 8). The arms do NOT share a
+    # width -- each declares the one that suits its OWN datawidth, and
+    # neither is ever mapped on the other's silicon. THE WIDTH TABLE is
+    # applied per level by `archs._set_weight_geometry()`, which picks a
+    # multiple of that level's own datawidth, so `width % datawidth == 0`
+    # holds by construction and there is nothing here to validate.
+    # See eccenergy/widths.py.
+    if self.weight_datawidth is not None and self.weight_datawidth < 1:
+        raise ConfigError(
+            f"ECC_WEIGHT_DATAWIDTH={self.weight_datawidth}: the on-chip "
+            f"weight datawidth must be a positive integer number of bits. "
+            f"Leave it EMPTY for the 8-bit baseline/embedded arm; set it "
+            f"to round(8*K/N) for the reconstruction arm (4 at "
+            f"BCH(63,30)). Per-code values are tabulated in prompt_2.md.")
+    if (self.weight_datawidth is not None
+            and self.weight_datawidth > self.weight_bits):
+        raise ConfigError(
+            f"ECC_WEIGHT_DATAWIDTH={self.weight_datawidth} exceeds "
+            f"ECC_WEIGHT_BITS={self.weight_bits}. The reconstruction arm "
+            f"stores a REDUCED weight; a wider one is not a code rate.")
+    if self.arch_fidelity not in ARCH_FIDELITIES:
+        raise ConfigError(f"ECC_ARCH_FIDELITY must be one of "
+                          f"{', '.join(ARCH_FIDELITIES)}")
+    if self.opt_metric not in OPT_METRICS:
+        raise ConfigError(f"ECC_OPT_METRIC={self.opt_metric!r}; choose one of "
+                          f"{', '.join(OPT_METRICS)}")
+    if self.victory_scaling not in VICTORY_SCALINGS:
+        raise ConfigError(f"ECC_VICTORY_SCALING must be one of "
+                          f"{', '.join(VICTORY_SCALINGS)}")
+    if self.victory < 1:
+        raise ConfigError("ECC_VICTORY must be >= 1")
+    if self.palette not in ("house", "cvd"):
+        raise ConfigError("ECC_PALETTE must be 'house' or 'cvd'")
+    for fmt in self.formats:
+        if fmt not in ("png", "pdf", "svg"):
+            raise ConfigError(f"ECC_FORMATS: unsupported format {fmt!r}")
+
+    # ---- prompt_6: reconstruction-aware mapping ----------------------
+    if self.recon_ert_aware and not (self.recon_optimizer and self.phase == "Post"):
+        raise ConfigError(
+            f"ECC_RECON_ERT_AWARE=1 puts the encoder's energy into the mapper's "
+            f"objective, so the ERT arms are RE-MAPPED: that is Task 4 extended, "
+            f"and it needs RECON_OPTIMIZER=True and ECC_PHASE=Post (got "
+            f"RECON_OPTIMIZER={self.recon_optimizer}, ECC_PHASE={self.phase}).")
+    if self.recon_ert_arm in ("", "reference"):
+        self.recon_ert_arm = "reference"
+    else:
+        # A placement key. The arm IS a datawidth configuration plus a
+        # declared bandwidth scale plus (sometimes) an ERT bump -- prompt_7
+        # 6.4's three axes -- so resolve the datawidth half here and let
+        # every consumer of `weight_datawidth` / `weight_datawidth_levels`
+        # see it. `mapper_arm_spec`, NOT `ert_arm_spec`: since prompt_7 B2
+        # the arms to map are every DISTINCT CHIP, and R1 and R3 are chips
+        # with no ERT bump at all. `ert_arm()` below still answers only for
+        # the arms that have one, so the bump and the `ert-` slug are
+        # unchanged for every directory already on disk.
+        if len(self.archs) != 1:
+            raise ConfigError(
+                f"ECC_RECON_ERT_ARM={self.recon_ert_arm!r} names the arm of ONE "
+                f"mapper job on ONE architecture; this configuration has "
+                f"{len(self.archs)}: {', '.join(self.archs)}")
+        try:
+            spec = arms_mod.mapper_arm_spec(self.archs[0], self.recon_ert_arm, self)
+        except (KeyError, ValueError) as exc:
+            raise ConfigError(f"ECC_RECON_ERT_ARM={self.recon_ert_arm!r}: {exc}") from None
+        q = widths.declared_datawidth(self.code_n, self.code_k)
+        if (self.weight_datawidth is not None and spec["narrow_levels"]
+                and self.weight_datawidth != q):
+            raise ConfigError(
+                f"ECC_RECON_ERT_ARM={self.recon_ert_arm} declares datawidth q = "
+                f"round({self.weight_bits}*{self.code_k}/{self.code_n}) = {q}, but "
+                f"ECC_WEIGHT_DATAWIDTH={self.weight_datawidth}. Leave it EMPTY: the arm "
+                f"sets it.")
+        if (self.weight_datawidth_levels
+                and tuple(self.weight_datawidth_levels) != tuple(spec["narrow_levels"])):
+            raise ConfigError(
+                f"ECC_RECON_ERT_ARM={self.recon_ert_arm} narrows "
+                f"{'+'.join(spec['narrow_levels']) or 'NOTHING on chip'} (the storage "
+                f"levels in its placement's reduced set), but "
+                f"ECC_WEIGHT_DATAWIDTH_LEVELS="
+                f"{'+'.join(self.weight_datawidth_levels)}. Leave it EMPTY: the arm "
+                f"sets it.")
+        if spec["narrow_levels"]:
+            self.weight_datawidth = q
+            self.weight_datawidth_levels = tuple(spec["narrow_levels"])
+        # R1 NARROWS NOTHING ON CHIP, so it must leave `weight_datawidth`
+        # alone: setting q with an EMPTY level list is the spelling that
+        # narrows EVERY weight level, which is a different chip from the
+        # one R1 declares. Its architecture is the reference's until Phase
+        # C1.2 emits the DRAM bandwidth scale; what keeps the two caches
+        # apart meanwhile is the `arm-recon1` slug component below.
+
+    unknown = [a for a in self.archs if a not in KNOWN_ARCHS]
+    if unknown:
+        print(f"[config] note: looked up in example_designs/ as-is: {', '.join(unknown)}")
+    unknown = [m for m in self.models if m not in CNN_MODELS + TRANSFORMER_MODELS]
+    if unknown:
+        print(f"[config] note: not a listed model; looked up in the workload "
+              f"file as-is: {', '.join(unknown)}")
+
+
+# ------------------------------------------------------------------ the config
+@dataclass(frozen=True)
 class Config:
-    # ---- what to run -------------------------------------------------------
-    experiment: str
-    sweep: str
-    sweep_archs: list
-    sweep_models: list
-    sweep_ks: list
-    #: ECC_EXPERIMENT=panels only: one PANEL per model, the swept axis repeated
-    #: inside each. Not a fourth axis -- the x axis is still `sweep`'s.
-    panel_models: list
-    const_arch: str
-    const_model: str
-    const_k: int
-    approaches: list
+    """One resolved run. Six frozen groups, addressable by any knob's own name.
 
-    # ---- quantization / code geometry --------------------------------------
-    weight_bits: int
-    activation_bits: int
-    acc_bits_override: Optional[int]
-    code_n: int
-    emb_weights_per_cw_override: Optional[float]
-    parity_grouping: str
-    parity_charge_padding: bool
+    `cfg.victory` and `cfg.mapper.victory` are the same value; the first is what
+    every call site says today and the second is what a signature should say
+    when it is rewritten to state its dependencies (ProjectRestructure 4.3).
+    """
 
-    # ---- decode -------------------------------------------------------------
-    decode_enabled: bool
-    decode_pj_base: float
-    decode_pj_emb: float
-    recon_charges_decode: bool
+    run: RunSettings
+    code: CodeSettings
+    arch: ArchSettings
+    mapper: MapperSettings
+    recon: ReconSettings
+    energy: EnergySettings
 
-    # ---- reconstruction datapath (Design Compiler numbers) -----------------
-    recon_json: str
-    #: prompt_6 RULE 3: the two Design Compiler tables from env.sh section 6
-    #: (flattened by section 10), `{configuration id: pJ}` -- incremental per
-    #: codeword, idle per cycle per engine. Read by `ecc.load_recon_terms`
-    #: when the JSON has no entry for the (N,K) in play. ECC_RECON_INCLUDE_IDLE
-    #: is retired: the two terms are never added, each has its own denominator.
-    recon_incremental_table: dict
-    #: ECC_RECON_REQUIRE_GROUP_RESIDENCY (env.sh section 4). 1 = a PE-local
-    #: boundary whose level holds fewer than `G_rec` weights at once is refused
-    #: as `unsupported`; 0 (the default, decided 2026-09-13) charges it and
-    #: REPORTS the shortfall instead. RECAP's engine accumulates retained bits
-    #: as they arrive rather than needing the whole group resident in one
-    #: instant, so a small tile costs buffering and accesses, not feasibility.
-    recon_require_group_residency: bool
-    recon_idle_table: dict
-    recon_pj_override: Optional[float]
-    recon_incremental_fallback_pj: float
-    recon_idle_fallback_pj: float
-    #: prompt_7 Issue 4. Percentage of the reconstruction engine's
-    #: CLOCKED-IDLE energy that clock gating removes. 0 reproduces the
-    #: pre-gating model exactly; 99.5 is the measured clock/dynamic share.
-    recon_clock_gating_pct: float
-    #: prompt_7, 2026-09-12. Free-text revision of the ENERGY MODEL itself --
-    #: the Accelergy plug-in stack, its configs, anything that changes what a
-    #: component COSTS without changing the architecture YAML. EMPTY means
-    #: 'whatever the image shipped', and is hashed as if the field did not
-    #: exist, so every fingerprint predating this knob is preserved exactly.
-    energy_model_rev: str
+    # ---- addressing ---------------------------------------------------------
+    def __getattr__(self, name):
+        """Any knob, by its own name, from whichever group declares it.
 
-    # ---- Task 3: the reconstruction PLACEMENT study (env.sh section 4) -----
-    #: The placement study runs on ONE architecture, ONE model and ONE code,
-    #: because each architecture has its own weight path and therefore its own
-    #: list of feasible boundaries. env.sh section 4 collapses section 3's lists
-    #: onto this point when `recon_modeling` is on, so `archs`/`models`/`code_k`
-    #: are already the single values by the time this object exists.
-    recon_modeling: bool
-    recon_optimizer: bool
-    #: The raw `ECC_RECON_PLACEMENT_LIST`, as env.sh section 10 flattens the
-    #: `ECC_RECON_PLACEMENTS` associative array (which bash cannot export):
-    #: `;`-separated `arch=key key key` entries, or a bare space-separated key
-    #: list that applies to every architecture. Read it through
-    #: `recon_placements_for()`, never directly.
-    recon_placement_keys: list
-    recon_stem: str
-    recon_packing: str
-    recon_granularity: str
-    recon_onchip_fraction: Optional[float]
-    recon_placement_charges_decode: bool
-    #: `ondie` | `controller` -- see RECON_DECODE_SITES.
-    recon_decode_site: str
-    #: `destination` | `source` -- see RECON_ENCODER_SITES and
-    #: `recon.ENCODER_SITES`. Only network boundaries depend on it.
-    recon_encoder_site: str
-    # ---- prompt_6: reconstruction-aware mapping ----------------------------
-    #: ECC_RECON_ERT_AWARE (prompt_6 8.1): the ERT arms get their own mapping,
-    #: solved with the encoder's energy in the objective, and the figure marks
-    #: which bars came from one. Requires RECON_OPTIMIZER=True and
-    #: ECC_PHASE=Post; anything else is refused in `__post_init__`.
-    recon_ert_aware: bool
-    #: ECC_RECON_ERT_ARM (prompt_6 8.3): WHICH arm one mapper job is solving --
-    #: `reference` (also the empty string), or the key of an ERT-injectable
-    #: placement of the single configured architecture (`recon2`, `recon4`
-    #: on Eyeriss v1). Set by the launcher in `--export`, not by hand.
-    #: `__post_init__` resolves a placement key into `weight_datawidth = q`
-    #: and `weight_datawidth_levels` = the storage levels in its `reduced`
-    #: set, so everything downstream (patched YAML, slug, fingerprint) keys
-    #: on fields that already exist; `archs.ert_bump()` derives the ERT
-    #: delta from it. Read it through `ert_arm()`.
-    recon_ert_arm: str
-    #: ECC_RECON_LAYER (prompt_6 8.2): the placement study's layer scope --
-    #: one layer name, or `all`/empty for the whole model. env.sh section 10
-    #: seeds ECC_LAYERS from it whenever ECC_RECON_MODELING=1, so `layers` is
-    #: already the resolved scope; this field records the spelling for the
-    #: manifest. The launcher (hpc/map_ert_arms.sh) sets it per job.
-    recon_layer: str
-    #: ECC_DRAM_PJ_PER_BIT: pJ per bit of DYNAMIC DRAM access. Rescales the
-    #: whole DRAM category evaluator-side (energy.apply_dram_override), exactly
-    #: as mac_pj_override rescales Compute. None = leave Accelergy's own
-    #: constant (8 pJ/bit for LPDDR4 as modelled) alone. The f_if array/interface
-    #: split this replaced is GONE: the whole DRAM weight term scales by K/N.
-    dram_pj_per_bit: Optional[float]
-    #: ECC_BASELINE_DRAM_PJ_PER_BIT: pJ per bit of DYNAMIC DRAM access for the
-    #: CONVENTIONAL-ECC BASELINE ARM ONLY (baseline_dram.charge). Its array is
-    #: bigger -- parity is stored beside the weights -- and it does indexing
-    #: work the other two arms do not, so a bit out of it costs more: 70
-    #: against 40. It is a PRICE, not traffic: decoding is on the DRAM die, so
-    #: the baseline drives the same weight bits off it as the embedded arm and
-    #: the parity never crosses the datapath. None = the pre-2026-09-10 model
-    #: (baseline at `dram_pj_per_bit`, charged the external-parity traffic).
-    baseline_dram_pj_per_bit: Optional[float]
-    #: The other two terms of E_total(DRAM) = E_dynamic + E_background + E_refresh.
-    #: Both 0 for now, on purpose (the study's question is on-chip energy) --
-    #: modelling them is a TODO and would give the embedded arm further credit,
-    #: since it holds fewer weight bits in DRAM. Units: pJ per bit-second and
-    #: pJ per bit per refresh window.
-    dram_background_pj: float
-    dram_refresh_pj: float
+        Only reached when normal lookup fails, so it costs nothing for the six
+        group names and the methods. It must raise `AttributeError` for anything
+        unknown -- `copy`, `pickle` and `pytest` all probe for dunders.
+        """
+        group = _OWNER.get(name)
+        if group is None:
+            raise AttributeError(
+                f"{name!r} is not a knob of any settings group; the groups are "
+                f"{', '.join(GROUPS)}")
+        return getattr(object.__getattribute__(self, group), name)
 
-    # ---- prompt_7 Phase A: standby power, and time ------------------------
-    #: ECC_STATIC_ENERGY (env.sh section 6). 1 = charge COMPONENT STANDBY
-    #: ENERGY -- the accelerator's own leakage -- as a physical category,
-    #: `Standby`, to ALL THREE ARMS. prompt_7 Defect 2: the reconstruction
-    #: engines are billed standby power from a Design Compiler run while the
-    #: accelerator beside them is billed none, because `parse_stats` never read
-    #: `Leakage energy (total)`, so the comparison charged one side only.
-    #: 0 (the default) reproduces every pre-Phase-A total to the pJ: the
-    #: category is not even in `phys_cats()`, so a cached raw record still
-    #: loads. Not in the mapper fingerprint -- this is evaluator arithmetic
-    #: over a mapping the mapper already chose.
-    static_energy: bool
-    #: ECC_LEAKAGE_NW, flattened by env.sh section 10 into
-    #: ECC_LEAKAGE_NW_LIST. Replacement leakage densities in nW: `sram_bit`
-    #: and `rf_bit` per STORED BIT, `mac_instance` per MAC. They replace the
-    #: ERT's own `leak` rows, which are 10^3-10^4 too low and in two cases
-    #: exactly 0 (prompt_7 section 5.2c: CACTI pinned to `itrs-lstp`, an
-    #: Aladdin table whose register leakage is a literal 0, and a Neurosim
-    #: plug-in that answered 0 pJ). POWER, not energy: the cycle period is
-    #: applied at the point of use, never here (env.sh section 6 TRAP 2).
-    leakage_nw: dict
-    #: ECC_LATENCY_MODEL. 1 = re-time the chosen mapping with
-    #: `latency_post.roofline()`. Evaluator-only and NOT in the fingerprint,
-    #: exactly like the two `noc_post` terms: the plan is Timeloop's, and this
-    #: states how long that plan takes once off-chip bandwidth is declared.
-    latency_model: bool
-    #: ECC_DRAM_BANDWIDTH_MBPS: the off-chip speed limit in MB/s, or None for
-    #: unlimited. Read by `latency_post.py` (the evaluator-side roofline) AND,
-    #: since prompt_7 C1.1, written onto the DRAM level of the YAML THE MAPPER
-    #: READS, as `shared_bandwidth` -- one bus that reads and writes share,
-    #: which is the same term the roofline charges. In the fingerprint through
-    #: the patched text, so changing it colds every cache.
-    dram_bandwidth_mbps: Optional[float]
-    #: ECC_ARCH_CLOCK_MHZ, flattened by env.sh section 10 into
-    #: ECC_ARCH_CLOCK_MHZ_LIST: `{arch: MHz}`. `cycle_seconds_for()` is the
-    #: ONLY place it is inverted to seconds (env.sh section 6 TRAP 2 -- two
-    #: conversions of one period is a silent 5x). A design with no entry keeps
-    #: `global_cycle_seconds`.
-    arch_clock_mhz: dict
-    #: ECC_RECON_BW_SCALE (prompt_7 C1.2). 1 = every stage in the arm's
-    #: `reduced` set declares `per_dataspace_bandwidth_consumption_scale:
-    #: {Weights: ...}` -- K/N at DRAM (a bit stream) and q/8 on chip (whole
-    #: weights in a narrower word). COLDS EVERY CACHE: it is in the patched
-    #: YAML.
-    recon_bw_scale: bool
-    #: ECC_ONCHIP_BW_BITAWARE (prompt_7 C1.3). 1 = a level the arm narrows to
-    #: `datawidth: q` declares its `read_bandwidth`/`write_bandwidth` x 8/q,
-    #: because the port moves BITS and a q-bit weight is fewer of them. This
-    #: is the lever that reaches the `fc` layers, where `filter_glb`'s declared
-    #: 16 items/cycle is what caps PE utilisation at 9.52% (prompt_7 4.5).
-    #: COLDS EVERY CACHE.
-    onchip_bw_bitaware: bool
+    def flat(self):
+        """Every field of every group, by name -- the input `with_()` rebuilds from."""
+        out = {}
+        for g in GROUPS:
+            out.update(asdict(getattr(self, g)))
+        return out
 
-    # ---- weak (SRAM-side) ECC overlay --------------------------------------
-    weak_enabled: bool
-    weak_n: int
-    weak_k: int
+    def with_(self, **kw):
+        """A copy with these knobs changed, RE-RESOLVED and RE-CHECKED.
 
-    # ---- modelling switches -------------------------------------------------
-    baseline_inflates_onchip: bool
-    split_read_write: bool
-    classify_mode: str
-
-    # ---- architecture fairness knobs ---------------------------------------
-    arch_fidelity: str
-    force_technology: str
-    force_datawidth: Optional[int]
-    dram_depth: int
-    global_cycle_seconds: str
-    #: TASK 4 -- CAPACITY DILATION. Multiplies the declared `depth:` of the
-    #: weight-carrying storage levels in the architecture THE MAPPER SEES, so
-    #: the search can spend the reduced representation's extra room on a larger
-    #: weight tile and refetch less from DRAM. 1.0 is the declared design.
-    #: N/K (1.6154 at BCH(63,39)) is the reconstruction arm's effective
-    #: capacity; a value below 1 SHRINKS the design, which is how the study
-    #: finds a point where weight capacity is the binding constraint at all --
-    #: at the declared sizes it usually is not (FINDINGS 7.7). See
-    #: `archs._scale_weight_capacity` for what is and is not rewritten, and
-    #: why the resulting energy needs an evaluator-side correction.
-    weight_capacity_scale: float
-    #: `exclusive` | `shared` -- see `archs.WEIGHT_CAPACITY_SCOPES`.
-    weight_capacity_scope: str
-    #: TASK 4 LEVER 2. Drop the `factors:` pins on the WEIGHT-INDEXING
-    #: dimensions (M, C, R, S) of the temporal constraints on weight-carrying
-    #: levels, so the weight TILE can grow into the room a dilation adds.
-    #: Capacity is not the only thing that caps a tile: `eyeriss_like`'s
-    #: `weights_spad` declares `factors: [N=1, M=1, P=1, Q=1, S=1]`, which pins
-    #: the M tile at that level to 1 and holds `weights held` at exactly 21,504
-    #: from x1 to x32 (FINDINGS 7.8). Relaxing it is what makes capacity the
-    #: binding constraint at all -- and it is a DIFFERENT DATAFLOW, so a design
-    #: run under it must never be quoted as the published chip.
-    weight_factor_relax: bool
-    #: TASK 4 LEVER 3 (2026-09-10, FINDINGS 7.9). Pin every loop dimension to 1
-    #: at the levels `archs.MAPSPACE_FREE_LEVELS` does not name, collapsing the
-    #: index-factorization space from ~7.4e10 to something the mapper searches
-    #: EXHAUSTIVELY. This is the answer to a FAILED convergence gate: raising
-    #: the budget samples more of the same enormous space and the difference
-    #: between two sampled points is noise, whereas an exhaustive search gives
-    #: each arm its true optimum and the difference becomes architectural.
-    #: A DIFFERENT DATAFLOW -- own cache slug (`mcons`), never quotable as the
-    #: published chip. Designed to be run WITH `weight_factor_relax`.
-    mapspace_constrain: bool
-    #: PROMPT_2 (2026-09-10) -- THE ON-CHIP QUANTISATION THE MAPPER SEES.
-    #: `datawidth:` on the weight-carrying storage levels, at FIXED `width:`
-    #: and `depth:`. This is how the reduced representation is now expressed:
-    #: Timeloop computes `block_size = width / datawidth` and bills
-    #: `vector_access_energy / block_size` per weight, while CACTI is handed
-    #: `depth` and `width` ONLY -- verified 2026-09-10 from
-    #: `timeloop-mapper.accelergy.log` (`Calculated storage."width" as
-    #: "width"`). So halving it at fixed geometry exactly halves per-weight
-    #: energy and exactly doubles effective capacity with BYTE-IDENTICAL
-    #: per-access read/write/leak. That is the fairness condition
-    #: `weight_capacity_scale` could never meet.
-    #: None = leave the YAML alone (the 8-bit baseline/embedded arm).
-    #: HARD CONSTRAINT: `width % datawidth == 0` on every level it rewrites, or
-    #: `timeloop-mapper` aborts (`buffer.cpp:302`). Checked before the YAML is
-    #: written, never discovered per-layer.
-    weight_datawidth: Optional[int]
-    #: PROMPT_2 -- THE ONLY SWEPT VARIABLE: `depth:` of the on-chip weight
-    #: levels. Deliberately NOT `weight_capacity_scale`, even though the two
-    #: rewrite the same field: that knob triggers
-    #: `recon.capacity_dilation_correction()`, which re-prices the level at the
-    #: UNDILATED geometry. That correction is right when depth is standing in
-    #: for a narrower word and wrong here -- a shallower array really IS a
-    #: smaller array, and its cheaper access is a real saving, not an artifact
-    #: to undo. Separate knob, separate cache slug (`wdepth<scale>`), no
-    #: correction.
-    weight_depth_scale: float
-    #: PROMPT_2's WIDTH TABLE is NOT A KNOB and has no field here. Every
-    #: weight level's `width:` is chosen by `widths.level_width()` from
-    #: the datawidth THAT LEVEL ends up storing, and `archs`
-    #: `_set_weight_geometry()` applies it to every run: 96 b for an 8-bit
-    #: level, 98 / 96 / 95 / 96 for q = 7 / 6 / 5 / 4, x this multiplier above
-    #: the PE array. THE ARMS DO NOT SHARE A WIDTH -- each one's width suits
-    #: its own datawidth and no other arm's, which is why 95 at q=5 is correct
-    #: and does not have to divide 8. Depth is renormalised at the BASE width
-    #: (96), so it IS shared, and that is what `assert_pair_geometry` checks.
-    #: 4x is Eyeriss v1's published 16-b spad / 64-b GLB ratio, and
-    #: `q | W` implies `q | 4W`, so one table settles every weight level.
-    weight_width_glb_mult: int
-    #: `ECC_DISABLE_ASSERT_PAIR_GEOMETRY=1`: let the reconstruction and
-    #: embedded arms declare DIFFERENT `depth:` on a weight level, for a study
-    #: that varies depth between them on purpose. It disables the DEPTH check
-    #: in `archs.assert_pair_geometry()` and nothing else -- there is no width
-    #: check to disable, because the arms are SUPPOSED to differ in width.
-    #: Default False: a depth difference nobody asked for is a void comparison.
-    disable_pair_geometry_assert: bool
-    #: Which weight levels `weight_depth_scale` may rewrite. Empty = all of
-    #: them, which is the default and the limitation prompt_2 records: one
-    #: scale moves `weights_spad` and `filter_glb` TOGETHER, so it locates the
-    #: zone but cannot say which level bought it. Naming levels here is the
-    #: second pass -- hold one at x1 and sweep the other.
-    weight_depth_levels: tuple
-    #: Which weight levels `weight_datawidth` may rewrite (prompt_6 phase 2).
-    #: Empty = every weight-carrying level, which is what every run before
-    #: 2026-09-11 did and what keeps their fingerprints. An ERT arm names
-    #: exactly the storage levels in its placement's `reduced` set, because
-    #: the narrow weights stop AT the boundary: `recon2` and `recon4` both
-    #: narrow `filter_glb` and leave `weights_spad` at 8. A name no weight
-    #: level has is refused by `archs._set_weight_datawidth`.
-    weight_datawidth_levels: tuple
-    #: PROMPT_2's convergence gate, read by `dilation --gate` and submitted by
-    #: `hpc/map_depth_sweep.sh`. The budgets the EMBEDDED arm is mapped at, and
-    #: the depths the gate is re-checked at -- the largest AND the smallest,
-    #: because a budget that converges on a big buffer may not on a small one.
-    #: Not in the mapper fingerprint: they select which caches to READ.
-    depth_sweep_gate_victories: tuple
-    depth_sweep_gate_scales: tuple
-
-    # ---- interconnect (NoC) energy: archs/_shared/noc.yaml ------------------
-    # Timeloop's built-in wire model is a stub returning 0, so without these
-    # every network is free -- in the evaluator AND in the mapper's objective.
-    noc_enabled: bool
-    noc_wire_pj_per_bit_mm: Optional[float]   # override of the shared constant
-    noc_router_pj: Optional[float]            # override of shared.router_pj_per_flit
-    noc_pe_latch_pj: Optional[float]          # override of shared.pe_latch_pj (v2 PE row)
-    noc_scale: float                          # sensitivity multiplier on all terms
-    #: ECC_MAC_PJ_OVERRIDE (env.sh section 5): rescale the Compute category to
-    #: MACs x this value in the EVALUATOR. None = the ERT's value. It is the
-    #: denominator of every ECC percentage and nothing else: the saved pJ do not
-    #: depend on it (energy.apply_mac_override, tests/test_mac_override.py).
-    #: Not in the mapper fingerprint -- the MAC count is mapping-invariant.
-    mac_pj_override: Optional[float]
-
-    # ---- development mode: which layers, which half of the study -----------
-    layers: list
-    phase: str
-    overwrite: bool
-    cache_strict: bool
-    #: ECC_RERUN_OPTIMISER=1 -- re-solve a mapping even when a valid cache entry
-    #: exists, overwriting it. For refreshing a mapping after a change the
-    #: fingerprint does not capture, or to check that a mapping reproduces.
-    #: Meaningless (and refused) together with `from_cache`, which forbids
-    #: mapping outright.
-    rerun_optimiser: bool
-    run_note: str
-
-    # ---- mapper -------------------------------------------------------------
-    opt_metric: str
-    victory: int
-    victory_scaling: str
-    mapper_threads: Optional[int]
-    mapper_timeout: int
-    mapper_algorithm: str
-    mapper_seed: Optional[int]
-    mapper_search_size: Optional[int]
-    mapper_max_permutations: int
-
-    # ---- output -------------------------------------------------------------
-    results_dir: str
-    replot_only: bool
-    from_cache: bool
-    palette: str
-    dpi: int
-    formats: list
-    title_note: str
-    nice_labels: bool
-    stem_override: str
-
-    # ---- derived: the swept axis takes its list, the held axes their constant
-    archs: list = field(init=False, default_factory=list)
-    models: list = field(init=False, default_factory=list)
-    code_k: int = field(init=False, default=0)
-    code_t: int = field(init=False, default=0)
-    workload: str = field(init=False, default="cnn")
-
-    # ------------------------------------------------------------------ derive
-    def __post_init__(self):
-        if self.experiment not in EXPERIMENTS:
-            raise ConfigError(f"ECC_EXPERIMENT={self.experiment!r}; choose one of "
-                              f"{', '.join(EXPERIMENTS)}")
-
-        self.sweep = SWEEP_ALIASES.get(self.sweep, self.sweep)
-        if self.sweep not in SWEEPS:
-            raise ConfigError(f"ECC_SWEEP={self.sweep!r}; choose one of "
-                              f"{', '.join(SWEEPS)}")
-
-        bad = [a for a in self.approaches if a not in APPROACHES]
-        if bad:
-            raise ConfigError(f"ECC_APPROACHES has unknown entries {bad}; choose from "
-                              f"{', '.join(APPROACHES)}")
-        if not self.approaches:
-            raise ConfigError("ECC_APPROACHES is empty -- nothing to compare")
-        # canonical left-to-right bar order, however it was typed
-        self.approaches = [a for a in APPROACHES if a in self.approaches]
-
-        # ---- resolve the three axes ----------------------------------------
-        if self.sweep == "arch":
-            if not self.sweep_archs:
-                raise ConfigError("ECC_SWEEP=arch but ECC_SWEEP_ARCHS is empty")
-            self.archs = list(dict.fromkeys(self.sweep_archs))
-        else:
-            if not self.const_arch:
-                raise ConfigError(f"ECC_SWEEP={self.sweep} holds the architecture "
-                                  f"fixed, but ECC_CONST_ARCH is empty")
-            self.archs = [self.const_arch]
-
-        if self.sweep == "model":
-            if not self.sweep_models:
-                raise ConfigError("ECC_SWEEP=model but ECC_SWEEP_MODELS is empty")
-            self.models = list(dict.fromkeys(self.sweep_models))
-        else:
-            if not self.const_model:
-                raise ConfigError(f"ECC_SWEEP={self.sweep} holds the model fixed, "
-                                  f"but ECC_CONST_MODEL is empty")
-            self.models = [self.const_model]
-
-        # ---- the panel layout (ECC_EXPERIMENT=panels) ----------------------
-        # One panel per model, the swept axis repeated inside each. `models` is
-        # widened to every panel model so ONE collection pass fills all the
-        # panels; the swept axis is untouched, which is what keeps this a page
-        # layout rather than a fourth axis.
-        if self.experiment == "panels":
-            if self.sweep not in ("arch", "model"):
-                raise ConfigError(
-                    f"ECC_EXPERIMENT=panels with ECC_SWEEP={self.sweep}: a panel "
-                    f"per model would then vary the model AND the code between "
-                    f"panels, which is two axes at once.\n"
-                    f"  -> use ECC_SWEEP=arch (an architecture sweep per model)")
-            if not self.panel_models:
-                raise ConfigError(
-                    "ECC_EXPERIMENT=panels needs ECC_PANEL_MODELS, e.g.\n"
-                    '  ECC_PANEL_MODELS="resnet18 mobilenet_v2"')
-            self.panel_models = list(dict.fromkeys(self.panel_models))
-            self.models = list(self.panel_models)
-
-        if self.sweep == "bch":
-            if not self.sweep_ks:
-                raise ConfigError("ECC_SWEEP=bch but ECC_SWEEP_KS is empty")
-            self.sweep_ks = list(dict.fromkeys(self.sweep_ks))
-            bad_k = [k for k in self.sweep_ks if k >= self.code_n]
-            if bad_k:
-                raise ConfigError(f"ECC_SWEEP_KS entries must be < N={self.code_n}: {bad_k}")
-        self.code_k = self.const_k
-
-        if self.code_k >= self.code_n:
-            raise ConfigError(f"need K < N; got N={self.code_n} "
-                              f"K={self.code_k} (ECC_CONST_K)")
-        if self.weight_bits <= 0:
-            raise ConfigError("ECC_WEIGHT_BITS must be positive")
-
-        if self.activation_bits <= 0:
-            raise ConfigError("ECC_ACTIVATION_BITS must be positive")
-        if self.acc_bits_override is not None:
-            # The SENSITIVITY STUDY only. The primary comparison keeps each
-            # design's published accumulator width, because psum precision is
-            # an architectural property (v1 truncates to 16b, v2 accumulates at
-            # 20b, Simba at 24b) and equalising it equalises the architectures.
-            if self.acc_bits_override < self.weight_bits:
-                raise ConfigError(
-                    f"ECC_ACC_BITS={self.acc_bits_override} is narrower than "
-                    f"ECC_WEIGHT_BITS={self.weight_bits}; an accumulator cannot "
-                    f"be narrower than the operands it accumulates")
-        if self.parity_grouping not in PARITY_GROUPINGS:
-            raise ConfigError(f"ECC_PARITY_GROUPING must be one of "
-                              f"{', '.join(PARITY_GROUPINGS)}")
-
-        # ---- Task 3: the placement study --------------------------------
-        if self.recon_packing not in RECON_PACKINGS:
-            raise ConfigError(f"ECC_RECON_PACKING must be one of "
-                              f"{', '.join(RECON_PACKINGS)}")
-        if self.recon_granularity not in RECON_GRANULARITIES:
-            raise ConfigError(f"ECC_RECON_ENCODER_GRANULARITY must be one of "
-                              f"{', '.join(RECON_GRANULARITIES)}")
-        if self.mac_pj_override is not None and self.mac_pj_override <= 0:
-            raise ConfigError(
-                f"ECC_MAC_PJ_OVERRIDE={self.mac_pj_override}: the per-MAC energy "
-                f"must be positive (pJ per 8-bit MAC), or empty for the ERT's value")
-        if self.recon_encoder_site not in RECON_ENCODER_SITES:
-            raise ConfigError(
-                f"ECC_RECON_ENCODER_SITE must be one of "
-                f"{', '.join(RECON_ENCODER_SITES)} -- `destination` is one "
-                f"encoder per destination of a multicast network (the count is "
-                f"Timeloop's destination-side arrivals, ingresses x multicast "
-                f"factor); `source` is one encoder before the fanout and is the "
-                f"pre-2026-09-09 row, kept for the diff. See recon.ENCODER_SITES")
-        if self.recon_decode_site not in RECON_DECODE_SITES:
-            raise ConfigError(
-                f"ECC_RECON_DECODE_SITE must be one of "
-                f"{', '.join(RECON_DECODE_SITES)} (got {self.recon_decode_site!r}): "
-                f"`ondie` puts the BCH decoder on the DRAM die, off the fetch "
-                f"path, so only the k message bits cross the DRAM interface; "
-                f"`controller` is the pre-2026-09-09 model kept for the diff")
-        if self.dram_pj_per_bit is not None and self.dram_pj_per_bit <= 0:
-            raise ConfigError(
-                f"ECC_DRAM_PJ_PER_BIT={self.dram_pj_per_bit}: the per-bit DRAM "
-                f"dynamic access energy must be > 0 (8 = Accelergy LPDDR4 as "
-                f"modelled, 20 = Horowitz ISSCC 2014, 40 = this study's default)")
-        if (self.baseline_dram_pj_per_bit is not None
-                and self.baseline_dram_pj_per_bit <= 0):
-            raise ConfigError(
-                f"ECC_BASELINE_DRAM_PJ_PER_BIT={self.baseline_dram_pj_per_bit}: the "
-                f"baseline arm's per-bit DRAM dynamic access energy must be > 0 "
-                f"(70 = this study's value for the bigger, indexed conventional-ECC "
-                f"array; EMPTY = the pre-2026-09-10 parity-traffic model)")
-        for _n, _v in (("ECC_DRAM_BACKGROUND_PJ", self.dram_background_pj),
-                       ("ECC_DRAM_REFRESH_PJ", self.dram_refresh_pj)):
-            if _v < 0:
-                raise ConfigError(f"{_n}={_v} must be >= 0 (0 = term not modelled)")
-        if self.recon_optimizer:
-            # TASK 4 IS IMPLEMENTED (2026-09-09), and the guarantee the old
-            # placeholder existed to give is KEPT INTACT: a `True` here must
-            # never produce fixed-mapping numbers under a heading that says the
-            # mapping was optimised for reconstruction. That is now enforced
-            # where it can actually be checked instead of by refusing outright.
-            # `study.dilated_view.dilated_view()` stops the run when the
-            # reconstruction arm's OWN mapper cache is absent, when the design
-            # has no weight level to dilate, or when the dilated capacity does
-            # not come back N/K times the reference's; and `task4_checks()`
-            # records the two mapping fingerprints side by side on every
-            # result, so a figure drawn from one cache cannot claim two.
-            # What is refused here is the one combination that cannot mean
-            # anything: a re-optimised mapping filed as a `Pre` result.
-            if self.phase != "Post":
-                raise ConfigError(
-                    f"RECON_OPTIMIZER=True is TASK 4: the mapping itself is "
-                    f"re-optimised for the reduced weight width, so the result "
-                    f"is a `Post` result by construction -- not ECC_PHASE="
-                    f"{self.phase}, which means 'the mapping is ECC-unaware and "
-                    f"the ECC effect is applied when evaluating'.\n"
-                    f"  -> ECC_PHASE=Post RECON_OPTIMIZER=True   is Task 4\n"
-                    f"  -> RECON_OPTIMIZER=False                 is Task 3, the "
-                    f"fixed-mapping placement study")
-        if self.experiment == "recon" and not self.recon_optimizer \
-                and self.phase != "Pre":
-            # The other half of the pair above. Caught HERE rather than only in
-            # `report.recon_view.run()` so `--dry-run` reports it too: a
-            # configuration this contradictory should never survive to a run.
-            raise ConfigError(
-                f"ECC_PHASE={self.phase} but RECON_OPTIMIZER=False is Task 3, "
-                f"which is a `Pre` result by construction: the mapping is "
-                f"fixed and ECC-unaware, and the placement effect is applied "
-                f"when evaluating.\n"
-                f"  -> ECC_PHASE=Pre                         is Task 3\n"
-                f"  -> ECC_PHASE=Post RECON_OPTIMIZER=True   is Task 4, where "
-                f"the mapping itself is solved for the reduced width")
-        if self.experiment == "recon":
-            if not self.archs:
-                raise ConfigError(
-                    "the reconstruction placement study needs at least one "
-                    "architecture.\n  -> set ECC_RECON_ARCHS (env.sh section 4)")
-            # SEVERAL ARCHITECTURES ARE ONE PANEL EACH, NOT ONE AXIS. Each
-            # design has its own weight path and therefore its own list of
-            # feasible boundaries, so they cannot share an x axis -- env.sh
-            # section 4 and CLAUDE.md both say so, and `study/placement_study.py`
-            # `figure()` honours it by giving every design its own axes, its own
-            # boundary list and its own two reference bars. What is shared is
-            # the page, the legend, the category set and the energy unit.
-            # A repeated name is not an error: `archs` is de-duplicated above
-            # (`dict.fromkeys`), so "a a" draws ONE panel for `a` rather than
-            # the same design twice. The panel list is printed in the config
-            # table and every panel heading names its design, so a typo that
-            # collapses two panels into one is visible in the run.
-            if len(self.models) != 1:
-                raise ConfigError(
-                    f"the reconstruction placement study runs on ONE model, not "
-                    f"{len(self.models)} ({', '.join(self.models)}).\n"
-                    f"  -> set ECC_RECON_MODEL (env.sh section 4)")
-            if self.split_read_write:
-                raise ConfigError(
-                    "ECC_SPLIT_READ_WRITE=1 splits the on-chip categories in "
-                    "proportion to their ACCESS COUNTS, but a reconstruction "
-                    "placement changes the read and write bit-volumes by "
-                    "different factors, so the split would be attributed "
-                    "wrongly.\n  -> run the placement study with "
-                    "ECC_SPLIT_READ_WRITE=0")
-        if self.phase not in PHASES:
-            raise ConfigError(f"ECC_PHASE must be one of {', '.join(PHASES)}")
-
-        d = BCH63_KTOD.get(self.code_k) if self.code_n == 63 else None
-        self.code_t = (d - 1) // 2 if d else max(1, (self.code_n - self.code_k) // 6)
-
-        # ---- which workload file the models come from ----------------------
-        cnn = [m for m in self.models if m in CNN_MODELS]
-        tfm = [m for m in self.models if m in TRANSFORMER_MODELS]
-        if cnn and tfm:
-            raise ConfigError(
-                "one sweep cannot mix CNNs and transformers -- they come from "
-                f"different workload files.\n  CNNs        : {' '.join(cnn)}\n"
-                f"  transformers: {' '.join(tfm)}")
-        self.workload = "transformer" if tfm else "cnn"
-
-        # ECC_FROM_CACHE forbids invoking Timeloop at all, so it cannot also be
-        # asked to re-run the mapper. Silently preferring one would mean a run
-        # asked to refresh its mappings quietly refreshing nothing.
-        if self.rerun_optimiser and (self.from_cache or self.replot_only):
-            blocker = "ECC_FROM_CACHE=1 (--eval)" if self.from_cache \
-                else "ECC_REPLOT_ONLY=1 (--replot)"
-            raise ConfigError(
-                f"ECC_RERUN_OPTIMISER=1 asks the mapper to re-solve every shape, "
-                f"but {blocker} never invokes Timeloop at all.\n"
-                f"  -> re-map with `bash run.sh map`, then evaluate with `--eval`")
-
-        if self.weak_enabled and self.weak_k >= self.weak_n:
-            raise ConfigError(f"need WEAK_K < WEAK_N; got {self.weak_n}/{self.weak_k}")
-        if self.classify_mode not in ("instances", "name"):
-            raise ConfigError("ECC_CLASSIFY must be 'instances' or 'name'")
-        if self.weight_capacity_scale <= 0:
-            raise ConfigError(
-                f"ECC_WEIGHT_CAPACITY_SCALE={self.weight_capacity_scale}: the "
-                f"weight-capacity multiplier must be positive. 1.0 is the "
-                f"declared design; N/K = {self.code_n / self.code_k:.4f} at "
-                f"BCH({self.code_n},{self.code_k}) is the reconstruction arm's "
-                f"effective capacity; below 1 shrinks the design")
-        if self.weight_capacity_scope not in WEIGHT_CAPACITY_SCOPES:
-            raise ConfigError(
-                f"ECC_WEIGHT_CAPACITY_SCOPE must be one of "
-                f"{', '.join(WEIGHT_CAPACITY_SCOPES)} -- `exclusive` dilates "
-                f"only a level whose keep list is Weights alone, so the room "
-                f"can only go to weights; `shared` also dilates a level that "
-                f"holds Weights beside another dataspace, which hands the "
-                f"mapper free capacity for that dataspace too. They bracket "
-                f"one design and are quoted as a pair")
-        if self.weight_depth_scale <= 0:
-            raise ConfigError(
-                f"ECC_WEIGHT_DEPTH_SCALE={self.weight_depth_scale}: the depth "
-                f"multiplier must be positive. 1.0 is the declared design; "
-                f"prompt_2's search grid is the sqrt(2) ladder "
-                f"1 / 0.71 / 0.5 / 0.35 / 0.25 / 0.18 / 0.125")
-        if self.weight_width_glb_mult < 1:
-            raise ConfigError(
-                f"ECC_WEIGHT_WIDTH_GLB_MULT={self.weight_width_glb_mult}: a "
-                f"weight GLB's word is a positive multiple of the "
-                f"scratchpad's. 4 is Eyeriss v1's published ratio.")
-        # NO "the width must also divide ECC_WEIGHT_BITS" CHECK LIVES HERE.
-        # It used to, and it was wrong: it asserted that both arms share one
-        # declared width, which made prompt_2's 98 (q=7) and 95 (q=5) look
-        # illegal and got them replaced by lcm(q, 8). The arms do NOT share a
-        # width -- each declares the one that suits its OWN datawidth, and
-        # neither is ever mapped on the other's silicon. THE WIDTH TABLE is
-        # applied per level by `archs._set_weight_geometry()`, which picks a
-        # multiple of that level's own datawidth, so `width % datawidth == 0`
-        # holds by construction and there is nothing here to validate.
-        # See eccenergy/widths.py.
-        if self.weight_datawidth is not None and self.weight_datawidth < 1:
-            raise ConfigError(
-                f"ECC_WEIGHT_DATAWIDTH={self.weight_datawidth}: the on-chip "
-                f"weight datawidth must be a positive integer number of bits. "
-                f"Leave it EMPTY for the 8-bit baseline/embedded arm; set it "
-                f"to round(8*K/N) for the reconstruction arm (4 at "
-                f"BCH(63,30)). Per-code values are tabulated in prompt_2.md.")
-        if (self.weight_datawidth is not None
-                and self.weight_datawidth > self.weight_bits):
-            raise ConfigError(
-                f"ECC_WEIGHT_DATAWIDTH={self.weight_datawidth} exceeds "
-                f"ECC_WEIGHT_BITS={self.weight_bits}. The reconstruction arm "
-                f"stores a REDUCED weight; a wider one is not a code rate.")
-        if self.arch_fidelity not in ARCH_FIDELITIES:
-            raise ConfigError(f"ECC_ARCH_FIDELITY must be one of "
-                              f"{', '.join(ARCH_FIDELITIES)}")
-        if self.opt_metric not in OPT_METRICS:
-            raise ConfigError(f"ECC_OPT_METRIC={self.opt_metric!r}; choose one of "
-                              f"{', '.join(OPT_METRICS)}")
-        if self.victory_scaling not in VICTORY_SCALINGS:
-            raise ConfigError(f"ECC_VICTORY_SCALING must be one of "
-                              f"{', '.join(VICTORY_SCALINGS)}")
-        if self.victory < 1:
-            raise ConfigError("ECC_VICTORY must be >= 1")
-        if self.palette not in ("house", "cvd"):
-            raise ConfigError("ECC_PALETTE must be 'house' or 'cvd'")
-        for fmt in self.formats:
-            if fmt not in ("png", "pdf", "svg"):
-                raise ConfigError(f"ECC_FORMATS: unsupported format {fmt!r}")
-
-        # ---- prompt_6: reconstruction-aware mapping ----------------------
-        if self.recon_ert_aware and not (self.recon_optimizer and self.phase == "Post"):
-            raise ConfigError(
-                f"ECC_RECON_ERT_AWARE=1 puts the encoder's energy into the mapper's "
-                f"objective, so the ERT arms are RE-MAPPED: that is Task 4 extended, "
-                f"and it needs RECON_OPTIMIZER=True and ECC_PHASE=Post (got "
-                f"RECON_OPTIMIZER={self.recon_optimizer}, ECC_PHASE={self.phase}).")
-        if self.recon_ert_arm in ("", "reference"):
-            self.recon_ert_arm = "reference"
-        else:
-            # A placement key. The arm IS a datawidth configuration plus a
-            # declared bandwidth scale plus (sometimes) an ERT bump -- prompt_7
-            # 6.4's three axes -- so resolve the datawidth half here and let
-            # every consumer of `weight_datawidth` / `weight_datawidth_levels`
-            # see it. `mapper_arm_spec`, NOT `ert_arm_spec`: since prompt_7 B2
-            # the arms to map are every DISTINCT CHIP, and R1 and R3 are chips
-            # with no ERT bump at all. `ert_arm()` below still answers only for
-            # the arms that have one, so the bump and the `ert-` slug are
-            # unchanged for every directory already on disk.
-            if len(self.archs) != 1:
-                raise ConfigError(
-                    f"ECC_RECON_ERT_ARM={self.recon_ert_arm!r} names the arm of ONE "
-                    f"mapper job on ONE architecture; this configuration has "
-                    f"{len(self.archs)}: {', '.join(self.archs)}")
-            from .arch import arms as arms_mod
-            from .arch import placements
-            try:
-                spec = arms_mod.mapper_arm_spec(self.archs[0], self.recon_ert_arm, self)
-            except (KeyError, ValueError) as exc:
-                raise ConfigError(f"ECC_RECON_ERT_ARM={self.recon_ert_arm!r}: {exc}") from None
-            q = widths.declared_datawidth(self.code_n, self.code_k)
-            if (self.weight_datawidth is not None and spec["narrow_levels"]
-                    and self.weight_datawidth != q):
-                raise ConfigError(
-                    f"ECC_RECON_ERT_ARM={self.recon_ert_arm} declares datawidth q = "
-                    f"round({self.weight_bits}*{self.code_k}/{self.code_n}) = {q}, but "
-                    f"ECC_WEIGHT_DATAWIDTH={self.weight_datawidth}. Leave it EMPTY: the arm "
-                    f"sets it.")
-            if (self.weight_datawidth_levels
-                    and tuple(self.weight_datawidth_levels) != tuple(spec["narrow_levels"])):
-                raise ConfigError(
-                    f"ECC_RECON_ERT_ARM={self.recon_ert_arm} narrows "
-                    f"{'+'.join(spec['narrow_levels']) or 'NOTHING on chip'} (the storage "
-                    f"levels in its placement's reduced set), but "
-                    f"ECC_WEIGHT_DATAWIDTH_LEVELS="
-                    f"{'+'.join(self.weight_datawidth_levels)}. Leave it EMPTY: the arm "
-                    f"sets it.")
-            if spec["narrow_levels"]:
-                self.weight_datawidth = q
-                self.weight_datawidth_levels = tuple(spec["narrow_levels"])
-            # R1 NARROWS NOTHING ON CHIP, so it must leave `weight_datawidth`
-            # alone: setting q with an EMPTY level list is the spelling that
-            # narrows EVERY weight level, which is a different chip from the
-            # one R1 declares. Its architecture is the reference's until Phase
-            # C1.2 emits the DRAM bandwidth scale; what keeps the two caches
-            # apart meanwhile is the `arm-recon1` slug component below.
-
-        unknown = [a for a in self.archs if a not in KNOWN_ARCHS]
+        This is what `dataclasses.replace(cfg, ...)` used to be, and it has to be
+        a method now: replacing one field of a six-part object would leave the
+        other five derived from the old value. It re-runs `_resolve()`, so
+        `cfg.with_(const_k=39)` moves `code_k`, `code_t` and every slug with it,
+        exactly as `replace()` did through `__post_init__`.
+        """
+        unknown = sorted(k for k in kw if k not in _OWNER)
         if unknown:
-            print(f"[config] note: looked up in example_designs/ as-is: {', '.join(unknown)}")
-        unknown = [m for m in self.models if m not in CNN_MODELS + TRANSFORMER_MODELS]
-        if unknown:
-            print(f"[config] note: not a listed model; looked up in the workload "
-                  f"file as-is: {', '.join(unknown)}")
+            raise ConfigError(
+                f"with_(): {', '.join(unknown)} is not a knob of any settings "
+                f"group. The groups are {', '.join(GROUPS)}.")
+        return _build({**self.flat(), **kw})
 
-    # -------------------------------------------------- development-mode view
     @property
     def layer_scope(self):
         """`full`, or `one-layer`/`two-layer`/`N-layer` when layers are selected.
@@ -1102,7 +649,6 @@ class Config:
                 "leaving it at 'all cores', which differs per machine."),
         }
 
-    # ------------------------------------------------------------- properties
     @property
     def stem(self):
         """The ONE output name for this run. Fixed per sweep, by design.
@@ -1213,7 +759,6 @@ class Config:
         """
         if self.emb_weights_per_cw_override:
             return self.emb_weights_per_cw_override
-        from .physics.embedded import EmbeddedLayout
         return EmbeddedLayout(self.code_n, self.code_k,
                               self.weight_bits).weights_per_codeword
 
@@ -1406,8 +951,6 @@ class Config:
         key = getattr(self, "recon_ert_arm", "reference")
         if key in ("", "reference", None):
             return None
-        from .arch import arms as arms_mod
-        from .arch import placements
         return arms_mod.mapper_arm_spec(self.archs[0], key, self)
 
     def ert_arm(self):
@@ -1448,7 +991,6 @@ class Config:
         """`ert-<placement key>-<level>-<action>`, the cache-directory part."""
         return f"ert-{arm['key']}-{arm['level']}-{arm['action']}"
 
-    # ------------------------------------------- prompt_7 Phase C: the clock
     def cycle_seconds_for(self, arch):
         """THIS DESIGN's clock period, as the string `globals.yaml` carries.
 
@@ -1544,7 +1086,6 @@ class Config:
         return (float(self.dram_bandwidth_mbps) * 1e6
                 * float(self.cycle_seconds_for(arch)) / bytes_per_item)
 
-    # ------------------------- prompt_7 Phase C: what THIS arm declares, C1.2/C1.3
     def _arm_for(self, arch):
         """This configuration's mapper arm ON `arch`, or None.
 
@@ -1558,7 +1099,7 @@ class Config:
         return self.mapper_arm()
 
     def arm_bw_factors_for(self, arch):
-        """`{level: {factor, timing, kind, dataspace, why}}` -- the per-dataspace
+        """`{level: {factor, timing, kind, dataspace, why}` -- the per-dataspace
         bandwidth scale THIS arm declares on `arch` (prompt_7 C1.2), or `{}`.
 
         Empty for the reference arm and empty with `ECC_RECON_BW_SCALE=0`,
@@ -1569,8 +1110,6 @@ class Config:
         spec = self._arm_for(arch)
         if spec is None or spec["placement"] is None:
             return {}
-        from .arch import arms as arms_mod
-        from .arch import placements
         return arms_mod.arm_bw_factors(spec["placement"],
                                      placements.stages_for(arch, self), self)
 
@@ -1633,7 +1172,6 @@ class Config:
         number that changes every percentage in the study may not travel
         without saying where it came from.
         """
-        from .arch.load import mac_candidates
         v = self.mac_pj_override
         if v is None:
             return ("Accelergy ERT", "Accelergy ERT (intmac = aladdin_multiplier "
@@ -1719,8 +1257,6 @@ class Config:
         """
         if getattr(self, "recon_ert_aware", False):
             try:
-                from .arch import arms as arms_mod
-                from .arch import placements
                 arms = sorted({a.key for d in self.archs
                                for a in arms_mod.mapper_arms(d, self)
                                if a.placement is not None})
@@ -2008,8 +1544,17 @@ class Config:
                       f"{', '.join(self.layers)}  (not a full-model result)")
         return title
 
+    # ---- the record ---------------------------------------------------------
     def to_dict(self):
-        d = asdict(self)
+        """The flat record every manifest and every result file carries.
+
+        KEY ORDER IS `FIELD_ORDER` + the derived tail, because these dicts are
+        written with `indent=1` and no `sort_keys`: the order is in the bytes on
+        disk, and a reordering would rewrite every result file in the study
+        without changing one number in it.
+        """
+        flat = self.flat()
+        d = {k: flat[k] for k in FIELD_ORDER}
         d.update(code_t=self.code_t, workload=self.workload, stem=self.stem,
                  archs=self.archs, models=self.models, code_k=self.code_k,
                  arch_variant_slug=self.arch_variant_slug,
@@ -2020,177 +1565,54 @@ class Config:
         return d
 
     def fingerprint(self):
-        """Hash of everything that changes MAPPER output (not ECC arithmetic)."""
-        keep = ("archs", "models", "layers", "weight_bits", "activation_bits",
-                "acc_bits_override", "arch_fidelity", "force_technology",
-                "force_datawidth", "weight_capacity_scale",
-                "weight_capacity_scope", "weight_factor_relax",
-                "mapspace_constrain",
-                "weight_datawidth", "weight_datawidth_levels", "recon_ert_arm",
-                "weight_depth_scale", "weight_depth_levels",
-                "weight_width_glb_mult",
-                "dram_depth", "global_cycle_seconds",
-                "noc_enabled", "noc_wire_pj_per_bit_mm", "noc_router_pj",
-                "noc_pe_latch_pj", "noc_scale",
-                "opt_metric", "victory", "victory_scaling", "mapper_algorithm",
-                "mapper_seed", "mapper_timeout", "mapper_search_size",
-                "mapper_max_permutations")
+        """Hash of everything that changes MAPPER output (not ECC arithmetic).
+
+        The hashed set is the union of the six groups' own `IN_FINGERPRINT`
+        declarations, so a knob is marked where it is declared instead of in a
+        list kept by hand at the other end of the file. `sort_keys=True` makes
+        the union an unordered SET, which is what lets it be assembled from six
+        pieces and still hash byte-identically to the hand-written tuple it
+        replaced -- `tests/contract/test_settings.py` pins exactly that.
+        """
+        keep = set()
+        for g in GROUPS:
+            keep |= _FINGERPRINT_MODULES[g].IN_FINGERPRINT
         # prompt_7: the fingerprint hashes the ARCHITECTURE, not the price list
         # Accelergy derives from it. So a corrected estimator -- the Neurosim
         # plug-in that returned 0 pJ for every address generator, say -- changes
         # every energy in the cache while leaving the path it is stored under
         # identical, and the stale entries are reused with nothing to say so.
         # `ECC_ENERGY_MODEL_REV` closes that: set it to any non-empty string and
-        # the whole matrix colds DELIBERATELY. It is appended only when set, so
+        # the whole matrix colds DELIBERATELY. It is added only when set, so
         # EMPTY hashes byte-identically to every fingerprint that predates it.
         d = self.to_dict()
-        keys = keep + (("energy_model_rev",) if self.energy_model_rev else ())
-        blob = json.dumps({k: d[k] for k in keys}, sort_keys=True)
+        if self.energy_model_rev:
+            keep.add("energy_model_rev")
+        blob = json.dumps({k: d[k] for k in sorted(keep)}, sort_keys=True)
         return hashlib.sha1(blob.encode()).hexdigest()[:8]
 
 
 # --------------------------------------------------------------------- loading
+def read_env():
+    """Every `ECC_*` knob, read once, flat. The only call into `settings.env`."""
+    flat = {}
+    for g in GROUPS:
+        flat.update(asdict(_CLASSES[g].from_env()))
+    return flat
+
+
+def _build(flat):
+    """Resolve a flat record into the six frozen groups. One validator, one pass."""
+    draft = _Draft(flat)
+    _resolve(draft)
+    return Config(**{g: _CLASSES[g](**{f: getattr(draft, f)
+                                      for f in _CLASSES[g].__dataclass_fields__})
+                     for g in GROUPS})
+
+
 def load_config():
-    return Config(
-        experiment=_s("ECC_EXPERIMENT", "sweep").lower(),
-        sweep=_s("ECC_SWEEP", "bch").lower(),
-        sweep_archs=_list("ECC_SWEEP_ARCHS", " ".join(KNOWN_ARCHS)),
-        sweep_models=_list("ECC_SWEEP_MODELS", " ".join(CNN_MODELS)),
-        sweep_ks=[int(k) for k in _list("ECC_SWEEP_KS", "57 51 45 39 36 30")],
-        panel_models=_list("ECC_PANEL_MODELS"),
-        const_arch=_one("ECC_CONST_ARCH", "eyeriss_like"),
-        const_model=_one("ECC_CONST_MODEL", "resnet18"),
-        const_k=_i("ECC_CONST_K", 51),
-        approaches=[a.lower() for a in _list("ECC_APPROACHES", "baseline embedded recon")],
-
-        weight_bits=_i("ECC_WEIGHT_BITS", 8),
-        activation_bits=_i("ECC_ACTIVATION_BITS", 8),
-        acc_bits_override=_oi("ECC_ACC_BITS"),
-        code_n=_i("ECC_CODE_N", 63),
-        emb_weights_per_cw_override=_of("ECC_EMB_WEIGHTS_PER_CW"),
-        parity_grouping=_s("ECC_PARITY_GROUPING", "layer").lower(),
-        parity_charge_padding=_b("ECC_PARITY_CHARGE_PADDING", True),
-
-        decode_enabled=_b("ECC_DECODE", False),
-        decode_pj_base=_f("ECC_DECODE_PJ_BASE", 40.0),
-        decode_pj_emb=_f("ECC_DECODE_PJ_EMB", 40.0),
-        recon_charges_decode=_b("ECC_RECON_CHARGES_DECODE", True),
-
-        recon_json=_s("ECC_RECON_JSON", "data/dc/BCH_N63_results.json"),
-        recon_incremental_table=_table("ECC_RECON_INCREMENTAL_PJ_LIST"),
-        recon_require_group_residency=_b("ECC_RECON_REQUIRE_GROUP_RESIDENCY", False),
-        recon_idle_table=_table("ECC_RECON_IDLE_PJ_LIST"),
-        recon_pj_override=_of("ECC_RECON_PJ"),
-        recon_incremental_fallback_pj=_f("ECC_RECON_INCREMENTAL_FALLBACK_PJ", 1.8995),
-        recon_idle_fallback_pj=_f("ECC_RECON_IDLE_FALLBACK_PJ", 2.2301273),
-        recon_clock_gating_pct=_f("ECC_RECON_CLOCK_GATING_PCT", 99.5),
-        energy_model_rev=_s("ECC_ENERGY_MODEL_REV", ""),
-
-        recon_modeling=_b("ECC_RECON_MODELING", False),
-        # env.sh spells this `RECON_OPTIMIZER` as well, and mirrors it into the
-        # ECC_-prefixed name every other knob uses.
-        recon_optimizer=_b("ECC_RECON_OPTIMIZER", False),
-        recon_placement_keys=_list("ECC_RECON_PLACEMENT_LIST", sep=";"),
-        recon_stem=_s("ECC_RECON_STEM", "ReconSweep"),
-        recon_packing=_s("ECC_RECON_PACKING", "stream").lower(),
-        recon_granularity=_s("ECC_RECON_ENCODER_GRANULARITY", "weight").lower(),
-        recon_onchip_fraction=_of("ECC_RECON_ONCHIP_FRACTION"),
-        recon_placement_charges_decode=_b("ECC_RECON_PLACEMENT_CHARGES_DECODE", True),
-        recon_decode_site=_s("ECC_RECON_DECODE_SITE", "ondie").lower(),
-        recon_encoder_site=_s("ECC_RECON_ENCODER_SITE", "destination").lower(),
-        recon_ert_aware=_b("ECC_RECON_ERT_AWARE", False),
-        recon_ert_arm=_s("ECC_RECON_ERT_ARM").strip().lower(),
-        recon_layer=_s("ECC_RECON_LAYER").strip(),
-        dram_pj_per_bit=_of("ECC_DRAM_PJ_PER_BIT"),
-        baseline_dram_pj_per_bit=_of("ECC_BASELINE_DRAM_PJ_PER_BIT"),
-        dram_background_pj=_f("ECC_DRAM_BACKGROUND_PJ", 0.0),
-        dram_refresh_pj=_f("ECC_DRAM_REFRESH_PJ", 0.0),
-
-        static_energy=_b("ECC_STATIC_ENERGY", False),
-        leakage_nw=_table("ECC_LEAKAGE_NW_LIST"),
-        latency_model=_b("ECC_LATENCY_MODEL", False),
-        dram_bandwidth_mbps=_of("ECC_DRAM_BANDWIDTH_MBPS"),
-        arch_clock_mhz=_table("ECC_ARCH_CLOCK_MHZ_LIST"),
-        recon_bw_scale=_b("ECC_RECON_BW_SCALE", False),
-        onchip_bw_bitaware=_b("ECC_ONCHIP_BW_BITAWARE", False),
-
-        weak_enabled=_b("ECC_WEAK", False),
-        weak_n=_i("ECC_WEAK_N", 63),
-        weak_k=_i("ECC_WEAK_K", 57),
-
-        baseline_inflates_onchip=_b("ECC_BASELINE_INFLATES_ONCHIP", False),
-        split_read_write=_b("ECC_SPLIT_READ_WRITE", False),
-        classify_mode=_s("ECC_CLASSIFY", "instances").lower(),
-
-        arch_fidelity=_s("ECC_ARCH_FIDELITY", "paper").lower(),
-        force_technology=_s("ECC_FORCE_TECHNOLOGY"),
-        force_datawidth=_oi("ECC_FORCE_DATAWIDTH"),
-        # ROUNDED AT LOAD, and that is not cosmetic. The cache slug is
-        # `wcap{scale:g}`, so 63/39 spelled 1.61539 by python and 1.6154 by the
-        # shell that submitted the mapping wave are the SAME architecture (both
-        # round `depth: 224` to 362, so the fingerprints match) filed under two
-        # different directory names -- and the evaluator then refuses a cache
-        # it actually has. Four decimals is finer than any buffer depth can
-        # resolve and is what env.sh documents.
-        weight_capacity_scale=round(_f("ECC_WEIGHT_CAPACITY_SCALE", 1.0), 4),
-        weight_capacity_scope=_s("ECC_WEIGHT_CAPACITY_SCOPE", "exclusive").lower(),
-        # Quantised to four decimals for the same reason the capacity scale is:
-        # one geometry must have exactly ONE spelling, or 0.7071 written
-        # `0.71` by the shell and `0.7071` by python is the same architecture
-        # filed under two cache directories.
-        weight_depth_scale=round(_f("ECC_WEIGHT_DEPTH_SCALE", 1.0), 4),
-        weight_depth_levels=tuple(_list("ECC_WEIGHT_DEPTH_LEVELS")),
-        weight_datawidth=_oi("ECC_WEIGHT_DATAWIDTH"),
-        weight_datawidth_levels=tuple(_list("ECC_WEIGHT_DATAWIDTH_LEVELS")),
-        mapspace_constrain=_b("ECC_MAPSPACE_CONSTRAIN", False),
-        # There is NO ECC_WEIGHT_WIDTH. THE WIDTH TABLE is automatic and
-        # unconditional (eccenergy/widths.py): every weight level takes
-        # the width that suits the datawidth it stores, on every run, so there
-        # is nothing to set and nothing that can be set wrong.
-        weight_width_glb_mult=int(_f("ECC_WEIGHT_WIDTH_GLB_MULT", 4)),
-        disable_pair_geometry_assert=_b("ECC_DISABLE_ASSERT_PAIR_GEOMETRY", False),
-        depth_sweep_gate_victories=tuple(
-            _list("ECC_DEPTH_SWEEP_GATE_VICTORIES", "2000 4000 10000")),
-        depth_sweep_gate_scales=tuple(
-            _list("ECC_DEPTH_SWEEP_GATE_SCALES", "1.0 0.125")),
-        weight_factor_relax=_b("ECC_WEIGHT_FACTOR_RELAX", False),
-        dram_depth=_i("ECC_DRAM_DEPTH", 1048576),
-        global_cycle_seconds=_s("ECC_GLOBAL_CYCLE_SECONDS", "1e-9"),
-
-        noc_enabled=_b("ECC_NOC", True),
-        noc_wire_pj_per_bit_mm=_of("ECC_NOC_WIRE_PJ_PER_BIT_MM"),
-        noc_router_pj=_of("ECC_NOC_ROUTER_PJ"),
-        noc_pe_latch_pj=_of("ECC_NOC_PE_LATCH_PJ"),
-        noc_scale=_f("ECC_NOC_SCALE", 1.0),
-        mac_pj_override=_of("ECC_MAC_PJ_OVERRIDE"),
-
-        layers=_list("ECC_LAYERS"),
-        phase=(_one("ECC_PHASE", "Pre") or "Pre").capitalize(),
-        overwrite=_b("ECC_OVERWRITE", False),
-        cache_strict=_b("ECC_CACHE_STRICT", True),
-        rerun_optimiser=_b("ECC_RERUN_OPTIMISER", False),
-        run_note=_s("ECC_RUN_NOTE"),
-
-        opt_metric=_s("ECC_OPT_METRIC", "energy").lower(),
-        victory=_i("ECC_VICTORY", 500),
-        victory_scaling=_s("ECC_VICTORY_SCALING", "levels").lower(),
-        mapper_threads=_oi("ECC_MAPPER_THREADS"),
-        mapper_timeout=_i("ECC_MAPPER_TIMEOUT", 10000),
-        mapper_algorithm=_s("ECC_MAPPER_ALGORITHM", "hybrid"),
-        mapper_seed=_oi("ECC_MAPPER_SEED"),
-        mapper_search_size=_oi("ECC_MAPPER_SEARCH_SIZE"),
-        mapper_max_permutations=_i("ECC_MAPPER_MAX_PERMUTATIONS", 16),
-
-        results_dir=_s("ECC_RESULTS_DIR", "results"),
-        replot_only=_b("ECC_REPLOT_ONLY", False),
-        from_cache=_b("ECC_FROM_CACHE", False),
-        palette=_s("ECC_PALETTE", "house").lower(),
-        dpi=_i("ECC_DPI", 400),
-        formats=[f.lower() for f in _list("ECC_FORMATS", "png pdf")],
-        title_note=_s("ECC_TITLE_NOTE"),
-        nice_labels=_b("ECC_NICE_LABELS", True),
-        stem_override=_s("ECC_STEM"),
-    )
+    """The configuration this process runs under: the environment, resolved once."""
+    return _build(read_env())
 
 
 def _ert_arm_row(cfg):
@@ -2198,8 +1620,7 @@ def _ert_arm_row(cfg):
     if cfg.recon_ert_arm == "reference":
         return "reference (no ERT toll; the published 8-bit chip)"
     try:
-        from .arch import fingerprint
-        b = fingerprint.ert_bump(cfg.archs[0], cfg)
+        b = fingerprint_mod.ert_bump(cfg.archs[0], cfg)
         return (f"{b['placement']}: {b['level']}.{b['action']} += "
                 f"{b['access_delta_pj']:.6f} pJ (E_w {b['e_w_pj']:.6f} x block_size "
                 f"{b['block_size']}), {b['level']}.leak += {b['leak_delta_pj']:.7f} "
@@ -2210,144 +1631,12 @@ def _ert_arm_row(cfg):
 
 
 def banner(cfg, recon_terms, recon_provenance):
-    """`recon_terms` is `(incremental pJ/codeword, idle pJ/cycle/engine)` --
-    prompt_6 RULE 3's two denominators -- or the old single float."""
-    if isinstance(recon_terms, (tuple, list)):
-        recon_inc, recon_idle = recon_terms
-    else:
-        recon_inc, recon_idle = recon_terms, None
-    w = 78
-    # The placement study's axis is not one of the three sweeps -- saying
-    # "sweep=arch" there would name the axis it HOLDS.
-    axis = ("placement (where the reconstruction boundary sits)"
-            if cfg.experiment == "recon"
-            else f"sweep={cfg.sweep} ({cfg.swept_axis})")
-    lines = ["=" * w,
-             f"ecc-energy  |  {axis}  |  output={cfg.stem}",
-             "=" * w]
+    """The banner `run.sh` prints before anything runs.
 
-    if cfg.sweep == "bch":
-        swept = "K = " + ", ".join(str(k) for k in cfg.sweep_ks)
-    else:
-        swept = ", ".join(str(v) for v in cfg.swept_values)
-
-    # PRECISIONS, EXPLICIT AND DISTINCT. Task 1 asks the configuration summary
-    # to report them, because the defect that started this work was two designs
-    # being compared at different operand widths without anyone noticing. The
-    # accumulator line is deliberately not a single number: it is per design,
-    # and saying so on every run is the point.
-    if cfg.acc_bits_override is None:
-        acc = ("per architecture, as published (v1 16b, v2 20b, Simba 24b, "
-               "simple designs 16b)  [primary]")
-    else:
-        acc = (f"{cfg.acc_bits_override}b FORCED on every design "
-               f"(ECC_ACC_BITS)  [SENSITIVITY STUDY, not the primary result]")
-
-    rows = [
-        ("sweeping", swept),
-        ("holding", "   ".join(f"{k}={v}" for k, v in cfg.held
-                               # a panel figure does not hold the model -- each
-                               # panel IS a model, so saying "holding model=X"
-                               # would name only the first one and mislead
-                               if not (cfg.experiment == "panels" and k == "model"))),
-    ]
-    if cfg.experiment == "panels":
-        rows.append(("panels (top to bottom)", ", ".join(cfg.panel_models)))
-    rows += [
-        ("approaches", ", ".join(cfg.approaches)),
-        ("workload file", cfg.workload),
-        ("layer scope", (cfg.layer_scope if not cfg.layers else
-                         f"{cfg.layer_scope}: {', '.join(cfg.layers)}")),
-        ("weight precision", f"{cfg.weight_bits}b (the protected payload)"),
-        ("activation precision", f"{cfg.activation_bits}b"),
-        ("accumulator precision", acc),
-        ("result phase", cfg.phase + ("   (mapping is ECC-unaware; the ECC effect is "
-                                      "applied during evaluation)" if cfg.phase == "Pre"
-                                      else "   (mapping optimised for the reduced width)")),
-    ]
-    if cfg.sweep == "bch":
-        rows.append(("recon pJ/codeword", recon_provenance))
-    else:
-        rows += [
-            ("code", f"BCH({cfg.code_n},{cfg.code_k})  t={cfg.code_t}  "
-                     f"r={cfg.code_n - cfg.code_k}"),
-            ("weights / codeword", f"{cfg.weights_per_codeword:.4f}"),
-            ("DRAM weight traffic", cfg.baseline_dram_line),
-            ("recon on-chip scale", f"{cfg.sram_scale:.4f} (weights only)"),
-            ("reconstruction", f"{recon_inc:.7f} pJ per codeword (incremental)"
-                               + (f" + {recon_idle:.7f} pJ per cycle per engine (idle; "
-                                  f"RULE 3: separate denominators, never added)"
-                                  if recon_idle is not None else "")),
-            ("recon provenance", recon_provenance),
-        ]
-    if cfg.experiment == "recon":
-        rows += [
-            ("PLACEMENT STUDY", f"Task 3: fixed mapping, the boundary is the "
-                                f"axis, one panel per architecture -> {cfg.stem}"),
-            ("panels", "  |  ".join(
-                f"{cfg.arch_label(a).replace(chr(10), ' ')}: "
-                + (", ".join(cfg.recon_placements_for(a))
-                   or "every placement it defines")
-                for a in cfg.archs)),
-            ("reduced form packing", cfg.recon_packing
-                + ("   (retained k bits packed with no per-weight alignment; "
-                   "every reduced stage scales by K/N)"
-                   if cfg.recon_packing == "stream" else
-                   "   (whole bits per weight, no repacking: wire falls, "
-                   "SRAM access count may not)")),
-            ("encoder charging", cfg.recon_granularity
-                + ("   (amortized: per weight, at the per-codeword energy per "
-                   "n/weight_bits weights)" if cfg.recon_granularity == "weight"
-                   else "   (pessimistic: one whole codeword per access)")),
-            ("mapping optimiser",
-             (f"TASK 4: the reconstruction arm is re-mapped at weight capacity "
-              f"x{cfg.weight_capacity_scale * cfg.code_n / cfg.code_k:.4f} "
-              f"(= x{cfg.weight_capacity_scale:g} x N/K), scope "
-              f"{cfg.weight_capacity_scope}; the reference bars keep "
-              f"x{cfg.weight_capacity_scale:g}"
-              if cfg.recon_optimizer else
-              "NOT re-run (RECON_OPTIMIZER=False) -- Task 4 is where the "
-              "mapping becomes aware of the reduced width")),
-            ("ERT-aware mapping",
-             ("ON (prompt_6): the ERT-injectable boundaries are re-mapped with "
-              "the encoder toll in the objective; the figure marks them"
-              if cfg.recon_ert_aware else "off (ECC_RECON_ERT_AWARE=0)")),
-            ("ERT arm", _ert_arm_row(cfg)),
-        ]
-    rows += [
-        ("parity accounting", f"grouping={cfg.parity_grouping}, "
-                              f"message padding "
-                              f"{'charged' if cfg.parity_charge_padding else 'NOT charged'}"),
-        ("decode", (f"base {cfg.decode_pj_base} / emb {cfg.decode_pj_emb} pJ per codeword"
-                    if cfg.decode_enabled else
-                    "0 pJ for every arm (ECC_DECODE=0; category hidden)")),
-        ("weak ECC overlay", (f"BCH({cfg.weak_n},{cfg.weak_k}) -> x{cfg.weak_overhead:.4f} on-chip"
-                              if cfg.weak_enabled else "off")),
-        ("arch fidelity", cfg.arch_fidelity
-            + ("   (archs/<name>/arch_paper.yaml where present)"
-               if cfg.arch_fidelity == "paper"
-               else "   (example_designs as shipped -- psum precision NOT honest)")),
-        ("arch treatment", cfg.arch_variant_slug
-            + ("" if cfg.arch_variant_slug == "stock" else "   (separate mapper cache)")),
-        ("level classifier", cfg.classify_mode
-            + ("" if cfg.classify_mode == "instances" else "   (legacy name matching)")),
-        ("mapper objective", cfg.opt_metric
-            + ("" if cfg.opt_metric == "energy" else
-               "   (WARNING: this is an energy study; 'edp' trades energy for latency "
-               "and penalises the wider PE array)")),
-        ("mapper", f"victory={cfg.victory} scaling={cfg.victory_scaling} "
-                   f"algorithm={cfg.mapper_algorithm} timeout={cfg.mapper_timeout} "
-                   f"perms/if={cfg.mapper_max_permutations} "
-                   f"search_size={cfg.mapper_search_size or 'uncapped'}"),
-        ("palette / formats", f"{cfg.palette} / {', '.join(cfg.formats)} @ {cfg.dpi} dpi"),
-        ("replot only", str(cfg.replot_only)),
-        ("cached mapper only", str(cfg.from_cache)
-            + ("   (never invokes Timeloop)" if cfg.from_cache else "")),
-        ("re-run the optimiser", str(cfg.rerun_optimiser)
-            + ("   (ECC_RERUN_OPTIMISER=1: valid cache entries are IGNORED and "
-               "OVERWRITTEN)" if cfg.rerun_optimiser else "")),
-    ]
-    for k, v in rows:
-        lines.append(f"  {k:22s}: {v}")
-    lines.append("=" * w)
-    return "\n".join(lines)
+    The printing itself is `settings/banner.py`, which may not import `arch/` --
+    so the one line that needs it, the ERT arm's bump, is computed here and
+    handed in. Injecting it is what keeps the banner at L0 with the knobs it
+    prints.
+    """
+    return banner_mod.banner(cfg, recon_terms, recon_provenance,
+                             ert_arm_row=_ert_arm_row)

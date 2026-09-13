@@ -35,7 +35,7 @@ import hashlib
 import json
 
 from ..paths import ARCH_COMPONENTS
-from ..physics import widths
+from ..physics import recon_dc, widths
 
 from .load import arch_source, load_standard, paper_source
 from .patch import MAPSPACE_FREE_LEVELS, _patched_text, _relax_weight_factors, _scale_weight_capacity, _scale_weight_depth, _set_weight_geometry, patched_weight_geometry
@@ -78,10 +78,9 @@ def ert_bump(arch, cfg):
         raise ValueError(f"ERT arm {arm['key']}: {level} declares width {g['width']} "
                          f"and datawidth {g['datawidth']}; block_size is undefined")
     block_size = g["width"] // g["datawidth"]
-    from ..study import stacks as _ecc  # lazily: ecc needs pandas, the reference arm does not
     from ..arch import arms
     from ..physics import granularity
-    inc, idle, prov = _ecc.load_recon_energy(cfg)
+    inc, idle, prov = recon_dc.load_recon_energy(cfg)
     gran = granularity.Granularity(cfg.code_n, cfg.code_k, cfg.weight_bits,
                               cfg.recon_granularity)
     d = arms.ert_deltas(inc, idle, gran, block_size,

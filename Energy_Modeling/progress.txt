@@ -10,6 +10,62 @@ Rules for this file: newest entry at the top, one short block per day of work,
 no tables, no pasted output. Anything worth keeping longer than a week belongs
 in FINDINGS.md; anything that says what to do next belongs in the live plan.
 
+2026-09-13  RESTRUCTURE PHASE 4 -- THE KNOBS FROZEN, AND THE CYCLE IS DEAD
+-----------------------------------------------------------------------
+ProjectRestructure.md section 9.2, phase 4. Gate: 302 fingerprints
+BYTE-IDENTICAL, every evaluated total identical to the pJ, 231 -> 240 passing
+(+8 contract tests, and the layer-rule xfail is a plain pass now).
+
+`Config`'s 112 fields became SIX FROZEN dataclasses in eccenergy/settings/ --
+run, code, arch, mapper, recon, energy -- each owning its own ECC_* knobs, its
+own registry of legal values, and its own IN_FINGERPRINT declaration. env.py is
+the only reader of os.environ; banner.py prints. The package imports nothing but
+contracts/ and paths/.
+
+THE CYCLE DIED BY MOVING config.py UP, NOT BY HIDING THE IMPORT. The knobs are
+L0; RESOLVING them is a different job -- the ERT arm has to exist on THIS chip,
+the axis lists have to name real models, code_t comes out of the BCH table --
+and it needs arch/ and physics/. So config.py now sits ABOVE arch/ at L3, its
+six lazy imports are plain top-level ones, and nothing at or below arch/ imports
+it. tests/contract/test_layer_rule.py's exception list went 16 -> 8 -> ZERO.
+
+The last two exceptions were not config's: arch/fingerprint.py and arch/arms.py
+priced an ERT bump from `study.stacks.load_recon_energy`, reaching up into a
+driver. The DC table lookup moved to physics/recon_dc.py -- the one module in
+physics/ that reads a file, declared in the package docstring, because
+data/dc/BCH_N63_results.json is a cited static MEASUREMENT and not a cache.
+
+WHAT IS PRESERVED, AND HOW IT WAS CHECKED. Two properties of Config are BYTES ON
+DISK, and a refactor can move either without moving a number:
+  * to_dict()'s KEY ORDER -- every manifest and every result carries it, written
+    with indent=1 and no sort_keys. FIELD_ORDER pins it; the live dict was
+    captured before the split and compared key for key and value for value.
+  * fingerprint()'s HASHED SET -- now assembled from the six groups' own
+    declarations instead of one hand-kept list. json.dumps(sort_keys=True) makes
+    it an unordered SET, which is what lets it be assembled from six pieces and
+    still hash byte-identically. tests/contract/test_settings.py pins it against
+    the pre-phase-4 `keep` tuple, verbatim, with the cost of a miss in the
+    message.
+
+`dataclasses.replace(cfg, ...)` IS GONE and had to be: replacing one field of a
+six-part object leaves the other five derived from the old value. `cfg.with_()`
+routes a knob by name to the group that owns it and re-runs _resolve(), which is
+__post_init__ moved out whole -- same checks, same order, same messages, because
+each of them is a finding somebody paid for. 84 call sites converted
+mechanically (an AST rewrite that only fires when every keyword is a known
+knob, so the ~20 replace() calls on Placement and Stage were left alone), 8 more
+by hand where the keywords were **kwargs.
+
+ONE VALIDATOR, NOT SIX, on purpose: the rules are about a WHOLE configuration --
+the sweep against the code, the experiment against the phase, the arm against
+the design -- and six partial validators would each see a third of the picture.
+
+WHAT PHASE 4 DID NOT DO. Section 9.2 also says "update every signature to take
+what it needs". Not done: `cfg.victory` and `cfg.mapper.victory` are both
+available and every call site still says the first. The groups exist now, so
+that conversion is incremental and can ride along with phase 7 instead of being
+one 1,000-site diff that no gate can attribute.
+
 2026-09-13  RESTRUCTURE PHASE 3 -- THE BIG SIX CUT ALONG THEIR BANNERS
 -----------------------------------------------------------------------
 ProjectRestructure.md section 9.2, phase 3. Gate: 302 fingerprints

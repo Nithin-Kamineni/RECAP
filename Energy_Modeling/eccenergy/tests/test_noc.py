@@ -129,7 +129,7 @@ def test_injection_is_valid_yaml_on_every_arch_and_moves_the_fingerprint():
     from ..arch import patch
     from ..arch import validate
     cfg = _cfg(ECC_ARCH_FIDELITY="paper", ECC_NOC="1")
-    off = dataclasses.replace(cfg, noc_enabled=False)
+    off = cfg.with_(noc_enabled=False)
     for arch in ARCHS:
         on, plain = patch._patched_text(arch, cfg, quiet=True), patch._patched_text(arch, off, quiet=True)
         assert on != plain, arch
@@ -519,7 +519,7 @@ def test_raw_record_is_stale_when_the_evaluator_terms_change():
     cats = E.plot_cats(cfg)
     ser = pd.Series({c: 1.0 for c in cats})
     with tempfile.TemporaryDirectory() as d:
-        res = Results(dataclasses.replace(cfg, results_dir=d))
+        res = Results(cfg.with_(results_dir=d))
         res.prepare()
         raw = E.Raw(ser, ser, ser, 1.0, 1.0, 1, 0, 1, [], [],
                     noc_post=noc_post.stamp("eyeriss_like", cfg), cycles=1)

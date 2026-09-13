@@ -310,11 +310,11 @@ def test_pair_geometry_ignores_width_and_datawidth_and_checks_depth():
         f"BCH(63,39)'s arms declare identical widths {widths} -- then this test "
         f"is not exercising the thing it claims to")
     # BREAKAGE: a DEPTH difference must still stop the run.
-    deeper = dataclasses.replace(arm, weight_depth_scale=0.5)
+    deeper = arm.with_(weight_depth_scale=0.5)
     expect_raises(lambda: patch.assert_pair_geometry(_P2_ARCH, ref, deeper),
                   "a depth difference between the arms was accepted")
     # ... unless the study asked for it.
-    allowed = dataclasses.replace(deeper, disable_pair_geometry_assert=True)
+    allowed = deeper.with_(disable_pair_geometry_assert=True)
     with contextlib.redirect_stdout(io.StringIO()) as buf:
         patch.assert_pair_geometry(_P2_ARCH, ref, allowed)
     assert "ECC_DISABLE_ASSERT_PAIR_GEOMETRY" in buf.getvalue(), (

@@ -223,10 +223,8 @@ def arm_configs(cfg, scale, recon_datawidth, depth_levels=None):
     (every weight level moved together) locates the zone; only these say WHICH
     level bought it, and the deliverable is a `depth:` per level.
     """
-    ref = dataclasses.replace(cfg, weight_depth_scale=round(float(scale), 4),
-                              weight_datawidth=None,
-                              weight_depth_levels=tuple(depth_levels or ()))
-    rec = dataclasses.replace(ref, weight_datawidth=int(recon_datawidth))
+    ref = cfg.with_(weight_depth_scale=round(float(scale), 4), weight_datawidth=None, weight_depth_levels=tuple(depth_levels or ()))
+    rec = ref.with_(weight_datawidth=int(recon_datawidth))
     return {"baseline": ref, "embedded": ref, "recon": rec}
 
 
@@ -469,9 +467,7 @@ def level_table(cfg, arch_list, layer_names, scales, recon_datawidth,
 
             for s in scales:
                 sibs = sibling_fingerprints(
-                    dataclasses.replace(cfg, weight_depth_scale=round(float(s), 4),
-                                        weight_datawidth=None,
-                                        weight_depth_levels=tuple(depth_levels or ())),
+                    cfg.with_(weight_depth_scale=round(float(s), 4), weight_datawidth=None, weight_depth_levels=tuple(depth_levels or ())),
                     arch, 1.0, [sh])
                 if len(sibs) > 1:
                     cur = [x["fp"] for x in sibs if x["current"]] or ["<none current>"]
@@ -585,10 +581,7 @@ def convergence_gate(cfg, arch_list, layer_names, victories, scales,
                     denom = e_at.total_pj_at(mac_pj) / 1e6
                     effect_pct = 100.0 * effect / denom if denom else 0.0
                 for v in victories:
-                    sub = dataclasses.replace(
-                        cfg, victory=int(v),
-                        weight_depth_scale=round(float(s), 4),
-                        weight_datawidth=None)
+                    sub = cfg.with_(victory=int(v), weight_depth_scale=round(float(s), 4), weight_datawidth=None)
                     m, root = _load_arm(sub, arch, sh)
                     if m is None:
                         out.append(f"  {arch:<20} {layer:<15} {s:>7g} {v:>8} "

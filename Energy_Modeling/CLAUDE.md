@@ -32,7 +32,7 @@ must reproduce today's numbers exactly**, and §9.1's gate is one command --
 model) and every evaluated total is unchanged to the pJ. Run it BEFORE touching
 anything, so a red gate is never ambiguous. `restructure/README.md` says what the gate
 covers and what it cannot; ProjectRestructure §10 is what not to do.
-**Phases 0, 1, 2 and 3 are DONE.**
+**Phases 0, 1, 2, 3 and 4 are DONE.**
 
 Phase-by-phase status lives in `progress.txt`, not here.
 
@@ -499,8 +499,10 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   refactored. `build_stacks()` **is no longer frozen** — prompt_6 RULE 3 changes
   its reconstruction term. After any change there, re-run `bash run.sh baseline
   --eval` and diff: Task 1 and 2 totals must not move.
-- **Never** read `os.environ` outside `config.py`, and never resolve a path outside
-  `paths.py`.
+- **Never** read `os.environ` outside `settings/env.py`, and never resolve a path
+  outside `paths.py`. **`dataclasses.replace(cfg, ...)` no longer works** --
+  a Config is six frozen groups, so it is `cfg.with_(knob=value)`, which
+  re-runs every check and every derivation exactly as `__post_init__` did.
 - **A COMMENT IS NEVER A DECLARATION. Read geometry through
   `arch.patch.uncommented()`, write it through `arch.patch.write_attr()`** (2026-09-13).
   Every geometry regex here used to match the raw text, so a `depth:` written
@@ -698,24 +700,34 @@ carry the rest.
                         and the six big files CUT ALONG THEIR BANNERS (phase 3).
                         A module may import only from LOWER layers;
                         tests/contract/test_layer_rule.py enforces it and lists
-                        every edge that still points the wrong way -- eight, all
-                        of them the config cycle, all of them phase 4's.
+                        every edge that still points the wrong way. SINCE PHASE
+                        4 THERE ARE NONE: the list is empty and a new upward
+                        import fails the suite where it is written.
                         Each module's own docstring says what it is; this is
                         only where to look.
       L0  paths.py      the ONLY resolver of paths
-          config.py     the ONLY reader of os.environ, and the ONLY place MHz
-                        becomes seconds. -> settings/ in phase 4
-          contracts/    the shared types. Still empty: phase 3 kept every
-                        dataclass with the code that builds it. Phase 4 fills it
+          settings/     THE KNOBS (phase 4): six FROZEN dataclasses --
+                        run code arch mapper recon energy -- plus env.py, the
+                        ONLY reader of os.environ, and banner.py. Each group
+                        declares IN_FINGERPRINT: which of its fields reach the
+                        mapper. It imports nothing above itself
+          contracts/    the shared types. errors.py (ConfigError) since phase 4
       L1  physics/      parity.py  embedded.py  widths.py (THE WIDTH TABLE)
                         baseline_dram.py (and the per-bit DRAM price read off a
                         record), packing.py (stream vs aligned),
-                        granularity.py (G_rec, engines, engine_cycles)
+                        granularity.py (G_rec, engines, engine_cycles),
+                        recon_dc.py (the DC datapath's two measured terms --
+                        the one module here that reads a file, on purpose)
       L2  arch/         load.py  patch.py  fingerprint.py  layout.py
                         validate.py  workloads.py  generate.py
                         weight_path.py  placements.py  arms.py -- the stages,
                         the boundaries, and which boundaries are DISTINCT CHIPS
-      L3  toolchain/    inputs.py (what Timeloop is given), ert.py (a supplied
+      L3  config.py     THE RESOLVED CONFIGURATION: the six groups checked
+                        against the designs they name, and the ONLY place MHz
+                        becomes seconds. Frozen; `cfg.with_(...)` is the only
+                        way to a different one, and it re-runs every check.
+                        ABOVE arch/, which is what ended the import cycle
+      L4  toolchain/    inputs.py (what Timeloop is given), ert.py (a supplied
                         ERT/ART, read back), cache.py (ShapeLock: one entry, one
                         writer), invoke.py (Mapper -- the ONLY module needing
                         the container), stats.py (parsing its output),
@@ -724,13 +736,13 @@ carry the rest.
                         owner of the clock period every per-cycle term is
                         charged over), results_store.py (the ONLY writer of an
                         evaluation JSON), ert_probe.py
-      L4  study/        stacks.py (build_stacks), energy.py, common.py, the
+      L5  study/        stacks.py (build_stacks), energy.py, common.py, the
                         drivers baseline/embedded/validate/audit/diagnose, the
                         placement study (placement_study, placement_eval,
                         placement_tables, placement_notes, ert_view,
                         dilated_view, narrowing) and Task 4 (dilation,
                         dilation_cache, dilation_tables, capacity)
-      L5  report/       stacked.py (draw_panel: the ONLY place a bar is drawn),
+      L6  report/       stacked.py (draw_panel: the ONLY place a bar is drawn),
                         panels.py, style.py, and THE DRIVERS THAT DRAW:
                         sweep.py, recon_view.py, dilation_view.py
           __main__.py   the CLI. May import anything

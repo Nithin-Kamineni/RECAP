@@ -456,8 +456,8 @@ def test_only_offchip_weight_items_are_relieved():
 def _cfgs():
     """The live configuration, with standby off and on. Nothing else moves."""
     cfg = config.load_config()
-    off = dataclasses.replace(cfg, static_energy=False, latency_model=False)
-    on = dataclasses.replace(cfg, static_energy=True, latency_model=False)
+    off = cfg.with_(static_energy=False, latency_model=False)
+    on = cfg.with_(static_energy=True, latency_model=False)
     return off, on
 
 
@@ -521,7 +521,7 @@ def test_static_energy_is_symmetric():
 
     # BREAKAGE: an ECC_LEAKAGE_NW with a missing density must REFUSE, not
     # silently charge zero. A knob that silently does nothing is the same bug.
-    starved = dataclasses.replace(on, leakage_nw={"sram_bit": 2.693})
+    starved = on.with_(leakage_nw={"sram_bit": 2.693})
     expect_raises(lambda: energy.standby_energy(full, starved),
                   "a missing rf_bit density charged zero instead of refusing")
 
@@ -555,8 +555,8 @@ def test_standby_scales_with_time_not_with_traffic():
     # changing the global default correctly changes nothing. Vary the thing
     # that owns the period, and assert the fallback separately.
     period = latency_post.cycle_seconds(on)
-    fast = dataclasses.replace(on, arch_clock_mhz={ARCH: 1000.0})   # 1 ns
-    slow = dataclasses.replace(on, arch_clock_mhz={ARCH: 200.0})    # 5 ns
+    fast = on.with_(arch_clock_mhz={ARCH: 1000.0})   # 1 ns
+    slow = on.with_(arch_clock_mhz={ARCH: 200.0})    # 5 ns
     e_fast = energy.standby_energy(full, fast)[0]
     e_slow = energy.standby_energy(full, slow)[0]
     assert math.isclose(e_slow, 5.0 * e_fast, rel_tol=1e-12), (
@@ -570,7 +570,7 @@ def test_standby_scales_with_time_not_with_traffic():
     # AND THE FALLBACK: a design with NO table entry keeps the study default,
     # which is what makes `ECC_ARCH_CLOCK_MHZ` add designs rather than replace
     # the global.
-    none_ = dataclasses.replace(on, arch_clock_mhz={})
+    none_ = on.with_(arch_clock_mhz={})
     assert math.isclose(
         energy.standby_energy(full, none_)[0],
         e_fast * float(none_.global_cycle_seconds) / 1e-9, rel_tol=1e-12), (

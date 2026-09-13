@@ -176,10 +176,10 @@ def _cfg(arm="reference", code_k=None, **over):
         f"this suite reads the LIVE configuration and it is on {cfg.archs}; "
         f"env.sh section 4 should pin the placement study to {ARCH}")
     if code_k is not None:
-        cfg = dataclasses.replace(cfg, const_k=code_k, recon_ert_arm="reference")
-    cfg = dataclasses.replace(cfg, recon_ert_arm="reference", **over)
+        cfg = cfg.with_(const_k=code_k, recon_ert_arm="reference")
+    cfg = cfg.with_(recon_ert_arm="reference", **over)
     if arm != "reference":
-        cfg = dataclasses.replace(cfg, recon_ert_arm=arm)
+        cfg = cfg.with_(recon_ert_arm=arm)
     return cfg
 
 
@@ -255,7 +255,7 @@ def test_offchip_limit_is_declared_once_and_agrees_with_the_roofline():
     _assert_eq(_attr(_text(cfg=cfg), "DRAM", "write_bandwidth"), None)
     # the roofline's own conversion, from the same MB/s, must be the same number
     _close(latency_post.offchip_items_per_cycle(
-        dataclasses.replace(cfg, global_cycle_seconds=cfg.cycle_seconds_for(ARCH))),
+        cfg.with_(global_cycle_seconds=cfg.cycle_seconds_for(ARCH))),
         want)
     # THE RULE, not the knob: env.sh section 6 states the conversion once and
     # this is it. `want` is whatever ECC_DRAM_BANDWIDTH_MBPS currently says --
@@ -265,9 +265,9 @@ def test_offchip_limit_is_declared_once_and_agrees_with_the_roofline():
            * float(cfg.cycle_seconds_for(ARCH)) / (cfg.weight_bits / 8.0))
     # the worked examples env.sh and prompt_7 4.7 quote, checked AT their own
     # bandwidth so they stay true whatever the knob is set to
-    at480 = dataclasses.replace(cfg, dram_bandwidth_mbps=480.0)
+    at480 = cfg.with_(dram_bandwidth_mbps=480.0)
     _close(at480.dram_items_per_cycle_for(ARCH), 2.4)       # prompt_7 4.7
-    at120 = dataclasses.replace(cfg, dram_bandwidth_mbps=120.0)
+    at120 = cfg.with_(dram_bandwidth_mbps=120.0)
     _close(at120.dram_items_per_cycle_for(ARCH), 0.6)       # env.sh "quarter it"
 
     # BREAKAGE: a clock the architecture and the roofline do not share. The two
@@ -275,8 +275,8 @@ def test_offchip_limit_is_declared_once_and_agrees_with_the_roofline():
     # A SLOWER CLOCK MEANS MORE ITEMS PER CYCLE: the bus delivers MB/s and a
     # longer cycle is more of them, which is the direction that makes the
     # 1 GHz model chip ~5x more memory-starved than 200 MHz silicon.
-    slow = dataclasses.replace(cfg, arch_clock_mhz={ARCH: 100.0})
-    fast = dataclasses.replace(cfg, arch_clock_mhz={ARCH: 1000.0})
+    slow = cfg.with_(arch_clock_mhz={ARCH: 100.0})
+    fast = cfg.with_(arch_clock_mhz={ARCH: 1000.0})
     # HALVING THE CLOCK DOUBLES the items per cycle, at the same MB/s
     _close(slow.dram_items_per_cycle_for(ARCH), want * 2.0)
     _close(fast.dram_items_per_cycle_for(ARCH), want / 5.0)
@@ -285,7 +285,7 @@ def test_offchip_limit_is_declared_once_and_agrees_with_the_roofline():
         "the declared off-chip limit ignored the design's clock")
 
     # and EMPTY means no attribute at all -- the pre-Phase-A model, reachable
-    off = dataclasses.replace(cfg, dram_bandwidth_mbps=None)
+    off = cfg.with_(dram_bandwidth_mbps=None)
     _assert_eq(_attr(_text(cfg=off), "DRAM", "shared_bandwidth"), None)
 
 
@@ -494,7 +494,7 @@ def test_the_clock_is_per_design_and_inverted_once():
     _close(cfg.clock_mhz_for("simba_like"), 1000.0)
     _assert_eq(fingerprint.arch_fingerprint("simba_like", cfg),
                fingerprint.arch_fingerprint("simba_like",
-                                      dataclasses.replace(cfg, arch_clock_mhz={})),
+                                      cfg.with_(arch_clock_mhz={})),
                "declaring a design at its existing rate colded it")
     # a design with no entry keeps the study default rather than inventing one
     _assert_eq(cfg.cycle_seconds_for("not_a_design"), cfg.global_cycle_seconds)
@@ -517,8 +517,7 @@ def test_the_clock_is_per_design_and_inverted_once():
 
     # BREAKAGE: a non-positive rate is refused, not divided by
     expect_raises(
-        lambda: dataclasses.replace(cfg, arch_clock_mhz={ARCH: -1.0}
-                                    ).cycle_seconds_for(ARCH),
+        lambda: cfg.with_(arch_clock_mhz={ARCH: -1.0}).cycle_seconds_for(ARCH),
         "a negative clock rate was accepted")
 
 
@@ -536,7 +535,7 @@ def test_every_phase_c_declaration_colds_the_cache():
             ("ECC_ENERGY_MODEL_REV", dict(energy_model_rev="")),
             ("ECC_MAC_PJ_OVERRIDE", dict(mac_pj_override=None)),
     ):
-        other = fingerprint.arch_fingerprint(ARCH, dataclasses.replace(live, **off))
+        other = fingerprint.arch_fingerprint(ARCH, live.with_(**off))
         assert other != base, f"{name} does not move the mapper fingerprint"
     # THE TWO PER-ARM DECLARATIONS only exist on an arm that HAS a boundary, so
     # they are checked there. On the reference they are correctly no-ops: it
@@ -547,30 +546,30 @@ def test_every_phase_c_declaration_colds_the_cache():
     for name, off in (("ECC_RECON_BW_SCALE", dict(recon_bw_scale=False)),
                       ("ECC_ONCHIP_BW_BITAWARE", dict(onchip_bw_bitaware=False))):
         assert arm_fp != fingerprint.arch_fingerprint(
-            ARCH, dataclasses.replace(arm, **off)), \
+            ARCH, arm.with_(**off)), \
             f"{name} does not move the mapper fingerprint"
     for name, off in (("ECC_RECON_BW_SCALE", dict(recon_bw_scale=False)),
                       ("ECC_ONCHIP_BW_BITAWARE", dict(onchip_bw_bitaware=False))):
-        _assert_eq(fingerprint.arch_fingerprint(ARCH, dataclasses.replace(live, **off)),
+        _assert_eq(fingerprint.arch_fingerprint(ARCH, live.with_(**off)),
                    base, f"{name} moved the REFERENCE arm, which declares none")
 
     # THE ONE THAT WAS BROKEN. Until Phase C `ECC_ENERGY_MODEL_REV` reached
     # only `Config.fingerprint()`, which labels a RESULT and names no cache
     # directory -- so the deliberate cold re-labelled results while the cache
     # it was meant to invalidate stayed warm.
-    a = dataclasses.replace(live, energy_model_rev="rev-a")
-    b = dataclasses.replace(live, energy_model_rev="rev-b")
+    a = live.with_(energy_model_rev="rev-a")
+    b = live.with_(energy_model_rev="rev-b")
     assert fingerprint.arch_fingerprint(ARCH, a) != fingerprint.arch_fingerprint(ARCH, b)
     # and EMPTY still hashes like every directory that predates the knob:
     # the key is absent from the blob, not present-and-empty
-    empty = dataclasses.replace(live, energy_model_rev="")
+    empty = live.with_(energy_model_rev="")
     _assert_eq(fingerprint.arch_fingerprint(ARCH, empty),
-               fingerprint.arch_fingerprint(ARCH, dataclasses.replace(empty)))
+               fingerprint.arch_fingerprint(ARCH, empty.with_()))
 
     # every arm still has its own directory (prompt_7 B2 gate 2, re-checked
     # here because five new declarations could have merged two of them)
     fps = {a.key: fingerprint.arch_fingerprint(
-        ARCH, dataclasses.replace(live, recon_ert_arm=a.key))
+        ARCH, live.with_(recon_ert_arm=a.key))
         for a in arms.mapper_arms(ARCH, live)}
     _assert_eq(len(set(fps.values())), len(fps), f"two arms share a hash: {fps}")
 
@@ -670,7 +669,7 @@ def test_the_dc_idle_term_is_rescaled_to_this_designs_clock():
     _close(live.dc_idle_scale(), 5.0)
     _assert_eq(config.DC_MEASUREMENT_CLOCK_NS, 1.0)
 
-    pre = dataclasses.replace(live, arch_clock_mhz={})    # the pre-C1.5 clock
+    pre = live.with_(arch_clock_mhz={})    # the pre-C1.5 clock
     _close(pre.dc_idle_scale(), 1.0)
     inc0, idle0, _p0 = stacks.load_recon_energy(pre)
     inc1, idle1, prov = stacks.load_recon_energy(live)
@@ -867,7 +866,7 @@ def test_the_shared_inputs_are_never_replaced_under_a_reader():
     #    bytes -> different name, so a change never overwrites.
     g_now = layout.globals_path(ARCH, cfg)
     _assert_eq(layout.globals_path(ARCH, cfg), g_now, "same config, same name")
-    faster = dataclasses.replace(cfg, arch_clock_mhz={ARCH: 1000.0})
+    faster = cfg.with_(arch_clock_mhz={ARCH: 1000.0})
     assert layout.globals_path(ARCH, faster) != g_now, (
         "a different clock must be a different FILE, not a replacement")
     a_now = layout.patched_arch_path(ARCH, cfg)

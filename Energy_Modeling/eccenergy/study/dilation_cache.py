@@ -410,7 +410,7 @@ def cache_for(cfg, arch, scale):
     """The mapper cache directory for `arch` at weight-capacity `scale`."""
     # `config.py` is the only reader of os.environ, so a second capacity is
     # reached by replacing the field, never by re-reading the environment.
-    sub = dataclasses.replace(cfg, weight_capacity_scale=float(scale))
+    sub = cfg.with_(weight_capacity_scale=float(scale))
     variant = fingerprint_mod.effective_variant(arch, sub)
     fp = fingerprint_mod.arch_fingerprint(arch, sub)
     # `create=False`: this module maps nothing and must leave no trace. Without

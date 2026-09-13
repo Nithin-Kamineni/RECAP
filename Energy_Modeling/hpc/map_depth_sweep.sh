@@ -142,7 +142,7 @@ else
 import dataclasses
 from eccenergy import config
 from eccenergy.arch import workloads
-cfg = dataclasses.replace(config.load_config(), layers=[])
+cfg = config.load_config().with_(layers=[])
 models, _ = workloads.load_workload(cfg)
 seen, out = set(), []
 for l in models[cfg.models[0]]:
@@ -213,8 +213,8 @@ scales = [round(float(s), 4) for s in
 print(f"  geometry check: recon datawidth = {dw}b")
 for arch in cfg.archs:
     for s in scales:
-        emb = dataclasses.replace(cfg, weight_depth_scale=s, weight_datawidth=None)
-        rec = dataclasses.replace(cfg, weight_depth_scale=s, weight_datawidth=dw)
+        emb = cfg.with_(weight_depth_scale=s, weight_datawidth=None)
+        rec = cfg.with_(weight_depth_scale=s, weight_datawidth=dw)
         try:
             info = patch.assert_pair_geometry(arch, emb, rec)
         except ValueError as e:

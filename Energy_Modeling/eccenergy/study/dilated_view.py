@@ -100,8 +100,7 @@ def dilated_view(cfg, ses, arch, model, base_cats, ref_raw):
     """
     nk = cfg.code_n / cfg.code_k
     dil_scale = capacity_mod.capacity_dilation_scale(cfg)
-    dcfg = dataclasses.replace(cfg, weight_capacity_scale=dil_scale,
-                               experiment=cfg.experiment)
+    dcfg = cfg.with_(weight_capacity_scale=dil_scale, experiment=cfg.experiment)
 
     site = capacity_mod.dilated_levels(arch, cfg)
     if site is None:

@@ -46,7 +46,7 @@ whether a bump has a per-cycle row at all -- is declared in
 """
 from __future__ import annotations
 
-from ..physics import widths
+from ..physics import recon_dc, widths
 from dataclasses import dataclass, replace
 
 from .placements import decode_site, encoder_site, placement_by_key, placements_for, stages_for
@@ -80,8 +80,7 @@ def ert_leak_delta_pj(cfg):
     g = max(0.0, min(1.0, float(getattr(cfg, "recon_clock_gating_pct", 0.0)) / 100.0))
     if g >= 1.0:
         return 0.0                 # fully gated: the row is identically zero
-    from ..study import stacks as _ecc  # lazily: ecc needs pandas
-    _inc, idle, _prov = _ecc.load_recon_energy(cfg)
+    _inc, idle, _prov = recon_dc.load_recon_energy(cfg)
     return float(idle) * (1.0 - g)
 
 

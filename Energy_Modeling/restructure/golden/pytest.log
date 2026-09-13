@@ -1,3 +1,4 @@
 2026-09-13T15:56:01Z	220 passed, 4 skipped, 2 warnings in <T>s -> 227 passed, 4 skipped in <T>s	phase 1: +7 plumbing mutation tests (test_plumbing.py); no test deleted; 2 dead returns removed
 2026-09-13T16:20:35Z	227 passed, 4 skipped in <T>s -> 231 passed, 4 skipped, 1 xfailed in <T>s	phase 2: +4 tests/contract/test_layer_rule.py (1 xfail: the import cycle)
 2026-09-13T17:57:33Z	231 passed, 4 skipped, 1 xfailed in <T>s -> unchanged	phase 3: golden re-taken after the phase, for ONE corrected prose line (WEIGHT_PATHS' module path); no test added, removed or changed count
+2026-09-13T18:50:48Z	231 passed, 4 skipped, 1 xfailed in <T>s -> 240 passed, 4 skipped in <T>s	phase 4: +8 tests/contract/test_settings.py (the record's key order and the hashed set); the layer-rule xfail is a pass now that KNOWN_UPWARD is empty
