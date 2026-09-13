@@ -180,7 +180,7 @@ def test_the_scaffold_writes_a_design_that_is_refused_until_it_is_written(tmp_pa
     A stub that validated would be a design whose weight path nobody wrote, and
     the placement study would happily report savings against it.
     """
-    sys.path.insert(0, str(ROOT / "restructure"))
+    sys.path.insert(0, str(ROOT / "tools"))
     import scaffold_arch
 
     monkey = tmp_path / "archs"

@@ -45,8 +45,8 @@ be used at the wrong tier.
 
 The exception TYPE is declared here, not at the site, so that converting a site
 cannot silently change `SystemExit` into `ConfigError` -- `__main__` prints one
-without a traceback and the other is an exit status, and `restructure/golden/`
-records both. That is also why every message below is unchanged from what the
+without a traceback and the other is an exit status, and the restructure gate's
+golden snapshot recorded both. That is also why every message below is unchanged from what the
 site raised before phase 6: a message is a finding somebody paid for.
 
 ## What is registered but NOT called from here

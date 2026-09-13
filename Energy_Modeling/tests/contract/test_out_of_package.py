@@ -1,9 +1,9 @@
 """Everything OUTSIDE `eccenergy/` that imports it -- audited statically.
 
 THIS FILE EXISTS BECAUSE THE GATE HAS A BLIND SPOT, and the blind spot cost a
-session. `restructure/gate.sh` runs `run.sh`, the test suite and the fingerprint
+session. The restructure gate ran `run.sh`, the test suite and the fingerprint
 dump; it does NOT run `hpc/*.sh` (they submit SLURM jobs) or
-`tools_bch_sweep_tables.py`. So when phase 2 moved 23 modules between packages,
+`tools/bch_sweep_tables.py`. So when phase 2 moved 23 modules between packages,
 FOUR of those scripts were left importing modules that no longer existed --
 `from eccenergy import archs`, `from eccenergy import code_widths` -- and
 nothing said so. Phase 3 found them BY HAND.
@@ -47,8 +47,10 @@ PKG = "eccenergy"
 #: Shell scripts and loose Python that live OUTSIDE the package and import it.
 #: A new one is picked up automatically -- this is a glob, not a list, so a
 #: script added next month is audited the day it lands.
-SHELL = sorted(ROOT.glob("hpc/*.sh")) + sorted(ROOT.glob("*.sh"))
-LOOSE = sorted(p for p in ROOT.glob("*.py") if p.name != "setup.py")
+SHELL = (sorted(ROOT.glob("hpc/*.sh")) + sorted(ROOT.glob("*.sh"))
+         + sorted(ROOT.glob("tools/*.sh")))
+LOOSE = sorted(p for p in (list(ROOT.glob("*.py")) + list(ROOT.glob("tools/*.py")))
+               if p.name != "setup.py")
 
 #: A `${VAR}` or `$(cmd)` inside an embedded block is SHELL, not Python. Only
 #: one block in the tree has one (`map_depth_sweep.sh`'s datawidth probe), and
@@ -149,7 +151,7 @@ def test_there_is_something_to_audit():
     assert len(labels) >= 10, (
         f"only {len(labels)} embedded block(s) found: {labels}. `hpc/*.sh` and the "
         f"loose tools import `eccenergy` -- if they moved, move SHELL/LOOSE with them.")
-    assert any("tools_bch_sweep_tables" in lab for lab in labels)
+    assert any("bch_sweep_tables" in lab for lab in labels)
     assert any("map_ert_arms" in lab for lab in labels)
 
 

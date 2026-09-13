@@ -9,12 +9,13 @@
 #
 # If any script dies like that, run this and try again:
 #
-#     bash tools-fix-eol.sh
+#     bash tools/fix-eol.sh
 #
 # Only carriage returns are removed (tr -d '\r'); nothing else in the file is
 # touched, so it is safe to run on YAML, JSON and cached results.
 set -eu
-cd "$(dirname "$0")"
+# tools/ is one level down: normalise the PROJECT, not this directory.
+cd "$(dirname "$0")/.."
 
 n=0
 while IFS= read -r f; do
@@ -38,4 +39,4 @@ else
 fi
 
 # Executability is the other thing Windows loses.
-chmod +x run.sh tools-fix-eol.sh 2>/dev/null || true
+chmod +x run.sh tools/fix-eol.sh 2>/dev/null || true

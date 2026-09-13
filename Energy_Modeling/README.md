@@ -283,7 +283,7 @@ sacct -j <jobid> --format=JobID%18,State%12,Elapsed -X
   shared cache between machines.
 * **Never change `ECC_MAPPER_THREADS` away from 18** unless you mean to rebuild
   every mapping.
-* **Always write LF line endings.** `bash tools-fix-eol.sh` repairs any file
+* **Always write LF line endings.** `bash tools/fix-eol.sh` repairs any file
   that slips through; a CRLF in a `.sh` breaks bash inside the container.
 
 ---

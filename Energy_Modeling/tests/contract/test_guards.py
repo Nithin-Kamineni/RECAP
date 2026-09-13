@@ -282,7 +282,7 @@ def test_a_clean_run_records_no_override_at_all():
 # ------------------------------------------------------------------ GUARDS.md
 def test_guards_md_is_not_stale():
     """Section 6.5: generated, never hand-written. `make guards` regenerates it."""
-    rc = subprocess.run([sys.executable, str(ROOT / "restructure" / "gen_guards.py"),
+    rc = subprocess.run([sys.executable, str(ROOT / "tools" / "gen_guards.py"),
                          "--check"], cwd=ROOT, capture_output=True, text=True)
     assert rc.returncode == 0, (
         f"{rc.stdout}{rc.stderr}\n-> run `make guards` and commit the result.")

@@ -8,14 +8,13 @@
 
 PY ?= python3
 
-.PHONY: help arch layers guards test gate
+.PHONY: help arch layers guards test
 
 help:
 	@echo "make arch NEW=<name>   scaffold archs/<name>/ -- a design is a DIRECTORY"
 	@echo "make layers            the layer rule and the settings contract"
 	@echo "make guards            regenerate GUARDS.md -- every guard in one table"
 	@echo "make test              the whole suite (needs the container for pandas)"
-	@echo "make gate              ProjectRestructure's gate: fingerprints + totals"
 	@echo ""
 	@echo "  module load apptainer && bash hpc/tl.sh make test"
 
@@ -29,7 +28,7 @@ help:
 arch:
 	@test -n "$(NEW)" || { echo "usage: make arch NEW=<name>"; exit 2; }
 	@test ! -d archs/$(NEW) || { echo "archs/$(NEW) already exists"; exit 2; }
-	@$(PY) restructure/scaffold_arch.py $(NEW)
+	@$(PY) tools/scaffold_arch.py $(NEW)
 
 layers:
 	@$(PY) -m pytest tests/contract -q
@@ -44,10 +43,7 @@ layers:
 #  drift the way a hand-kept list would.
 # -----------------------------------------------------------------------------
 guards:
-	@$(PY) restructure/gen_guards.py
+	@$(PY) tools/gen_guards.py
 
 test:
 	@$(PY) -m pytest eccenergy/tests tests -q
-
-gate:
-	@bash restructure/gate.sh

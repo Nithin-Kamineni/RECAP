@@ -1,2 +1,0 @@
-arch / model,DRAM,Global buffer,Local (spads/RF),NoC,Compute,ECC decode,Reconstruction,Recon overhead,total_uJ,DRAM_weight_uJ,DRAM_weight_reads,pJ_per_DRAM_weight_read,model_weights,DRAM_refetch_x,layers_ok,layers_skipped
-eyeriss_like_wglb / resnet18,2359.515648,602.8206645200002,961.4496728099996,1149.2368694154397,417.2368691200001,0.0,0.0,0.0,5490.25972386544,765.919232,11967488.0,64.0,11678912.0,1.0247091509894073,21.0,0.0

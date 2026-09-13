@@ -1,7 +1,7 @@
 # Result storage: the namespace, the document, and `Pre` vs `Post`
 
 Implements `04_results_storage_spec.txt`. Everything here is produced by one
-module, [`eccenergy/results_store.py`](../eccenergy/results_store.py); no
+module, [`eccenergy/toolchain/results_store.py`](../../eccenergy/toolchain/results_store.py); no
 experiment writes an evaluation JSON by itself.
 
 ## The namespace

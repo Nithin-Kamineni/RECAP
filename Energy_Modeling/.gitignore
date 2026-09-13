@@ -50,8 +50,23 @@ ecc_energy_study/ert_probe/
 # Generated per run, like globals.yaml and arch_*_patched*.yaml above.
 ecc_energy_study/globals_*.yaml
 
-# ProjectRestructure section 9.1: every snapshot the gate takes to COMPARE
-# against restructure/golden/, which is committed and is the safety net itself.
+# The restructure gate's scratch. `restructure/` was removed on 2026-09-13,
+# once phases 0-7 were done and its last permanent inhabitants (gen_guards.py,
+# scaffold_arch.py) had moved to tools/. These stay so that restoring the
+# directory -- `git log -- Energy_Modeling/restructure` -- does not also
+# restore its scratch as untracked noise.
 restructure/.fresh/
 restructure/.trial*/
 restructure/.mut/
+
+# Pre-edit snapshots from earlier sessions (`.preC` = before prompt_7 phase C).
+# The 19 that existed were archived to legacy/preC-snapshots-2026-09-13.tar.gz
+# and removed on 2026-09-13; git history holds the committed states anyway.
+*.preC
+*.bak-*
+
+# The archived NoC runs keep their raw energies and evaluation JSONs; their
+# figures/tables/manifests are reproducible, like every other results tree.
+legacy/results_noc_*/figures/
+legacy/results_noc_*/tables/
+legacy/results_noc_*/manifests/

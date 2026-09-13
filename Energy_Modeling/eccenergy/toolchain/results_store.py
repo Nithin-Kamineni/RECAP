@@ -15,7 +15,7 @@ THE NAMESPACE
 `Post`  the mapping itself was optimised for the reduced weight width.
 
 The four segments after `{BCH}` are the collision guards the spec asks for, and
-`docs/RESULTS_SCHEMA.md` explains why each is needed. `{RUNID}` is
+`legacy/docs/RESULTS_SCHEMA.md` explains why each is needed. `{RUNID}` is
 `<UTC timestamp>__<config hash>`, so a re-run NEVER silently overwrites a prior
 one; `ECC_OVERWRITE=1` is required to replace a file that already exists, and
 even then only that exact run id.

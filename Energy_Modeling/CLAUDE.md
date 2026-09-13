@@ -22,17 +22,19 @@ it. `prompt_7.1.md` is a later buffer-size sweep, to be run after prompt_7.
 `prompt_3.md`'s constrained mapspace is carried by both and every mapper job runs
 under it.
 
-**`ProjectRestructure.md` is being implemented one phase per session**, in its
-§9.2 order, since 2026-09-13. It is organisation, not modelling: **every phase
-must reproduce today's numbers exactly**, and §9.1's gate is one command --
+**`plans/ProjectRestructure.md` was implemented one phase per session** over
+2026-09-13. It was organisation, not modelling: **every phase reproduced the
+numbers exactly**, proved by a gate that refused unless `arch_fingerprint()` was
+byte-identical for every (arch, model) and every evaluated total was unchanged
+to the pJ. **Phases 0-6 are DONE and phase 7 (backfill tests) is ongoing, not
+blocking**, so `restructure/` -- the gate, its golden snapshot and the two
+migration scripts -- was REMOVED on 2026-09-13 rather than left as scaffolding
+nobody runs. It is one command away if a future phase wants it back:
 
-    bash hpc/tl.sh bash restructure/gate.sh
+    git log -- Energy_Modeling/restructure     # then `git checkout <commit> -- ...`
 
--- which refuses unless `arch_fingerprint()` is byte-identical for every (arch,
-model) and every evaluated total is unchanged to the pJ. Run it BEFORE touching
-anything, so a red gate is never ambiguous. `restructure/README.md` says what the gate
-covers and what it cannot; ProjectRestructure §10 is what not to do.
-**Phases 0-6 are DONE.** Phase 7 (backfill tests) is ongoing, not blocking.
+ProjectRestructure §10 is still what not to do, and §9.1 says what the gate
+covered and what it could not.
 **`GUARDS.md` (generated, `make guards`) is the list of every guard** -- 136 of
 them, each with an id and a TIER. Tiers 3 and 4 are liftable by naming them in
 `ECC_ALLOW` (env.sh section 1), and an override is RECORDED on the manifest as
@@ -698,7 +700,7 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   contained it and only the report dropped it (prompt_7 rule R-4).
 - **Line endings**: the shell scripts run inside a Linux container and a CRLF makes
   bash die on `set -o pipefail` with a mangled message. `.gitattributes` forces LF;
-  `bash tools-fix-eol.sh` repairs anything that slips through. **Always emit LF.**
+  `bash tools/fix-eol.sh` repairs anything that slips through. **Always emit LF.**
 
 ## Layout
 
@@ -781,11 +783,22 @@ carry the rest.
                         local file may never redefine an upstream class name --
                         that is a duplicate-class error, not an override.
     ecc_energy_study/   AUTO-MANAGED: cloned repo + mapper cache. Do not delete.
-    restructure/        ProjectRestructure.md's gate: golden/ is the committed
-                        snapshot, gate.sh compares a fresh one against it.
-                        migrate_modules.py (phase 2) and split_modules.py
-                        (phase 3) are the moves as MACHINERY, not as a diff.
-                        Scaffolding -- deletable when the phase plan ends.
+    plans/              every plan and prompt this study has been given, in
+                        sequence. prompt_7.md is the LIVE one; ProjectRestructure.md
+                        is the (finished) reorganisation. Nothing reads these
+                        programmatically -- they are cited by name from docstrings.
+    plans/specs/        the three source SPECS the model is built against --
+                        01_project_context_and_architectures.txt,
+                        02_reconstruction_dse_and_implementation.txt,
+                        04_results_storage_spec.txt. ~20 production docstrings
+                        cite them by name; they are provenance, not prose.
+    tools/              gen_guards.py (make guards), scaffold_arch.py (make arch),
+                        bch_sweep_tables.py (prompt_5's tables, cache-only),
+                        fix-eol.sh (CRLF repair). Each runs on its own; none is
+                        imported by the package.
     legacy/             pre-rewrite material, plus the dated FINDINGS_detail_*,
                         progress_* and PROJECT_STATUS_* snapshots that hold the
-                        full working record. Nothing imports it.
+                        full working record. Also docs/RESULTS_SCHEMA.md, the
+                        two archived NoC runs, and preC-snapshots-*.tar.gz (the
+                        19 hand-made pre-edit backups, archived 2026-09-13).
+                        Nothing imports it.

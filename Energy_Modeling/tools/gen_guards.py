@@ -1,7 +1,7 @@
 """Generate `GUARDS.md` -- every guard and every test-of-structure, in one table.
 
     make guards            regenerate it
-    make guards CHECK=1    fail if it is stale (what tests/contract/test_guards.py runs)
+    python3 tools/gen_guards.py --check    fail if stale (what the contract test runs)
 
 `ProjectRestructure.md` section 6.5: **generated, never hand-written.** A list of
 guards kept by hand is a list that is wrong within a month, and the complaint

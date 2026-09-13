@@ -78,7 +78,7 @@ Then on HiPerGator (login node is fine for this):
 ```
 cd /blue/rewetz/vkamineni/Projects/RECAP
 tar -xzf Energy_Modeling.tgz && mv Energy_modeling Energy_Modeling && rm Energy_Modeling.tgz
-cd Energy_Modeling && bash tools-fix-eol.sh          # LF guard; prints nothing if all is well
+cd Energy_Modeling && bash tools/fix-eol.sh          # LF guard; prints nothing if all is well
 ```
 
 Alternative without tar (slow, but no extraction step), from PowerShell or Git Bash:
@@ -93,7 +93,7 @@ If the transfer created `Energy_Modeling/Energy_modeling/`, copy its contents
 ```
 cd /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling
 cp -a Energy_modeling/. .
-bash tools-fix-eol.sh
+bash tools/fix-eol.sh
 python3 -c "import eccenergy"
 ```
 
@@ -253,7 +253,7 @@ carries architecture, treatment, fingerprint and shape).
   hashed into the mapping fingerprint, so a different value is a different
   cache and a different search.
 * Windows-side edits to `*.sh`/`*.py`/`*.yaml` may arrive with CRLF if they
-  bypass the `.gitattributes`; `bash tools-fix-eol.sh` repairs them.
+  bypass the `.gitattributes`; `bash tools/fix-eol.sh` repairs them.
 * Do not delete `ecc_energy_study/outputs/` — hours of compute, and now the
   shared cache between two machines.
 

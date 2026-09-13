@@ -40,7 +40,7 @@ SWEEP_ALIASES = {
     "architectures": "arch", "architecturesweep": "arch",
 }
 
-#: Which half of the study a result belongs to. See docs/RESULTS_SCHEMA.md.
+#: Which half of the study a result belongs to. See legacy/docs/RESULTS_SCHEMA.md.
 #:
 #: Pre   the mapping was chosen WITHOUT knowing about reconstruction; the ECC
 #:       effect is applied during energy evaluation only. Tasks 1-3.

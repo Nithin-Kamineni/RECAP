@@ -265,7 +265,7 @@ class Results:
             payload.update(extra)
         p = self.manifest_path(stem)
         # An explicit LF: this file is read inside a Linux container, and a CRLF
-        # written from a Windows-side run is exactly what `tools-fix-eol.sh` has
+        # written from a Windows-side run is exactly what `tools/fix-eol.sh` has
         # to repair otherwise.
         with open(p, "w", newline="\n") as fh:
             fh.write(json.dumps(payload, indent=1, default=str))
