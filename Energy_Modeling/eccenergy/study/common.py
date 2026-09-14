@@ -180,6 +180,25 @@ class Session:
                   f"DRAM weight reads {raw.dram_w_reads:>14,.0f}")
         return self.stacks[arch]
 
+    def chip_dir(self, arch):
+        """The mapper cache directory of the chip `arch` was collected at.
+
+        `ECC_METRICS=area` reads the ART out of it. `create=False` because this
+        is a pure READER: resolving a path used to CREATE it, and a report that
+        asks about a chip it has not mapped would leave an empty
+        `fp-<hash>/` behind claiming a mapping that was never solved
+        (`paths.mapper_cache`).
+
+        Returns None when this architecture has not been collected -- the
+        caller refuses by name (`area-chip-never-mapped`) rather than charging
+        an accelerator with no silicon in it as zero.
+        """
+        fp = self.fingerprints.get(arch)
+        if fp is None:
+            return None
+        variant = fingerprint_mod.effective_variant(arch, self.cfg)
+        return self.results.mapper_cache(arch, variant, fp, create=False)
+
     def collect_all(self):
         for arch in self.cfg.archs:
             self.collect_arch(arch)

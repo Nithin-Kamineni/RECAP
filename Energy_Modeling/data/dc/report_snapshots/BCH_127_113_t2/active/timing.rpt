@@ -1,0 +1,476 @@
+ 
+****************************************
+Report : timing
+        -path full
+        -delay max
+        -max_paths 10
+Design : reconstruction_stage
+Version: X-2025.06-SP5-2
+Date   : Thu Aug 27 22:44:41 2026
+****************************************
+
+Operating Conditions: typical   Library: gscl45nm
+Wire Load Model Mode: top
+
+  Startpoint: payload_in[87]
+              (input port clocked by clk)
+  Endpoint: codeword_out_reg[117]
+            (rising edge-triggered flip-flop clocked by clk)
+  Path Group: clk
+  Path Type: max
+
+  Point                                                   Incr       Path
+  --------------------------------------------------------------------------
+  clock clk (rise edge)                                   0.00       0.00
+  clock network delay (ideal)                             0.00       0.00
+  input external delay                                    0.10       0.10 r
+  payload_in[87] (in)                                     0.00       0.10 r
+  encoder/payload[87] (systematic_xor_encoder_113_127_530036)
+                                                          0.00       0.10 r
+  encoder/U100/Y (INVX1)                                  0.02       0.12 f
+  encoder/U101/Y (MUX2X1)                                 0.07       0.19 r
+  encoder/U219/Y (MUX2X1)                                 0.05       0.24 r
+  encoder/U220/Y (MUX2X1)                                 0.11       0.36 r
+  encoder/U345/YS (FAX1)                                  0.11       0.47 r
+  encoder/U349/YS (FAX1)                                  0.10       0.56 f
+  encoder/U350/YS (FAX1)                                  0.09       0.65 r
+  encoder/U351/YS (FAX1)                                  0.09       0.74 f
+  encoder/U352/YS (FAX1)                                  0.07       0.82 r
+  encoder/codeword[117] (systematic_xor_encoder_113_127_530036)
+                                                          0.00       0.82 r
+  U541/Y (AOI22X1)                                        0.03       0.84 f
+  U278/Y (BUFX2)                                          0.04       0.88 f
+  U542/Y (INVX1)                                          0.00       0.88 r
+  codeword_out_reg[117]/D (DFFSR)                         0.00       0.88 r
+  data arrival time                                                  0.88
+
+  clock clk (rise edge)                                   1.00       1.00
+  clock network delay (ideal)                             0.00       1.00
+  clock uncertainty                                      -0.05       0.95
+  codeword_out_reg[117]/CLK (DFFSR)                       0.00       0.95 r
+  library setup time                                     -0.07       0.88
+  data required time                                                 0.88
+  --------------------------------------------------------------------------
+  data required time                                                 0.88
+  data arrival time                                                 -0.88
+  --------------------------------------------------------------------------
+  slack (MET)                                                        0.00
+
+
+  Startpoint: payload_in[107]
+              (input port clocked by clk)
+  Endpoint: codeword_out_reg[119]
+            (rising edge-triggered flip-flop clocked by clk)
+  Path Group: clk
+  Path Type: max
+
+  Point                                                   Incr       Path
+  --------------------------------------------------------------------------
+  clock clk (rise edge)                                   0.00       0.00
+  clock network delay (ideal)                             0.00       0.00
+  input external delay                                    0.10       0.10 r
+  payload_in[107] (in)                                    0.00       0.10 r
+  encoder/payload[107] (systematic_xor_encoder_113_127_530036)
+                                                          0.00       0.10 r
+  encoder/U138/Y (INVX1)                                  0.02       0.12 f
+  encoder/U139/Y (MUX2X1)                                 0.07       0.19 r
+  encoder/U140/Y (MUX2X1)                                 0.08       0.27 r
+  encoder/U141/Y (INVX1)                                  0.04       0.31 f
+  encoder/U145/Y (MUX2X1)                                 0.07       0.38 r
+  encoder/U274/Y (XNOR2X1)                                0.10       0.48 r
+  encoder/U275/Y (MUX2X1)                                 0.06       0.54 r
+  encoder/U276/Y (MUX2X1)                                 0.11       0.65 r
+  encoder/U383/YS (FAX1)                                  0.11       0.75 f
+  encoder/U384/YS (FAX1)                                  0.07       0.83 r
+  encoder/codeword[119] (systematic_xor_encoder_113_127_530036)
+                                                          0.00       0.83 r
+  U537/Y (AOI22X1)                                        0.02       0.84 f
+  U276/Y (BUFX2)                                          0.04       0.88 f
+  U538/Y (INVX1)                                          0.00       0.88 r
+  codeword_out_reg[119]/D (DFFSR)                         0.00       0.88 r
+  data arrival time                                                  0.88
+
+  clock clk (rise edge)                                   1.00       1.00
+  clock network delay (ideal)                             0.00       1.00
+  clock uncertainty                                      -0.05       0.95
+  codeword_out_reg[119]/CLK (DFFSR)                       0.00       0.95 r
+  library setup time                                     -0.07       0.88
+  data required time                                                 0.88
+  --------------------------------------------------------------------------
+  data required time                                                 0.88
+  data arrival time                                                 -0.88
+  --------------------------------------------------------------------------
+  slack (MET)                                                        0.00
+
+
+  Startpoint: payload_in[90]
+              (input port clocked by clk)
+  Endpoint: codeword_out_reg[118]
+            (rising edge-triggered flip-flop clocked by clk)
+  Path Group: clk
+  Path Type: max
+
+  Point                                                   Incr       Path
+  --------------------------------------------------------------------------
+  clock clk (rise edge)                                   0.00       0.00
+  clock network delay (ideal)                             0.00       0.00
+  input external delay                                    0.10       0.10 r
+  payload_in[90] (in)                                     0.00       0.10 r
+  encoder/payload[90] (systematic_xor_encoder_113_127_530036)
+                                                          0.00       0.10 r
+  encoder/U178/Y (INVX1)                                  0.02       0.12 f
+  encoder/U179/Y (MUX2X1)                                 0.10       0.21 r
+  encoder/U180/Y (MUX2X1)                                 0.10       0.32 r
+  encoder/U181/Y (MUX2X1)                                 0.10       0.42 r
+  encoder/U182/Y (MUX2X1)                                 0.08       0.49 r
+  encoder/U363/Y (MUX2X1)                                 0.05       0.54 f
+  encoder/U3/Y (BUFX4)                                    0.05       0.59 f
+  encoder/U372/YS (FAX1)                                  0.09       0.68 r
+  encoder/U373/YS (FAX1)                                  0.08       0.76 f
+  encoder/U374/Y (MUX2X1)                                 0.04       0.81 r
+  encoder/codeword[118] (systematic_xor_encoder_113_127_530036)
+                                                          0.00       0.81 r
+  U539/Y (AOI22X1)                                        0.03       0.84 f
+  U277/Y (BUFX2)                                          0.04       0.88 f
+  U540/Y (INVX1)                                          0.00       0.88 r
+  codeword_out_reg[118]/D (DFFSR)                         0.00       0.88 r
+  data arrival time                                                  0.88
+
+  clock clk (rise edge)                                   1.00       1.00
+  clock network delay (ideal)                             0.00       1.00
+  clock uncertainty                                      -0.05       0.95
+  codeword_out_reg[118]/CLK (DFFSR)                       0.00       0.95 r
+  library setup time                                     -0.07       0.88
+  data required time                                                 0.88
+  --------------------------------------------------------------------------
+  data required time                                                 0.88
+  data arrival time                                                 -0.88
+  --------------------------------------------------------------------------
+  slack (MET)                                                        0.00
+
+
+  Startpoint: payload_in[12]
+              (input port clocked by clk)
+  Endpoint: codeword_out_reg[120]
+            (rising edge-triggered flip-flop clocked by clk)
+  Path Group: clk
+  Path Type: max
+
+  Point                                                   Incr       Path
+  --------------------------------------------------------------------------
+  clock clk (rise edge)                                   0.00       0.00
+  clock network delay (ideal)                             0.00       0.00
+  input external delay                                    0.10       0.10 r
+  payload_in[12] (in)                                     0.00       0.10 r
+  encoder/payload[12] (systematic_xor_encoder_113_127_530036)
+                                                          0.00       0.10 r
+  encoder/U66/Y (INVX1)                                   0.02       0.12 f
+  encoder/U67/Y (MUX2X1)                                  0.07       0.19 r
+  encoder/U68/Y (MUX2X1)                                  0.08       0.27 r
+  encoder/U69/Y (MUX2X1)                                  0.07       0.34 r
+  encoder/U265/Y (MUX2X1)                                 0.07       0.41 r
+  encoder/U266/Y (MUX2X1)                                 0.07       0.48 r
+  encoder/U267/Y (MUX2X1)                                 0.06       0.54 r
+  encoder/U268/Y (MUX2X1)                                 0.05       0.59 r
+  encoder/U269/Y (MUX2X1)                                 0.12       0.71 r
+  encoder/U399/YS (FAX1)                                  0.10       0.81 r
+  encoder/codeword[120] (systematic_xor_encoder_113_127_530036)
+                                                          0.00       0.81 r
+  U535/Y (AOI22X1)                                        0.03       0.84 f
+  U265/Y (BUFX2)                                          0.04       0.87 f
+  U536/Y (INVX1)                                          0.00       0.87 r
+  codeword_out_reg[120]/D (DFFSR)                         0.00       0.87 r
+  data arrival time                                                  0.87
+
+  clock clk (rise edge)                                   1.00       1.00
+  clock network delay (ideal)                             0.00       1.00
+  clock uncertainty                                      -0.05       0.95
+  codeword_out_reg[120]/CLK (DFFSR)                       0.00       0.95 r
+  library setup time                                     -0.07       0.88
+  data required time                                                 0.88
+  --------------------------------------------------------------------------
+  data required time                                                 0.88
+  data arrival time                                                 -0.87
+  --------------------------------------------------------------------------
+  slack (MET)                                                        0.01
+
+
+  Startpoint: payload_in[12]
+              (input port clocked by clk)
+  Endpoint: codeword_out_reg[113]
+            (rising edge-triggered flip-flop clocked by clk)
+  Path Group: clk
+  Path Type: max
+
+  Point                                                   Incr       Path
+  --------------------------------------------------------------------------
+  clock clk (rise edge)                                   0.00       0.00
+  clock network delay (ideal)                             0.00       0.00
+  input external delay                                    0.10       0.10 r
+  payload_in[12] (in)                                     0.00       0.10 r
+  encoder/payload[12] (systematic_xor_encoder_113_127_530036)
+                                                          0.00       0.10 r
+  encoder/U66/Y (INVX1)                                   0.02       0.12 f
+  encoder/U67/Y (MUX2X1)                                  0.07       0.19 r
+  encoder/U68/Y (MUX2X1)                                  0.08       0.27 r
+  encoder/U69/Y (MUX2X1)                                  0.07       0.34 r
+  encoder/U265/Y (MUX2X1)                                 0.07       0.41 r
+  encoder/U266/Y (MUX2X1)                                 0.07       0.48 r
+  encoder/U267/Y (MUX2X1)                                 0.06       0.54 r
+  encoder/U268/Y (MUX2X1)                                 0.05       0.59 r
+  encoder/U269/Y (MUX2X1)                                 0.12       0.71 r
+  encoder/U289/YS (FAX1)                                  0.10       0.81 r
+  encoder/codeword[113] (systematic_xor_encoder_113_127_530036)
+                                                          0.00       0.81 r
+  U549/Y (AOI22X1)                                        0.03       0.84 f
+  U282/Y (BUFX2)                                          0.04       0.87 f
+  U550/Y (INVX1)                                          0.00       0.87 r
+  codeword_out_reg[113]/D (DFFSR)                         0.00       0.87 r
+  data arrival time                                                  0.87
+
+  clock clk (rise edge)                                   1.00       1.00
+  clock network delay (ideal)                             0.00       1.00
+  clock uncertainty                                      -0.05       0.95
+  codeword_out_reg[113]/CLK (DFFSR)                       0.00       0.95 r
+  library setup time                                     -0.07       0.88
+  data required time                                                 0.88
+  --------------------------------------------------------------------------
+  data required time                                                 0.88
+  data arrival time                                                 -0.87
+  --------------------------------------------------------------------------
+  slack (MET)                                                        0.01
+
+
+  Startpoint: payload_in[12]
+              (input port clocked by clk)
+  Endpoint: codeword_out_reg[121]
+            (rising edge-triggered flip-flop clocked by clk)
+  Path Group: clk
+  Path Type: max
+
+  Point                                                   Incr       Path
+  --------------------------------------------------------------------------
+  clock clk (rise edge)                                   0.00       0.00
+  clock network delay (ideal)                             0.00       0.00
+  input external delay                                    0.10       0.10 r
+  payload_in[12] (in)                                     0.00       0.10 r
+  encoder/payload[12] (systematic_xor_encoder_113_127_530036)
+                                                          0.00       0.10 r
+  encoder/U66/Y (INVX1)                                   0.02       0.12 f
+  encoder/U67/Y (MUX2X1)                                  0.07       0.19 r
+  encoder/U68/Y (MUX2X1)                                  0.08       0.27 r
+  encoder/U69/Y (MUX2X1)                                  0.07       0.34 r
+  encoder/U70/Y (MUX2X1)                                  0.12       0.46 r
+  encoder/U77/YS (FAX1)                                   0.10       0.56 f
+  encoder/U78/Y (MUX2X1)                                  0.05       0.61 r
+  encoder/U96/Y (XNOR2X1)                                 0.06       0.67 r
+  encoder/U97/YS (FAX1)                                   0.09       0.76 f
+  encoder/U115/Y (XNOR2X1)                                0.04       0.80 r
+  encoder/codeword[121] (systematic_xor_encoder_113_127_530036)
+                                                          0.00       0.80 r
+  U533/Y (AOI22X1)                                        0.03       0.83 f
+  U264/Y (BUFX2)                                          0.04       0.87 f
+  U534/Y (INVX1)                                          0.00       0.87 r
+  codeword_out_reg[121]/D (DFFSR)                         0.00       0.87 r
+  data arrival time                                                  0.87
+
+  clock clk (rise edge)                                   1.00       1.00
+  clock network delay (ideal)                             0.00       1.00
+  clock uncertainty                                      -0.05       0.95
+  codeword_out_reg[121]/CLK (DFFSR)                       0.00       0.95 r
+  library setup time                                     -0.07       0.88
+  data required time                                                 0.88
+  --------------------------------------------------------------------------
+  data required time                                                 0.88
+  data arrival time                                                 -0.87
+  --------------------------------------------------------------------------
+  slack (MET)                                                        0.01
+
+
+  Startpoint: payload_in[93]
+              (input port clocked by clk)
+  Endpoint: codeword_out_reg[126]
+            (rising edge-triggered flip-flop clocked by clk)
+  Path Group: clk
+  Path Type: max
+
+  Point                                                   Incr       Path
+  --------------------------------------------------------------------------
+  clock clk (rise edge)                                   0.00       0.00
+  clock network delay (ideal)                             0.00       0.00
+  input external delay                                    0.10       0.10 r
+  payload_in[93] (in)                                     0.00       0.10 r
+  encoder/payload[93] (systematic_xor_encoder_113_127_530036)
+                                                          0.00       0.10 r
+  encoder/U238/Y (INVX1)                                  0.02       0.12 f
+  encoder/U239/Y (MUX2X1)                                 0.10       0.21 r
+  encoder/U416/Y (MUX2X1)                                 0.06       0.27 r
+  encoder/U417/Y (MUX2X1)                                 0.09       0.36 r
+  encoder/U426/Y (MUX2X1)                                 0.06       0.42 r
+  encoder/U427/Y (MUX2X1)                                 0.07       0.48 r
+  encoder/U428/YS (FAX1)                                  0.09       0.58 f
+  encoder/U429/YS (FAX1)                                  0.09       0.67 r
+  encoder/U430/YS (FAX1)                                  0.08       0.75 f
+  encoder/U431/Y (MUX2X1)                                 0.04       0.79 r
+  encoder/codeword[126] (systematic_xor_encoder_113_127_530036)
+                                                          0.00       0.79 r
+  U527/Y (AOI22X1)                                        0.03       0.83 f
+  U262/Y (BUFX2)                                          0.04       0.86 f
+  U528/Y (INVX1)                                          0.00       0.86 r
+  codeword_out_reg[126]/D (DFFSR)                         0.00       0.86 r
+  data arrival time                                                  0.86
+
+  clock clk (rise edge)                                   1.00       1.00
+  clock network delay (ideal)                             0.00       1.00
+  clock uncertainty                                      -0.05       0.95
+  codeword_out_reg[126]/CLK (DFFSR)                       0.00       0.95 r
+  library setup time                                     -0.07       0.88
+  data required time                                                 0.88
+  --------------------------------------------------------------------------
+  data required time                                                 0.88
+  data arrival time                                                 -0.86
+  --------------------------------------------------------------------------
+  slack (MET)                                                        0.02
+
+
+  Startpoint: payload_in[62]
+              (input port clocked by clk)
+  Endpoint: codeword_out_reg[122]
+            (rising edge-triggered flip-flop clocked by clk)
+  Path Group: clk
+  Path Type: max
+
+  Point                                                   Incr       Path
+  --------------------------------------------------------------------------
+  clock clk (rise edge)                                   0.00       0.00
+  clock network delay (ideal)                             0.00       0.00
+  input external delay                                    0.10       0.10 r
+  payload_in[62] (in)                                     0.00       0.10 r
+  encoder/payload[62] (systematic_xor_encoder_113_127_530036)
+                                                          0.00       0.10 r
+  encoder/U51/Y (INVX1)                                   0.02       0.12 f
+  encoder/U53/Y (AOI22X1)                                 0.04       0.16 r
+  encoder/U19/Y (BUFX2)                                   0.06       0.22 r
+  encoder/U54/Y (INVX1)                                   0.03       0.26 f
+  encoder/U55/Y (MUX2X1)                                  0.07       0.33 r
+  encoder/U56/Y (MUX2X1)                                  0.10       0.42 r
+  encoder/U402/YS (FAX1)                                  0.10       0.52 f
+  encoder/U403/Y (XOR2X1)                                 0.04       0.57 r
+  encoder/U404/Y (XOR2X1)                                 0.05       0.62 r
+  encoder/U406/Y (XNOR2X1)                                0.05       0.67 r
+  encoder/U410/Y (XNOR2X1)                                0.06       0.72 r
+  encoder/U411/YS (FAX1)                                  0.07       0.80 r
+  encoder/codeword[122] (systematic_xor_encoder_113_127_530036)
+                                                          0.00       0.80 r
+  U525/Y (AOI22X1)                                        0.03       0.83 f
+  U261/Y (BUFX2)                                          0.04       0.86 f
+  U526/Y (INVX1)                                          0.00       0.86 r
+  codeword_out_reg[122]/D (DFFSR)                         0.00       0.86 r
+  data arrival time                                                  0.86
+
+  clock clk (rise edge)                                   1.00       1.00
+  clock network delay (ideal)                             0.00       1.00
+  clock uncertainty                                      -0.05       0.95
+  codeword_out_reg[122]/CLK (DFFSR)                       0.00       0.95 r
+  library setup time                                     -0.07       0.88
+  data required time                                                 0.88
+  --------------------------------------------------------------------------
+  data required time                                                 0.88
+  data arrival time                                                 -0.86
+  --------------------------------------------------------------------------
+  slack (MET)                                                        0.02
+
+
+  Startpoint: payload_in[111]
+              (input port clocked by clk)
+  Endpoint: codeword_out_reg[124]
+            (rising edge-triggered flip-flop clocked by clk)
+  Path Group: clk
+  Path Type: max
+
+  Point                                                   Incr       Path
+  --------------------------------------------------------------------------
+  clock clk (rise edge)                                   0.00       0.00
+  clock network delay (ideal)                             0.00       0.00
+  input external delay                                    0.10       0.10 r
+  payload_in[111] (in)                                    0.00       0.10 r
+  encoder/payload[111] (systematic_xor_encoder_113_127_530036)
+                                                          0.00       0.10 r
+  encoder/U32/Y (INVX1)                                   0.01       0.11 f
+  encoder/U33/Y (MUX2X1)                                  0.09       0.20 r
+  encoder/U34/Y (MUX2X1)                                  0.08       0.28 r
+  encoder/U339/Y (MUX2X1)                                 0.10       0.37 r
+  encoder/U2/Y (MUX2X1)                                   0.05       0.42 f
+  encoder/U1/Y (INVX2)                                    0.05       0.47 r
+  encoder/U419/YS (FAX1)                                  0.10       0.57 r
+  encoder/U420/YS (FAX1)                                  0.09       0.66 r
+  encoder/U421/YS (FAX1)                                  0.08       0.75 f
+  encoder/U422/Y (MUX2X1)                                 0.04       0.79 r
+  encoder/codeword[124] (systematic_xor_encoder_113_127_530036)
+                                                          0.00       0.79 r
+  U529/Y (AOI22X1)                                        0.03       0.82 f
+  U259/Y (BUFX2)                                          0.04       0.86 f
+  U530/Y (INVX1)                                          0.00       0.86 r
+  codeword_out_reg[124]/D (DFFSR)                         0.00       0.86 r
+  data arrival time                                                  0.86
+
+  clock clk (rise edge)                                   1.00       1.00
+  clock network delay (ideal)                             0.00       1.00
+  clock uncertainty                                      -0.05       0.95
+  codeword_out_reg[124]/CLK (DFFSR)                       0.00       0.95 r
+  library setup time                                     -0.07       0.88
+  data required time                                                 0.88
+  --------------------------------------------------------------------------
+  data required time                                                 0.88
+  data arrival time                                                 -0.86
+  --------------------------------------------------------------------------
+  slack (MET)                                                        0.02
+
+
+  Startpoint: payload_in[36]
+              (input port clocked by clk)
+  Endpoint: codeword_out_reg[125]
+            (rising edge-triggered flip-flop clocked by clk)
+  Path Group: clk
+  Path Type: max
+
+  Point                                                   Incr       Path
+  --------------------------------------------------------------------------
+  clock clk (rise edge)                                   0.00       0.00
+  clock network delay (ideal)                             0.00       0.00
+  input external delay                                    0.10       0.10 r
+  payload_in[36] (in)                                     0.00       0.10 r
+  encoder/payload[36] (systematic_xor_encoder_113_127_530036)
+                                                          0.00       0.10 r
+  encoder/U21/Y (INVX1)                                   0.02       0.12 f
+  encoder/U167/Y (MUX2X1)                                 0.08       0.20 r
+  encoder/U168/Y (MUX2X1)                                 0.08       0.28 r
+  encoder/U169/Y (MUX2X1)                                 0.07       0.35 r
+  encoder/U170/Y (MUX2X1)                                 0.10       0.45 r
+  encoder/U171/Y (INVX1)                                  0.04       0.49 f
+  encoder/U172/Y (MUX2X1)                                 0.09       0.58 r
+  encoder/U173/Y (XOR2X1)                                 0.08       0.66 r
+  encoder/U174/YS (FAX1)                                  0.09       0.75 f
+  encoder/U191/Y (XNOR2X1)                                0.04       0.79 r
+  encoder/codeword[125] (systematic_xor_encoder_113_127_530036)
+                                                          0.00       0.79 r
+  U523/Y (AOI22X1)                                        0.03       0.82 f
+  U260/Y (BUFX2)                                          0.04       0.86 f
+  U524/Y (INVX1)                                          0.00       0.86 r
+  codeword_out_reg[125]/D (DFFSR)                         0.00       0.86 r
+  data arrival time                                                  0.86
+
+  clock clk (rise edge)                                   1.00       1.00
+  clock network delay (ideal)                             0.00       1.00
+  clock uncertainty                                      -0.05       0.95
+  codeword_out_reg[125]/CLK (DFFSR)                       0.00       0.95 r
+  library setup time                                     -0.07       0.88
+  data required time                                                 0.88
+  --------------------------------------------------------------------------
+  data required time                                                 0.88
+  data arrival time                                                 -0.86
+  --------------------------------------------------------------------------
+  slack (MET)                                                        0.02
+
+
+1

@@ -1,0 +1,37 @@
+ 
+****************************************
+Report : power
+        -hier
+        -analysis_effort low
+Design : reconstruction_stage
+Version: X-2025.06-SP5-2
+Date   : Fri Sep  4 13:19:54 2026
+****************************************
+
+
+Library(s) Used:
+
+    gscl45nm (File: /apps/local/FreePDK45/osu_soc/lib/files/gscl45nm.db)
+
+
+Operating Conditions: typical   Library: gscl45nm
+Wire Load Model Mode: top
+
+
+Global Operating Voltage = 1.1  
+Power-specific unit information :
+    Voltage Units = 1V
+    Capacitance Units = 1.000000pf
+    Time Units = 1ns
+    Dynamic Power Units = 1mW    (derived from V,C,T units)
+    Leakage Power Units = 1nW
+
+
+--------------------------------------------------------------------------------
+                                       Switch   Int      Leak     Total
+Hierarchy                              Power    Power    Power    Power    %
+--------------------------------------------------------------------------------
+reconstruction_stage                   4.03e-02    0.364 1.31e+03    0.405 100.0
+  encoder (systematic_xor_encoder_4_7_edb)
+                                       1.99e-02 3.07e-02   97.976 5.07e-02  12.5
+1

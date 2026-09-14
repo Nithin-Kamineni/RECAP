@@ -118,6 +118,10 @@ GUARDS = {
     "unknown-experiment":       _g(1, "ECC_EXPERIMENT naming no known experiment"),
     "unknown-sweep":            _g(1, "ECC_SWEEP naming no known axis"),
     "unknown-approach":         _g(1, "ECC_APPROACHES naming an arm that does not exist"),
+    "unknown-metric":           _g(1, "ECC_METRICS naming a figure row that does not exist",
+                                 note="the PLOTTED metric, not the mapper's "
+                                      "`ECC_OPT_METRIC` -- note `latency` here "
+                                      "against `delay` there."),
     "unknown-parity-grouping":  _g(1, "ECC_PARITY_GROUPING naming no known grouping"),
     "unknown-recon-packing":    _g(1, "ECC_RECON_PACKING naming no known packing"),
     "unknown-encoder-granularity": _g(1, "ECC_RECON_ENCODER_GRANULARITY naming no known granularity"),
@@ -157,6 +161,16 @@ GUARDS = {
                                       "ablation, negative is not a price."),
     "dram-static-terms-nonnegative": _g(2, "a negative DRAM background or refresh term"),
     "approaches-empty":         _g(2, "ECC_APPROACHES empty -- nothing to compare"),
+    "metrics-empty":            _g(2, "ECC_METRICS empty -- a figure with no rows"),
+    "recon-area-missing":       _g(2, "ECC_METRICS=area with no archs/_shared/recon_area.yaml scraped yet"),
+    "recon-area-unmeasured":    _g(2, "ECC_METRICS=area at a code Design Compiler has not synthesized",
+                                 note="the area metric has NO fallback "
+                                      "constant, unlike the energy: an "
+                                      "invented engine area is an invented "
+                                      "silicon number."),
+    "area-chip-never-mapped":   _g(2, "ECC_METRICS=area on a chip with no ART in the mapper cache"),
+    "latency-no-cycles":        _g(2, "ECC_METRICS=latency on a raw record carrying no cycle count"),
+    "latency-not-modelled":     _g(2, "ECC_METRICS=latency on a record ECC_LATENCY_MODEL=1 has not re-timed"),
     "sweep-has-no-figure":      _g(2, "a sweep or panel FIGURE on an axis that holds all three lists (fix, area)"),
     "layers-per-model-one-model": _g(2, "ECC_LAYERS' per-model form on a run that evaluates several models"),
     "sweep-archs-empty":        _g(2, "ECC_SWEEP=arch with no architectures"),

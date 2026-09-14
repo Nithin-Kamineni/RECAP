@@ -1,0 +1,30 @@
+ 
+****************************************
+Report : area
+Design : reconstruction_stage
+Version: X-2025.06-SP5-2
+Date   : Thu Aug 27 22:48:53 2026
+****************************************
+
+Library(s) Used:
+
+    gscl45nm (File: /apps/local/FreePDK45/osu_soc/lib/files/gscl45nm.db)
+
+Number of ports:                          414
+Number of nets:                          1656
+Number of cells:                         1469
+Number of combinational cells:           1339
+Number of sequential cells:               128
+Number of macros/black boxes:               0
+Number of buf/inv:                        732
+Number of references:                       5
+
+Combinational area:               3906.453179
+Buf/Inv area:                     1456.707159
+Noncombinational area:            1321.548828
+Macro/Black Box area:                0.000000
+Net Interconnect area:      undefined  (No wire load specified)
+
+Total cell area:                  5228.002007
+Total area:                 undefined
+1

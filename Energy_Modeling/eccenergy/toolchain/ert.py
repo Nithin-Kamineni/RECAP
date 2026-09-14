@@ -54,6 +54,71 @@ def art_areas(doc):
     return {ert_level_of(t["name"]): float(t["area"]) for t in doc["ART"]["tables"]}
 
 
+#: `system_top_level.weights_spad[1..168]` -> 168. Accelergy prices ONE
+#: instance and names how many there are, so a level's contribution to the chip
+#: is `area x instances` and the count is only in the table NAME.
+_ART_INSTANCES = re.compile(r"\[(\d+)\.\.(\d+)\]")
+
+
+def art_instances(name):
+    """How many instances of this level the ART names. 1 when it says nothing."""
+    m = _ART_INSTANCES.search(name)
+    return (int(m.group(2)) - int(m.group(1)) + 1) if m else 1
+
+
+def art_level_areas(doc):
+    """`{level: {"per_instance_um2", "instances", "total_um2"}}` for one ART.
+
+    THE AREA OF A CHIP, NOT OF A LAYER. Accelergy derives the ART from the
+    ARCHITECTURE alone, so every shape solved under one fingerprint carries a
+    byte-identical `timeloop-mapper.ART.yaml` -- measured 2026-09-14 across all
+    12 resnet18 shapes of `eyeriss_like_wglb/fp-2db6a4d92ff5`, one md5. That is
+    what makes `chip_art()` a single read per chip rather than a walk of the
+    cache, and it is why an area bar has no layer scope in it.
+
+    `[1..N]` in the table name is the instance count and it is NOT optional
+    arithmetic: `weights_spad` is priced per PE at 182.759 um2 and there are
+    168 of them. Summing the per-instance column would understate the PE array
+    by more than two orders of magnitude.
+    """
+    out = {}
+    for tab in doc["ART"]["tables"]:
+        level = ert_level_of(tab["name"])
+        n = art_instances(tab["name"])
+        per = float(tab["area"])
+        # A level named twice in one ART would silently lose one of the two.
+        if level in out:
+            raise ValueError(f"ART names {level!r} twice")
+        out[level] = {"per_instance_um2": per, "instances": n,
+                      "total_um2": per * n}
+    return out
+
+
+def chip_art(cache_dir):
+    """The ART of the chip cached under `cache_dir`, or None if it has none.
+
+    Prefers `_ert/base.ART.yaml` -- the per-arm table `ErtTables` generates
+    once from Accelergy and stages into every shape -- and falls back to any
+    solved shape's `timeloop-mapper.ART.yaml`, which is the same document. A
+    chip that has never been mapped has neither, and that is a MISSING AREA
+    rather than a zero: the caller says so on the bar instead of drawing an
+    accelerator with no silicon in it.
+    """
+    cache_dir = pathlib.Path(cache_dir)
+    # In the order the docstring states, which is source before copy: the two
+    # under `_ert/` are byte-identical (`ErtTables` writes the base ART through
+    # unchanged -- it bumps the ERT, never the ART), so the order decides only
+    # which path the provenance string names, and naming the SOURCE is what
+    # makes an area traceable to Accelergy rather than to a staged copy.
+    for candidate in (cache_dir / ERT_DIR / "base.ART.yaml",
+                      cache_dir / ERT_DIR / ART_NAME):
+        if candidate.is_file():
+            return yaml.safe_load(candidate.read_text()), candidate
+    for shape in sorted(cache_dir.glob(f"*/{ART_NAME}")):
+        return yaml.safe_load(shape.read_text()), shape
+    return None, None
+
+
 def patched_ert(doc, changes):
     """Copy `doc` with `changes` = {(level, action): ("set"|"add", pJ)} applied.
 

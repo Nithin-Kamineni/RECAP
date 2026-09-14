@@ -159,3 +159,87 @@ def load_recon_energy(cfg, k=None):
                 f"ECC_RECON_PJ override ({cfg.recon_pj_override} pJ/codeword incremental); "
                 f"idle {idle:.7f} pJ/cycle/engine from {prov}")
     return inc, idle, prov
+
+
+# =========================================================================
+#  THE ENGINE'S AREA  (EnvReorganisation phase 5, `ECC_METRICS=area`)
+# =========================================================================
+#  The SECOND thing the synthesis run measured, and it arrives by a different
+#  road from the energy. `data/dc/BCH_N63_results.json` carries the two energy
+#  terms as numbers but records area only as PATHS to `.rpt` files
+#  (`reports.active_area`), and those files were not in this tree until
+#  2026-09-14. They are now, under `data/dc/report_snapshots/`, and the user's
+#  instruction is to SCRAPE THEM ONCE and read the scrape:
+#  `tools/scrape_dc_area.py` writes `archs/_shared/recon_area.yaml` and
+#  `--check` fails when the two disagree.
+#
+#  WHY NOT PARSE THE .rpt DIRECTLY, like the JSON above. Because the JSON is
+#  ONE cited file and the reports are 84 files in 24 directories, of which
+#  area is 12 lines; a per-run walk of them would put a directory scan on the
+#  hot path of every figure and, worse, would report NOTHING rather than
+#  refusing when the snapshots are not checked out. The YAML is in the repo
+#  and is the citable record.
+#
+#  ACTIVE ONLY. `active/` and `idle/` are the same netlist under two switching
+#  activities: the POWER differs -- which is exactly what the two energy terms
+#  above are -- and the AREA is identical in all twelve configurations. The
+#  scraper asserts that and stores the active number alone. Adding the two
+#  would count one engine twice (the user's instruction, 2026-09-14).
+#
+#  THERE IS NO FALLBACK CONSTANT, deliberately, and this is the difference
+#  from `load_recon_terms` above. An unmeasured ENERGY falls through to a
+#  fallback with a warning because a bar with no reconstruction energy at all
+#  understates a cost the study exists to measure. An unmeasured AREA has no
+#  such default: a made-up area is a made-up silicon number, and the only
+#  honest answers are the measurement or a refusal. So a code with no row here
+#  is REFUSED by name.
+
+_AREA_DOC = None
+
+
+def _area_doc():
+    """`archs/_shared/recon_area.yaml`, parsed once."""
+    global _AREA_DOC
+    if _AREA_DOC is None:
+        import yaml
+        from ..paths import ARCH_RECON_AREA
+        if not ARCH_RECON_AREA.exists():
+            raise guards.refusal("recon-area-missing",
+                f"{ARCH_RECON_AREA} does not exist, so the reconstruction "
+                f"engine's area is unknown.\n"
+                f"  -> python3 tools/scrape_dc_area.py   (reads "
+                f"data/dc/report_snapshots/)\n"
+                f"  -> or drop `area` from ECC_METRICS")
+        _AREA_DOC = yaml.safe_load(ARCH_RECON_AREA.read_text()) or {}
+    return _AREA_DOC
+
+
+def load_recon_area(cfg, k=None):
+    """`(area_um2, provenance)` -- the area of ONE synthesized engine at BCH(n, k).
+
+    Matched on (n, k) exactly as `load_recon_terms` matches the energy, so the
+    K sweep and a fixed-K run read the same table and neither can be costed at
+    another code's datapath.
+
+    ONE ENGINE. What multiplies it is the placement -- how many engines a
+    boundary instantiates -- and that is the caller's count, never a number in
+    the YAML.
+    """
+    k = cfg.code_k if k is None else k
+    doc = _area_doc()
+    engines = doc.get("engines") or {}
+    for cid, row in engines.items():
+        if int(row.get("n", -1)) == cfg.code_n and int(row.get("k", -1)) == k:
+            area = float(row["area_um2"])
+            return area, (f"{cid}: {area:.6f} um2, DC total cell area "
+                          f"({doc.get('measurement')}), library "
+                          f"{doc.get('library')} -- "
+                          f"archs/_shared/recon_area.yaml")
+    raise guards.refusal("recon-area-unmeasured",
+        f"no synthesized area for BCH({cfg.code_n},{k}) in "
+        f"archs/_shared/recon_area.yaml.\n"
+        f"  measured: {', '.join(sorted(engines))}\n"
+        f"  -> the area metric has NO fallback constant, on purpose: an "
+        f"invented engine area is an invented silicon number. Synthesize the "
+        f"code and re-run `python3 tools/scrape_dc_area.py`, or drop `area` "
+        f"from ECC_METRICS.")

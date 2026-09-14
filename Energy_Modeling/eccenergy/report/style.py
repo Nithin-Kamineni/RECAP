@@ -26,6 +26,16 @@ HOUSE = {
     "ECC decode": "#7D3C98",
     "Reconstruction": "#1F9E8F",
     "Recon overhead": "#8E6C3A",
+    # ---- the metric rows that are not energy (EnvReorganisation phase 5).
+    # `Latency` and `Energy x delay` are ONE segment each -- a run length is a
+    # max over the levels, not a sum of them -- so their colour only has to be
+    # distinct from the energy stack, never to sit beside another segment.
+    # `Recon engine` DOES sit beside the area stack's accelerator segments, and
+    # it takes `Reconstruction`'s teal on purpose: the same component charged
+    # in a different currency should read as the same component.
+    "Latency": "#34495E",
+    "Energy x delay": "#5B4B8A",
+    "Recon engine": "#1F9E8F",
 }
 
 #: Okabe-Ito. The house palette's global-buffer green and on-chip amber are
@@ -47,6 +57,9 @@ CVD.update({
     "ECC decode": "#7D3C98",
     "Reconstruction": "#CC79A7",
     "Recon overhead": "#8E6C3A",
+    "Latency": "#34495E",
+    "Energy x delay": "#5B4B8A",
+    "Recon engine": "#CC79A7",
 })
 
 #: Category names as they should read in a legend.
@@ -57,6 +70,7 @@ NICE_CATEGORY = {
     "NoC": "NoC / interconnect",
     "Local (read)": "On-chip SRAM/RF (read)",
     "Local (write)": "On-chip SRAM/RF (write)",
+    "Recon engine": "Reconstruction engine (DC)",
 }
 
 INK = "#2b2b2b"
@@ -89,6 +103,33 @@ def unit_for(max_pj):
     if max_pj / 1e3 >= 1:
         return 1e3, "nJ"
     return 1.0, "pJ"
+
+
+def unit_for_metric(metric, max_value):
+    """`(divisor, unit)` for one metric's own quantity. NOT `unit_for`.
+
+    `unit_for` picks a scale for PICOJOULES and is right for `energy` and for
+    nothing else: handing it seconds would label a millisecond "µJ". Each
+    metric row carries its own base unit out of `study.metrics.metric_stacks`
+    -- pJ, pJ·s, seconds, µm² -- and this is the one place each is scaled for
+    the axis, so two rows of one figure can never be divided by each other's
+    divisor.
+    """
+    if metric == "energy":
+        return unit_for(max_value)
+    if metric == "edp":
+        # pJ·s. 1 µJ·ms = 1e6 pJ × 1e-3 s = 1e3 pJ·s.
+        return (1e3, "µJ·ms") if max_value >= 1e3 else (1.0, "pJ·s")
+    if metric == "latency":
+        # seconds. Off a 200 MHz clock an inference is milliseconds.
+        if max_value >= 1.0:
+            return 1.0, "s"
+        return (1e-3, "ms") if max_value >= 1e-3 else (1e-6, "µs")
+    if metric == "area":
+        # µm² straight out of Accelergy's ART and the DC report. An
+        # accelerator is millions of them; one engine is thousands.
+        return (1e6, "mm²") if max_value >= 1e5 else (1.0, "µm²")
+    raise ValueError(f"no unit for metric {metric!r}")
 
 
 def decimals(ymax):

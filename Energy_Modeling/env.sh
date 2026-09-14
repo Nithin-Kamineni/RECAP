@@ -61,11 +61,13 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # =============================================================================
 #  1. WHAT TO COMPUTE AND PLOT
 # =============================================================================
-#  THE FOUR LINES THAT DECIDE THE STUDY are ECC_APPROACHES (which bars),
-#  ECC_SWEEP (which x axis), the three lists (ECC_ARCHS / ECC_MODELS / ECC_KS,
-#  whose FIRST entry is the held value on every axis that is not swept) and
-#  ECC_LAYERS (the scope). `bash hpc/run_all.sh` then maps what is cold,
-#  evaluates and draws; `--dry-run` prints the bill first.
+#  THE LINES THAT DECIDE THE STUDY are ECC_APPROACHES (which bars), ECC_SWEEP
+#  (which x axis), ECC_METRICS (which y axes -- one figure ROW each), the three
+#  lists (ECC_ARCHS / ECC_MODELS / ECC_KS, whose FIRST entry is the held value
+#  on every axis that is not swept) and ECC_LAYERS (the scope).
+#  `bash hpc/run_all.sh` then maps what is cold, evaluates and draws;
+#  `--dry-run` prints the bill first. The whole figure is those three:
+#  rows = ECC_METRICS, columns = ECC_SWEEP, bars = ECC_APPROACHES.
 #
 #  THE LISTS ARE THE CHIPS, so widening one ADDS mapper work -- it never moves
 #  an existing cache entry, which is what separates them from sections 2 and 3.
@@ -83,7 +85,8 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # baseline | embedded | recon | recon1 | recon2 | recon3 | recon4 | recon5
 : "${ECC_APPROACHES:=baseline embedded recon}"
 
-# bch | model | arch | fix | area        (area = buffer DEPTH, not silicon area)
+# bch | model | arch | fix | area   <- an X AXIS. `area` here = buffer DEPTH;
+#                                      silicon area is ECC_METRICS below
 #   bch    BCH(63,K) over ECC_KS                 (arch, model held)
 #   model  the networks of ECC_MODELS            (arch, code held)
 #   arch   the designs of ECC_ARCHS              (model, code held)
@@ -94,6 +97,11 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #          of the MAPPINGS, read with
 #          `python3 -m eccenergy.report.dilation_view --levels`
 : "${ECC_SWEEP:=fix}"
+
+# energy | edp | latency | area   <- a Y AXIS: one figure ROW per entry, drawn
+#                                    in THIS order. `area` here = SILICON area
+#                                    (um2), not ECC_SWEEP's buffer depth
+: "${ECC_METRICS:=energy}"
 
 # eyeriss_like_wglb | simple_weight_stationary | eyeriss_v2_like_wglb | eyeriss_v2_like | simple_output_stationary | simple_input_stationary | simba_like   (FIRST = held)
 : "${ECC_ARCHS:=eyeriss_like_wglb simple_weight_stationary eyeriss_v2_like simple_output_stationary simple_input_stationary simba_like}"
@@ -157,6 +165,35 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #  never be mistaken for a model. The commented line above is the development
 #  scope EnvReorganisation 6.9 asks for -- six layers over three networks; use
 #  it while changing code, never for a figure.
+#
+#  ECC_METRICS -- WHICH Y AXES, one figure ROW each, drawn in the order
+#  `energy edp latency area` however they are typed. It is EVALUATOR ONLY: it
+#  changes what is PLOTTED and never what is mapped, so it is not in the
+#  mapper fingerprint and turning it up does not cold a single cache. Do not
+#  confuse it with ECC_OPT_METRIC in section 2, which names what the MAPPER
+#  OPTIMISES and IS in the fingerprint -- note that one spells the timing
+#  objective `delay` and this one spells it `latency`, so a value of one can
+#  never be pasted into the other.
+#    energy   the stacked category breakdown this project has always drawn
+#    edp      each bar's OWN energy x its OWN delay -- not the reference's, or
+#             the row would restate the energy row
+#    latency  the roofline's re-timing (ECC_LATENCY_MODEL, section 4). With
+#             that knob at 0 every arm gets Timeloop's own cycles and the row
+#             is flat BY CONSTRUCTION -- an absent term, not a measured null
+#    area     SILICON area, and the one metric with no single source: the
+#             accelerator from Accelergy's ART in the mapper cache, the
+#             reconstruction engine from Design Compiler
+#             (archs/_shared/recon_area.yaml, scraped from
+#             data/dc/report_snapshots/ by tools/scrape_dc_area.py). Two
+#             measurements from two flows, added because the question has no
+#             other answer and labelled on every result so the sum is never
+#             read as one measurement. There is NO fallback engine area: an
+#             unsynthesized code is refused, because an invented area is an
+#             invented silicon number.
+#  THE DEFAULT IS ONE ROW. Section 8 of EnvReorganisation pictures a finished
+#  run as `energy latency`; the default here is `energy` alone so that the
+#  knob's arrival changed no figure and no table that already existed. Turn it
+#  up when you want the rows -- nothing is re-mapped.
 #
 #  ECC_JOBS -- EMPTY is one array task per UNIT of work (one chip x one
 #  distinct layer shape) with ECC_CONCURRENCY capping how many run at once,
@@ -1095,7 +1132,8 @@ export ECC_ACC_BITS ECC_ACCOUNT ECC_ACTIVATION_BITS ECC_ALLOW ECC_APPROACHES \
        ECC_MAC_PJ_OVERRIDE ECC_MAP_CPUS ECC_MAP_MEM ECC_MAPPER_ALGORITHM \
        ECC_MAPPER_MAX_PERMUTATIONS ECC_MAPPER_SEARCH_SIZE ECC_MAPPER_SEED \
        ECC_MAPPER_THREADS ECC_MAPPER_TIMEOUT ECC_MAPSPACE_CONSTRAIN \
-       ECC_MAP_TIME ECC_MODELS ECC_NICE_LABELS ECC_NOC ECC_NOC_PE_LATCH_PJ \
+       ECC_MAP_TIME ECC_METRICS ECC_MODELS ECC_NICE_LABELS ECC_NOC \
+       ECC_NOC_PE_LATCH_PJ \
        ECC_NOC_ROUTER_PJ ECC_NOC_SCALE ECC_NOC_WIRE_PJ_PER_BIT_MM \
        ECC_ONCHIP_BW_BITAWARE ECC_OPT_METRIC ECC_OVERWRITE ECC_PALETTE \
        ECC_PANEL_MODELS ECC_PARITY_CHARGE_PADDING ECC_PARITY_GROUPING \

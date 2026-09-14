@@ -173,3 +173,21 @@
 	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/detail/standby_energy/per_level[0]/note: 'off chip: env.sh section 6 declares no density, as E_background and E_' -> 'off chip: no leakage density is declared for DRAM (archs/<name>/design'
 	  verdict: record/prose only -- every number identical. Read the lists,
 	           then record it:  bash restructure/gate.sh --accept-record '<why>'
+2026-09-14T09:40:25Z	EnvReorganisation phase 5 adds ECC_METRICS, so `metrics` is a NEW KEY in Config.to_dict() and appears in the 8 places a config record is written (4 result files + 4 manifests), with config_hash following from it in the 4 results that carry one. NUMBERS MOVED: 0 -- every energy, cycle, count and guard report is identical, and gate item 1 is 302 fingerprint rows unchanged, because ECC_METRICS is EVALUATOR ONLY and deliberately not in IN_FINGERPRINT. This is the same shape of divergence phase 3 recorded for layers_by_model: a field added, no number under it.
+	  NUMBERS MOVED (always red): 0
+	  RECORD keys added/removed (no number in them): 8
+	    baseline/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/metrics: fresh only
+	    diagnose/manifests/diagnose.json/config/metrics: fresh only
+	    embedded/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/metrics: fresh only
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/metrics: fresh only
+	    recon_default/manifests/ReconSweep_optimiser__resnet18.json/config/metrics: fresh only
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/metrics: fresh only
+	    recon_ert/manifests/ReconSweep_optimiser__resnet18.json/config/metrics: fresh only
+	    validate/manifests/validate.json/config/metrics: fresh only
+	  PROSE (strings, text lines): 4
+	    baseline/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config_hash: '05d1e98f' -> 'fa70b7c9'
+	    embedded/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config_hash: 'efa35027' -> '516f727b'
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config_hash: '78bd0f25' -> 'de58225d'
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config_hash: '78bd0f25' -> 'de58225d'
+	  verdict: record/prose only -- every number identical. Read the lists,
+	           then record it:  bash restructure/gate.sh --accept-record '<why>'

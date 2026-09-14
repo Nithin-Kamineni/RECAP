@@ -5139,6 +5139,9 @@
       "mapper_threads": 18,
       "mapper_timeout": 100000000,
       "mapspace_constrain": true,
+      "metrics": [
+        "energy"
+      ],
       "models": [
         "resnet18"
       ],
@@ -5222,7 +5225,7 @@
       "weights_per_codeword": 4,
       "workload": "cnn"
     },
-    "config_hash": "efa35027",
+    "config_hash": "516f727b",
     "finished_utc": "<scrubbed>",
     "git_commit": "<scrubbed>",
     "host": "<scrubbed>",

@@ -27,7 +27,7 @@ from .style import plt
 BAR_WIDTH, BAR_GAP = 0.34, 0.06
 
 
-def active_categories(cfg, panel_stacks):
+def active_categories(cfg, panel_stacks, cats=None):
     """Categories non-zero SOMEWHERE across every panel handed in.
 
     A category that is zero everywhere is dropped from the stacks AND the
@@ -36,11 +36,18 @@ def active_categories(cfg, panel_stacks):
     two different legends.
 
     `panel_stacks` is a list of {group key: DataFrame}.
+
+    `cats` overrides the ENERGY category list (EnvReorganisation phase 5). A
+    metric row that is not energy stacks along its own segments -- one
+    `Latency` row, one `Energy x delay` row, or the area categories plus
+    `Recon engine` -- and `plot_cats(cfg)` names none of them, so asking for
+    the energy categories of a latency DataFrame would drop every segment it
+    has and draw an empty panel.
     """
-    cats = plot_cats(cfg)
+    cats = plot_cats(cfg) if cats is None else list(cats)
     return [c for c in cats
             if sum(float(st.loc[c].sum()) for stacks in panel_stacks
-                   for st in stacks.values()) > 1e-9]
+                   for st in stacks.values() if c in st.index) > 1e-9]
 
 
 def _bar_x(cfg, n, bars=None, width=BAR_WIDTH):
@@ -167,7 +174,8 @@ def draw_panel(ax, cfg, groups, stacks, group_labels, *, pal, active, div,
 def grouped_stacks(cfg, results, groups, stacks, group_labels, title, stem,
                    group_fontsize=20, show_savings=True, bars=None,
                    bar_tags=None, bar_width=BAR_WIDTH, ref_totals=None,
-                   ylabel=None, extra_columns=None, bar_notes=None):
+                   ylabel=None, extra_columns=None, bar_notes=None,
+                   metric_rows=None):
     """Draw and save one grouped stacked-bar figure plus its CSV.
 
     groups        ordered list of group keys
@@ -184,7 +192,52 @@ def grouped_stacks(cfg, results, groups, stacks, group_labels, title, stem,
     figure above it at a different scale rather than adding a quantity. What it
     was there to make visible -- a sub-percent saving -- is carried by
     `bar_notes`, in uJ, on the bar it belongs to.
+
+    ...UNLESS `ECC_METRICS` ASKS FOR MORE THAN ONE ROW (EnvReorganisation
+    phase 5). `metric_rows` is `[(metric, groups, stacks, labels)]` -- what the
+    DRIVER built, because only the driver has the `Session` the other metrics
+    are read from -- and when it names more than one metric this DELEGATES to
+    `panels.stacked_panels`, one panel row per metric, top to bottom in
+    `ECC_METRICS` order. It does not draw a second figure and it does not fork
+    the renderer: `stacked_panels` is the routine that already stacks axes
+    vertically, and `draw_panel` is still the only place a bar is drawn.
+
+    WITH ONE METRIC -- which is env.sh's default -- nothing below changes and
+    the figure this project has always drawn comes out byte-identical. That is
+    deliberate: it is what lets phase 5 be gated on unchanged numbers.
     """
+    if metric_rows and len(metric_rows) > 1:
+        from .panels import stacked_panels
+        # EVERY ROW GETS ITS OWN REFERENCE AND ITS OWN NOTES, keyed by metric.
+        # A row measured against the ENERGY row's reference would annotate a
+        # latency bar with an energy saving; a row given no reference at all
+        # falls back to "the first bar of this group", and on a figure with one
+        # bar per group that is the bar itself -- every annotation 0.0 %, which
+        # is how the first four-row draft came out with the latency row's real
+        # 1.7 % gain unlabelled (measured 2026-09-14).
+        refs, notes = {}, {}
+        for row in metric_rows:
+            m = row[0]
+            if len(row) > 4 and row[4] is not None:
+                refs[m] = row[4]
+            elif m == "energy" and ref_totals is not None:
+                refs[m] = ref_totals
+            if len(row) > 5 and row[5] is not None:
+                notes[m] = row[5]
+            elif m == "energy" and bar_notes is not None:
+                notes[m] = bar_notes
+        spec = [(row[0], _row_title(row[0]), row[1], row[2], row[3], row[0])
+                for row in metric_rows]
+        return stacked_panels(
+            cfg, results, spec,
+            title=title, stem=stem, group_fontsize=group_fontsize,
+            show_savings=show_savings, bars=bars, bar_tags=bar_tags,
+            bar_width=bar_width, bar_notes=notes or None,
+            ref_totals=refs or None,
+            extra_columns=None if extra_columns is None
+            else {metric_rows[0][0]: extra_columns},
+            ylabel=ylabel)
+
     style.apply_rc()
     pal = style.palette(cfg)
     n = len(groups)
@@ -213,6 +266,18 @@ def grouped_stacks(cfg, results, groups, stacks, group_labels, title, stem,
     csv = write_table(cfg, results, [(None, groups, stacks, group_labels)], stem,
                       bars=bars, ref_totals=ref_totals, extra_columns=extra_columns)
     return figs, csv
+
+
+def _row_title(metric):
+    """The heading over ONE metric row.
+
+    The figure's own one-line title is already above the whole page
+    (`fig.suptitle`), so a row heading that repeated it would say everything
+    twice. What a row has to say is WHICH METRIC IT IS -- read left to right
+    with the y label, that is the whole identification a reader needs.
+    """
+    return {"energy": "Energy", "edp": "Energy x delay",
+            "latency": "Latency", "area": "Silicon area"}.get(metric, metric)
 
 
 def write_table(cfg, results, panels, stem, bars=None, ref_totals=None,

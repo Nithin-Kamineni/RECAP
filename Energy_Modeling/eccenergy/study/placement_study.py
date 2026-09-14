@@ -630,6 +630,13 @@ def evaluate(cfg, ses, prov, arch, model, raw):
             # re-parse of the cached stats before anything was evaluated.
             "weight_by_category": {c: float(v) for c, v in base_w.items()},
             "mac": getattr(raw, "mac", None),
+            # IN MEMORY ONLY, for `ECC_METRICS` (EnvReorganisation phase 5).
+            # The metric rows are re-read from the SAME `Raw` the energy bars
+            # were evaluated from -- handing the record over is what makes that
+            # true by construction rather than by a second lookup that could
+            # find a different one. It is not written to any result: `builder`
+            # owns the record and this key never reaches it.
+            "raw": raw,
             "builder": builder}
 
 

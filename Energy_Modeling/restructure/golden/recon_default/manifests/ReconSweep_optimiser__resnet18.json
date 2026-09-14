@@ -69,6 +69,9 @@
     "mapper_threads": 18,
     "mapper_timeout": 100000000,
     "mapspace_constrain": true,
+    "metrics": [
+      "energy"
+    ],
     "models": [
       "resnet18"
     ],

@@ -1,0 +1,44 @@
+ 
+****************************************
+Report : area
+Design : reconstruction_stage
+Version: X-2025.06-SP5-2
+Date   : Thu Aug 27 22:44:55 2026
+****************************************
+
+Library(s) Used:
+
+    gscl45nm (File: /apps/local/FreePDK45/osu_soc/lib/files/gscl45nm.db)
+
+Number of ports:                          498
+Number of nets:                          1434
+Number of cells:                         1079
+Number of combinational cells:            949
+Number of sequential cells:               128
+Number of macros/black boxes:               0
+Number of buf/inv:                        531
+Number of references:                       5
+
+Combinational area:               2895.580993
+Buf/Inv area:                     1004.771272
+Noncombinational area:            1321.548828
+Macro/Black Box area:                0.000000
+Net Interconnect area:      undefined  (No wire load specified)
+
+Total cell area:                  4217.129821
+Total area:                 undefined
+
+Hierarchical area distribution
+------------------------------
+
+                                  Global cell area          Local cell area
+                                  ------------------  ---------------------------- 
+Hierarchical cell                 Absolute   Percent  Combi-     Noncombi-  Black-
+                                  Total      Total    national   national   boxes   Design
+--------------------------------  ---------  -------  ---------  ---------  ------  -------------------------------------
+reconstruction_stage              4217.1298    100.0  1206.1010  1321.5488  0.0000  reconstruction_stage
+encoder                           1689.4800     40.1  1689.4800     0.0000  0.0000  systematic_xor_encoder_113_127_530036
+--------------------------------  ---------  -------  ---------  ---------  ------  -------------------------------------
+Total                                                 2895.5810  1321.5488  0.0000
+
+1

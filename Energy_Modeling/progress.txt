@@ -2625,3 +2625,362 @@ preamble calls ECC_APPROACHES, ECC_SWEEP, the three lists and ECC_LAYERS "the
 four lines that decide the study"; that sentence is where the two new knobs
 belong. Note `area` is a value of BOTH (an x axis in ECC_SWEEP, a y axis in
 ECC_METRICS, 6.3), so both option lines must say which.
+
+
+================================================================================
+ENVREORGANISATION PHASE 5 -- ECC_METRICS
+================================================================================
+2026-09-14.  plans/EnvReorganisation.md section 7, phase 5.  Commit: this one.
+
+THE KNOB, THE FOUR ROWS, AND ONE NEW FEATURE. `ECC_METRICS` takes a list from
+`energy edp latency area` and draws ONE FIGURE ROW PER ENTRY, stacked top to
+bottom in that order (3.1: "energy on top, latency below it, area below
+that"). 2.2's picture is now literally what the code does: rows =
+ECC_METRICS, columns = ECC_SWEEP, bars = ECC_APPROACHES.
+
+GATE: PASSED. Item 1: 302 fingerprint rows IDENTICAL -- nothing was
+re-mapped and no mapper cache moved, because ECC_METRICS is EVALUATOR ONLY and
+is deliberately not in IN_FINGERPRINT (see "THE TWO VOCABULARIES" below).
+NUMBERS MOVED: 0, on every JSON leaf, CSV cell and stdout token.
+RECORD KEYS MOVED: 8, and they are ONE key -- `config/metrics` in the 8 places
+a config record is written (4 result files + 4 manifests). PROSE: 4, the
+`config_hash` that necessarily follows from adding a field. Both lists were
+read in full and DECLARED with --accept-record (restructure/golden/record.log);
+this is the same shape of divergence phase 3 recorded for `layers_by_model`.
+Suite 493 -> 515 passed, 10 skipped, 0 failed -- a GROWTH, so gate 6 passed on
+its own rule; --accept-tests was used only to bring the golden artefact
+current for phase 6 (restructure/golden/pytest.log). A clean re-run afterwards
+is green on all six items with no flag.
+
+--------------------------------------------------------------------------
+THE PHASE'S OWN FOUR GATE ITEMS
+--------------------------------------------------------------------------
+(a) Config.to_dict() from a CLEAN shell (`env -i bash -c 'source ./env.sh;
+    ...'`) BEFORE (git archive of 6b44836) and AFTER, on the DEFAULT and on
+    all five values ECC_SWEEP takes (bch, model, arch, area, fix). Compared
+    STRUCTURALLY, key by key: 108 -> 109 keys, added = ['metrics'], removed =
+    [], and CHANGED VALUES = [] on every one of the six. The only difference
+    anywhere is the new key.
+(b) `bash hpc/run_all.sh --dry-run`: axis fix, 6 chips, 12 shapes, 72 units,
+    cached 72/72, 0 to map, 0 jobs -- byte-identical to phase 4's bill. What
+    is PLOTTED changed; what is MAPPED did not, and the bill is the proof.
+(c) ONE REAL SLURM JOB, not --dry-run (42090963_0,
+    hpc/logs/phase5-smoke.42090963_0.out): the cached unit
+    eyeriss_like_wglb / resnet18 / K=39 / depth x1.0 / reference / conv1,
+    submitted through the real hpc/map.sbatch against a one-row task file.
+    `raw cache hit: resnet18`, fp-2db6a4d92ff5, COMPLETED in 8 s wall / 2.3 s
+    real. Nothing was re-solved and nothing was overwritten -- which is the
+    point: --dry-run resolves the same configuration in the same process and
+    cannot see the code a job actually runs.
+(d) LOOKED AT THE FIGURE, four rows, on the six-layer scope's resnet18 half
+    (conv1 + layer3.0.conv1 -- the warm corner; the mobilenet_v2 and
+    efficientnet_b0 layers are cold by design and were not mapped for a
+    figure review). Rendered on TWO axes: `fix` (the placement figure,
+    env.sh's default) and `bch` (the sweep renderer). FOUR DEFECTS WERE FOUND
+    BY LOOKING AND FIXED -- the gate cannot see any of them:
+      1. each metric block's legend was drawn at the top of its own axes,
+         exactly where the panel heading already is: "Energy x delay" and its
+         key were printed on top of each other. The legend now sits above the
+         heading, by the heading's own measured height.
+      2. the area row's legend then landed on the LATENCY row's group labels,
+         which hang 27% of an axes height below zero (draw_panel). hspace
+         0.42 -> 0.66 for a multi-block page; a single-block page is
+         untouched.
+      3. no metric row but the first was annotated: with no reference of its
+         own a row falls back to "the first bar of this group", which on a
+         one-bar-per-group figure is the bar itself, so every annotation read
+         0.0% and the latency row's real 1.7% gain was invisible. Each row now
+         carries its OWN reference, in its own quantity.
+      4. `Latency` and `Energy x delay` are ONE band each and were given a
+         one-entry legend restating the y label an inch to their left. A
+         one-segment block draws no key now.
+
+--------------------------------------------------------------------------
+THE TWO VOCABULARIES -- ECC_METRICS IS NOT ECC_OPT_METRIC
+--------------------------------------------------------------------------
+    OPT_METRICS  ("energy", "edp", "delay", "last_level_accesses")
+                 settings/mapper.py. What the MAPPER OPTIMISES. IN THE
+                 FINGERPRINT: a plan solved for delay is a different plan.
+    METRICS      ("energy", "edp", "latency", "area")
+                 settings/run.py. What the FIGURE PLOTS. Evaluator only.
+
+Note `delay` against `latency`: the words differ on purpose so a value of one
+can never be pasted into the other, and `ECC_METRICS=delay` is REFUSED with
+ECC_OPT_METRIC named in the message.
+
+**ECC_METRICS IS NOT IN IN_FINGERPRINT AND MUST NEVER BE.** A plotting choice
+in arch_fingerprint() would cold every mapper cache in the project at once --
+hours of SLURM per design -- for a decision about which rows a PNG has. It
+lives in env.sh section 1, outside sections 2 and 3's walled-off cold zone.
+Pinned two ways: the existing `test_the_hashed_set_is_what_it_was_before_the_
+split`, and a new PROPERTY test -- two configurations differing only in
+ECC_METRICS must produce the same Config.fingerprint() AND the same
+arch_fingerprint().
+
+--------------------------------------------------------------------------
+THE DEFAULT IS ONE ROW, AND THAT IS A DECISION
+--------------------------------------------------------------------------
+`: "${ECC_METRICS:=energy}"`. Section 8's picture of a finished run shows
+`energy latency`, and that is what a finished STUDY wants -- but phase 5's own
+gate is that everything already on disk is unchanged, and a multi-row default
+changes the shape of every figure and every CSV this project writes on the day
+the knob lands. One row makes the phase's divergence exactly the one the plan
+predicts: a new KEY in the config record, with no number under it. Turning the
+others on is one word in env.sh and re-maps nothing.
+
+--------------------------------------------------------------------------
+WHICH RENDERER GREW THE ROWS -- DECIDED, AND WHY
+--------------------------------------------------------------------------
+`report/panels.py`'s `stacked_panels`. There are still TWO figure programs
+(sweep.py + panels.py for bch/model/arch, recon_view.py for the placement
+figure) and phase 6 unifies them; teaching either one to stack metric rows
+would have written the row logic twice and then had to merge it. Both already
+share `stacked_panels`, so the rows grew THERE and both got them at once:
+recon_view calls it directly for a multi-design figure, and
+`stacked.grouped_stacks` -- the entry point of every single-panel figure --
+now DELEGATES to it as soon as more than one metric is asked for.
+`draw_panel` is still the only place a bar is drawn (CLAUDE.md): it gained no
+new routine, and `active_categories` gained one parameter (`cats`) so a row
+whose segments are not the energy categories is not silently emptied.
+
+WITH ONE METRIC NOTHING CHANGES PATH. grouped_stacks' single-panel arithmetic,
+stacked_panels' single-block unit/legend arithmetic, and the CSV are all
+byte-identical to what phase 4 left. That is what makes the gate meaningful.
+
+ROWS x PANELS: ONE COLUMN, METRIC-MAJOR (also decided here, because
+ECC_METRICS x ECC_PANEL_MODELS is a grid and something had to say which way it
+flattens). Every panel of the first metric, then every panel of the second.
+Metric-major because 3.1 states the vertical order in metrics, and because the
+panels of ONE metric are the ones that share a unit and a legend -- a true 2-D
+grid would put panels that share nothing side by side and buy only page
+height. Each block computes its own unit, its own active category set and its
+own legend; nothing is shared across a block, which is what stops a
+millisecond being divided by an energy figure's `div`.
+
+--------------------------------------------------------------------------
+ENERGY / EDP / LATENCY -- NO NUMBER MOVED
+--------------------------------------------------------------------------
+`study/metrics.py` (new, L5) turns one `Raw` plus the energy stacks already
+built from it into one DataFrame per metric, shaped exactly as build_stacks
+shapes the energy one. Nothing is re-mapped, re-timed twice, or invented:
+
+  energy   IS build_stacks(), delegated to unchanged and passed through.
+  latency  Raw.latency for baseline/embedded (the roofline ECC_LATENCY_MODEL=1
+           already applies, at weight_scale 1.0 -- both arms move the SAME
+           weight bits; the baseline pays a dearer per-bit PRICE, not extra
+           traffic) and latency_post.model_cycles(raw, cfg, weight_scale=K/N)
+           for recon, which is verbatim what Raw.latency's own docstring says
+           a bar driving K/N of the bits off the die gets.
+  edp      each bar's OWN energy x its OWN delay. Multiplying every arm by the
+           reference's delay would report the energy saving twice and call the
+           product a second metric.
+
+LATENCY AND EDP ARE ONE SEGMENT EACH, not a stack. A plan's run length is a
+MAX over the levels (latency_post.roofline), not a sum of them, so a stacked
+breakdown of it would be a picture of an addition that never happens.
+
+MEASURED, resnet18 / eyeriss_like_wglb / BCH(63,39), two layers:
+  energy  baseline 1.5749 mJ  embedded 1.4937 (-5.157%)  recon 1.4939 (-5.142%)
+  latency baseline 42.298 ms  embedded 42.298 (-0.000%)  recon 41.559 (-1.746%)
+  edp     baseline 66.614     embedded 63.179 (-5.157%)  recon 62.085 (-6.798%)
+  area    baseline 3.68506 mm2  embedded 3.68506 (0.000%)  recon 3.68734 (+0.062%)
+
+AND THE ROWS AGREE WITH EACH OTHER, EXACTLY:
+  1 - (1 - 0.05142)(1 - 0.01746) = 0.06798 = the EDP row's own number.
+That identity is a TEST, over every group and every arm, because if edp were
+built from a second energy figure or latency re-timed with a different scale
+the rows would drift apart and nothing on the figure would say so.
+Also pinned: baseline and embedded CANNOT differ in latency or in area -- same
+traffic, same chip, no engine -- so a metric that picked up the energy model's
+price difference as a physical one fails there.
+
+DIRECTIONS PREDICTED FIRST, THEN CHECKED (the recon latency gain must grow with
+parity): -0.6% at K=57, -1.5% at 45, -1.7% at 39, -2.3% at 30. Monotonic in
+K/N, which is what a K/N off-chip relief has to look like.
+
+--------------------------------------------------------------------------
+`area` -- THE NEW FEATURE, BUILT LAST (section 7 says so)
+--------------------------------------------------------------------------
+IT HAS TWO HALVES FROM TWO MEASUREMENTS AND THE FIGURE SAYS SO.
+
+THE ACCELERATOR, from Accelergy's ART. `timeloop-mapper.ART.yaml` is written
+into every cache entry (5,163 on disk). `toolchain/ert.py` already had
+`art_areas()`; it gained `art_instances()`, `art_level_areas()` and
+`chip_art()`. Per-level area x THE INSTANCE COUNT IN THE TABLE NAME --
+`weights_spad[1..168]` is priced ONCE and instantiated 168 times, and summing
+the per-instance column would lose two orders of magnitude on every replicated
+level (mutation-tested). Levels are classified by `toolchain.stats.classify`,
+the same routine that puts a level's ENERGY in a category, so the area row and
+the energy row of one figure are cut along the same lines.
+
+MEASURED AND WORTH KEEPING: the ART is a property of the CHIP, not of the
+layer. All 12 resnet18 shapes under fp-2db6a4d92ff5 carry a byte-identical ART
+(one md5). That is why an area read is ONE file per chip instead of a walk of
+the cache, and why an area bar has no layer scope in it. It is a test.
+eyeriss_like_wglb comes to 3.685 mm2 at 45 nm.
+
+THE ENGINE, from Design Compiler -- AND THIS IS WHERE THE PHASE STOPPED AND
+ASKED. `data/dc/BCH_N63_results.json` carries the two ENERGY terms as numbers
+but records area only as PATHS (`reports.active_area` ->
+`results/report_snapshots/<cfg>/active/area.rpt`), and those files were not in
+this tree, nor anywhere under Projects/RECAP/. So a recon bar's engine area
+had no measured value, and the honest options were to declare the term absent
+or to wait. THE USER SUPPLIED THE REPORTS instead (2026-09-14), with three
+instructions: scrape them once rather than reading the .rpt every time, store
+the result under archs/_shared/, and use ACTIVE ONLY.
+
+  tools/scrape_dc_area.py  ->  archs/_shared/recon_area.yaml   (12 configs)
+  BCH(63,57) 1772.546  (63,51) 2016.582  (63,45) 2120.297
+  BCH(63,39) 2276.574  (63,36) 2353.540  (63,30) 2313.649   um2
+  plus four BCH(127,*) and two 7_4 entries, and `--check` fails when the YAML
+  and the reports disagree (a test runs it).
+
+ACTIVE ONLY, AND THE SCRAPER REFUSES RATHER THAN CHOOSES. `active/` and
+`idle/` are one netlist under two switching activities: the POWER differs --
+which is exactly what the two energy terms are -- and the AREA is identical in
+all twelve configurations, verified. Adding them would count one engine twice.
+The scraper asserts the equality and stores the active number alone; a test
+re-asserts it over every report on disk, so a future synthesis run that breaks
+the assumption fails there rather than silently doubling a bar.
+
+WHAT IS RECORDED, NOT CORRECTED: one non-monotonicity. More correction
+capability should cost more area and does, except that BCH(63,36) t=5
+synthesized 1.7% LARGER than BCH(63,30) t=6. That is synthesis variance across
+two independent runs of the same flow, and the YAML's header says so rather
+than the number being adjusted.
+
+WHAT THE .rpt GIVES IS `Total cell area`, PRE-LAYOUT, in gscl45nm: every
+report says `Net Interconnect area: undefined (No wire load specified)` and
+therefore `Total area: undefined`. So this is CELL area and not a die area,
+and the YAML says that too.
+
+NO FALLBACK CONSTANT, DELIBERATELY -- the one place `area` differs from the
+energy lookup beside it. An unmeasured reconstruction ENERGY falls through to
+a fallback with a warning, because a bar with no reconstruction energy
+understates a cost the study exists to measure. An unmeasured AREA has no
+honest default: a made-up area is a made-up silicon number. A code with no row
+is REFUSED by name (`recon-area-unmeasured`), and so is a chip with no ART
+(`area-chip-never-mapped`) -- never charged as zero, because an accelerator
+with no silicon in it is not a result.
+
+ONE ENGINE. The YAML holds one stage's area; how many a boundary instantiates
+is the caller's count (1 for build_stacks' ingress arm,
+physics/granularity.py's for a placement) and never a number in the file. A
+test refuses a `count:` key appearing there.
+
+THE ENGINE IS A SLIVER, AND THAT IS THE RESULT. 2,277 um2 against 3.685 mm2 is
+0.062% -- well under a pixel at any figure size. This project already has the
+answer to a result too small to draw (the sub-percent energy savings): put the
+number on the bar in TEXT. Each recon area bar carries `+2,277 um2 / engine
+(0.06%)`, in the two-short-lines form the energy notes use for the same
+reason.
+
+EACH BAR'S AREA IS THE CHIP IT WAS BILLED FROM -- and getting this wrong was
+SILENT, which is why it is written down. A bar drawn from R2's plan stands on
+R2's silicon, not on the reference's (CLAUDE.md, "EVERY BAR NAMES THE PLAN IT
+WAS BILLED FROM"). The first version read `billing[key]["lender_fingerprint"]`
+-- but `billing[key]` holds only `arm`/`kind`/`geometry_matches`/`candidates`/
+`why`; the fingerprint and cache variant live on that arm's `ErtArmView` in
+`out["views"]`, which is where `placement_study` itself reads them to record
+`lender_fingerprint`. So every lookup missed and every bar fell back to the
+REFERENCE chip. Nothing failed and nothing warned: seven identical accelerator
+areas is exactly what a correctly reference-billed figure looks like.
+
+MEASURED AFTER THE FIX (resnet18 / eyeriss_like_wglb / BCH(63,39)) -- six
+distinct fingerprints, THREE distinct accelerator areas:
+  baseline, embedded  fp-2db6a4d92ff5   3.685064 mm2
+  recon1              fp-410ee95e7f78   3.685064   (narrows nothing on chip)
+  recon2/3/4          fp-1519e6934e32 / 04320e626edd / 653c73722712
+                                        3.684774
+  recon5              fp-32154e84bb0f   3.684495
+Before the fix all seven read fp-2db6a4d92ff5.
+
+AND THE RESULT IS THAT THE ARRAY BARELY MOVES -- 0.008 % between the widest and
+the narrowest arm. That is not a null: it is THE WIDTH TABLE working as
+designed. `_set_weight_geometry()` renormalises depth onto the arm's own width
+(`depth' = round(depth x width / 96)`) to hold the declared total BITS, so a
+reconstruction arm stores the same bits in differently shaped words and CACTI
+prices it almost identically. Reconstruction buys DRAM traffic and time, not
+silicon -- and it COSTS silicon, by one engine. The area row says exactly that.
+
+On the three SWEEPS all three abstract arms are billed from the reference plan
+by construction (build_stacks applies K/N to the reference record rather than
+remapping), so they share one ART and the recon bar differs by the engine
+alone; a bar per MAPPED placement with its own ART is the placement figure.
+
+--------------------------------------------------------------------------
+GUARDS, FIELDS AND TESTS
+--------------------------------------------------------------------------
+GUARDS.md 131 -> 138. New: `unknown-metric` (tier 1, and its message names
+ECC_OPT_METRIC because that is the confusion it exists to catch),
+`metrics-empty` (tier 2), `recon-area-missing`, `recon-area-unmeasured`,
+`area-chip-never-mapped`, `latency-no-cycles`, `latency-not-modelled` (all
+tier 2). Spelling rule followed: every one is `refusal()`, tiers 1-2.
+
+FIELD_ORDER: `metrics` immediately after `approaches`, the knob it sits beside
+in env.sh -- the one key phase 5 adds. `test_the_record_keeps_its_key_order`
+and `test_every_knob_is_owned_by_exactly_one_group` cover it automatically
+(they are derived from the six groups, not hand-listed) and both pass.
+
+eccenergy/tests/test_metrics.py, 22 tests, 0 skipped under the gate's own
+`source env.sh`. THREE OF THEM WERE MUTATION-TESTED before being trusted:
+  * drop the ART instance count      -> test_the_instance_count_is_applied RED
+  * perturb one scraped area by 1e-6 -> test_the_stored_area_is_the_active_
+                                        report_verbatim RED
+  * bill EDP at the reference delay  -> test_edp_is_exactly_energy_times_delay RED
+and the tree is green again with all three reverted.
+
+TWO OF THOSE TESTS DO NOT USE conftest's `cfg()` FIXTURE, on purpose. The
+pinned fixture states a design and lets every mapper and chip knob fall back
+to the code default, which is a DIFFERENT chip from env.sh's and therefore a
+different fp- directory -- so a data-backed test built on it would skip for
+ever while the cache it means to read sits right there. They read the ambient
+environment, which under the gate is env.sh's, and skip outside it.
+
+Suite: 493 -> 515 passed, 10 skipped.
+
+--------------------------------------------------------------------------
+CHECKED, NOT ASSUMED
+--------------------------------------------------------------------------
+* `bash -n env.sh` after every edit; ECC_METRICS added to the export list (in
+  its alphabetical slot) so it reaches map.sbatch and the dependent eval;
+  `env -i bash -c 'source ./env.sh; echo $ECC_METRICS'` -> `energy`;
+  grep for CR = 0;
+* every consumer still sources env.sh: run.sh, hpc/run_all.sh, hpc/map.sbatch,
+  hpc/tl.sh, hpc/smoke_models.sh, hpc/map_capacity_sweep.sh and
+  restructure/snapshot.py; eccenergy/tests/test_dilation.py's env.sh routing
+  test (which reads the real file) is green unchanged;
+* the LAYER RULE holds. `unit_for_metric` was written in study/metrics.py
+  first, which made L5 import report/style at L6 -- an upward import, the
+  thing phase 4 of ProjectRestructure got to zero. It was moved to
+  report/style.py beside `unit_for`, where a metric's axis unit belongs
+  anyway; tests/contract/test_layer_rule.py is green;
+* every file written atomically (temp + os.replace) with a pre-edit copy kept.
+
+ONE PROCESS MISTAKE WORTH RECORDING: the first post-change gate run was RED on
+items 2-5, and the cause was mine, not the code's. I rendered a figure WHILE
+the gate was snapshotting, and snapshot.py collects result files by mtime
+since the stage started -- so my writes landed inside the `embedded` stage's
+window and were reported as that stage having produced three result files
+instead of one. Re-run with nothing else touching results/, it is clean. The
+gate is not safe to run concurrently with anything that writes results/.
+
+--------------------------------------------------------------------------
+WHAT PHASE 5 DID NOT DO
+--------------------------------------------------------------------------
+* `ECC_RECON_DEFAULT` is phase 6 and was NOT added;
+* the abstract `recon` arm is NOT retired and sweep.py was NOT taught to draw
+  a bar per placement -- both are phase 6, and `sweep-has-no-figure` still
+  refuses sweep/panels on `fix` and `area`;
+* the CSV is still the ENERGY table. A `Latency` column of seconds beside
+  `recon_DRAM` picojoules in one row would be two units in one record, so a
+  multi-metric figure's other rows live in the figure and the manifest.
+  Carrying every metric in the table belongs with phase 6's sweep unify.
+
+NOTE FOR PHASE 6: `report/panels.stacked_panels` now takes a 6-element panel
+tuple `(key, title, groups, stacks, labels, metric)`, and the 5-element form
+still means "one block, exactly as before". When phase 6 draws a bar per
+placement, the metric blocks are already there -- what it adds is groups, not
+rows. `study/metrics.metric_stacks` takes `arm_of` and `engine_bars` precisely
+so a figure whose column name is not the arm name (the placement figure's is
+always `energy`) can still say which bars are reconstruction bars.

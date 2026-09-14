@@ -18,6 +18,7 @@ L5, and the layer rule has no exception left for it.
 from __future__ import annotations
 
 from .stacked import grouped_stacks
+from ..study import metrics as metrics_mod
 from ..study.common import Session
 from ..study.stacks import build_stacks, k_label, recon_pj_for_k
 from ..settings import guards
@@ -53,6 +54,64 @@ def _arch_groups(cfg, ses):
 BUILDERS = {"bch": _bch_groups, "model": _model_groups, "arch": _arch_groups}
 
 
+def _raw_for_group(cfg, ses, group):
+    """The `Raw` record ONE group of the swept axis was built from.
+
+    Which of the three axes is walking decides what a group key IS -- a code, a
+    network, or a design -- so the record behind it is looked up differently in
+    each case, and the metric rows have to read the same record the energy
+    stack was built from or the two rows would describe different runs.
+    """
+    if cfg.sweep == "bch":
+        return ses.raws.get(cfg.const_arch, {}).get(cfg.const_model), cfg.const_arch, group
+    if cfg.sweep == "model":
+        return ses.raws.get(cfg.const_arch, {}).get(group), cfg.const_arch, cfg.code_k
+    return ses.raws.get(group, {}).get(cfg.const_model), group, cfg.code_k
+
+
+def metric_rows(cfg, ses, groups, stacks, labels):
+    """`[(metric, groups, stacks, labels)]` -- one entry per `ECC_METRICS` row.
+
+    THE ENERGY ROW IS THE ONE THAT WAS ALREADY BUILT, passed straight through,
+    so the figure's energy row and the CSV beside it cannot disagree. Every
+    other row is derived from the SAME `Raw` record, per group, by
+    `study.metrics` -- nothing is re-mapped and nothing is re-timed twice.
+
+    Returns a single-entry list for the default `ECC_METRICS=energy`, which is
+    what keeps `grouped_stacks` on its unchanged single-panel path.
+    """
+    rows = []
+    for metric in cfg.metrics:
+        if metric == "energy":
+            rows.append((metric, groups, stacks, labels))
+            continue
+        per_group = {}
+        for g in groups:
+            raw, arch, k = _raw_for_group(cfg, ses, g)
+            if raw is None:
+                continue
+            cache = ses.chip_dir(arch)
+            df, _prov = metrics_mod.metric_stacks(
+                cfg, metric, raw, stacks[g], list(cfg.bar_arms),
+                code_k=k if cfg.sweep == "bch" else None,
+                # EVERY ABSTRACT ARM IS BILLED FROM THE REFERENCE PLAN on the
+                # three sweeps: `build_stacks()` applies the reconstruction
+                # arm's K/N to the reference record rather than remapping, so
+                # the accelerator all three bars stand on is one chip and one
+                # ART. The recon bar differs by the ENGINE, which is the term
+                # the DC scrape adds. A bar per MAPPED placement, each with its
+                # own chip and its own ART, is the placement figure's job.
+                cache_dirs={a: cache for a in cfg.bar_arms})
+            per_group[g] = df
+        drawn = [g for g in groups if g in per_group]
+        if not drawn:
+            print(f"  [skip] metric {metric}: no group could be built")
+            continue
+        rows.append((metric, drawn, per_group,
+                     {g: labels.get(g, g) for g in drawn}))
+    return rows
+
+
 def run(cfg):
     ses = Session(cfg).setup()
     ses.collect_all()
@@ -76,7 +135,8 @@ def run(cfg):
         group_labels=labels,
         title=cfg.figure_title(),
         stem=cfg.stem,
-        group_fontsize=fontsize)
+        group_fontsize=fontsize,
+        metric_rows=metric_rows(cfg, ses, groups, stacks, labels))
 
     ses.finish(figs, csv, groups)
     return ses

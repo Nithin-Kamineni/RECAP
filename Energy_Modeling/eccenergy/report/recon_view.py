@@ -33,6 +33,7 @@ from ..study import capacity
 from ..toolchain import ert
 from ..arch.load import load_provenance
 from . import panels as panels_mod
+from ..study import metrics as metrics_mod
 from .stacked import grouped_stacks, write_table
 from ..study.common import Session
 from ..study.energy import plot_cats
@@ -253,6 +254,11 @@ def panel_for(cfg, arch, model, out):
         "ref_totals": {g: base_t for g in groups},
         "base_total": base_t, "emb_total": emb_t,
         "mac_ert_pj": (out.get("mac") or {}).get("ert_pj_per_mac"),
+        # For `ECC_METRICS` (EnvReorganisation phase 5): the SAME record the
+        # energy bars were evaluated from, and which chip each bar was billed
+        # from. A metric row reads both rather than looking either up again.
+        "raw": out.get("raw"), "billing": out.get("billing") or {},
+        "views": out.get("views") or {},
     }
 
 
@@ -262,6 +268,80 @@ def panel_for(cfg, arch, model, out):
 PANEL_NOTE = ("each panel is one design's OWN weight path, measured against its "
               "OWN two reference bars; the panels share a legend and a unit, not "
               "a y limit or an x axis")
+
+
+def _bar_chip_dir(cfg, ses, pan, key):
+    """The mapper cache directory of the chip bar `key` was BILLED FROM.
+
+    EVERY BAR NAMES THE PLAN IT WAS BILLED FROM (CLAUDE.md), and the area of a
+    bar has to be the area of THAT chip -- a bar drawn from R2's plan stands on
+    R2's silicon, not on the reference's. `billing[key]["lender_fingerprint"]`
+    and `lender_cache_variant` are exactly that chip, recorded by
+    `placement_study` when it chose the plan. The two reference bars, and any
+    bar with no billing entry, stand on the reference chip.
+    """
+    bill = (pan["billing"] or {}).get(key) or {}
+    # `billing[key]` names the ARM the bar was billed from; the arm's own
+    # fingerprint and cache variant are on its `ErtArmView` (`out["views"]`),
+    # which is what `placement_study` itself reads to record
+    # `lender_fingerprint`. Going through the view rather than through the
+    # billing dict is the difference between each bar's OWN silicon and the
+    # reference's for every bar -- and the second one is silent, because every
+    # accelerator area then comes out identical, which is exactly what a
+    # reference-billed bar legitimately looks like.
+    lender = (pan.get("views") or {}).get(bill.get("arm"))
+    if lender is not None and getattr(lender, "fingerprint", None):
+        return ses.results.mapper_cache(pan["arch"], lender.variant,
+                                        lender.fingerprint, create=False)
+    # No view: the two reference bars, and any bar billed from the reference
+    # plan (R1, whose patched YAML IS the reference's). Both stand on the
+    # reference chip, which is what `Session.chip_dir` resolves.
+    return ses.chip_dir(pan["arch"])
+
+
+def _metric_rows_for_panel(cfg, ses, pan, groups):
+    """`{metric: {group: DataFrame}}` for one design's panel.
+
+    ONE BAR PER GROUP on this figure, and the column is always called `energy`
+    -- the placement is the GROUP. So `arm_of` and `engine_bars` are told which
+    groups are reconstruction boundaries rather than being guessed from a
+    column name that carries no arm in it.
+    """
+    out = {}
+    raw = pan.get("raw")
+    for metric in cfg.metrics:
+        if metric == "energy":
+            continue
+        if raw is None:
+            print(f"  [skip] metric {metric}: this panel carries no raw record")
+            continue
+        per_group, notes = {}, {}
+        for g in groups:
+            is_recon = g not in ("baseline", "embedded")
+            df, _prov = metrics_mod.metric_stacks(
+                cfg, metric, raw, pan["stacks"][g], ["energy"],
+                cache_dirs={"energy": _bar_chip_dir(cfg, ses, pan, g)},
+                engine_bars={"energy"} if is_recon else set(),
+                arm_of={"energy": "recon" if is_recon else "embedded"})
+            per_group[g] = df
+            if metric == "area" and is_recon:
+                # THE ENGINE IS A SLIVER AND THAT IS THE RESULT. One BCH(63,39)
+                # stage is 2,277 um2 against an accelerator of 3.69 mm2 --
+                # 0.06 %, well under a pixel at any figure size. This project
+                # already has the answer to a result too small to draw: put the
+                # number on the bar in TEXT (`bar_notes`, added for the
+                # sub-percent energy savings, `report/stacked.draw_panel`). A
+                # reader who cannot see the segment can still read what it is.
+                eng = float(df.loc[metrics_mod.ENGINE_SEGMENT, "energy"])
+                acc = float(df["energy"].sum()) - eng
+                # TWO SHORT LINES. A bar slot is about two inches wide and a
+                # note past ~16 characters collides with its neighbour, then
+                # drags the whole `bbox_inches="tight"` image wider -- the same
+                # constraint the energy notes above are written to.
+                notes[g] = (f"+{eng:,.0f} \u00b5m\u00b2\n"
+                            f"engine ({eng / acc * 100:.2f}%)")
+        out[metric] = (per_group, notes)
+    return out
 
 
 def _title(cfg, panels):
@@ -296,13 +376,37 @@ def figure(cfg, ses, panels):
     if one:
         pan = panels[0]
         drawn, stacks = pan["drawn"], pan["stacks"]
+        # ONE ROW PER `ECC_METRICS` ENTRY (EnvReorganisation phase 5). The
+        # energy row is the stacks already built; the rest come off the same
+        # `Raw`. With the default one-metric configuration this is a
+        # single-entry list and `grouped_stacks` stays on the exact path it
+        # has always taken.
+        extra_rows = _metric_rows_for_panel(cfg, ses, pan, drawn)
+        rows = []
+        for m in cfg.metrics:
+            if m == "energy":
+                rows.append((m, drawn, {g: stacks[g] for g in drawn},
+                             pan["labels"], pan["ref_totals"],
+                             {g: pan["notes"][g] for g in drawn
+                              if g in pan["notes"]}))
+            elif m in extra_rows:
+                per_group, notes = extra_rows[m]
+                # EACH ROW AGAINST ITS OWN CONVENTIONAL-ECC BAR, in its own
+                # quantity -- the same rule the energy row follows, so "-1.7%"
+                # on the latency row means what "-5.2%" means on the energy one.
+                ref = float(per_group["baseline"]["energy"].sum()) \
+                    if "baseline" in per_group else None
+                rows.append((m, drawn, per_group, pan["labels"],
+                             None if ref is None else {g: ref for g in drawn},
+                             notes or None))
         figs, _csv = grouped_stacks(
             cfg, ses.results,
             groups=drawn, stacks={g: stacks[g] for g in drawn},
             group_labels=pan["labels"], title=title, stem=cfg.stem,
             group_fontsize=15, bars=["energy"], bar_tags={}, bar_width=0.92,
             ref_totals=pan["ref_totals"],
-            bar_notes={g: pan["notes"][g] for g in drawn if g in pan["notes"]})
+            bar_notes={g: pan["notes"][g] for g in drawn if g in pan["notes"]},
+            metric_rows=rows)
         # ...and the table gets every row, drawn or not.
         csv = write_table(cfg, ses.results,
                           [(None, pan["groups"], stacks, pan["labels"])],
@@ -341,6 +445,22 @@ def figure(cfg, ses, panels):
                                        .replace(chr(10), " "))
     # The table needs the undrawn rows too, so it is written here rather than by
     # `stacked_panels`, whose figure only ever sees the drawn ones.
+    # ECC_METRICS x DESIGNS, METRIC-MAJOR AND ONE COLUMN (report/panels.py's
+    # docstring records the decision): every design's energy panel, then every
+    # design's latency panel, and so on. Each row carries its metric, so
+    # `stacked_panels` scales and legends it within its own block.
+    spec = [(k, h, g, s, l, "energy") for k, h, g, s, l in spec]
+    for metric in cfg.metrics:
+        if metric == "energy":
+            continue
+        for pan in panels:
+            rows = _metric_rows_for_panel(cfg, ses, pan, pan["drawn"])
+            if metric not in rows:
+                continue
+            per_group, _notes = rows[metric]
+            key = pan["arch"]
+            spec.append((key, f"{cfg.arch_label(key).replace(chr(10), ' ')}",
+                         pan["drawn"], per_group, pan["labels"], metric))
     figs, _csv = panels_mod.stacked_panels(
         cfg, ses.results, spec, title=title, stem=cfg.stem, group_fontsize=15,
         bars=["energy"], bar_tags={}, bar_width=0.92, ref_totals=refs,

@@ -77,6 +77,12 @@ ARCH_COMPONENTS = ARCH_SRC / "_shared" / "components"
 ARCH_STANDARD = ARCH_SRC / "_shared" / "standard.yaml"
 ARCH_PROVENANCE = ARCH_SRC / "_shared" / "provenance.yaml"
 ARCH_NOC = ARCH_SRC / "_shared" / "noc.yaml"
+#: The synthesized reconstruction engine's AREA, scraped from the Design
+#: Compiler reports by `tools/scrape_dc_area.py` (EnvReorganisation phase 5,
+#: the user's instruction 2026-09-14: scrape once, read the YAML, never walk
+#: `data/dc/report_snapshots/` on the hot path). `physics/recon_dc.py` reads
+#: it, beside the energy JSON it already reads.
+ARCH_RECON_AREA = ARCH_SRC / "_shared" / "recon_area.yaml"
 
 #: Directories under archs/ that are shared data, not architectures.
 ARCH_SRC_RESERVED = ("_shared",)

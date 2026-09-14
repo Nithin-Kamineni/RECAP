@@ -74,7 +74,7 @@ from .settings.mapper import (OPT_METRICS, VICTORY_MAX_SCALE,
 from .settings.recon import (RECON_ENCODER_SITES, RECON_GRANULARITIES,
                              RECON_PACKINGS, ReconSettings)
 from .settings.run import (APPROACH_LABELS, APPROACH_TAGS, APPROACHES,
-                           BAR_ARMS, EXPERIMENTS, POINT_SWEEPS,
+                           BAR_ARMS, EXPERIMENTS, METRICS, POINT_SWEEPS,
                            RECON_PLACEMENT_APPROACHES, SWEEP_ALIASES,
                            SWEEP_STEMS, SWEEPS, RunSettings)
 from .settings import guards
@@ -125,6 +125,7 @@ DESIGN_AXIS_KNOBS = ("const_arch", "sweep_archs", "sweep", "experiment",
 FIELD_ORDER = (
     "experiment", "sweep", "sweep_archs", "sweep_models", "sweep_ks",
     "panel_models", "const_arch", "const_model", "const_k", "approaches",
+    "metrics",
     "weight_bits", "activation_bits", "acc_bits_override", "code_n",
     "emb_weights_per_cw_override", "parity_grouping", "parity_charge_padding",
     "decode_enabled", "decode_pj_base", "decode_pj_emb",
@@ -190,6 +191,31 @@ def _resolve(self):
         raise guards.refusal("unknown-sweep",
             f"ECC_SWEEP={self.sweep!r}; choose one of "
             f"{', '.join(SWEEPS)}")
+
+    # ECC_METRICS -- WHICH FIGURE ROWS. Checked here, beside ECC_APPROACHES,
+    # because they are the same kind of knob: a list of names the figure is
+    # built from. Normalised into `METRICS` order so the rows come out
+    # "energy on top, latency below it, area below that" (EnvReorganisation
+    # 3.1) whatever order they were typed in, and de-duplicated so
+    # `ECC_METRICS="energy energy"` is one row rather than two identical ones.
+    #
+    # NOT `ECC_OPT_METRIC`. That one names what the MAPPER optimises and is in
+    # the fingerprint; this one names what the FIGURE plots and is evaluator
+    # only. `settings/run.py`'s METRICS docstring has the whole distinction.
+    bad = [m for m in self.metrics if m not in METRICS]
+    if bad:
+        raise guards.refusal("unknown-metric",
+            f"ECC_METRICS has unknown entries {bad}; choose from "
+            f"{', '.join(METRICS)}.\n"
+            f"  -> this is what the FIGURE PLOTS (one row per entry). What the "
+            f"MAPPER optimises is ECC_OPT_METRIC, whose values are "
+            f"{', '.join(OPT_METRICS)} -- note `delay` there against `latency` "
+            f"here.")
+    if not self.metrics:
+        raise guards.refusal("metrics-empty",
+            "ECC_METRICS is empty -- a figure with no rows.\n"
+            f"  -> name at least one of {', '.join(METRICS)}")
+    self.metrics = [m for m in METRICS if m in self.metrics]
 
     bad = [a for a in self.approaches if a not in APPROACHES]
     if bad:

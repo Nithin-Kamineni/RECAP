@@ -39,6 +39,40 @@ APPROACHES = ("baseline", "embedded", "recon") + RECON_PLACEMENT_APPROACHES
 #: until phase 6 teaches `report/sweep.py` to draw a bar per placement.
 BAR_ARMS = ("baseline", "embedded", "recon")
 
+#: THE METRICS A FIGURE MAY PLOT -- one figure ROW per entry, top to bottom in
+#: THIS order, whatever order `ECC_METRICS` names them in (EnvReorganisation
+#: 3.1: "energy on top, latency below it, area below that"). The picture is
+#: 2.2's: rows = `ECC_METRICS`, columns = `ECC_SWEEP`, bars = `ECC_APPROACHES`.
+#:
+#: EVALUATOR ONLY, AND NOT `settings/mapper.py`'s `OPT_METRICS`. Those two are
+#: TWO VOCABULARIES and conflating them is the expensive mistake here:
+#:
+#:     OPT_METRICS  ("energy", "edp", "delay", "last_level_accesses")
+#:                  what the MAPPER OPTIMISES. `ECC_OPT_METRIC` picks one and
+#:                  it IS in `mapper.IN_FINGERPRINT`, because a plan solved
+#:                  for delay is a different plan.
+#:     METRICS      ("energy", "edp", "latency", "area")
+#:                  what the FIGURE PLOTS. Nothing is re-solved and no mapping
+#:                  moves; the numbers are read back off plans already in the
+#:                  cache.
+#:
+#: Note `delay` there against `latency` here -- the words are deliberately not
+#: the same, so a value of one can never be pasted into the other.
+#:
+#: `metrics` IS NOT IN `IN_FINGERPRINT`, AND MUST NEVER BE. It is a plotting
+#: choice, and a plotting choice that reached `arch_fingerprint()` would cold
+#: every mapper cache in the project at once -- hours of SLURM per design --
+#: for a decision about which rows a PNG has. That is why the knob lives in
+#: env.sh section 1 and not inside sections 2 and 3's walled-off cold zone.
+#: `tests/contract/test_settings.py` pins the exclusion.
+#:
+#: `area` IS A VALUE OF BOTH THIS AND `SWEEPS`, and they mean different things
+#: (EnvReorganisation 6.3, the user's decision 2026-09-14 to keep one word):
+#: `ECC_SWEEP=area` is an X AXIS -- the buffer-DEPTH ladder
+#: `ECC_DEPTH_SWEEP_SCALES` -- and `ECC_METRICS=area` is a Y AXIS, silicon
+#: area in um2. env.sh's two option lines each say which.
+METRICS = ("energy", "edp", "latency", "area")
+
 #: The axes a run can walk. `bch`, `model` and `arch` put a list on the x axis
 #: and hold the other two; `fix` and `area` hold ALL THREE -- `fix` is the
 #: placement study at one point (the bars are what `ECC_APPROACHES` names) and
@@ -127,6 +161,10 @@ class RunSettings:
     const_model: str
     const_k: int
     approaches: list
+    #: `ECC_METRICS` -- which figure ROWS to draw, in `METRICS` order. See
+    #: `METRICS` above for why this is not `mapper.OPT_METRIC` and why it is
+    #: not in the fingerprint.
+    metrics: list
     layers: list
     #: `ECC_LAYERS`' per-model spelling, `{model: [layer, ...]}` -- empty for
     #: the bare-list form (EnvReorganisation 6.9). Layer names are per
@@ -192,6 +230,16 @@ class RunSettings:
             const_model=_one("ECC_CONST_MODEL", "resnet18"),
             const_k=_i("ECC_CONST_K", 51),
             approaches=[a.lower() for a in _list("ECC_APPROACHES", "baseline embedded recon")],
+            # THE DEFAULT IS ONE ROW, `energy`. EnvReorganisation section 8's
+            # picture of a finished run shows `energy latency`, and that is
+            # what a finished STUDY asks for -- but phase 5's own gate is that
+            # every existing number and every existing artefact is unchanged,
+            # and a multi-row default changes the shape of every figure and
+            # every CSV this project writes on the day the knob lands. One row
+            # makes the phase's single expected divergence exactly the one the
+            # plan predicts -- a new KEY in the config record, with no number
+            # under it -- and turning the others on is one word in env.sh.
+            metrics=[m.lower() for m in _list("ECC_METRICS", "energy")],
             # The two spellings of ECC_LAYERS, told apart by the `=`. The
             # resolution into ONE scope needs the held model, which is
             # `_resolve()`'s job; this layer only parses.
