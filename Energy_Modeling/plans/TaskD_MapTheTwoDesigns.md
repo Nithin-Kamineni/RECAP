@@ -32,8 +32,20 @@ Three of its values reach the gate:
 
 * `ECC_MAPPER_THREADS=16` (was 18). **The thread count is hashed into
   `arch_fingerprint()`** via `cfg.mapper_settings()` — `arch/fingerprint.py`
-  hashes the whole mapper dict — so **300 of 306 fingerprint rows differ from
-  the golden**, which was taken at 18. Measured, not estimated.
+  hashes the whole mapper dict — so **essentially every architecture
+  fingerprint differs from the golden**, which was taken at 18. Measured on
+  2026-09-14: 300 of the 306 lines in `fingerprints.tsv`, the rest being
+  headers. **MEASURE IT YOURSELF rather than trusting that number** — env.sh is
+  edited between sessions, and `_config_hash` moves on ANY env.sh change, so
+  the count drifts:
+
+      bash hpc/tl.sh bash -c 'source env.sh; PYTHONPATH=. python3 \
+        restructure/_fingerprints.py' > /tmp/fp.tsv
+      diff restructure/golden/fingerprints.tsv /tmp/fp.tsv | grep -c '^<'
+
+  Record the number you actually measured in progress.txt. What matters is not
+  the count but that the cause is the thread count and the env.sh edits, and
+  that no ENERGY number moved.
 * `ECC_APPROACHES="baseline embedded recon"` (was all seven) and
   `ECC_METRICS="energy edp latency"` (was `energy`) change what the
   `recon_default` and `recon_ert` stages produce, so items 2–5 move too.

@@ -123,7 +123,7 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #          ladder is 7 scales x the arms of COLD mappings, so the figure could
 #          not be LOOKED AT when it was built, and phase 6's own rule is that
 #          every figure is reviewed by eye. Map the ladder first, then lift it.
-: "${ECC_SWEEP:=bch}"
+: "${ECC_SWEEP:=fix}"
 
 # energy | edp | latency | area   <- a Y AXIS: one figure ROW per entry, drawn
 #                                    in THIS order. `area` here = SILICON area
