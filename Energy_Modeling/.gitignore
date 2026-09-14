@@ -20,6 +20,11 @@ results*/figures/
 results*/tables/
 results*/manifests/
 
+# Per-model layer listings (name, shape, macs, which layers share a shape).
+# Regenerated from ecc_energy_study/model_layers.json, which is itself ignored
+# above -- so this is a convenience view of a generated file, not a source.
+results*/LayerNames/
+
 # Runtime scratch: CACTI inputs/outputs bound writable into the read-only
 # image (hpc/tl.sh), and the container's temp directory.
 hpc/.runtime/

@@ -95,7 +95,8 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # baseline | embedded | recon | recon1 | recon2 | recon3 | recon4 | recon5
 #   `recon` on its own is ONE bar: the placement ECC_RECON_DEFAULT names
-: "${ECC_APPROACHES:=baseline embedded recon1 recon2 recon3 recon4 recon5}"
+# : "${ECC_APPROACHES:=baseline embedded recon1 recon2 recon3 recon4 recon5}"
+: "${ECC_APPROACHES:=baseline embedded recon}"
 
 # recon1 | recon2 | recon3 | recon4 | recon5   <- what a bare `recon` bar MEANS
 : "${ECC_RECON_DEFAULT:=recon2}"
@@ -122,12 +123,12 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #          ladder is 7 scales x the arms of COLD mappings, so the figure could
 #          not be LOOKED AT when it was built, and phase 6's own rule is that
 #          every figure is reviewed by eye. Map the ladder first, then lift it.
-: "${ECC_SWEEP:=fix}"
+: "${ECC_SWEEP:=bch}"
 
 # energy | edp | latency | area   <- a Y AXIS: one figure ROW per entry, drawn
 #                                    in THIS order. `area` here = SILICON area
 #                                    (um2), not ECC_SWEEP's buffer depth
-: "${ECC_METRICS:=energy}"
+: "${ECC_METRICS:=energy edp latency}"
 
 # eyeriss_like_wglb | simple_weight_stationary | eyeriss_v2_like_wglb | eyeriss_v2_like | simple_output_stationary | simple_input_stationary | simba_like   (FIRST = held)
 #   THE THREE SCOPED DESIGNS since EnvReorganisation phase 6 (plan 6.8): the two
@@ -173,7 +174,7 @@ esac
 : "${ECC_LAYERS:=}"
 
 # EMPTY = one SLURM array task per UNIT | N = bundle the units into N jobs
-: "${ECC_JOBS:=}"
+: "${ECC_JOBS:=8}"
 
 # guards you have deliberately lifted, by id. EMPTY on every published run
 #   ECC_ALLOW="zero-price"   ECC_ALLOW="zero-price,recon-no-split-read-write"
@@ -369,10 +370,10 @@ esac
 : "${ECC_MAPPER_SEARCH_SIZE=}"
 
 # mapper threads. IN THE FINGERPRINT -- keep it equal to ECC_MAP_CPUS
-: "${ECC_MAPPER_THREADS:=${SLURM_CPUS_PER_TASK:-18}}"
+: "${ECC_MAPPER_THREADS:=${SLURM_CPUS_PER_TASK:-16}}"
 
 # 1 -> re-solve every unit | 0 -> a valid cache hit is reused
-: "${ECC_RERUN_OPTIMISER:=0}"
+: "${ECC_RERUN_OPTIMISER:=1}"
 
 
 # =============================================================================
@@ -920,7 +921,7 @@ declare -A ECC_RECON_IDLE_PJ=(          # pJ per CYCLE per ENGINE
 
 # rewetz-b = the burst QOS: idle cores, low priority, a 4-day limit, ~90
 # concurrent jobs. Set ECC_QOS=rewetz for a run that must not be preempted.
-: "${ECC_QOS:=rewetz-b}"
+: "${ECC_QOS:=rewetz}"
 
 : "${ECC_PARTITION:=hpg-default}"
 
