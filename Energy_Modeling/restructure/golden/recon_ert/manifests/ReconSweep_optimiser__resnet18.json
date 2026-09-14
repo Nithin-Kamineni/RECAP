@@ -5,7 +5,11 @@
     "approaches": [
       "baseline",
       "embedded",
-      "recon"
+      "recon1",
+      "recon2",
+      "recon3",
+      "recon4",
+      "recon5"
     ],
     "arch_clock_mhz": {
       "eyeriss_like": 200.0,
@@ -92,6 +96,7 @@
     "recon_bw_scale": true,
     "recon_charges_decode": true,
     "recon_clock_gating_pct": 99.5,
+    "recon_default": "recon2",
     "recon_encoder_site": "destination",
     "recon_ert_arm": "reference",
     "recon_ert_aware": true,
@@ -191,8 +196,7 @@
     "eyeriss_like_wglb"
   ],
   "recon_decode_site": "ondie",
-  "recon_idle_engines_in_build_stacks": 1,
-  "recon_idle_note": "prompt_6 RULE 3: Reconstruction = codewords x incremental + idle x cycles x engines; the sweep's recon arm counts its codewords from DRAM reads, so it reconstructs at the chip ingress with one engine",
+  "recon_idle_note": "prompt_6 RULE 3: Reconstruction = codewords x incremental + idle x cycles x engines. THE ABSTRACT INGRESS ARM IS RETIRED (EnvReorganisation phase 6): every reconstruction bar is a declared boundary, billed from its own plan, with its own engine count from physics/granularity.py",
   "recon_idle_pj_per_cycle_per_engine": 13.945649499999998,
   "recon_pj_per_codeword": 1.4561,
   "recon_provenance": "env.sh DC tables [BCH_63_39_t4]: incremental=1.4561000 pJ/codeword, idle=2.7891299 pJ/cycle/engine at the DC report's 1 ns; idle rescaled x5 to this design's clock (5 ns against the DC report's 1 ns) -> 13.9456495 pJ/cycle/engine. The INCREMENTAL term is per codeword and is NOT rescaled",
@@ -219,7 +223,7 @@
     "R-3 R3'S LATENCY EQUALS R2'S BY CONSTRUCTION, NOT BY MEASUREMENT. Timeloop has no network timing model (LegacyNetwork::ComputePerformance() is an empty stub; a network stats block carries no Cycles and no bandwidth field), archs/_shared/noc.yaml declares energy coefficients only, and no interconnect bandwidth is cited anywhere in this study. R3's `reduced` set contains dram and filter_glb, both real storage levels, so R3 receives exactly the same latency saving as R2 and R4; what is unmodelled is the INCREMENTAL benefit of the array multicast carrying reduced-width words, i.e. the difference between R3 and R2. Report it as \"R3 = R2 by construction\", never as \"R3 shows 0% latency benefit\" -- the second claims a mechanism was tested and found ineffective, and it was not tested. It is unmodelled, not unfixable: NoC energy is already charged outside Timeloop by noc_post.py, and latency_post.py could carry a declared NoC items/cycle limit the same way once one is cited.",
     "R-4 THE MAPPER SEES LEAKAGE; THE REPORT DID NOT. Timeloop's `Energy:` and `EDP(J*cycle)` -- the mapper's objective -- already include `Leakage energy (total)`, at ERT prices that are 10^3-10^4 too low and in three cases exactly 0. Before Phase A parse_stats discarded that number, so the accelerator's standby energy was charged to no arm while the reconstruction engines were charged theirs. Any statement of the form \"leakage is absent from the model\" is wrong; the correct statement names which side dropped it. ECC_STATIC_ENERGY=1: the replacement densities (ECC_LEAKAGE_NW) are charged to all three arms as the `Standby` category.",
     "R-5 LABELS. A constrained or relaxed dataflow is a DIFFERENT ACCELERATOR -- label such bars \"constrained dataflow\" and never quote them as the published chip. A design whose provenance is `reference_design` is named after a paper, not published as one: \"Simba-like (reference design)\".",
-    "R-6 build_stacks()'s `recon` ARM IS NOT A PLACEMENT. It is one point applied to every design at once, at the chip ingress with a single engine, and no physical boundary does what it does. It must never be quoted as one of this figure's boundaries.",
+    "R-6 THE ABSTRACT `recon` ARM IS RETIRED (EnvReorganisation phase 6, 2026-09-14). It was `build_stacks()`'s third column -- one point applied to every design at once, at the chip ingress with a single engine, and no physical boundary did what it did -- and this rule existed to stop it being quoted as a placement. Every reconstruction bar on every figure is now a boundary some design declares, looked up in ITS OWN mapper cache at every swept point, and a bare `recon` is the one ECC_RECON_DEFAULT names. The FINDINGS numbers built on the abstract arm stay as history, labelled as the abstract arm; they are not reproducible from this tree.",
     "CLOCK GATING: this figure is ECC_RECON_CLOCK_GATING_PCT=99.5. The two settings that must be reported side by side are 0 (the pessimistic bound: the engine's whole DC idle constant is charged every cycle it is switched on) and 99.5 (the measured clock/dynamic share of that constant). They differ by ~193x on the idle term and they INVERT the ranking of the boundaries.",
     "Eyeriss v1 (+filter GLB) recon1: its own EDP-optimal plan uses a different PE count than the reference plan on 1 of 12 layer shapes -- C128_M256_R3_S3_P14_Q14_ws2_hs2 (96 vs 48 PEs); idle is charged on the instances that leak (utilized, per layer), as Timeloop bills it",
     "Eyeriss v1 (+filter GLB) recon2: its own EDP-optimal plan uses a different PE count than the reference plan on 3 of 12 layer shapes -- C128_M256_R3_S3_P14_Q14_ws2_hs2 (96 vs 48 PEs), C256_M512_R3_S3_P7_Q7_ws2_hs2 (96 vs 48 PEs), C512_M512_R3_S3_P7_Q7_ws1_hs1 (96 vs 48 PEs); idle is charged on the instances that leak (utilized, per layer), as Timeloop bills it",

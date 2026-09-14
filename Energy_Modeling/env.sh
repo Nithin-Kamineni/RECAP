@@ -81,9 +81,24 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #  five bars on one design and four on another, with a `[skip]` line saying so.
 #  That is a warning, never a refusal: one ECC_APPROACHES has to be legal for
 #  every design a sweep names.
+#
+#  EVERY RECONSTRUCTION BAR IS A REAL, MAPPED CHIP since EnvReorganisation
+#  phase 6. The abstract `recon` arm that used to be drawn beside baseline and
+#  embedded on the three sweeps -- one engine at the chip entrance, K/N applied
+#  to every on-chip level of every design identically -- is RETIRED: no
+#  boundary does that, it was an optimistic upper bound, and reporting rule R-6
+#  existed only to stop it being quoted as a placement. `recon` in
+#  ECC_APPROACHES now means ONE bar, the placement ECC_RECON_DEFAULT names, and
+#  every bar on every figure is looked up in ITS OWN mapper cache at EVERY
+#  swept point. The figures built on the abstract arm stay in FINDINGS as
+#  history, labelled as the abstract arm.
 
 # baseline | embedded | recon | recon1 | recon2 | recon3 | recon4 | recon5
-: "${ECC_APPROACHES:=baseline embedded recon}"
+#   `recon` on its own is ONE bar: the placement ECC_RECON_DEFAULT names
+: "${ECC_APPROACHES:=baseline embedded recon1 recon2 recon3 recon4 recon5}"
+
+# recon1 | recon2 | recon3 | recon4 | recon5   <- what a bare `recon` bar MEANS
+: "${ECC_RECON_DEFAULT:=recon2}"
 
 # bch | model | arch | fix | area   <- an X AXIS. `area` here = buffer DEPTH;
 #                                      silicon area is ECC_METRICS below
@@ -148,6 +163,20 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #  ECC_CONST_* onto the held point for `fix` and `area` with a bare `=`, so a
 #  leftover in the shell cannot widen a study that only makes sense at one
 #  point.
+#
+#  ECC_RECON_DEFAULT -- WHICH PLACEMENT A BARE `recon` BAR IS. A bch, model or
+#  arch sweep wants ONE reconstruction bar beside its two reference bars; the
+#  placement study wants every boundary. Both are ECC_APPROACHES: name `recon`
+#  for the first, name recon1..recon5 for the second. `recon2` is the default
+#  because it is the boundary the study reports (reconstruct at the weight
+#  global buffer): it is mapped on its own chip at every code, its ERT bump is
+#  real, and it is neither the degenerate R1 (which narrows nothing on chip)
+#  nor the per-PE R5, whose engine count is the array. A design that does not
+#  declare it draws no reconstruction bar and says so -- a `[skip]`, never a
+#  refusal. It is EVALUATOR-ONLY in the same sense ECC_METRICS is: it decides
+#  which cache is READ, never what a mapper solves, so it is not in the mapper
+#  fingerprint. It does change the BILL, because the chips a run maps are the
+#  bars it draws -- `--dry-run` prints them.
 #
 #  SEVERAL ARCHITECTURES ARE ONE PANEL PER NAME, each with its own x axis and
 #  its own two reference bars, so a percentage on one panel says nothing about
@@ -1025,10 +1054,19 @@ if [ "${ECC_POINT_SWEEP}" = "1" ]; then
     ECC_CONST_ARCH="$(_ecc_first "${ECC_ARCHS}")"
     ECC_CONST_MODEL="$(_ecc_first "${ECC_MODELS}")"
     ECC_CONST_K="$(_ecc_first "${ECC_KS}")"
-    # The placement study is the only evaluator with an axis for these bars;
-    # `sweep-has-no-figure` refuses ECC_EXPERIMENT=sweep/panels here rather
-    # than letting the figure code fail on a group nobody collected.
-    ECC_EXPERIMENT="recon"
+    # THE DEFAULT IS THE PLACEMENT STUDY, AND IT IS A DEFAULT AGAIN SINCE
+    # EnvReorganisation PHASE 6. It was a bare `=` (the environment could not
+    # win) because `report/sweep.py` had NO renderer for an axis that holds all
+    # three lists, and routing to a renderer that raises KeyError is worse than
+    # ignoring the knob. Phase 6 gave it one -- a point is one group, its bars
+    # are the placements -- so `ECC_EXPERIMENT=sweep ECC_SWEEP=fix` is now a
+    # legal diff of the same numbers through the sweep renderer, and the file's
+    # own rule (`${VAR:=default}`, the environment wins) holds here too. The
+    # three LISTS above stay a bare `=`: a leftover there would WIDEN a study
+    # that only makes sense at one point, which is a different mistake.
+    # `ECC_SWEEP=area` still has no renderer and `sweep-has-no-figure` still
+    # refuses it.
+    : "${ECC_EXPERIMENT:=recon}"
     ECC_PANEL_MODELS=""
 fi
 
@@ -1139,7 +1177,8 @@ export ECC_ACC_BITS ECC_ACCOUNT ECC_ACTIVATION_BITS ECC_ALLOW ECC_APPROACHES \
        ECC_PANEL_MODELS ECC_PARITY_CHARGE_PADDING ECC_PARITY_GROUPING \
        ECC_PARTITION ECC_POINT_SWEEP ECC_PROJECT_ROOT ECC_PYTHON ECC_QOS \
        ECC_RECON_BW_SCALE ECC_RECON_CHARGES_DECODE \
-       ECC_RECON_CLOCK_GATING_PCT ECC_RECON_ENCODER_GRANULARITY \
+       ECC_RECON_CLOCK_GATING_PCT ECC_RECON_DEFAULT \
+       ECC_RECON_ENCODER_GRANULARITY \
        ECC_RECON_ENCODER_SITE ECC_RECON_ERT_ARM ECC_RECON_ERT_AWARE \
        ECC_RECON_IDLE_FALLBACK_PJ ECC_RECON_IDLE_PJ_LIST \
        ECC_RECON_INCREMENTAL_FALLBACK_PJ ECC_RECON_INCREMENTAL_PJ_LIST \

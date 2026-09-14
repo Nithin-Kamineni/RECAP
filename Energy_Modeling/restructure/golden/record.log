@@ -191,3 +191,70 @@
 	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config_hash: '78bd0f25' -> 'de58225d'
 	  verdict: record/prose only -- every number identical. Read the lists,
 	           then record it:  bash restructure/gate.sh --accept-record '<why>'
+2026-09-14T17:23:21Z	EnvReorganisation phase 6: the abstract `recon` arm is RETIRED and the bars are the DECLARED BOUNDARIES recon1..recon5, whose NAMES carry digits. RE-TAKEN BY HAND, WITH THE USER'S DECISION (2026-09-14), because compare.py classifies this as a moved NUMBER and no flag accepts one -- exactly the shape of divergence the phase-6 brief said to raise and re-take knowingly rather than work around. THE 14 CLASSIFIED "NUMBERS" ARE NOT MEASUREMENTS: 12 are the run banner's `sweeping`/`approaches` rows, where `recon` became `recon1, recon2, recon3, recon4, recon5` and the digits in those NAMES are what the classifier counted; 2 are the manifest key `recon_idle_engines_in_build_stacks`, whose value was the integer 1 and which existed only to describe the retired arm, so its removal reads as a numeric subtree vanishing. VERIFIED BEFORE RE-TAKING: all 126 changed lines of the 14 changed files were read, and every one is a bar NAME, the new `recon_default` key, the `config_hash` that follows from adding it, or reworded prose (the R-6 caveat and the recon idle note). NO energy, latency, cycle count, access count or percentage differs anywhere. Gate item 1 (302 fingerprint rows) was IDENTICAL and was NOT re-taken; neither was pytest.txt (515 -> 527, growth). The full diff is quoted in progress.txt under ENVREORGANISATION PHASE 6.
+	  not byte-identical. Classifying (restructure/compare.py):
+	  NUMBERS MOVED (always red): 14
+	    baseline.txt:4: numbers differ in a changed block:
+	      -   sweeping              : baseline, embedded, recon
+	      +   sweeping              : baseline, embedded, recon1, recon2, recon3, recon4, recon5
+	    baseline.txt:6: numbers differ in a changed block:
+	      -   approaches            : baseline, embedded, recon
+	      +   approaches            : baseline, embedded, recon1, recon2, recon3, recon4, recon5
+	    diagnose.txt:4: numbers differ in a changed block:
+	      -   sweeping              : baseline, embedded, recon
+	      +   sweeping              : baseline, embedded, recon1, recon2, recon3, recon4, recon5
+	    diagnose.txt:6: numbers differ in a changed block:
+	      -   approaches            : baseline, embedded, recon
+	      +   approaches            : baseline, embedded, recon1, recon2, recon3, recon4, recon5
+	    embedded.txt:4: numbers differ in a changed block:
+	      -   sweeping              : baseline, embedded, recon
+	      +   sweeping              : baseline, embedded, recon1, recon2, recon3, recon4, recon5
+	    embedded.txt:6: numbers differ in a changed block:
+	      -   approaches            : baseline, embedded, recon
+	      +   approaches            : baseline, embedded, recon1, recon2, recon3, recon4, recon5
+	    recon_default.txt:4: numbers differ in a changed block:
+	      -   sweeping              : baseline, embedded, recon
+	      +   sweeping              : baseline, embedded, recon1, recon2, recon3, recon4, recon5
+	    recon_default.txt:6: numbers differ in a changed block:
+	      -   approaches            : baseline, embedded, recon
+	      +   approaches            : baseline, embedded, recon1, recon2, recon3, recon4, recon5
+	    recon_default/manifests/ReconSweep_optimiser__resnet18.json/recon_idle_engines_in_build_stacks: key golden only and its subtree carries NUMBERS
+	    recon_ert.txt:4: numbers differ in a changed block:
+	      -   sweeping              : baseline, embedded, recon
+	      +   sweeping              : baseline, embedded, recon1, recon2, recon3, recon4, recon5
+	    recon_ert.txt:6: numbers differ in a changed block:
+	      -   approaches            : baseline, embedded, recon
+	      +   approaches            : baseline, embedded, recon1, recon2, recon3, recon4, recon5
+	    recon_ert/manifests/ReconSweep_optimiser__resnet18.json/recon_idle_engines_in_build_stacks: key golden only and its subtree carries NUMBERS
+	    validate.txt:4: numbers differ in a changed block:
+	      -   sweeping              : baseline, embedded, recon
+	      +   sweeping              : baseline, embedded, recon1, recon2, recon3, recon4, recon5
+	    validate.txt:6: numbers differ in a changed block:
+	      -   approaches            : baseline, embedded, recon
+	      +   approaches            : baseline, embedded, recon1, recon2, recon3, recon4, recon5
+	  RECORD keys added/removed (no number in them): 8
+	    baseline/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_default: fresh only
+	    diagnose/manifests/diagnose.json/config/recon_default: fresh only
+	    embedded/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_default: fresh only
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_default: fresh only
+	    recon_default/manifests/ReconSweep_optimiser__resnet18.json/config/recon_default: fresh only
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_default: fresh only
+	    recon_ert/manifests/ReconSweep_optimiser__resnet18.json/config/recon_default: fresh only
+	    validate/manifests/validate.json/config/recon_default: fresh only
+	  PROSE (strings, text lines): 16
+	    baseline/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/approaches: string list 3 -> 7 entries
+	    baseline/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config_hash: 'fa70b7c9' -> '84f12325'
+	    diagnose/manifests/diagnose.json/config/approaches: string list 3 -> 7 entries
+	    embedded/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/approaches: string list 3 -> 7 entries
+	    embedded/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config_hash: '516f727b' -> '9dca5b0a'
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/approaches: string list 3 -> 7 entries
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config_hash: 'de58225d' -> '39b1ef1c'
+	    recon_default/manifests/ReconSweep_optimiser__resnet18.json/config/approaches: string list 3 -> 7 entries
+	    recon_default/manifests/ReconSweep_optimiser__resnet18.json/recon_idle_note: 'prompt_6 RULE 3: Reconstruction = codewords x incremental + idle x cyc' -> 'prompt_6 RULE 3: Reconstruction = codewords x incremental + idle x cyc'
+	    recon_default/manifests/ReconSweep_optimiser__resnet18.json/title_caveats[10]: "R-6 build_stacks()'s `recon` ARM IS NOT A PLACEMENT. It is one point a" -> 'R-6 THE ABSTRACT `recon` ARM IS RETIRED (EnvReorganisation phase 6, 20'
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/approaches: string list 3 -> 7 entries
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config_hash: 'de58225d' -> '39b1ef1c'
+	    recon_ert/manifests/ReconSweep_optimiser__resnet18.json/config/approaches: string list 3 -> 7 entries
+	    recon_ert/manifests/ReconSweep_optimiser__resnet18.json/recon_idle_note: 'prompt_6 RULE 3: Reconstruction = codewords x incremental + idle x cyc' -> 'prompt_6 RULE 3: Reconstruction = codewords x incremental + idle x cyc'
+	    recon_ert/manifests/ReconSweep_optimiser__resnet18.json/title_caveats[10]: "R-6 build_stacks()'s `recon` ARM IS NOT A PLACEMENT. It is one point a" -> 'R-6 THE ABSTRACT `recon` ARM IS RETIRED (EnvReorganisation phase 6, 20'
+	    validate/manifests/validate.json/config/approaches: string list 3 -> 7 entries

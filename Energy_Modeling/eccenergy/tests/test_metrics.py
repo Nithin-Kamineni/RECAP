@@ -290,14 +290,19 @@ def test_the_engine_is_one_engine(cfg):
 
 # --------------------------------------------- the rows agree with each other
 def _warm_session():
-    """A collected `Session` on the warm corner, on the ONE axis it can serve.
+    """The collected POINTS of the warm corner, on the ONE axis it can serve.
 
-    `ECC_SWEEP=bch` on purpose. env.sh's default axis is `fix`, which has no
-    sweep-figure groups (`sweep-has-no-figure` until phase 6), and `model` and
-    `arch` both need a second cache that is cold by design. The BCH axis
-    re-costs ONE raw record at each code, so it is the axis the warm corner
-    supports -- and the cross-row identities these tests check hold per group,
-    whichever axis produced the groups.
+    `ECC_SWEEP=bch` on purpose. `model` and `arch` both need a second cache
+    that is cold by design -- and since EnvReorganisation phase 6 `fix` has a
+    sweep renderer too, but it is ONE group, which makes it a weaker test of
+    identities that hold per group. The BCH axis reads the warm corner at every
+    code it has and drops the rest with a `[skip]`, so it is the axis the warm
+    corner supports.
+
+    Returns `(cfg, points, groups, stacks, labels, bars)` from
+    `report.sweep.collect_points` -- THE SAME CALL `run()` makes, so these
+    tests cannot pass against a shape the figure never sees. Every bar here is
+    a real, mapped chip: the abstract `recon` arm is retired.
     """
     from .. import config as config_mod
     from ..study.common import Session
@@ -314,12 +319,14 @@ def _warm_session():
     c = config_mod.load_config()
     if c.archs[:1] != [WARM[0]] or WARM[1] not in c.models:
         pytest.skip("the live configuration is not the warm corner")
-    ses = Session(c).setup()
+    from ..report import sweep as sweep_mod
     try:
-        ses.collect_all()
-    except Exception:
-        pytest.skip("nothing collected -- the cache is cold here")
-    return c, ses
+        points, groups, stacks, labels, bars, _f = sweep_mod.collect_points(c)
+    except Exception as exc:
+        pytest.skip(f"nothing collected -- the cache is cold here: {exc}")
+    if not groups:
+        pytest.skip("the bch axis produced no group on this cache")
+    return c, points, groups, stacks, labels, bars
 
 
 def test_edp_is_exactly_energy_times_delay(cfg):
@@ -336,22 +343,21 @@ def test_edp_is_exactly_energy_times_delay(cfg):
     row's own number to seven figures.
     """
     from ..report import sweep as sweep_mod
-    c, ses = _warm_session()
-    groups, stacks, labels, _f = sweep_mod.BUILDERS[c.sweep](c, ses)
-    if not groups:
-        pytest.skip(f"the {c.sweep} axis has no groups here")
+    c, points, groups, stacks, labels, bars = _warm_session()
     rows = dict((m, (g, s)) for m, g, s, _l in
-                sweep_mod.metric_rows(c, ses, groups, stacks, labels))
+                sweep_mod.metric_rows(c, points, groups, stacks, labels, bars))
     for needed in ("energy", "edp", "latency"):
         if needed not in rows:
             pytest.skip(f"{needed} row could not be built")
-    ref = c.bar_arms[0]
+    ref = bars[0]
     for g in rows["energy"][0]:
         def sav(metric, arm):
             st = rows[metric][1][g]
             base = float(st[ref].sum())
             return (base - float(st[arm].sum())) / base
-        for arm in c.bar_arms:
+        # A GROUP MAY BE MISSING A BAR (phase 6): a boundary whose chip is not
+        # mapped at this code is dropped, never billed from another plan.
+        for arm in [a for a in bars if a in stacks[g].columns]:
             compounded = 1.0 - (1.0 - sav("energy", arm)) * (1.0 - sav("latency", arm))
             assert compounded == pytest.approx(sav("edp", arm), abs=1e-9), (
                 f"{g}/{arm}: the EDP row does not equal energy x delay -- "
@@ -368,14 +374,9 @@ def test_the_two_reference_arms_cannot_differ_in_time_or_in_area(cfg):
     difference as if it were a physical one.
     """
     from ..report import sweep as sweep_mod
-    c, ses = _warm_session()
-    if c.sweep not in sweep_mod.BUILDERS:
-        pytest.skip(f"the {c.sweep} axis draws no sweep figure")
-    groups, stacks, labels, _f = sweep_mod.BUILDERS[c.sweep](c, ses)
-    if not groups:
-        pytest.skip("no groups")
+    c, points, groups, stacks, labels, bars = _warm_session()
     rows = dict((m, s) for m, _g, s, _l in
-                sweep_mod.metric_rows(c, ses, groups, stacks, labels))
+                sweep_mod.metric_rows(c, points, groups, stacks, labels, bars))
     for metric in ("latency", "area"):
         if metric not in rows:
             continue

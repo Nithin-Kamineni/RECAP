@@ -228,29 +228,39 @@ class Session:
         return self.stacks
 
     # ---------------------------------------------------------------- reports
-    def report(self, groups, stacks, labels):
-        """The swept axis, one row per group: totals per arm and the savings."""
+    def report(self, groups, stacks, labels, bars=None):
+        """The swept axis, one row per group: totals per bar and the savings.
+
+        `bars` is the union of every group's columns since EnvReorganisation
+        phase 6 -- a bar is a real chip now, and two designs on an arch sweep
+        do not declare the same boundaries, so a group may be missing one. A
+        missing bar prints a dash, never a zero: a zero in a uJ column is a
+        measured zero and there is no such thing here.
+
+        THE "recon+ total" LINE WENT WITH THE ABSTRACT ARM. It reported the
+        reconstruction share of a bar that no boundary is; the same share per
+        real boundary is one line per bar of the placement study's own report
+        (`study/placement_tables._report`) and is measured from that bar's own
+        plan.
+        """
         cfg = self.cfg
-        ref = cfg.bar_arms[0]
+        bars = list(bars or cfg.bar_arms)
+        ref = bars[0]
         print(f"\n  --- {cfg.swept_axis} sweep, reference arm = {ref} ---")
-        head = f"  {'group':22s}" + "".join(f"{a + ' uJ':>13s}" for a in cfg.bar_arms)
-        head += "".join(f"{a + ' %':>12s}" for a in cfg.bar_arms[1:])
+        head = f"  {'group':22s}" + "".join(f"{a + ' uJ':>13s}" for a in bars)
+        head += "".join(f"{a + ' %':>12s}" for a in bars[1:])
         print(head)
         for g in groups:
             st = stacks[g]
-            pcts = savings(st, cfg.bar_arms)
+            here = [a for a in bars if a in st.columns]
+            pcts = savings(st, here)
             name = str(labels.get(g, g)).replace("\n", " ")
             line = f"  {name[:22]:22s}"
-            line += "".join(f"{float(st[a].sum()) / 1e6:13,.2f}" for a in cfg.bar_arms)
-            line += "".join(f"{pcts[a]:11.1f}%" for a in cfg.bar_arms[1:])
+            line += "".join(f"{float(st[a].sum()) / 1e6:13,.2f}" if a in here
+                            else f"{'--':>13s}" for a in bars)
+            line += "".join(f"{pcts[a]:11.1f}%" if a in here
+                            else f"{'--':>12s}" for a in bars[1:])
             print(line)
-
-        if "recon" in cfg.bar_arms:
-            st = stacks[groups[0]]
-            total = float(st["recon"].sum())
-            share = float(st.loc["Reconstruction", "recon"]) / total * 100 if total else 0.0
-            first = str(labels.get(groups[0], groups[0])).replace("\n", " ")
-            print(f"  reconstruction is {share:.2f}% of the recon+ total at {first}")
 
     def finish(self, figures, csv=None, groups=None, extra=None):
         """Write the manifest beside the figure. `extra` is what a stage wants
@@ -260,11 +270,13 @@ class Session:
         payload = {
             "recon_pj_per_codeword": self.recon_pj,
             "recon_idle_pj_per_cycle_per_engine": self.recon_idle_pj,
-            "recon_idle_engines_in_build_stacks": 1,
             "recon_idle_note": ("prompt_6 RULE 3: Reconstruction = codewords x "
-                                "incremental + idle x cycles x engines; the sweep's "
-                                "recon arm counts its codewords from DRAM reads, so "
-                                "it reconstructs at the chip ingress with one engine"),
+                                "incremental + idle x cycles x engines. THE "
+                                "ABSTRACT INGRESS ARM IS RETIRED "
+                                "(EnvReorganisation phase 6): every "
+                                "reconstruction bar is a declared boundary, "
+                                "billed from its own plan, with its own engine "
+                                "count from physics/granularity.py"),
             "recon_provenance": self.recon_provenance,
             "workload_meta": self.meta,
             "swept_axis": self.cfg.sweep,

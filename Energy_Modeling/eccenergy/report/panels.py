@@ -69,7 +69,8 @@ import math
 from . import style
 from ..study import metrics as metrics_mod
 from ..study.common import Session
-from .stacked import BAR_WIDTH, active_categories, draw_panel, write_table
+from .stacked import (BAR_WIDTH, active_categories, draw_panel, panel_width,
+                      write_table)
 from .style import plt
 from ..settings import guards
 
@@ -161,10 +162,13 @@ def stacked_panels(cfg, results, panels, title, stem, group_fontsize=17,
     block_of, div_of, unit_of, active_of = {}, {}, {}, {}
     for metric, idxs in blocks:
         sel = [panels[i] for i in idxs]
+        # A GROUP MAY BE MISSING A BAR (EnvReorganisation phase 6): designs do
+        # not declare the same boundaries, so an arch sweep's groups answer
+        # different bar sets. The block's unit is taken over what EXISTS.
         top = max(float(stacks[g][a].sum())
                   for _k, _t, groups, stacks, _l in
                   [(p[0], p[1], p[2], p[3], p[4]) for p in sel]
-                  for g in groups for a in cols)
+                  for g in groups for a in cols if a in stacks[g].columns)
         d, u = (style.unit_for(top) if metric is None
                 else style.unit_for_metric(metric, top))
         act = active_categories(cfg, [p[3] for p in sel],
@@ -205,7 +209,7 @@ def stacked_panels(cfg, results, panels, title, stem, group_fontsize=17,
     panel_in = (panel_pt * 1.45 + panel_pad) / 72.0
     top = 1.0 - (title_in + legend_in + panel_in + 0.30) / fig_h
 
-    fig, axes = plt.subplots(rows, 1, figsize=(1.5 * len(cols) * n + 4, fig_h))
+    fig, axes = plt.subplots(rows, 1, figsize=(panel_width(len(cols), n), fig_h))
     axes = [axes] if rows == 1 else list(axes)
 
     #: The first panel of each block, so a multi-metric figure can hang that

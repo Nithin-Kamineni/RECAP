@@ -74,7 +74,8 @@ from .settings.mapper import (OPT_METRICS, VICTORY_MAX_SCALE,
 from .settings.recon import (RECON_ENCODER_SITES, RECON_GRANULARITIES,
                              RECON_PACKINGS, ReconSettings)
 from .settings.run import (APPROACH_LABELS, APPROACH_TAGS, APPROACHES,
-                           BAR_ARMS, EXPERIMENTS, METRICS, POINT_SWEEPS,
+                           EXPERIMENTS, METRICS, NO_FIGURE_SWEEPS,
+                           PLACEMENT_TAGS, POINT_SWEEPS, REFERENCE_ARMS,
                            RECON_PLACEMENT_APPROACHES, SWEEP_ALIASES,
                            SWEEP_STEMS, SWEEPS, RunSettings)
 from .settings import guards
@@ -125,7 +126,7 @@ DESIGN_AXIS_KNOBS = ("const_arch", "sweep_archs", "sweep", "experiment",
 FIELD_ORDER = (
     "experiment", "sweep", "sweep_archs", "sweep_models", "sweep_ks",
     "panel_models", "const_arch", "const_model", "const_k", "approaches",
-    "metrics",
+    "metrics", "recon_default",
     "weight_bits", "activation_bits", "acc_bits_override", "code_n",
     "emb_weights_per_cw_override", "parity_grouping", "parity_charge_padding",
     "decode_enabled", "decode_pj_base", "decode_pj_emb",
@@ -228,6 +229,23 @@ def _resolve(self):
     # canonical left-to-right bar order, however it was typed
     self.approaches = [a for a in APPROACHES if a in self.approaches]
 
+    # ECC_RECON_DEFAULT -- WHICH PLACEMENT A BARE `recon` BAR IS
+    # (EnvReorganisation 3.1, phase 6). It is checked here, beside
+    # ECC_APPROACHES, because it is the resolution of one of that list's
+    # entries. It must name a PLACEMENT and never one of the two reference
+    # arms or the word `recon` itself: `recon` resolving to `recon` is the
+    # abstract arm coming back under another name, and that arm is retired.
+    if self.recon_default not in RECON_PLACEMENT_APPROACHES:
+        raise guards.refusal("unknown-recon-default",
+            f"ECC_RECON_DEFAULT={self.recon_default!r} is not a reconstruction "
+            f"placement; choose one of "
+            f"{', '.join(RECON_PLACEMENT_APPROACHES)}.\n"
+            f"  -> it says what a bare `recon` in ECC_APPROACHES means -- ONE "
+            f"boundary, mapped on its own chip. The abstract `recon` arm that "
+            f"applied K/N to every on-chip level of every design is RETIRED "
+            f"(EnvReorganisation 6.2), so there is no name here that means "
+            f"'not a placement'.")
+
     # ---- resolve the three axes ----------------------------------------
     # ECC_SWEEP_ARCHS defaults to EVERY DECLARED DESIGN. The default is applied
     # here and not in `settings/` because which designs exist is read out of
@@ -245,18 +263,26 @@ def _resolve(self):
     # ECC_SWEEP_* onto the FIRST entry of each list under both, exactly as
     # section 4 collapsed them for ECC_RECON_MODELING=1 before it.
     #
-    # `report/sweep.py` has no renderer for either axis until phase 6, and a
-    # missing renderer must SAY so rather than raising a KeyError on a group
-    # that was never collected.
-    if self.sweep in POINT_SWEEPS and self.experiment in ("sweep", "panels"):
+    # NARROWED TO `area` BY PHASE 6 (it refused both point sweeps before).
+    # `fix` HAS a renderer now: every bar of every sweep is built from the
+    # placement evaluation, so an axis with no x axis is simply one group, and
+    # `ECC_EXPERIMENT=sweep ECC_SWEEP=fix` draws that group. env.sh still
+    # routes `fix` to `ECC_EXPERIMENT=recon`, which is the richer renderer --
+    # per-bar notes, its own table, its own checks -- so the sweep form of it
+    # is a diff, not the study.
+    #
+    # `area` still has none, and the reason is the STEM: it does not carry the
+    # depth (EnvReorganisation phase 3 recorded this), so evaluating two points
+    # of the ladder would overwrite one figure -- and the ladder is a property
+    # of the MAPPINGS, which is why `ECC_SWEEP=area` submits no eval at all.
+    if self.sweep in NO_FIGURE_SWEEPS and self.experiment in ("sweep", "panels"):
         raise guards.refusal("sweep-has-no-figure",
             f"ECC_SWEEP={self.sweep} holds all three lists fixed, so there is "
             f"no x axis for ECC_EXPERIMENT={self.experiment} to draw.\n"
-            f"  -> ECC_SWEEP=fix is the PLACEMENT study (ECC_EXPERIMENT=recon), "
-            f"which env.sh routes to automatically\n"
             f"  -> ECC_SWEEP=area maps the depth ladder; read it with "
             f"`python3 -m eccenergy.report.dilation_view --levels`\n"
-            f"  -> a sweep FIGURE over either axis is EnvReorganisation phase 6")
+            f"  -> its figure stem carries no depth, so two points of the "
+            f"ladder would overwrite one figure")
 
     if self.sweep == "arch":
         if not self.sweep_archs:
@@ -702,20 +728,55 @@ class Config:
 
     @property
     def bar_arms(self):
-        """The ABSTRACT arms this run draws, in bar order.
+        """The BARS this run draws, in bar order -- RESOLVED, and every one of
+        them a real chip (EnvReorganisation phase 6).
 
-        `ECC_APPROACHES` may name a placement (`recon2`), but the BAR it lands
-        in is one of `baseline` / `embedded` / `recon` until phase 6 teaches
-        `report/sweep.py` to draw a bar per placement. So any `reconN` implies
-        the `recon` bar, and this -- not `approaches` -- is what
-        `build_stacks()` and `draw_panel()` walk. With env.sh's default
-        `baseline embedded recon` the two lists are identical, which is why no
-        number moves.
+        The two reference arms first, then every reconstruction PLACEMENT
+        `ECC_APPROACHES` names, with a bare `recon` resolved to
+        `ECC_RECON_DEFAULT`. There is no third abstract arm any more: the
+        `recon` column `build_stacks()` used to add -- one engine at the chip
+        entrance, K/N on every on-chip level of every design -- is retired
+        (plan 6.2, answer 9.2), so a reconstruction bar is always a boundary
+        some design declares and is always looked up in its OWN mapper cache.
+
+        THIS LIST IS DESIGN-INDEPENDENT and is what a figure asks for;
+        `bar_arms_for(arch)` is what a given design can answer, and the
+        difference between them is a `[skip]` line. `draw_panel()` takes the
+        union and draws no bar where a design has none.
         """
-        named = set(self.approaches)
-        if named & set(RECON_PLACEMENT_APPROACHES):
-            named.add("recon")
-        return [a for a in BAR_ARMS if a in named]
+        out = [a for a in REFERENCE_ARMS if a in self.approaches]
+        named = {self.recon_default if a == "recon" else a
+                 for a in self.approaches
+                 if a == "recon" or a in RECON_PLACEMENT_APPROACHES}
+        return out + [k for k in RECON_PLACEMENT_APPROACHES if k in named]
+
+    def bar_arms_for(self, arch, warn=True):
+        """`bar_arms` filtered to the boundaries `arch` actually declares.
+
+        Designs do not have the same boundaries -- five on `eyeriss_like_wglb`
+        and `simple_weight_stationary`, four on the two v2 variants, NONE on
+        `simba_like`, `simple_input_stationary` and `simple_output_stationary`
+        -- and one `ECC_APPROACHES` has to be legal for every design an arch
+        sweep names. So a boundary this design has not got is a WARNED SKIP
+        (plan 3.1), including the case where the design declares no boundary at
+        all and the figure shows it with its two reference bars alone.
+        """
+        keep = set(self.recon_placements_for(arch, warn=warn))
+        return [a for a in self.bar_arms
+                if a in REFERENCE_ARMS or a in keep]
+
+    def bar_label(self, arch, key):
+        """The bar's long label: the DESIGN's own words for a boundary."""
+        if key in APPROACH_LABELS:
+            return APPROACH_LABELS[key]
+        for p in placements.PLACEMENTS.get(arch, ()):
+            if p.key == key:
+                return p.short
+        return key
+
+    def bar_tag(self, key):
+        """The short rotated tag under a bar. `R2`, not a sentence."""
+        return APPROACH_TAGS.get(key) or PLACEMENT_TAGS.get(key) or key
 
     @property
     def layer_scope(self):
@@ -818,7 +879,24 @@ class Config:
         holds for what it was written about: full-model runs at different
         constants overwrite in place, and the manifest beside them records
         which constants produced the file.
+
+        ONE POINT, TWO RENDERERS (EnvReorganisation phase 6). `ECC_SWEEP=fix`
+        IS the placement study, and env.sh routes it to
+        `ECC_EXPERIMENT=recon`; asking for `sweep` instead draws THE SAME
+        NUMBERS through the sweep renderer, as a diff -- without the per-bar
+        notes, the placement table and the Task 3 checks. It gets `__barsweep`
+        so it cannot land on the study's own figure: two renderers writing one
+        filename is the same silent overwrite the two suffixes above exist to
+        prevent, and the manifest beside it would be the only thing saying
+        which of them drew what is on disk.
         """
+        base = self._stem_base()
+        if self.sweep == "fix" and self.experiment in ("sweep", "panels"):
+            return f"{base}__barsweep"
+        return base
+
+    def _stem_base(self):
+        """`stem` without the phase-6 renderer suffix. See `stem`."""
         if self.stem_override:
             # ECC_STEM forces ONE output name, deliberately overriding the
             # two disambiguating suffixes below. env.sh section 8 sets it
@@ -1408,7 +1486,7 @@ class Config:
         return title
 
     def recon_placements_for(self, arch, warn=True):
-        """Which boundaries to draw for `arch`: `[]` means every one it defines.
+        """Which boundaries this run draws on `arch`. `[]` = none were asked for.
 
         THE SOURCE IS `ECC_APPROACHES` since EnvReorganisation phase 3. The
         per-architecture `ECC_RECON_PLACEMENTS` table went with
@@ -1417,18 +1495,34 @@ class Config:
         which of them to compare -- and that is a bar, which is what
         `ECC_APPROACHES` is for.
 
-            baseline embedded recon              every placement this design
-                                                 declares  (env.sh's default)
+            baseline embedded recon              ONE reconstruction bar: the
+                                                 placement ECC_RECON_DEFAULT
+                                                 names (recon2)
+            baseline embedded recon1 .. recon5   every boundary  (env.sh's
+                                                 default -- the placement study)
             baseline embedded recon2 recon4      exactly those two
+
+        `[]` MEANT "EVERY ONE IT DECLARES" UNTIL PHASE 6, because the bare
+        `recon` was the abstract arm and the placement study had to read it as
+        "all". With the abstract arm retired, `recon` resolves to ONE
+        placement like every other name, so an empty answer means the run
+        named no reconstruction bar at all -- and `toolchain/units.py` already
+        maps only the reference for such a run.
 
         A NAMED BOUNDARY THIS DESIGN DOES NOT DECLARE IS WARNED AND DROPPED,
         never refused (plan 3.1): `eyeriss_v2_like_wglb` has four boundaries
         and `eyeriss_like_wglb` five, and one `ECC_APPROACHES` has to be legal
         for both -- so a five-name list draws five bars on one and four on the
-        other. `warn=False` for a caller that only wants the set (a launcher
+        other. A design that declares NONE (`simba_like`,
+        `simple_input_stationary`, `simple_output_stationary` have no
+        `placements.yaml`) is the same warning with nothing kept, never a
+        refusal. `warn=False` for a caller that only wants the set (a launcher
         enumerating chips prints its own bill).
         """
         named = [a for a in self.approaches if a in RECON_PLACEMENT_APPROACHES]
+        if "recon" in self.approaches and self.recon_default not in named:
+            named = [k for k in RECON_PLACEMENT_APPROACHES
+                     if k in set(named) | {self.recon_default}]
         if not named:
             return []
         declared = [p.key for p in placements.PLACEMENTS.get(arch, ())]
@@ -1441,19 +1535,17 @@ class Config:
         return keep
 
     def recon_placement_bars(self, arch, warn=True):
-        """The boundaries this run DRAWS on `arch` -- resolved, never empty.
+        """The boundaries this run DRAWS on `arch`.
 
-        `recon_placements_for()` answers what was ASKED, and `[]` there means
-        "every placement this design declares", which is what the abstract
-        `recon` in `ECC_APPROACHES` means. This answers what will actually be
-        on the figure, so a banner row and a result record can NAME the bars
-        instead of saying "all" -- read off the design, which is the only
-        place that knows.
+        The same list as `recon_placements_for()` since phase 6 retired the
+        abstract `recon`: the two used to differ because `[]` there meant
+        "every placement this design declares", and this one resolved it off
+        the design so a banner row and a result record could NAME the bars
+        instead of saying "all". Nothing is implicit any more -- `recon` is one
+        named placement -- so the resolution has nowhere left to happen and
+        this stays only because the banner and the result record read it.
         """
-        named = self.recon_placements_for(arch, warn=warn)
-        if named:
-            return named
-        return [p.key for p in placements.PLACEMENTS.get(arch, ())]
+        return self.recon_placements_for(arch, warn=warn)
 
     def mapping_regime_line(self):
         """WHICH MAPPING REGIME the placement bars come from -- the claim a reader
@@ -1613,10 +1705,17 @@ class Config:
             "`reference_design` is named after a paper, not published as one: "
             "\"Simba-like (reference design)\".",
 
-            "R-6 build_stacks()'s `recon` ARM IS NOT A PLACEMENT. It is one "
+            "R-6 THE ABSTRACT `recon` ARM IS RETIRED (EnvReorganisation phase "
+            "6, 2026-09-14). It was `build_stacks()`'s third column -- one "
             "point applied to every design at once, at the chip ingress with a "
-            "single engine, and no physical boundary does what it does. It must "
-            "never be quoted as one of this figure's boundaries.",
+            "single engine, and no physical boundary did what it did -- and "
+            "this rule existed to stop it being quoted as a placement. Every "
+            "reconstruction bar on every figure is now a boundary some design "
+            "declares, looked up in ITS OWN mapper cache at every swept point, "
+            "and a bare `recon` is the one ECC_RECON_DEFAULT names. The "
+            "FINDINGS numbers built on the abstract arm stay as history, "
+            "labelled as the abstract arm; they are not reproducible from this "
+            "tree.",
         ]
         rules.append(
             f"CLOCK GATING: this figure is ECC_RECON_CLOCK_GATING_PCT={gate:g}. "

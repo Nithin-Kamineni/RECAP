@@ -43,6 +43,40 @@ from ..study.placement_study import evaluate
 from ..settings import guards
 
 
+# ------------------------------------------------- one bar, from its components
+def bar_series(cfg, cats, key, components):
+    """One bar's stacked series, from the components of ONE evaluated arm.
+
+    The conventional baseline's external parity is a COMPONENT of the result
+    file, not a plotted category, so it is folded into the DRAM band -- or the
+    drawn bar would silently be shorter than the total it is annotated with.
+    `study.stacks.build_stacks()` folds it the same way, so the two figures
+    agree. Under the price model (`physics/baseline_dram.py`) that component is
+    0 and the baseline's cost is already inside `DRAM`; the fold is then a
+    no-op and this stays correct either way.
+
+    `figure-draws-the-total` is the check that makes the fold safe: a component
+    that landed in NO plotted category would leave the bar and its own label
+    disagreeing, silently.
+
+    Shared by the placement figure (`panel_for`, one bar per group) and, since
+    EnvReorganisation phase 6, by the three sweeps (`report/sweep.py`, one bar
+    per placement inside a group) -- one routine, so a bar means the same thing
+    on both.
+    """
+    stack = {c: float(components.get(c, 0.0)) for c in cats}
+    stack["DRAM"] += float(components.get(PARITY_KEY, 0.0))
+    drawn = sum(stack.values())
+    total = sum(float(v) for v in components.values())
+    if not math.isclose(drawn, total, rel_tol=1e-9, abs_tol=1e-3):
+        raise guards.refusal("figure-draws-the-total",
+            f"figure would draw {drawn:.3f} pJ for {key!r} but its total is "
+            f"{total:.3f} pJ -- a component of the result is not in a "
+            f"plotted category, so the bar and its label would disagree. "
+            f"Components: {sorted(components)}")
+    return pd.Series(stack).reindex(cats, fill_value=0.0)
+
+
 # --------------------------------------------------------------------- figure
 def panel_for(cfg, arch, model, out):
     """ONE panel: the boundary on the x axis, the energy breakdown in the bars.
@@ -87,27 +121,11 @@ def panel_for(cfg, arch, model, out):
                    if c not in ONCHIP_EXCLUDE and float(weight_by_cat.get(c, 0.0)) > 0]
 
     def add(key, label, components):
-        # The conventional baseline's external parity is a COMPONENT of the
-        # result file, not a plotted category, so it has to be folded into the
-        # DRAM band or the drawn bar would silently be shorter than the total it
-        # is annotated with. `ecc.build_stacks()` folds it the same way, so the
-        # two figures agree. Under the price model (baseline_dram.py) that
-        # component is 0 and the baseline's cost is already inside `DRAM`; the
-        # fold is then a no-op and this stays correct either way.
-        stack = {c: float(components.get(c, 0.0)) for c in cats}
-        stack["DRAM"] += float(components.get(PARITY_KEY, 0.0))
-        drawn = sum(stack.values())
-        total = sum(float(v) for v in components.values())
-        if not math.isclose(drawn, total, rel_tol=1e-9, abs_tol=1e-3):
-            raise guards.refusal("figure-draws-the-total",
-                f"figure would draw {drawn:.3f} pJ for {key!r} but its total is "
-                f"{total:.3f} pJ -- a component of the result is not in a "
-                f"plotted category, so the bar and its label would disagree. "
-                f"Components: {sorted(components)}")
+        # `bar_series` owns the parity fold and the total check, because the
+        # sweep figure draws the same bars and the two must agree.
         groups.append(key)
         labels[key] = label
-        stacks[key] = pd.DataFrame(
-            {"energy": pd.Series(stack).reindex(cats, fill_value=0.0)})
+        stacks[key] = pd.DataFrame({"energy": bar_series(cfg, cats, key, components)})
 
         # The per-bar note: this bar scoped to the weight energy a boundary can
         # actually reduce. Taken from `components` minus the non-weight share of

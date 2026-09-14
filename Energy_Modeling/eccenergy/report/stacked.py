@@ -50,6 +50,43 @@ def active_categories(cfg, panel_stacks, cats=None):
                    for st in stacks.values() if c in st.index) > 1e-9]
 
 
+def bar_value(st, cat, bar):
+    """One segment of one bar, or `None` when this GROUP HAS NO SUCH BAR.
+
+    A GROUP MAY BE MISSING A BAR since EnvReorganisation phase 6, and it is
+    never a zero. Every reconstruction bar is a boundary a design declares, and
+    designs do not declare the same ones -- `eyeriss_like_wglb` has five,
+    `eyeriss_v2_like_wglb` four, and three designs have none at all -- so an
+    arch sweep asks a group a question it cannot answer. A missing bar is drawn
+    as NOTHING: no bar, no total, no saving. Drawing it at zero height would
+    read as a measured zero, which is the one thing a bar chart must never say
+    about a boundary that does not exist.
+
+    This is a LOOKUP, not a policy: the caller has already printed the `[skip]`
+    line (`Config.bar_arms_for`) saying which design dropped which boundary.
+    """
+    if bar not in st.columns or cat not in st.index:
+        return None
+    return float(st.loc[cat, bar])
+
+
+def panel_width(n_bars, n_groups):
+    """The page width, in inches, for `n_groups` groups of `n_bars` bars.
+
+    1.5 inches per bar UNTIL THERE ARE MORE THAN THREE (EnvReorganisation
+    phase 6). Every figure this project drew before phase 6 had exactly three
+    bars per group, so the rule below is byte-identical for all of them; a
+    seven-bar figure over four groups came out 46 inches wide against 10 high,
+    and a 4.6:1 page makes bars that are perfectly legible at full size look
+    like threads at any width a reader will actually view it. A bar does not
+    need a constant share of the page once there are many of them -- the
+    spacing inside a group is fixed in data coordinates, so a narrower page
+    draws narrower bars rather than crowding them.
+    """
+    per_bar = 1.5 if n_bars <= 3 else 1.0
+    return per_bar * n_bars * n_groups + 4
+
+
 def _bar_x(cfg, n, bars=None, width=BAR_WIDTH):
     """Group centres, and the per-bar offset within a group."""
     bars = list(bars or cfg.bar_arms)
@@ -100,22 +137,39 @@ def draw_panel(ax, cfg, groups, stacks, group_labels, *, pal, active, div,
     n = len(groups)
     centers, xoff = _bar_x(cfg, n, approaches, bar_width)
 
+    # WHICH (group, bar) SLOTS EXIST. `np.nan` is what matplotlib draws as
+    # nothing, and it is also what keeps a missing bar out of every maximum,
+    # every total label and every saving below -- a 0.0 would have been drawn,
+    # summed and annotated as a measurement.
+    have = np.array([[bar_value(stacks[g], active[0] if active else None, a)
+                      is not None for g in groups] for a in approaches]) \
+        if active else np.ones((len(approaches), n), dtype=bool)
+
     bottoms = {a: np.zeros(n) for a in approaches}
     for cat in active:
         for a in approaches:
-            vals = np.array([float(stacks[g].loc[cat, a]) for g in groups]) / div
-            ax.bar(centers + xoff[a], vals, bar_width, bottom=bottoms[a],
+            vals = np.array([(bar_value(stacks[g], cat, a) or 0.0)
+                             for g in groups]) / div
+            ax.bar(centers + xoff[a], np.where(have[approaches.index(a)],
+                                               vals, np.nan),
+                   bar_width, bottom=bottoms[a],
                    color=pal[cat], edgecolor="white", linewidth=1.0, zorder=3,
                    label=style.label(cat) if a == approaches[0] else None)
             bottoms[a] += vals
 
-    ymax = max(b.max() for b in bottoms.values())
+    ymax = max((b.max() for b in bottoms.values()), default=0.0) or 1.0
     dec = style.decimals(ymax)
+
+    def drawn(a, i):
+        """Does group `i` have bar `a` at all? See `bar_value`."""
+        return bool(have[approaches.index(a)][i])
 
     for i, g in enumerate(groups):
         ref = ((ref_totals[g] / div) if ref_totals is not None
                else bottoms[approaches[0]][i])
         for a in approaches:
+            if not drawn(a, i):
+                continue
             total = bottoms[a][i]
             ax.text(centers[i] + xoff[a], total + ymax * 0.006, f"{total:.{dec}f}",
                     ha="center", va="bottom", fontsize=12, fontweight="bold",
@@ -126,7 +180,7 @@ def draw_panel(ax, cfg, groups, stacks, group_labels, *, pal, active, div,
             # the reference is "the first bar of this group". A bar that IS the
             # reference is left unannotated rather than labelled "-0.0%".
             annotate = approaches if ref_totals is not None else approaches[1:]
-            for a in annotate:
+            for a in [x for x in annotate if drawn(x, i)]:
                 pct = (ref - bottoms[a][i]) / ref * 100 if ref > 0 else 0.0
                 if ref_totals is not None and abs(pct) < 1e-9:
                     continue
@@ -139,19 +193,30 @@ def draw_panel(ax, cfg, groups, stacks, group_labels, *, pal, active, div,
                         fontsize=13, fontweight="bold", color="#B03A2E")
         note = (bar_notes or {}).get(g)
         if note:
-            ax.text(centers[i], max(bottoms[a][i] for a in approaches)
+            ax.text(centers[i], max((bottoms[a][i] for a in approaches
+                                     if drawn(a, i)), default=0.0)
                     + ymax * 0.088, note, ha="center", va="bottom", fontsize=12,
                     linespacing=1.35, color="#444")
 
     ax.set_xticks([])
     for i, g in enumerate(groups):
         for a in approaches:
-            if not tags.get(a):
+            if not tags.get(a) or not drawn(a, i):
                 continue
             ax.text(centers[i] + xoff[a], -ymax * 0.015, tags[a],
                     ha="center", va="top", rotation=90, fontsize=15,
                     color="#555", clip_on=False)
-        ax.text(centers[i], -ymax * 0.27, group_labels.get(g, g),
+        # THE GROUP LABEL SITS UNDER THE BARS THIS GROUP ACTUALLY HAS, not
+        # under the middle of the slots reserved for every bar the FIGURE has
+        # (EnvReorganisation phase 6, found by looking at a bch sweep whose
+        # boundaries are mapped at one code and cold at the other three). The
+        # slots stay reserved -- one boundary keeps one x offset across every
+        # group, which is what makes the groups comparable at a glance -- but
+        # a group of two bars in a seven-bar figure had its label floating a
+        # third of a page to the right of them, pointing at empty paper.
+        here = [xoff[a] for a in approaches if drawn(a, i)] or [0.0]
+        ax.text(centers[i] + (min(here) + max(here)) / 2.0,
+                -ymax * 0.27, group_labels.get(g, g),
                 ha="center", va="top", fontsize=group_fontsize,
                 fontweight="medium", color="#111", clip_on=False)
 
@@ -243,11 +308,12 @@ def grouped_stacks(cfg, results, groups, stacks, group_labels, title, stem,
     n = len(groups)
     cols = list(bars or cfg.bar_arms)
 
-    max_pj = max(float(stacks[g][a].sum()) for g in groups for a in cols)
+    max_pj = max(float(stacks[g][a].sum()) for g in groups for a in cols
+                 if a in stacks[g].columns)
     div, unit = style.unit_for(max_pj)
     active = active_categories(cfg, [stacks])
 
-    fig, ax = plt.subplots(figsize=(1.5 * len(cols) * n + 4, 10))
+    fig, ax = plt.subplots(figsize=(panel_width(len(cols), n), 10))
     draw_panel(ax, cfg, groups, stacks, group_labels, pal=pal, active=active,
                div=div, group_fontsize=group_fontsize, show_savings=show_savings,
                bars=bars, bar_tags=bar_tags, bar_width=bar_width,
@@ -321,13 +387,25 @@ def write_table(cfg, results, panels, stem, bars=None, ref_totals=None,
             if panel_key is not None:
                 row["panel"] = panel_key
             row["label"] = labels.get(g, g)
+            # A BAR THIS GROUP HAS NOT GOT IS AN EMPTY CELL, NEVER A 0.0
+            # (EnvReorganisation phase 6, and the same rule `draw_panel` draws
+            # by): a design that does not declare a boundary has no number
+            # there, and a zero in a uJ column is a measurement.
             for c in cats:
                 for a in cols:
-                    row[f"{a}_{c}"] = float(st.loc[c, a]) / 1e6
+                    v = bar_value(st, c, a)
+                    row[f"{a}_{c}"] = "" if v is None else v / 1e6
             ref = (_pick(ref_totals, panel_key, g) if ref_totals is not None
-                   else float(st[cols[0]].sum()))
+                   else float(st[cols[0]].sum()) if cols[0] in st.columns
+                   else 0.0)
             ref = 0.0 if ref is None else float(ref)
             for a in cols:
+                if a not in st.columns:
+                    # This design does not declare this boundary at all -- an
+                    # empty cell, exactly as the per-category ones above.
+                    row[f"{a}_total_uJ"] = ""
+                    row[f"{a}_saving_pct"] = ""
+                    continue
                 total = float(st[a].sum())
                 if total <= 0.0:
                     # A GROUP WITH NO BAR IS NOT A BAR THAT SAVES EVERYTHING.

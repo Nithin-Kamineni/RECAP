@@ -24,9 +24,9 @@ EXPERIMENTS = ("sweep", "diagnose", "baseline", "embedded", "recon", "validate",
                "map", "panels")
 
 #: The reconstruction PLACEMENTS `ECC_APPROACHES` may name (EnvReorganisation
-#: 3.1). The abstract `recon` still stands for "every placement this design
-#: declares" -- which is what `Config.recon_placements_for()` answers with an
-#: empty list -- and a `reconN` name selects a SUBSET of them. A design that
+#: 3.1). Since phase 6 a bare `recon` is ONE of them -- the one
+#: `ECC_RECON_DEFAULT` names -- and a `reconN` name selects a subset directly;
+#: `Config.recon_placements_for()` does that resolution. A design that
 #: does not declare a named boundary is WARNED and drops the bar; it is not
 #: refused, because two designs do not have the same boundaries (CLAUDE.md)
 #: and one `ECC_APPROACHES` has to be legal for both.
@@ -34,10 +34,19 @@ RECON_PLACEMENT_APPROACHES = ("recon1", "recon2", "recon3", "recon4", "recon5")
 
 APPROACHES = ("baseline", "embedded", "recon") + RECON_PLACEMENT_APPROACHES
 
-#: The three ABSTRACT arms every figure draws, in bar order. `ECC_APPROACHES`
-#: may name a placement, but the bar it lands in is still one of these three
-#: until phase 6 teaches `report/sweep.py` to draw a bar per placement.
-BAR_ARMS = ("baseline", "embedded", "recon")
+#: The two REFERENCE arms, in bar order. They exist on every design, they are
+#: billed from the reference plan, and they are the only two bars
+#: `study.stacks.build_stacks()` still builds.
+#:
+#: THE ABSTRACT `recon` ARM IS RETIRED (EnvReorganisation phase 6, 2026-09-14;
+#: plan 6.2 and answer 9.2). It was `build_stacks()`'s third column: one engine
+#: at the chip entrance, with K/N applied to every on-chip level of every
+#: design identically. No physical boundary does that -- once weights are
+#: reconstructed at the entrance they are full width on chip -- so it was an
+#: optimistic upper bound that reporting rule R-6 existed only to stop anyone
+#: quoting as a placement. Every reconstruction bar is a real, mapped chip now,
+#: and `Config.bar_arms` is `REFERENCE_ARMS` plus the placements the run names.
+REFERENCE_ARMS = ("baseline", "embedded")
 
 #: THE METRICS A FIGURE MAY PLOT -- one figure ROW per entry, top to bottom in
 #: THIS order, whatever order `ECC_METRICS` names them in (EnvReorganisation
@@ -102,7 +111,15 @@ SWEEP_ALIASES = {
 #: and `area` sweeps the depth ladder. Neither has a `report/sweep.py`
 #: renderer until phase 6, which `sweep-has-no-figure` says rather than
 #: letting the figure code fail on a missing group.
+#:
+#: SINCE PHASE 6 `fix` HAS ONE: the sweep renderer builds every bar from the
+#: placement evaluation, so an axis with no x is simply one group. `area` has
+#: none still -- its stem carries no depth, so two depths would overwrite one
+#: figure -- and `sweep-has-no-figure` was NARROWED to it rather than retired.
 POINT_SWEEPS = ("fix", "area")
+
+#: The point sweeps a `report/sweep.py` FIGURE still has no renderer for.
+NO_FIGURE_SWEEPS = ("area",)
 
 #: Which half of the study a result belongs to. See legacy/docs/RESULTS_SCHEMA.md.
 #:
@@ -131,9 +148,17 @@ def result_phase(experiment):
         return "Post"
     return "Pre"
 
+#: The bar labels and the short rotated tag under each bar. A PLACEMENT's own
+#: label is a property of the design (`placements.yaml`), so only the generic
+#: fallback lives here: `Config.bar_label()` / `bar_tag()` ask the design first.
 APPROACH_LABELS = {"baseline": "Baseline", "embedded": "Embedded", "recon": "Recon+"}
 
 APPROACH_TAGS = {"baseline": "Base.", "embedded": "Embe.", "recon": "Recon+"}
+
+#: The short tag for a placement bar. `R2` reads under a bar where "Recon at
+#: the weight global buffer" does not; the full sentence is the design's own
+#: label and goes in the legend-free per-bar note and the CSV.
+PLACEMENT_TAGS = {k: f"R{k[-1]}" for k in RECON_PLACEMENT_APPROACHES}
 
 #: The fields of this group the MAPPER sees, and therefore the ones
 #: `Config.fingerprint()` hashes.
@@ -161,6 +186,13 @@ class RunSettings:
     const_model: str
     const_k: int
     approaches: list
+    #: `ECC_RECON_DEFAULT` -- which placement a bare `recon` in
+    #: `ECC_APPROACHES` means (EnvReorganisation 3.1, phase 6). A sweep wants
+    #: ONE reconstruction bar beside its two reference bars; the placement
+    #: study wants every boundary, and names them. EVALUATOR ONLY: it decides
+    #: which mapper cache is READ, never what the mapper solves, so it is not
+    #: in `IN_FINGERPRINT`.
+    recon_default: str
     #: `ECC_METRICS` -- which figure ROWS to draw, in `METRICS` order. See
     #: `METRICS` above for why this is not `mapper.OPT_METRIC` and why it is
     #: not in the fingerprint.
@@ -239,6 +271,7 @@ class RunSettings:
             # makes the phase's single expected divergence exactly the one the
             # plan predicts -- a new KEY in the config record, with no number
             # under it -- and turning the others on is one word in env.sh.
+            recon_default=_one("ECC_RECON_DEFAULT", "recon2").lower(),
             metrics=[m.lower() for m in _list("ECC_METRICS", "energy")],
             # The two spellings of ECC_LAYERS, told apart by the `=`. The
             # resolution into ONE scope needs the held model, which is

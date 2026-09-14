@@ -223,8 +223,13 @@ def test_4b_recon_and_embedded_totals_do_not_move_at_all():
     recon_pj, recon_idle, _ = load_recon_energy(cfg_a)      # RULE 3: two terms
     a = build_stacks(cfg_a, raw_a, recon_pj, recon_idle_pj=recon_idle)
     b = build_stacks(cfg_b, raw_b, recon_pj, recon_idle_pj=recon_idle)
-    for arm in ("embedded", "recon"):
-        assert a[arm].to_dict() == b[arm].to_dict(), arm
+    # `recon` WAS IN THIS LIST until EnvReorganisation phase 6 retired the
+    # abstract arm. `build_stacks()` builds the two reference arms and nothing
+    # else now, so the claim is checked on the two columns that exist -- and
+    # the claim about a reconstruction bar is the same one, made where those
+    # bars are built: `test_dilation`'s placement tests.
+    assert list(a.columns) == ["baseline", "embedded"], list(a.columns)
+    assert a["embedded"].to_dict() == b["embedded"].to_dict()
     assert float(a["baseline"].sum()) > float(b["baseline"].sum())
 
 
@@ -260,9 +265,27 @@ def test_4c_load_recon_energy_returns_incremental_and_idle_separately():
     assert not hasattr(cfg, "recon_include_idle")
 
 
-def test_4d_build_stacks_charges_idle_per_cycle_and_refuses_without_cycles():
-    """RULE 3 in the sweep's recon column:
-    Reconstruction = codewords x incremental + idle x cycles x 1 engine."""
+def test_4d_build_stacks_builds_the_two_reference_arms_and_no_third():
+    """THE ABSTRACT `recon` ARM IS RETIRED (EnvReorganisation phase 6, 2026-09-14).
+
+    This test WAS `..._charges_idle_per_cycle_and_refuses_without_cycles`: it
+    pinned prompt_6 RULE 3 in `build_stacks()`'s third column --
+    `Reconstruction = codewords x incremental + idle x cycles x 1 engine`, and
+    the refusal to charge the idle term on a record with no cycles. That column
+    applied K/N to every on-chip level of every design at once, which no
+    physical boundary does (plan 6.2, answer 9.2), so it is gone.
+
+    RULE 3 IS NOT GONE WITH IT -- it moved to where the bars are real:
+    `study/placement_eval.evaluate_placement()` charges the same two terms per
+    boundary, with that boundary's own engine count, and refuses an idle term
+    without a cycle count in exactly the same words. `test_dilation.py` and
+    `test_latency.py` pin it there.
+
+    What this pins now is the RETIREMENT: two columns, no third, and no
+    `Reconstruction` energy on either -- because a bar that reconstructs
+    nothing must not carry a reconstruction cost, and an arm that does not
+    exist must not come back through a default.
+    """
     try:
         import pandas as pd
     except ImportError as exc:
@@ -274,31 +297,29 @@ def test_4d_build_stacks_charges_idle_per_cycle_and_refuses_without_cycles():
     zero = pd.Series({c: 0.0 for c in cats}).reindex(cats)
     base = zero.copy(); base["DRAM"] = 1000.0
     from eccenergy.physics import parity
-    # build_stacks counts codewords with WHOLE weights per codeword
-    # (parity.CodeGeometry: floor(30/8) = 3 at BCH(63,30)), not 63/8
     per_cw = parity.CodeGeometry(63, 30, 8).validate().weights_per_codeword
     assert per_cw == 3, per_cw
-    reads = 3000.0                                  # 1000 codewords of 3 weights
-    raw = Raw(base, base.copy(), zero, 1000.0, reads, 1, 0, 3000, per_layer=[],
+    raw = Raw(base, base.copy(), zero, 1000.0, 3000.0, 1, 0, 3000, per_layer=[],
               levels=[], cycles=10_000)
     st = build_stacks(cfg, raw, 1.3786, recon_idle_pj=2.8310811)
-    want = 1000.0 * 1.3786 + 2.8310811 * 10_000 * 1
-    assert abs(float(st.loc["Reconstruction", "recon"]) - want) < 1e-6, (
-        float(st.loc["Reconstruction", "recon"]), want)
-    # the idle term is looked up for the K when not given
-    st2 = build_stacks(cfg, raw, 1.3786)
-    assert abs(float(st2.loc["Reconstruction", "recon"]) - want) < 1e-6
-    # BREAKAGE: no cycles on the record -> refused, never charged as zero
-    stale = Raw(base, base.copy(), zero, 1000.0, reads, 1, 0, 3000, per_layer=[], levels=[])
-    try:
-        build_stacks(cfg, stale, 1.3786, recon_idle_pj=2.8310811)
-    except ValueError as e:
-        assert "cycle" in str(e), e
-    else:
-        raise AssertionError("an idle term was charged on a record with no cycles")
-    # ...but a run with no idle term (0.0) needs no cycles
-    st3 = build_stacks(cfg, stale, 1.3786, recon_idle_pj=0.0)
-    assert abs(float(st3.loc["Reconstruction", "recon"]) - 1000.0 * 1.3786) < 1e-6
+    assert list(st.columns) == ["baseline", "embedded"], list(st.columns)
+    assert "Reconstruction" in st.index                  # the category stays
+    assert float(st.loc["Reconstruction"].sum()) == 0.0  # and is empty on both
+
+    # A RECORD WITH NO CYCLES IS NO LONGER A REFUSAL HERE, because nothing here
+    # charges a per-cycle term any more. It was one, and the refusal it became
+    # lives in `placement_eval`.
+    stale = Raw(base, base.copy(), zero, 1000.0, 3000.0, 1, 0, 3000,
+                per_layer=[], levels=[])
+    st2 = build_stacks(cfg, stale, 1.3786, recon_idle_pj=2.8310811)
+    assert list(st2.columns) == ["baseline", "embedded"]
+    assert float(st2.loc["Reconstruction"].sum()) == 0.0
+
+    # AND THE FUNCTION THAT WENT WITH THE COLUMN IS GONE, not left dead:
+    # `mapper_narrowed_weight_energy` was RULE 1's FOURTH narrowing site and
+    # existed only because the abstract arm narrowed on chip evaluator-side.
+    import eccenergy.study.stacks as stacks_mod
+    assert not hasattr(stacks_mod, "mapper_narrowed_weight_energy")
 
 
 # ------------------------------------------------ 5. nothing on chip moved

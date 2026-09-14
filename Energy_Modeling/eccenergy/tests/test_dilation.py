@@ -1132,79 +1132,74 @@ def test_patching_the_real_cached_ert_moves_only_the_two_rows():
         raise AssertionError("a change matching no row was silently dropped")
 
 
-def test_build_stacks_does_not_narrow_a_level_the_mapper_already_narrowed():
-    """prompt_6 RULE 1, the FOURTH site: `build_stacks()`'s recon column scales
-    on-chip weight energy by K/N. Fed a q-bit plan's `Raw` (a level row at
-    Word bits == q) it must leave that level's weight energy alone; an 8-bit
-    row is scaled as before; a row at neither width stops; a row with no
-    measurement (an older record, or a network row) is the evaluator's."""
+def test_the_fourth_narrowing_site_went_with_the_abstract_recon_arm():
+    """prompt_6 RULE 1 HAS THREE SITES, NOT FOUR (EnvReorganisation phase 6).
+
+    This test WAS `test_build_stacks_does_not_narrow_a_level_the_mapper_
+    already_narrowed`, and it pinned the fourth: `build_stacks()`'s recon
+    column scaled on-chip weight energy by K/N on every evaluation, which is
+    right for an 8-bit plan and DOUBLES the saving on a q-bit one, so
+    `mapper_narrowed_weight_energy()` read each level's measured `Word bits`
+    to decide who had already narrowed it -- leaving a `Word bits == q` level
+    alone, scaling an 8-bit one, and STOPPING on anything else.
+
+    The abstract arm is retired (plan 6.2, answer 9.2) and that site went with
+    it: nothing evaluator-side applies K/N to an on-chip level here any more,
+    because a reconstruction bar is billed from its OWN plan. The live RULE 1
+    site is `study/narrowing.assert_onchip_narrowing_once()`, which makes the
+    same measurement per bar per stage and has its own mutation tests.
+
+    So what is pinned here is that the site is GONE and cannot come back by
+    accident: the function is deleted, and `build_stacks()` does not read the
+    level rows at all -- feeding it a `Word bits` it could not have explained
+    (5, when q is 4) is no longer an error, because no column depends on it.
+    """
     try:
         import pandas as pd
         from eccenergy.study import stacks
-        from eccenergy.study.energy import Raw
+        from eccenergy.study.energy import Raw, plot_cats
     except Exception as exc:                       # pragma: no cover
         raise _Skip(f"pandas/ecc unavailable: {exc}")
+    assert not hasattr(stacks, "mapper_narrowed_weight_energy")
+
     cfg, _, _ = _p2_cfgs()                          # BCH(63,30): q = 4, K/N = 30/63
-    from eccenergy.study.energy import plot_cats
     cats = plot_cats(cfg)
     glb, spad = "Global buffer", "Local (spads/RF)"
     assert glb in cats and spad in cats, cats
     base = pd.Series({c: 0.0 for c in cats}); base_w = base.copy(); base_i = base.copy()
-    base[glb], base_w[glb] = 1000.0, 600.0          # 600 of weight energy in the GLB
+    base[glb], base_w[glb] = 1000.0, 600.0
     base[spad], base_w[spad] = 500.0, 200.0
     base["DRAM"], base_w["DRAM"] = 4000.0, 4000.0
     base["Compute"] = 9000.0
 
-    def raw_with(levels):
-        r = Raw(base.copy(), base_w.copy(), base_i.copy(), 4000.0, 1000.0, 1, 0, 1000,
-                per_layer=[], levels=levels, cycles=1000)
-        return r
+    def df(levels):
+        raw = Raw(base.copy(), base_w.copy(), base_i.copy(), 4000.0, 1000.0, 1, 0,
+                  1000, per_layer=[], levels=levels, cycles=1000)
+        return stacks.build_stacks(cfg, raw, 1.0, recon_idle_pj=0.0)
 
-    def recon_col(levels):
-        # idle 0 here: this test is about the on-chip categories (RULE 1);
-        # the Reconstruction row (RULE 3) has its own test in test_baseline_dram
-        return stacks.build_stacks(cfg, raw_with(levels), 1.0, recon_idle_pj=0.0)["recon"]
+    eight = df([{"level": "filter_glb", "dataspace": "Weights", "category": glb,
+                 "word_bits": 8, "energy_pJ": 600.0}])
+    assert list(eight.columns) == ["baseline", "embedded"], list(eight.columns)
 
-    kn = 30 / 63
-    # 8-bit plan: both on-chip weight shares scale by K/N
-    eight = recon_col([{"level": "filter_glb", "dataspace": "Weights", "category": glb,
-                        "word_bits": 8, "energy_pJ": 600.0},
-                       {"level": "weights_spad", "dataspace": "Weights", "category": spad,
-                        "word_bits": 8, "energy_pJ": 200.0}])
-    assert abs(eight[glb] - (400.0 + 600.0 * kn)) < 1e-9, eight[glb]
-    assert abs(eight[spad] - (300.0 + 200.0 * kn)) < 1e-9, eight[spad]
-    # no measurement at all (a record older than the field): identical to 8-bit
-    legacy = recon_col([{"level": "filter_glb", "dataspace": "Weights", "category": glb,
-                         "energy_pJ": 600.0}])
-    assert abs(legacy[glb] - eight[glb]) < 1e-9 and abs(legacy[spad] - eight[spad]) < 1e-9
-    # q-bit plan on the GLB only (an ERT arm): the GLB's weight energy is left
-    # as Timeloop billed it, the spad (still 8-bit) is scaled
-    q_glb = recon_col([{"level": "filter_glb", "dataspace": "Weights", "category": glb,
-                        "word_bits": 4, "energy_pJ": 600.0},
-                       {"level": "weights_spad", "dataspace": "Weights", "category": spad,
-                        "word_bits": 8, "energy_pJ": 200.0}])
-    assert abs(q_glb[glb] - 1000.0) < 1e-9, q_glb[glb]
-    assert abs(q_glb[spad] - eight[spad]) < 1e-9
-    # the other columns never move: the baseline and embedded arms are 8-bit by
-    # construction and do not read the level rows
-    df8 = stacks.build_stacks(cfg, raw_with([]), 1.0, recon_idle_pj=0.0)
-    dfq = stacks.build_stacks(cfg, raw_with([{"level": "filter_glb", "dataspace": "Weights",
-                                            "category": glb, "word_bits": 4,
-                                            "energy_pJ": 600.0}]), 1.0, recon_idle_pj=0.0)
-    for col in ("baseline", "embedded"):
-        assert (df8[col] - dfq[col]).abs().max() < 1e-9, col
-    # BREAKAGE: Word bits 5 is neither 8 nor q
-    try:
-        recon_col([{"level": "filter_glb", "dataspace": "Weights", "category": glb,
-                    "word_bits": 5, "energy_pJ": 600.0}])
-    except ValueError as e:
-        assert "disagree" in str(e), e
-    else:
-        raise AssertionError("a Word bits 5 level was scaled without complaint")
-    # a network row carries no Word bits and is never the mapper's
-    noc = recon_col([{"level": "NoC: filter_glb <==> PE_column", "dataspace": "Weights",
-                      "category": "NoC", "word_bits": None, "energy_pJ": 50.0}])
-    assert abs(noc[glb] - eight[glb]) < 1e-9
+    # THE LEVEL ROWS ARE NOT READ. A q-bit row, an 8-bit row, a row with no
+    # measurement at all and a row at a width neither arm could explain all
+    # give byte-identical columns -- which is the whole claim: the narrowing
+    # decision is not made here any more.
+    for levels in ([],
+                   [{"level": "filter_glb", "dataspace": "Weights", "category": glb,
+                     "word_bits": 4, "energy_pJ": 600.0}],
+                   [{"level": "filter_glb", "dataspace": "Weights", "category": glb,
+                     "energy_pJ": 600.0}],
+                   [{"level": "filter_glb", "dataspace": "Weights", "category": glb,
+                     "word_bits": 5, "energy_pJ": 600.0}]):
+        other = df(levels)
+        for col in ("baseline", "embedded"):
+            assert (eight[col] - other[col]).abs().max() < 1e-9, (col, levels)
+
+    # ...and the on-chip weight energy is NOT scaled by K/N on either arm: the
+    # two reference arms carry the full-width weights, which is what they are.
+    assert abs(float(eight.loc[glb, "embedded"]) - 1000.0) < 1e-9
+    assert abs(float(eight.loc[spad, "embedded"]) - 500.0) < 1e-9
 
 
 def test_the_capacity_target_is_8_over_q_and_every_code_passes_its_own():

@@ -153,10 +153,20 @@ def evaluate(cfg, ses, prov, arch, model, raw):
                         if cfg.decode_enabled
                         else 0.0)
 
-    # ---- the five placements ------------------------------------------------
+    # ---- the placements this run asked for ---------------------------------
+    # `[]` MEANT "ALL" UNTIL EnvReorganisation PHASE 6, because the bare
+    # `recon` in ECC_APPROACHES was the abstract arm and the placement study
+    # had to read it as "every boundary". The abstract arm is retired and
+    # `recon` resolves to ONE named placement, so `[]` now means the run named
+    # no reconstruction bar at all -- and `toolchain/units.py` has always
+    # mapped only the reference for such a run. Evaluating five boundaries
+    # nobody asked to map is what that mismatch used to do.
     wanted = cfg.recon_placements_for(arch)
+    if not wanted:
+        print(f"  [note] ECC_APPROACHES names no reconstruction bar, so this "
+              f"study draws {arch}'s two reference bars alone")
     placements = [p for p in placements_mod.placements_for(arch, cfg)
-                  if not wanted or p.key in wanted or p.variant in wanted]
+                  if p.key in wanted or p.variant in wanted]
 
     # prompt_7 B1/B2: ONE MAPPING PER BOUNDARY. The arms are the DISTINCT CHIPS
     # (`recon.mapper_arms`), not the ERT-injectable boundaries, so an arm with
@@ -591,7 +601,7 @@ def evaluate(cfg, ses, prov, arch, model, raw):
             # The RESOLVED list, so the record names the bars: `wanted` is
             # empty when ECC_APPROACHES asked for the abstract `recon`, which
             # means every placement this design declares.
-            "placements_requested": cfg.recon_placement_bars(arch, warn=False) or "all",
+            "placements_requested": cfg.recon_placement_bars(arch, warn=False),
         })
     # prompt_7 Phase A. Recorded whether or not the roofline ran: `standby`
     # always says who was charged, and a `latency_model` of None says plainly

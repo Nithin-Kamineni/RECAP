@@ -2984,3 +2984,467 @@ placement, the metric blocks are already there -- what it adds is groups, not
 rows. `study/metrics.metric_stacks` takes `arm_of` and `engine_bars` precisely
 so a figure whose column name is not the arm name (the placement figure's is
 always `energy`) can still say which bars are reconstruction bars.
+
+
+================================================================================
+ENVREORGANISATION PHASE 6 (SESSION 1 OF 2) -- SWEEPS DRAW PLACEMENTS
+================================================================================
+2026-09-14.  plans/EnvReorganisation.md section 7, phase 6.  Commit: this one.
+Session 1 of a two-session phase.  SESSION 2's brief is at the end of this
+entry -- read "NOTE FOR SESSION 2" first if you are picking this up.
+
+GATE: PASSED, all six items, no flag on the final run. Item 1: 302 fingerprint
+rows IDENTICAL -- nothing was re-mapped by the code change and no mapper cache
+moved. Items 2-5: identical, every evaluated total and every guard report.
+Item 6: 515 -> 527 passed, 10 skipped, 0 failed (GROWTH).
+ONE PART OF THE GOLDEN WAS RE-TAKEN BY HAND, WITH THE USER'S DECISION -- see
+"THE GOLDEN RE-TAKE" below. It is recorded in restructure/golden/record.log
+with the classifier's own list.
+
+--------------------------------------------------------------------------
+WHAT PHASE 6 IS, IN ONE LINE
+--------------------------------------------------------------------------
+EVERY BAR ON EVERY FIGURE IS NOW A REAL, MAPPED CHIP.
+
+THE ABSTRACT `recon` ARM IS RETIRED (plan 6.2, answer 9.2). It was
+build_stacks()'s third column: one engine at the chip entrance, with K/N
+applied to EVERY on-chip level of EVERY design identically. No physical
+boundary does that -- once weights are reconstructed at the entrance they are
+full width on chip -- so it was an optimistic upper bound, and reporting rule
+R-6 existed only to stop anyone quoting it as a placement. It is gone, and
+with it `mapper_narrowed_weight_energy()`, which was prompt_6 RULE 1's FOURTH
+narrowing site and existed only because that arm narrowed on chip
+evaluator-side. RULE 1 HAS THREE SITES NOW, and the live one
+(study/narrowing.assert_onchip_narrowing_once) is unchanged and still
+mutation-tested.
+
+FINDINGS: every number built on the abstract arm stops being reproducible from
+this tree. Per 6.2 they STAY in FINDINGS as history, labelled as the abstract
+arm, and the new figures do not overwrite them (the bch/model/arch stems are
+unchanged; only what is inside them changed). FINDINGS was NOT edited this
+session -- that is session 2's, with the final figures.
+
+--------------------------------------------------------------------------
+THE NEW KNOB, AND WHAT A BARE `recon` MEANS
+--------------------------------------------------------------------------
+  # recon1 | recon2 | recon3 | recon4 | recon5   <- what a bare `recon` bar MEANS
+  : "${ECC_RECON_DEFAULT:=recon2}"
+
+env.sh section 1, beside ECC_APPROACHES, one option-line comment in phase 4's
+style, reasoning in the section preamble. CONFIRMED WITH THE USER 2026-09-14:
+"I must be able to use recon which must use the default recon values ... Also I
+must be able to directly put in recon1 or recon2 ... (any one of these, some of
+these or all of these too.)" -- which is exactly what shipped:
+
+    ECC_APPROACHES="baseline embedded recon"          -> 3 bars, the third is recon2
+    ECC_APPROACHES="baseline embedded recon4"         -> 3 bars, the third is recon4
+    ECC_APPROACHES="baseline embedded recon1 recon3"  -> 4 bars
+    ECC_APPROACHES="baseline embedded recon1 .. recon5" -> 7 bars (env.sh's default)
+    naming `recon` beside `recon2` adds the default ONCE, never twice.
+
+ECC_APPROACHES' DEFAULT CHANGED to name the five boundaries explicitly --
+plan section 8's own picture of a finished run. That is what lets `recon` mean
+ONE bar without shrinking the placement figure from five bars to one: the
+placement study, its bill and every one of its numbers are unchanged, and
+`recon` is there for a sweep that wants a single reconstruction bar. It is NOT
+axis-dependent: one word, one meaning, everywhere.
+
+`recon_default` is EVALUATOR ONLY and MUST NEVER BE IN THE FINGERPRINT -- the
+same rule ECC_METRICS got in phase 5 and for the same reason: a plotting
+choice in arch_fingerprint() would cold every mapper cache in the project for a
+decision about one bar. Pinned by a property test (two configs differing only
+in it must give the same Config.fingerprint() AND the same arch_fingerprint()).
+It DOES change the BILL, because the chips a run maps are the bars it draws;
+`--dry-run` prints them.
+
+FIELD_ORDER: `recon_default` immediately after `metrics`, the knob it sits
+beside in env.sh. test_the_record_keeps_its_key_order and
+test_every_knob_is_owned_by_exactly_one_group are derived from the six groups
+and cover it automatically; both pass.
+
+GUARDS.md 138 -> 139. New: `unknown-recon-default` (tier 1 PARSE, `refusal()`,
+the spelling rule for tiers 1-2). Its message names the retirement, because
+"ECC_RECON_DEFAULT=recon" -- `recon` resolving to `recon` -- is the abstract
+arm coming back under another name, and that is the mistake to catch.
+
+ONE MORE THING GUARDS GREW: `guards.refusal()` now sets `exc.guard_id` on the
+exception it builds. report/sweep.py has to continue past ONE named refusal (a
+point whose boundaries are not mapped at that code) without catching the
+guards it was never meant to catch, and matching on a MESSAGE is how a
+swallowed `except` starts doing exactly that. The message is unchanged.
+
+--------------------------------------------------------------------------
+WHAT `cfg.bar_arms` MEANS NOW -- DECIDED AND RECORDED, as the brief asks
+--------------------------------------------------------------------------
+  cfg.bar_arms          THE RESOLVED BAR LIST, design-independent: the two
+                        REFERENCE_ARMS that this run names, then every
+                        placement it names, with a bare `recon` resolved to
+                        ECC_RECON_DEFAULT. There is no third abstract arm.
+  cfg.bar_arms_for(a)   the same, filtered to what design `a` DECLARES, with a
+                        `[skip]` line for the rest. This is the per-design
+                        answer; the figure takes the UNION and draws no bar
+                        where a design has none.
+  cfg.bar_label(a, k)   a boundary's long label is the DESIGN's own words
+                        (placements.yaml); only the generic fallback is code.
+  cfg.bar_tag(k)        the short rotated tag under a bar: `R2`, not a
+                        sentence. settings/run.PLACEMENT_TAGS.
+
+  settings/run.BAR_ARMS -> REFERENCE_ARMS = ("baseline", "embedded"). The name
+                        changed because the meaning did: these are the two arms
+                        that exist on every design, are billed from the
+                        reference plan, and are the only two build_stacks()
+                        still builds.
+
+build_stacks()'s THIRD COLUMN IS DELETED. Its signature keeps `recon_pj`,
+`recon_idle_pj` and `recon_engines` -- every caller passes them and the
+`Reconstruction` ROW stays in the frame (at 0.0 on both reference arms) so a
+figure that also draws placement bars keeps ONE category list -- but nothing
+there charges them. Its callers:
+  * study/common.Session.collect_arch -- unchanged call, two columns out. Used
+    by the sweeps and (collected but unread) by the placement study.
+  * report/sweep.py's `_bch_groups` -- GONE. Every group's bars now come from
+    the placement evaluation; `_reference_stack()` calls build_stacks only for
+    a point whose boundaries are ALL cold, which is the one case where the two
+    reference bars are all there is.
+  * the run reports' "recon+ total" line (Session.report) -- REMOVED. It gave
+    the reconstruction share of a bar that no boundary is; the same share per
+    REAL boundary is one line per bar of the placement study's own report and
+    is measured from that bar's own plan.
+  * the manifest key `recon_idle_engines_in_build_stacks: 1` -- REMOVED, and
+    `recon_idle_note` reworded to say the engine count is per boundary now.
+`bash run.sh baseline --eval` was re-run and diffed as CLAUDE.md requires:
+Task 1 and Task 2 totals UNMOVED to the pJ (it is gate stages 2 and 3, and
+both are byte-identical).
+
+--------------------------------------------------------------------------
+HOW A SWEEP DRAWS A PLACEMENT BAR
+--------------------------------------------------------------------------
+report/sweep.py was rewritten. The shape:
+
+  ONE POINT OF THE X AXIS = ONE FULL PLACEMENT EVALUATION.
+    _point_cfg()   cfg.with_(experiment="recon", sweep="fix",
+                             const_arch=, const_model=, const_k=)
+                   -- with_() re-resolves EVERYTHING, so pinning the three axes
+                   moves code_k, code_t, every cache slug, and (for the
+                   per-model ECC_LAYERS spelling) that model's OWN layer scope.
+                   Which is why a model sweep can carry a scope per model now:
+                   each point resolves its own. The result FILE each point
+                   writes lands in the placement study's namespace, where it
+                   belongs; the FIGURE, CSV and manifest are the sweep's.
+    _evaluate_point() -> (point cfg, point session, placement out, Raw)
+    _point_stack()    -> DataFrame, rows = categories, columns = the bars this
+                   design could answer, built through `recon_view.bar_series`
+                   -- THE PLACEMENT FIGURE'S OWN FOLD (external parity into the
+                   DRAM band, then the `figure-draws-the-total` check), so a
+                   bar means the same thing on both figures. Extracted from
+                   `panel_for`'s `add()`; one routine, two callers.
+    collect_points()  walks the axis and is THE ONLY PLACE the figure's data is
+                   built -- run() draws what it returns and the metric-row
+                   tests read the same call, so a test cannot pass against a
+                   shape the figure never sees.
+
+  A COLD POINT KEEPS ITS TWO REFERENCE BARS AND LOSES ITS RECONSTRUCTION ONES.
+  A bch sweep is a sweep of the CODE: the reference arms exist at every code
+  from ONE chip, while each boundary is a DIFFERENT chip per code and may not
+  be mapped. Dropping the whole point would throw away two measured bars
+  because a third is cold; billing the third from the reference plan would be
+  Task 3 under a heading that says otherwise, which `no-boundary-mapped`
+  refuses. So the refusal still fires inside the evaluation and sweep.py
+  catches it BY GUARD ID:
+      COLD_AT_THIS_POINT   ert-arm-cache-cold, ert-arm-shapes-differ,
+                           arm-half-mapped, no-boundary-mapped
+                           -> keep the two reference bars, drop the rest
+      NOTHING_AT_THIS_POINT recon-nothing-collected, stacks-refused
+                           -> drop the whole point
+  Anything else PROPAGATES. A test asserts every id in both sets is a
+  registered guard and that the two sets are disjoint.
+  NOTE THE EXCEPTION TYPES: five of those guards raise SystemExit and the rest
+  ConfigError, so sweep.py catches BOTH. Catching only ConfigError is how the
+  first cut killed the whole figure on a point that should have lost one bar.
+
+  A GROUP MAY BE MISSING A BAR, AND IT IS NEVER A ZERO.
+  report/stacked.bar_value() returns None; draw_panel draws NOTHING there (no
+  bar, no total label, no saving, no tag) and write_table leaves the cell
+  EMPTY. A zero-height bar in a group that also holds real ones reads as a
+  measured zero, and there is no such thing here. A bar that really IS zero
+  still reads as 0.0 -- pinned by a test.
+  draw_panel gained a LOOKUP, not a second routine (CLAUDE.md): it is still the
+  only place a bar is drawn.
+
+--------------------------------------------------------------------------
+`sweep-has-no-figure`: NARROWED TO `area`, NOT RETIRED (the brief asks which)
+--------------------------------------------------------------------------
+It refused ECC_EXPERIMENT=sweep/panels on BOTH point sweeps. Phase 6 narrows it
+to `area` alone (settings/run.NO_FIGURE_SWEEPS).
+
+  `fix` HAS a renderer now, and it is not a second one: every bar of every
+  sweep is built from the placement evaluation, so an axis with no x axis is
+  simply ONE GROUP whose bars are the placements. env.sh still ROUTES `fix` to
+  ECC_EXPERIMENT=recon -- the richer renderer, with the per-bar notes, the
+  placement table and the Task 3 checks -- so the sweep form is a diff, not the
+  study. To make it reachable, env.sh's routing line went from a bare
+  `ECC_EXPERIMENT="recon"` (the environment could not win) back to
+  `: "${ECC_EXPERIMENT:=recon}"`, restoring the file's own rule. The three
+  LISTS stay a bare `=`: a leftover there would WIDEN a study that only makes
+  sense at one point, which is a different mistake.
+  Its figure gets `__barsweep` on the stem (Config.stem) so two renderers
+  cannot write one filename.
+
+  `area` still has none, and the reason is the STEM: it carries no depth
+  (recorded in phase 3), so two points of the ladder would overwrite one
+  figure -- and the ladder is a property of the MAPPINGS, which is why
+  ECC_SWEEP=area submits no eval at all. Lifting it needs a depth in the stem,
+  and that is session 2's call.
+
+--------------------------------------------------------------------------
+THE GOLDEN RE-TAKE -- WHAT, WHY, AND THE USER'S DECISION
+--------------------------------------------------------------------------
+The first post-change gate was RED on items 2-5 with compare.py reporting
+"NUMBERS MOVED: 14". NOT ONE OF THEM IS A MEASUREMENT:
+  * 12 are the run banner's `sweeping` / `approaches` rows, where
+        baseline, embedded, recon
+    became
+        baseline, embedded, recon1, recon2, recon3, recon4, recon5
+    and the DIGITS IN THOSE NAMES are what the classifier counted. This is
+    phase 3's lesson again, from the other side: a number inside PROSE is a
+    number to a diff -- and so is a NAME that contains one.
+  * 2 are the manifest key `recon_idle_engines_in_build_stacks`, whose value
+    was the integer 1 and which existed only to describe the retired arm, so
+    its removal reads as "a numeric subtree vanished".
+
+VERIFIED BEFORE ANYTHING WAS REWRITTEN: all 126 changed lines of the 14 changed
+files were read. Every one is a bar NAME, the new `recon_default` key, the
+`config_hash` that follows from adding it, or reworded prose (the R-6 caveat,
+the recon idle note). NO energy, latency, cycle count, access count or
+percentage differs anywhere. Item 1 (302 fingerprint rows) was IDENTICAL.
+
+`--accept-record` will not take it -- by design, a moved NUMBER is accepted by
+no flag. THE OPTIONS WERE PUT TO THE USER with their costs (re-take the golden
+files / change compare.py's tokeniser so a name's trailing digits are not a
+measurement / commit red). NOTE FOR ANYONE TEMPTED BY THE SECOND: it cannot
+close the gate on its own -- the deleted-key half is still "a numeric subtree
+vanished" -- and it would blind the classifier to a bare `x1` or `perm16`.
+THE USER CHOSE THE RE-TAKE (2026-09-14). Done by hand, file by file, for
+exactly the 14 files that differed; restructure/golden/record.log carries the
+reason and compare.py's own list in full. fingerprints.tsv was NOT touched (it
+was already identical) and pytest.txt was brought current separately with
+--accept-tests, which is the growth branch. The final gate is green with no
+flag at all.
+
+--------------------------------------------------------------------------
+A REAL BUG THIS PHASE FOUND, AND WHY EVERY EARLIER SMOKE TEST MISSED IT
+--------------------------------------------------------------------------
+NO COLD MAP COULD RUN AT ALL. `toolchain/inputs.archs_globals_path` did
+`from .archs import globals_path`, and `toolchain/archs.py` became
+`arch/layout.py` in ProjectRestructure phase 3. The import is LAZY (it was
+written that way when the two modules would otherwise have cycled), so it never
+executed at import time and no test caught it:
+
+    ModuleNotFoundError: No module named 'eccenergy.toolchain.archs'
+
+WHAT HID IT. That line runs on ONE path: `Mapper._map_now`, i.e. a shape that
+is NOT in the cache. Every smoke job since the restructure -- phase 3's, phase
+5's, and this phase's first -- was submitted against an ALREADY-CACHED unit,
+exactly as the rule asks, and a cached unit returns from `stats_for` before it
+reaches there. So "ONE real SLURM job before the matrix" passed while nothing
+could be mapped. THE RULE NEEDS A SECOND HALF:
+
+    A REAL JOB ON A CACHED UNIT PROVES THE CACHE PATH, NOT THE MAPPER PATH.
+    SMOKE A COLD UNIT TOO.
+
+Fixed (`from ..arch.layout import globals_path`; L2 from L4, a downward import)
+and proved with a real cold SLURM job -- 42130332_0, recon1 at K=57 on conv1,
+COMPLETED in 20 s, fp-5e70d42d10e8, a new cache entry written. The reason is on
+the function, not only here.
+
+--------------------------------------------------------------------------
+THE PHASE'S OWN FOUR GATE ITEMS
+--------------------------------------------------------------------------
+(a) Config.to_dict() from a CLEAN shell (`env -i bash -c 'source ./env.sh;
+    ...'`) against a git archive of 5d488e4, on the DEFAULT and on all five
+    ECC_SWEEP axes, compared STRUCTURALLY key by key. 109 -> 110 keys on every
+    one of the six: added = ['recon_default'], removed = [], and exactly ONE
+    changed value -- `approaches`, from the abstract `recon` to the five named
+    boundaries. Nothing else moved on any axis.
+(b) `bash hpc/run_all.sh --dry-run` at env.sh's defaults. PREDICTED FIRST that
+    it must be UNCHANGED, because `recon` meant all five boundaries before and
+    the list names all five now: 6 chips, 12 shapes, 72 units, cached 72/72, 0
+    jobs -- byte-identical to phase 5's bill. On the development scope the bch
+    axis predicts 24 chips / 2 shapes / 48 units / 18 cached / 30 to map, and
+    prints exactly that.
+(c) TWO REAL SLURM JOBS, not --dry-run, because of the bug above:
+      CACHED unit  42125076_0  reference/K39/conv1  COMPLETED 4 s,
+                   fp-2db6a4d92ff5, nothing re-solved, nothing overwritten.
+      COLD unit    42130332_0  recon1/K57/conv1     COMPLETED 20 s,
+                   fp-5e70d42d10e8, a new entry written.
+(d) LOOKED AT THE FIGURES on the six-layer scope's resnet18 half (the warm
+    corner; the mobilenet_v2 and efficientnet_b0 layers are cold by design).
+    Three figures reviewed: the bch sweep (the new bar-per-placement figure),
+    the placement study's own figure, and the `fix` axis through the sweep
+    renderer. TWO LEGIBILITY DEFECTS FOUND BY LOOKING, both invisible to the
+    gate and both fixed:
+      1. THE GROUP LABEL POINTED AT EMPTY PAPER. The slots for all seven bars
+         are reserved in every group -- deliberately, so one boundary keeps one
+         x offset across every group -- but a group of TWO bars (a cold code)
+         had its label centred on the slots, a third of a page to the right of
+         its bars. The label now sits under the bars the group actually has;
+         the slots stay reserved.
+      2. A 4.6:1 PAGE. figsize was 1.5 inches per bar, which is 46 inches wide
+         against 10 high for four groups of seven. `panel_width()` now allows
+         1.0 inch per bar above three bars per group (32 inches). EVERY FIGURE
+         THIS PROJECT DREW BEFORE PHASE 6 HAD EXACTLY THREE BARS, so the rule
+         is byte-identical for all of them.
+
+--------------------------------------------------------------------------
+MEASURED, ON THE SIX-LAYER SCOPE'S resnet18 HALF (conv1 + layer3.0.conv1)
+--------------------------------------------------------------------------
+eyeriss_like_wglb, BCH(63,39), ECC_METRICS=energy, seven bars, each from its
+own cache -- and identical to the placement study's own figure, which is the
+point of building both from one evaluation:
+
+  baseline 1,574.88 uJ   embedded 1,493.67 (-5.2%)
+  R1 1,470.13 (-6.7%)  R2 1,457.37 (-7.5%)  R3 1,459.84 (-7.3%)
+  R4 1,477.86 (-6.2%)  R5 1,817.03 (+15.4%)
+
+WORTH KNOWING ABOUT THE bch AXIS, AND IT IS NOT A BUG: the two REFERENCE bars
+do not move with K. The baseline pays a dearer per-bit DRAM PRICE, not extra
+traffic (CLAUDE.md; ECC_BASELINE_DRAM_PJ_PER_BIT), and the embedded arm stores
+no external parity at all, so neither depends on the code. Under the price
+model the code strength moves the RECONSTRUCTION bars and nothing else -- which
+means the old bch figure's only K-dependent bar was the abstract arm.
+
+--------------------------------------------------------------------------
+"MAKE RUNNING THE CODES EASIER" -- WHAT ACTUALLY COST ME TIME (ask 1)
+--------------------------------------------------------------------------
+Measured by running the pipeline this session, not guessed. The brief says
+propose, do not build, and NEVER a fourth launcher. In the order they cost me
+the most:
+
+ 1. A CACHED SMOKE JOB PROVES THE WRONG PATH. Cost: the whole first mapping
+    array (4 tasks failed, 26 cancelled) and the debugging above. PROPOSAL:
+    `hpc/run_all.sh --smoke` -- no knobs -- submits TWO real one-row jobs, one
+    unit the cache already has and one it does not, and prints both results.
+    That is the gate item (c) rule with the second half the rule was missing.
+ 2. THE DEVELOPMENT SCOPE IS A COMMENTED LINE YOU RETYPE. Every command this
+    session began `ECC_LAYERS="conv1 layer3.0.conv1"`, copied by hand from
+    env.sh's comment, and a typo there is a whole-model run. PROPOSAL: one
+    env.sh knob, one option line -- `ECC_SCOPE=dev|full` -- where `dev` selects
+    the six-layer table section 6.9 defines and `full` is empty. No new
+    launcher, no new verb.
+ 3. THREE COMMANDS TO SEE ONE DESIGN'S FIGURE (map -> wait -> eval -> replot),
+    each needing the right ECC_* prefix. PROPOSAL: the plan's own candidate,
+    `bash run.sh design <name>` -- one verb, no knobs: map what is cold on the
+    development scope, evaluate, draw, print the figure path.
+ 4. `--dry-run` PRINTS THE BILL BUT NOT THE MONEY. It says "30 to map" and
+    lists them, but not what 30 costs. One cold map on this design/shape was
+    20 s; 30 of them bundled is minutes, and I could not tell that from the
+    bill. PROPOSAL: one line -- the median wall time of the cache entries this
+    configuration already has, times the cold count, as a range.
+ 5. ECC_JOBS BUNDLING WORKS (verified this session: 30 units -> 30 jobs with
+    it empty, and phase 3 measured 72 -> 12 with it set). It is not a problem;
+    what is missing is that `--dry-run`'s bundling line does not say the
+    ECC_MAP_TIME a bundle would need. PROPOSAL: fold into (4).
+ NOT PROPOSED, deliberately: a fourth launcher, and any knob that changes what
+ is COMPUTED. All five above change only what is TYPED.
+
+--------------------------------------------------------------------------
+CHECKED, NOT ASSUMED
+--------------------------------------------------------------------------
+* `bash -n env.sh` after every edit; ECC_RECON_DEFAULT added to the export list
+  in its alphabetical slot so it reaches map.sbatch and the dependent eval;
+  `env -i bash -c 'source ./env.sh; echo $ECC_RECON_DEFAULT'` -> `recon2`;
+* every consumer still sources env.sh: run.sh, hpc/run_all.sh, hpc/map.sbatch,
+  hpc/tl.sh, hpc/smoke_models.sh, hpc/map_capacity_sweep.sh,
+  restructure/snapshot.py, and eccenergy/tests/test_dilation.py's env.sh
+  routing test (which reads the real file) -- green unchanged;
+* the LAYER RULE holds (tests/contract/test_layer_rule.py green):
+  report/sweep.py imports report/recon_view.py (both L6) and
+  study/placement_study.py (L5), both downward or sideways;
+* every file written atomically (temp + os.replace) with a pre-edit copy kept;
+* `make guards` was the LAST step before the final gate.
+
+--------------------------------------------------------------------------
+NOTE FOR SESSION 2
+--------------------------------------------------------------------------
+DONE (session 1), all gated:
+  * ECC_RECON_DEFAULT: knob, guard, FIELD_ORDER, tests, env.sh + preamble;
+  * the abstract `recon` arm RETIRED, with its fourth narrowing site, its
+    manifest key and its "recon+ total" report line;
+  * report/sweep.py + panels.py + stacked.py draw a bar per (design,
+    placement) from each arm's OWN cache, per swept point, with the warned
+    skip and the missing-bar rule;
+  * `sweep-has-no-figure` NARROWED to `area`; `fix` reachable and named
+    `__barsweep`;
+  * the cold-map bug (`toolchain.archs`) found and fixed;
+  * two legibility defects found by looking and fixed;
+  * ask 1 (ease of use) MEASURED AND PROPOSED, NOT BUILT -- five proposals
+    above, awaiting the user's pick.
+
+NOT DONE -- SESSION 2 OWES:
+  1. THE OTHER TWO DESIGNS (ask 3, plan 6.8). NOTHING was done for them this
+     session. In order:
+     a. WRITE THE TWO FREE-SETS FIRST, before mapping anything (prompt_3,
+        "Porting it to another design or layer"). Only eyeriss_like_wglb
+        declares `mapspace_free_levels:`; simple_weight_stationary and
+        eyeriss_v2_like_wglb declare NONE and are searched UNCONSTRAINED,
+        which is the wrong regime (FINDINGS 2.2). Get the level names from
+        each design's own timeloop-mapper.map.txt and .stats.txt -- NEVER by
+        copying v1's names, which those designs do not have. arch/patch.py
+        prints a `[mapspace] ... no MAPSPACE_FREE_LEVELS entry` note rather
+        than failing, so a run that skips this SILENTLY does the wrong search.
+     b. simple_weight_stationary recon5 IS ALREADY BROKEN and the gate PINS
+        the refusal: six rows of restructure/golden/fingerprints.tsv are
+        REFUSED with
+            ValueError: ECC_WEIGHT_DATAWIDTH_LEVELS names weight_reg, which
+            simple_weight_stationary has no weight-carrying level called.
+            It has: pe_spad, weight_glb.
+        Its placements.yaml names a stage/level the design does not declare --
+        a real bug in that design's TWO TABLES, which must be edited together.
+        FIXING IT CHANGES SIX GOLDEN ROWS OF ITEM 1, which is the one item the
+        brief calls "not advisory". --accept-record will not take it. RAISE IT
+        WITH THE USER AND RE-TAKE THAT PART KNOWINGLY, exactly as this session
+        did for the banner lines -- the precedent and the record.log entry are
+        there to follow.
+        ALSO FROM THE USER (2026-09-14): the approach that latches at the end
+        before reading is NOT FEASIBLE and is not working -- its placements do
+        not need to be considered in ANY architecture. Check whether that is
+        R4b (CLAUDE.md records R4b as already REMOVED) or a placement still
+        declared in a placements.yaml, and remove it where it is still there.
+     c. VERIFY THE WIDTH TABLES, DO NOT REDO THEM. All three designs'
+        archs/<name>/widths.yaml already carry the identical table
+        (q=8->96/384, 7->98/392, 6->96/384, 5->95/380, 4->96/384). What is NOT
+        verified is that those widths are legal for each design's OWN declared
+        levels -- `widths-not-a-multiple` (tier 2) is the guard. THE WIDTH
+        TABLE IS A PROTECTED SECTION OF CLAUDE.md: 95 % 8 IS IRRELEVANT, do
+        not "fix" 95 or 98. If a width is wrong for a design the fix is in
+        that design's widths.yaml, never in the arch YAML and never in config.
+     d. THEN map them on the SIX-LAYER SCOPE ONLY and fix what they surface.
+        eyeriss_v2_like_wglb resolves cleanly today (placements recon1-4, arms
+        reference + recon1-4, no refusal) but is COLD at the live
+        configuration, so its first run maps everything. Its README calls it
+        "a diagnostic variant, not a second model of the paper" and its 64 kB
+        weight_noc "is not a buffer the silicon has" -- label it as the README
+        does, on every figure.
+  2. THE bch FIGURE IS STILL THREE-QUARTERS COLD. Mapping array 42132147 (29
+     units: 5 boundaries x 3 codes x 2 shapes) was submitted at the end of this
+     session with the cold-map fix in place. CHECK IT FIRST:
+         sacct -j 42132147 -n --format=JobID,State | sort | uniq -c
+     then re-render and LOOK:
+         ECC_LAYERS="conv1 layer3.0.conv1" ECC_SWEEP=bch \
+           bash hpc/tl.sh bash run.sh --replot
+     If it completed, all four codes get seven bars and the K-dependence of the
+     reconstruction bars becomes visible for the first time.
+  3. ASK 1: put the five proposals to the user, build ONLY what they pick, and
+     remember the constraint -- one env.sh knob with one option line, or one
+     run.sh verb with no knobs. NEVER a fourth launcher.
+  4. `ECC_SWEEP=area`: decide whether to lift `sweep-has-no-figure` for it too.
+     It needs a DEPTH IN THE STEM first (phase 3 recorded that two depths
+     overwrite one figure) and the axis submits no eval today. Either lift it
+     properly or record that it stays refused and why.
+  5. FINDINGS: label the abstract-arm numbers as history (6.2 says they STAY),
+     and add the new figures. Whole models ONLY for the final figures -- every
+     development step stays on the six-layer scope (section 7, phase 6).
+  6. Re-run the gate BEFORE and AFTER. IT RUNS ALONE: snapshot.py collects each
+     stage's output by mtime, so a figure render in another shell lands inside
+     a stage's window and is reported as a moved NUMBER.
+  DO NOT START PHASE 7 (docs).

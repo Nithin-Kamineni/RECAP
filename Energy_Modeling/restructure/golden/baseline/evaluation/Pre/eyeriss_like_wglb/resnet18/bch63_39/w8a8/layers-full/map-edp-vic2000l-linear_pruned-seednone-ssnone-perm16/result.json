@@ -5058,7 +5058,11 @@
       "approaches": [
         "baseline",
         "embedded",
-        "recon"
+        "recon1",
+        "recon2",
+        "recon3",
+        "recon4",
+        "recon5"
       ],
       "arch_clock_mhz": {
         "eyeriss_like": 200.0,
@@ -5145,6 +5149,7 @@
       "recon_bw_scale": true,
       "recon_charges_decode": true,
       "recon_clock_gating_pct": 99.5,
+      "recon_default": "recon2",
       "recon_encoder_site": "destination",
       "recon_ert_arm": "reference",
       "recon_ert_aware": false,
@@ -5208,7 +5213,7 @@
       "weights_per_codeword": 4,
       "workload": "cnn"
     },
-    "config_hash": "fa70b7c9",
+    "config_hash": "84f12325",
     "finished_utc": "<scrubbed>",
     "git_commit": "<scrubbed>",
     "host": "<scrubbed>",

@@ -1,9 +1,9 @@
 ==============================================================================
 ecc-energy  |  placement (where the reconstruction boundary sits)  |  output=ReconSweep_optimiser__resnet18
 ==============================================================================
-  sweeping              : baseline, embedded, recon
+  sweeping              : baseline, embedded, recon1, recon2, recon3, recon4, recon5
   holding               : model=resnet18   code=BCH(63,39) t=4
-  approaches            : baseline, embedded, recon
+  approaches            : baseline, embedded, recon1, recon2, recon3, recon4, recon5
   workload file         : cnn
   layer scope           : full
   weight precision      : 8b (the protected payload)

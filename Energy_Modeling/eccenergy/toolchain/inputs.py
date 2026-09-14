@@ -273,8 +273,29 @@ def design_inputs(arch_yaml, problem_yaml, arch, cfg):
 
 
 def archs_globals_path(arch, cfg):
-    """`archs.globals_path`, imported lazily -- `archs` imports this module."""
-    from .archs import globals_path
+    """WHICH `globals_<arch>_<content>.yaml` THE MAPPER IS HANDED.
+
+    IT POINTED AT A MODULE THAT NO LONGER EXISTS until EnvReorganisation phase
+    6 (2026-09-14): `from .archs import globals_path`, where
+    `toolchain/archs.py` became `arch/layout.py` in ProjectRestructure phase 3.
+    The import was LAZY -- written that way when `archs` still imported this
+    module and the two would otherwise have cycled -- so it was never executed
+    at import time and nothing caught it.
+
+    WHAT HID IT FOR A DAY, AND THE LESSON. This line runs on ONE path only:
+    `Mapper._map_now`, i.e. a shape that is NOT in the cache. Every smoke job
+    since the restructure (phase 3's, phase 5's, and phase 6's own) was
+    submitted against an ALREADY-CACHED unit, exactly as the rule asks -- and a
+    cached unit returns from `stats_for` before it reaches here. So "one real
+    SLURM job before the matrix" passed while no cold map could run at all.
+    A REAL JOB ON A CACHED UNIT PROVES THE CACHE PATH, NOT THE MAPPER PATH;
+    a cold unit has to be smoked too, and phase 6 does that now.
+
+    `arch/layout.py` is L2 and this is L4, so the import is downward and could
+    be at module scope; it stays lazy because that is one fewer edge in the
+    module graph and the call is not on any hot path.
+    """
+    from ..arch.layout import globals_path
     return globals_path(arch, cfg)
 
 

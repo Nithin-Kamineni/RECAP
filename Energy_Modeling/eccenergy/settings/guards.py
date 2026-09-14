@@ -118,6 +118,8 @@ GUARDS = {
     "unknown-experiment":       _g(1, "ECC_EXPERIMENT naming no known experiment"),
     "unknown-sweep":            _g(1, "ECC_SWEEP naming no known axis"),
     "unknown-approach":         _g(1, "ECC_APPROACHES naming an arm that does not exist"),
+    "unknown-recon-default":    _g(1, "ECC_RECON_DEFAULT naming something that is not a reconstruction placement",
+                                    note="what a bare `recon` bar MEANS. The abstract `recon` arm is retired (EnvReorganisation 6.2), so there is no value here that means 'not a placement'."),
     "unknown-metric":           _g(1, "ECC_METRICS naming a figure row that does not exist",
                                  note="the PLOTTED metric, not the mapper's "
                                       "`ECC_OPT_METRIC` -- note `latency` here "
@@ -367,7 +369,16 @@ def refusal(gid, message):
             f"guard {gid!r} is tier {g.tier} ({TIER_NAMES[g.tier]}), which is "
             f"OVERRIDABLE -- use `guards.refuse({gid!r}, ...)`, which consults "
             f"{ALLOW_VAR} and records the override, not `refusal()`, which cannot.")
-    return g.raises(message)
+    exc = g.raises(message)
+    # THE ID TRAVELS ON THE EXCEPTION (EnvReorganisation phase 6). A caller that
+    # legitimately continues past ONE named refusal -- the sweep figure, whose
+    # point is cold at one code and mapped at the others -- has to be able to
+    # tell WHICH guard fired without matching on the message. Matching a
+    # message is how a swallowed `except ConfigError` starts hiding the guards
+    # it was never meant to catch; `getattr(e, "guard_id", None) in {...}` does
+    # not. The message is unchanged.
+    exc.guard_id = gid
+    return exc
 
 
 def refuse(gid, message):

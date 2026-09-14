@@ -462,13 +462,23 @@ def _cfgs():
 
 
 def _stack_totals(cfg, raw):
+    """Per COLUMN, not per `cfg.approaches`. Since EnvReorganisation phase 6
+    `build_stacks()` builds the two REFERENCE arms and `ECC_APPROACHES` also
+    names placements, which come from their own caches -- so the frame's own
+    columns are the honest list."""
     recon_pj, idle_pj, _ = stacks.load_recon_energy(cfg)
     df = stacks.build_stacks(cfg, raw, recon_pj, recon_idle_pj=idle_pj)
-    return {a: float(df[a].sum()) for a in cfg.approaches}
+    return {a: float(df[a].sum()) for a in df.columns}
 
 
 def test_static_energy_is_symmetric():
-    """ECC_STATIC_ENERGY=1 moves all three arms, by the SAME pJ; =0 moves none.
+    """ECC_STATIC_ENERGY=1 moves EVERY arm, by the SAME pJ; =0 moves none.
+
+    "All three arms" until EnvReorganisation phase 6; `build_stacks()` builds
+    the two reference ones now and the reconstruction bars come from their own
+    caches. The claim is unchanged and stronger where it matters: standby lands
+    in `Raw.base`, which EVERY arm and EVERY placement bar starts from, so no
+    code path can charge it to one and not another.
 
     Both halves matter. The first is Defect 2's fix: standby power is a
     property of the chip, not of where the parity lives, so it lands in
@@ -504,17 +514,20 @@ def test_static_energy_is_symmetric():
         f"moves, STOP -- that is Defect 2 with a switch on it.")
     lo, hi = min(deltas.values()), max(deltas.values())
     assert math.isclose(lo, hi, rel_tol=1e-12), (
-        f"the three arms were charged DIFFERENT standby energies {deltas}; "
+        f"the arms were charged DIFFERENT standby energies {deltas}; "
         f"standby power is a property of the chip, not of where parity lives")
     assert math.isclose(lo, e_off, rel_tol=1e-12), (
         f"the arms moved by {lo:.3f} pJ but standby_energy says {e_off:.3f} pJ")
     print(f"          all {len(deltas)} arms +{lo / 1e6:,.3f} uJ; "
           f"ECC_STATIC_ENERGY=0 charges 0.000 uJ")
 
-    # BREAKAGE: charge it to the reconstruction arm only -- the exact shape of
-    # Defect 2, which is what this assertion exists to make impossible.
+    # BREAKAGE: charge it to ONE arm only -- the exact shape of Defect 2, which
+    # is what the assertion above exists to make impossible. It used to be
+    # `bad["recon"]`, the abstract arm; that arm is retired (EnvReorganisation
+    # phase 6) and the mutation is the same one on whichever arm is last.
     bad = dict(t_off)
-    bad["recon"] = bad["recon"] + e_off
+    one = list(bad)[-1]
+    bad[one] = bad[one] + e_off
     expect_raises(
         lambda: _assert_eq(len({round(bad[a] - t_off[a], 6) for a in bad}), 1),
         "standby charged to the recon arm alone was accepted as symmetric")
