@@ -400,7 +400,7 @@ case "${MODE}" in
         echo
         SMOKE=$(submit_smoke)
         echo "smoke job ${SMOKE}   log: hpc/logs/ecc-smoke.${SMOKE}_*.out"
-        echo "  task 0 = the CACHED unit, task 1 = the COLD unit (order above)."
+        echo "  One array task per row listed above, in that order."
         echo "  watch : sacct -j ${SMOKE} -n --format=JobID%20,State,Elapsed"
         echo "  read  : tail -40 hpc/logs/ecc-smoke.${SMOKE}_*.out"
         echo "  BOTH must COMPLETE before a matrix. A cached unit returns"
