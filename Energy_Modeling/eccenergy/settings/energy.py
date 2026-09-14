@@ -77,15 +77,18 @@ class EnergySettings:
     #: loads. Not in the mapper fingerprint -- this is evaluator arithmetic
     #: over a mapping the mapper already chose.
     static_energy: bool
-    #: ECC_LEAKAGE_NW, flattened by env.sh section 10 into
-    #: ECC_LEAKAGE_NW_LIST. Replacement leakage densities in nW: `sram_bit`
-    #: and `rf_bit` per STORED BIT, `mac_instance` per MAC. They replace the
+    #: DERIVED since 2026-09-14 from the held design's `leakage_nw:` in
+    #: archs/<name>/design.yaml (it was env.sh's ECC_LEAKAGE_NW table); the
+    #: record keeps the key. `Config.leakage_nw_for(arch)` answers for any
+    #: OTHER design in a multi-design run. Replacement leakage densities in
+    #: nW: `sram_bit` and `rf_bit` per STORED BIT, `mac_instance` per MAC.
+    #: They replace the
     #: ERT's own `leak` rows, which are 10^3-10^4 too low and in two cases
     #: exactly 0 (prompt_7 section 5.2c: CACTI pinned to `itrs-lstp`, an
     #: Aladdin table whose register leakage is a literal 0, and a Neurosim
     #: plug-in that answered 0 pJ). POWER, not energy: the cycle period is
     #: applied at the point of use, never here (env.sh section 6 TRAP 2).
-    leakage_nw: dict
+    leakage_nw: Optional[dict]
     #: ECC_LATENCY_MODEL. 1 = re-time the chosen mapping with
     #: `latency_post.roofline()`. Evaluator-only and NOT in the fingerprint,
     #: exactly like the two `noc_post` terms: the plan is Timeloop's, and this
@@ -110,7 +113,7 @@ class EnergySettings:
             dram_background_pj=_f("ECC_DRAM_BACKGROUND_PJ", 0.0),
             dram_refresh_pj=_f("ECC_DRAM_REFRESH_PJ", 0.0),
             static_energy=_b("ECC_STATIC_ENERGY", False),
-            leakage_nw=_table("ECC_LEAKAGE_NW_LIST"),
+            leakage_nw=None,               # archs/<name>/design.yaml leakage_nw
             latency_model=_b("ECC_LATENCY_MODEL", False),
             mac_pj_override=_of("ECC_MAC_PJ_OVERRIDE"),
             energy_model_rev=_s("ECC_ENERGY_MODEL_REV", ""),

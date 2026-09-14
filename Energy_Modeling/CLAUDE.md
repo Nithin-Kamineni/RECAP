@@ -254,7 +254,9 @@ narrows those two codes less than the mapping study does.
 ITS OWN `datawidth`, and no arm has to be legal for any other arm's `datawidth`.**
 This has been got wrong in five separate sessions. It is prompt_2.md's table and it
 is applied automatically, on every run, by `arch.patch._set_weight_geometry()` from
-`eccenergy/physics/widths.py`:
+**each design's own `archs/<name>/widths.yaml`** (`q -> {spad_width, glb_width}`, since
+2026-09-14; the RULE in `eccenergy/physics/widths.py` reproduces every row and is the
+fallback for an unlisted `q`):
 
 | arm | q | spad `width` | GLB `width` (×4) | weights/word | eff. capacity |
 |---|---:|---:|---:|---:|---:|
@@ -297,8 +299,8 @@ the lookup ship on 2026-09-11 and sit unused until `map_ert_arms.sh` died on it 
 K=39 (all 24 arm jobs on `filter_glb: width 64 % datawidth 5 != 0`, dependent eval
 parked on `DependencyNeverSatisfied`). It is applied **per level**: at
 `ECC_WEIGHT_DATAWIDTH_LEVELS=filter_glb` the GLB stores 5-bit weights at width 380
-while `weights_spad` keeps 8-bit weights at width 96. Read it with
-`python3 -m eccenergy.physics.widths`.
+while `weights_spad` keeps 8-bit weights at width 96. Read a design's table in its
+`widths.yaml`; `python3 -m eccenergy.physics.widths` prints the rule's.
 
 **DEPTH is shared and is the only thing `assert_pair_geometry()` checks.**
 `depth' = round(depth × width / 96)` is computed at the BASE width, not the arm's
@@ -627,9 +629,11 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   counts, cycles, Timeloop EDP ratio; manifest `title_caveats`), never refused.
   The DC tables live in env.sh §6.
 - **Adding an architecture**: **one directory, and nothing else** (phase 5).
-  `make arch NEW=<name>` scaffolds `archs/<name>/` with five files —
+  `make arch NEW=<name>` scaffolds `archs/<name>/` with six files —
   `arch_paper.yaml` (the chip, every number cited), `design.yaml` (label, axis
-  order, the constrained mapspace, and any per-design modelling fact), plus
+  order, the constrained mapspace, any per-design modelling fact, and since
+  2026-09-14 the design's `clock_mhz` and `leakage_nw` densities),
+  `widths.yaml` (THE WIDTH TABLE as data), plus
   `weight_path.yaml` and `placements.yaml` if it declares reconstruction
   boundaries, and `README.md`. **The stub is deliberately INVALID**: a `TODO`
   left in an `evidence:` or a `description:` is refused by name, because a
@@ -646,7 +650,7 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   level per arm from THE WIDTH TABLE (above) and renormalises depth to hold your
   declared total bits, so `width % datawidth == 0` is satisfied by construction at
   every code. If a `width 64 % datawidth 5 != 0` ever reaches you, the fix is in
-  `physics.widths.WIDTH_TABLE`, never in the arch YAML and never in the config.
+  that design's `widths.yaml`, never in the arch YAML and never in the config.
 - **Adding a model**: add to `CNN_MODELS` or `TRANSFORMER_MODELS` in `config.py`,
   then `python3 -m eccenergy.arch.generate models <name>` in the container.
 - **Adding an architecture to the placement study**: `weight_path.yaml` and
@@ -680,7 +684,8 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   `per_dataspace_bandwidth_consumption_scale` (`K/N` at DRAM, `q/8` on chip --
   they differ by 5% and one factor everywhere is a silent inconsistency); a
   level the arm narrows declares its port `x 8/q`; and the design runs at its
-  own `ECC_ARCH_CLOCK_MHZ` through `globals_<arch>.yaml`. All four are in the
+  own `clock_mhz` (its `design.yaml` since 2026-09-14; env.sh's
+  `ECC_ARCH_CLOCK_MHZ` table before) through `globals_<arch>.yaml`. All four are in the
   patched YAML and therefore in the fingerprint.
 - **WHO APPLIES THE OFF-CHIP WEIGHT RELIEF IS MEASURED PER BAR**
   (`toolchain.latency_post.relief_owner`, prompt_6 RULE 1). The evaluator applied `K/N`
@@ -692,7 +697,8 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   (`Config.dc_idle_scale()` owns the factor, `study.stacks.load_recon_terms()` applies
   it after the three lookup branches converge). It is pJ per cycle at DC's 1 ns
   clock and it is CLOCK power, so 200 MHz is **x5** -- on the reconstruction
-  engines only. `ECC_LEAKAGE_NW` is POWER in nW and must NOT be rescaled; that
+  engines only. `leakage_nw` (each `design.yaml`; env.sh's `ECC_LEAKAGE_NW`
+  before 2026-09-14) is POWER in nW and must NOT be rescaled; that
   is why the two are declared in different units. env.sh section 6 TRAP 2 had
   documented this since before it existed in code.
 - **TIME and STANDBY POWER are still evaluator-only in the REPORT, and the
@@ -704,7 +710,7 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   inventing time. `ECC_LATENCY_MODEL` defaults to **1** since Phase C1: the
   mapper now optimises against the same declared limit, so the roofline
   re-states a plan's time instead of being a second timing model. `ECC_STATIC_ENERGY=1` then charges
-  `ECC_LEAKAGE_NW x stored bits x utilized instances x cycles` as a `Standby`
+  `leakage_nw x stored bits x utilized instances x cycles` as a `Standby`
   category **in `Raw.base`** -- which every arm and every placement bar starts
   from, so no code path can charge it to one arm and not another. With both
   knobs off, `phys_cats()` is byte-identical to what predates them and every
@@ -746,7 +752,9 @@ carry the rest.
                         declares IN_FINGERPRINT: which of its fields reach the
                         mapper. It imports nothing above itself
           contracts/    the shared types. errors.py (ConfigError) since phase 4
-      L1  physics/      parity.py  embedded.py  widths.py (THE WIDTH TABLE)
+      L1  physics/      parity.py  embedded.py  widths.py (the width RULE and
+                        the WidthTable type; THE TABLE itself is each design's
+                        widths.yaml)
                         baseline_dram.py (and the per-bit DRAM price read off a
                         record), packing.py (stream vs aligned),
                         granularity.py (G_rec, engines, engine_cycles),
@@ -784,7 +792,9 @@ carry the rest.
     Makefile            make arch NEW=<name> | make layers | make test | make gate
     archs/<name>/       ONE DESIGN, ONE DIRECTORY (phase 5): arch_paper.yaml
                         (the chip), design.yaml (label, axis order, the
-                        constrained mapspace, per-design modelling facts),
+                        constrained mapspace, per-design modelling facts,
+                        clock_mhz and leakage_nw since EnvReorganisation
+                        phase 1), widths.yaml (THE WIDTH TABLE as data),
                         weight_path.yaml + placements.yaml (the placement
                         space, loaded together or not at all), README.md.
                         arch/design.py is the ONLY reader. No Python names a

@@ -49,7 +49,7 @@ from .arch import arms as arms_mod
 from .arch import design as design_mod
 from .arch import fingerprint as fingerprint_mod
 from .arch import placements
-from .arch.load import mac_candidates
+from .arch.load import load_standard, mac_candidates
 from .contracts.errors import ConfigError   # noqa: F401 -- RE-EXPORTED:
 #: `config.ConfigError` is what `__main__` catches and what five test
 #: modules import. Phase 6 moved every raise site in this file onto
@@ -104,6 +104,18 @@ _OWNER = {f: g for g, c in _CLASSES.items() for f in c.__dataclass_fields__}
 _FINGERPRINT_MODULES = {"run": run_settings, "code": code_settings,
                         "arch": arch_settings, "mapper": mapper_settings,
                         "recon": recon_settings, "energy": energy_settings}
+
+#: FIELDS DERIVED FROM THE DESIGNS, not read from the environment
+#: (EnvReorganisation phase 1, 2026-09-14). `from_env()` leaves each None and
+#: `_resolve()` fills it from `archs/`. They stay record fields so every
+#: manifest keeps the key and the value, and an explicit `with_(field=...)`
+#: is still an override, sticky across later `with_()` calls exactly as the
+#: env.sh tables were. Two of them depend on WHICH design is held, so
+#: `with_()` re-derives those two whenever the call moves the design axis;
+#: the other two are study-wide and are never re-derived once resolved.
+DERIVED_FROM_HELD_DESIGN = ("leakage_nw", "weight_width_glb_mult")
+DESIGN_AXIS_KNOBS = ("const_arch", "sweep_archs", "sweep", "experiment",
+                     "weight_bits")
 
 #: EVERY field, in the order `to_dict()` emits it -- which is the order it
 #: appears in every manifest and every result JSON on disk. Changing this order
@@ -280,6 +292,20 @@ def _resolve(self):
         raise guards.refusal("unknown-parity-grouping",
             f"ECC_PARITY_GROUPING must be one of "
             f"{', '.join(PARITY_GROUPINGS)}")
+
+    # ---- the facts the DESIGNS declare, derived into the record ------------
+    # EnvReorganisation phase 1. Each is None straight out of `from_env()` and
+    # after a `with_()` that did not name it (`DERIVED_FROM_DESIGNS`).
+    if self.dram_depth is None:
+        self.dram_depth = int(load_standard()["study"]["dram"]["depth_words"])
+    if self.arch_clock_mhz is None:
+        self.arch_clock_mhz = design_mod.clock_table()
+    held = self.archs[0] if self.archs else None
+    if self.leakage_nw is None:
+        self.leakage_nw = dict(design_mod.leakage_nw(held) or {}) if held else {}
+    if self.weight_width_glb_mult is None:
+        self.weight_width_glb_mult = (design_mod.width_table(held).glb_mult(self.weight_bits)
+                                      if held else widths.DEFAULT_GLB_MULT)
 
     # ---- Task 3: the placement study --------------------------------
     if self.recon_packing not in RECON_PACKINGS:
@@ -464,11 +490,8 @@ def _resolve(self):
             f"multiplier must be positive. 1.0 is the declared design; "
             f"prompt_2's search grid is the sqrt(2) ladder "
             f"1 / 0.71 / 0.5 / 0.35 / 0.25 / 0.18 / 0.125")
-    if self.weight_width_glb_mult < 1:
-        raise guards.refusal("glb-width-mult-ge-1",
-            f"ECC_WEIGHT_WIDTH_GLB_MULT={self.weight_width_glb_mult}: a "
-            f"weight GLB's word is a positive multiple of the "
-            f"scratchpad's. 4 is Eyeriss v1's published ratio.")
+    # `glb-width-mult-ge-1` is checked where the ratio is DECLARED now:
+    # `arch.design.validate_widths()`, on the design's own widths.yaml.
     # NO "the width must also divide ECC_WEIGHT_BITS" CHECK LIVES HERE.
     # It used to, and it was wrong: it asserted that both arms share one
     # declared width, which made prompt_2's 98 (q=7) and 95 (q=5) look
@@ -633,7 +656,14 @@ class Config:
             raise guards.refusal("unknown-knob",
                 f"with_(): {', '.join(unknown)} is not a knob of any settings "
                 f"group. The groups are {', '.join(GROUPS)}.")
-        return _build({**self.flat(), **kw})
+        flat = self.flat()
+        # A fact the HELD DESIGN declares is re-derived when this call can move
+        # the held design, unless the call overrides it by name.
+        if any(k in kw for k in DESIGN_AXIS_KNOBS):
+            for f in DERIVED_FROM_HELD_DESIGN:
+                if f not in kw:
+                    flat[f] = None
+        return _build({**flat, **kw})
 
     @property
     def layer_scope(self):
@@ -971,7 +1001,7 @@ class Config:
         # spelling, same POSITION. It also marks the boundary in `ls`: a
         # directory without it predates 2026-09-12 and was mapped on the
         # published word shape.
-        parts.append(f"wt{widths.base_width(self.weight_bits)}"
+        parts.append(f"wt{self.width_table().base_width(self.weight_bits)}"
                      + (f"x{self.weight_width_glb_mult}"
                         if self.weight_width_glb_mult != 4 else ""))
         if self.weight_datawidth is not None:
@@ -1055,6 +1085,25 @@ class Config:
         """`ert-<placement key>-<level>-<action>`, the cache-directory part."""
         return f"ert-{arm['key']}-{arm['level']}-{arm['action']}"
 
+    def width_table(self, arch=None):
+        """THE WIDTH TABLE of `arch` (default: the held design) --
+        `archs/<name>/widths.yaml`, or THE RULE where it declares none."""
+        if arch is None:
+            arch = self.archs[0] if self.archs else None
+        return design_mod.width_table(arch) if arch else widths.WidthTable.rule()
+
+    def leakage_nw_for(self, arch=None):
+        """The standby densities to price `arch` at (EnvReorganisation 6.4).
+
+        `leakage_nw` is the record field, derived from the HELD design and
+        overridable by `with_()`; it answers for that design and for a caller
+        with no design in hand. Any OTHER design of a multi-design run is
+        priced from its own `design.yaml`, falling back to the record.
+        """
+        if arch is None or not self.archs or arch == self.archs[0]:
+            return self.leakage_nw or {}
+        return design_mod.leakage_nw(arch) or self.leakage_nw or {}
+
     def cycle_seconds_for(self, arch):
         """THIS DESIGN's clock period, as the string `globals.yaml` carries.
 
@@ -1067,9 +1116,10 @@ class Config:
         THE ONLY PLACE MHz BECOMES SECONDS. env.sh section 6's TRAP 2 is that
         a per-cycle constant converted twice, or not at all, is a silent 5x on
         every standby and idle term; keeping the inversion here means no
-        caller can do either. A design with no entry in `ECC_ARCH_CLOCK_MHZ`
-        keeps `global_cycle_seconds` unchanged, so the table ADDS designs
-        rather than replacing the study default.
+        caller can do either. A design that declares no `clock_mhz` in its
+        design.yaml keeps `global_cycle_seconds` unchanged, so the table ADDS
+        designs rather than replacing the study default. (The table was
+        env.sh's `ECC_ARCH_CLOCK_MHZ` until 2026-09-14.)
 
         Returned as a STRING because that is what the fingerprint hashes and
         what globals.yaml prints; `repr` of a float would make `5e-09` and
@@ -1080,12 +1130,12 @@ class Config:
             return self.global_cycle_seconds
         if float(mhz) <= 0:
             raise guards.refusal("clock-positive",
-                f"ECC_ARCH_CLOCK_MHZ[{arch}]={mhz}: a clock rate "
-                f"must be positive")
+                f"clock_mhz={mhz} for {arch} (archs/{arch}/design.yaml, or a "
+                f"with_() override): a clock rate must be positive")
         secs = 1.0 / (float(mhz) * 1e6)
         # A DESIGN THAT IS ALREADY AT THE STUDY DEFAULT KEEPS THE DEFAULT'S
-        # EXACT SPELLING. Seven of the eight entries in `ECC_ARCH_CLOCK_MHZ`
-        # are 1000 MHz, which is `global_cycle_seconds` itself -- and `%.6g` of
+        # EXACT SPELLING. Seven of the eight designs declare 1000 MHz, which
+        # is `global_cycle_seconds` itself -- and `%.6g` of
         # 1e-9 is the string "1e-09" while env.sh writes "1e-9". Two spellings
         # of one number are two architectures to the fingerprint and two
         # directory names to the cache, so declaring a design at the rate it

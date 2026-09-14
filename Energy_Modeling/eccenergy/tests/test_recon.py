@@ -1278,7 +1278,8 @@ _MANIFEST_ENV = {
     "noc_scale": "ECC_NOC_SCALE",
     "force_technology": "ECC_FORCE_TECHNOLOGY",
     "force_datawidth": "ECC_FORCE_DATAWIDTH",
-    "dram_depth": "ECC_DRAM_DEPTH",
+    # `dram_depth` is not here: since 2026-09-14 it is read from
+    # archs/_shared/standard.yaml, not from any ECC_* variable.
     "global_cycle_seconds": "ECC_GLOBAL_CYCLE_SECONDS",
     "classify_mode": "ECC_CLASSIFY",
     "split_read_write": "ECC_SPLIT_READ_WRITE",

@@ -1,7 +1,8 @@
 """PROMPT_2's WIDTH TABLE: one declared word width PER ARM, keyed by that arm's
 own `datawidth`. Automatic, unconditional, and not a knob.
 
-    python3 -m eccenergy.code_widths        # print the table
+    python3 -m eccenergy.physics.widths     # print the RULE's table
+    archs/<name>/widths.yaml                # THE TABLE a design declares
 
 THE ONE THING TO GET RIGHT, BECAUSE IT HAS BEEN GOT WRONG REPEATEDLY
 --------------------------------------------------------------------
@@ -70,12 +71,22 @@ It reproduces prompt_2's own depths: `weights_spad` 224 x 16 b = 3,584 b ->
 depth 37 at width 96; `filter_glb` 1024 x 64 b = 65,536 b -> depth 171 at
 width 384.
 
-THE GLB TAKES `ECC_WEIGHT_WIDTH_GLB_MULT` TIMES THE SCRATCHPAD WIDTH
----------------------------------------------------------------------
+THE GLB WORD IS A WHOLE MULTIPLE OF THE SCRATCHPAD'S
+----------------------------------------------------
 4x -- Eyeriss v1's published 16 b / 64 b ratio. Divisibility survives, since
 `q | W` implies `q | 4W`, so one scratchpad width settles every weight level.
-`archs._set_weight_geometry()` applies all of this; this module only decides
-the numbers.
+
+WHERE THE TABLE LIVES SINCE 2026-09-14 (EnvReorganisation phase 1)
+-------------------------------------------------------------------
+Each design declares its own `archs/<name>/widths.yaml` -- `q -> {spad_width,
+glb_width}` -- read by `arch/design.py` into a `WidthTable` from this module.
+THIS MODULE KEEPS THE RULE, not the numbers: it is L1 and reads no file. The
+rule is the fallback for a q a design does not list, and for a design that
+declares no file at all; it reproduces every row of the study's table, which
+is what `tests/test_code_widths.py` asserts. `ECC_WEIGHT_WIDTH_GLB_MULT` is
+gone: the GLB multiplier is the ratio the design's own 8-bit row declares.
+`arch.patch._set_weight_geometry()` applies all of this; this module only
+decides the numbers.
 """
 from __future__ import annotations
 
@@ -88,24 +99,9 @@ DEFAULT_WEIGHT_BITS = 8
 #: number that fixes how much silicon each weight level is.
 BASE_WIDTH = 96
 
-#: THE WIDTH TABLE, keyed by the arm's own `q` (NOT by the code). prompt_2.md
-#: tabulates it per code, but the width depends on the code only through
-#: `q = round(8*K/N)`, so two codes with one `q` are one arm -- BCH(63,45) and
-#: BCH(63,51) both declare 96, BCH(63,39) and BCH(63,36) both declare 95.
-#: Every value is re-derived by `audit()` and asserted by
-#: `tests/test_code_widths.py`, so this dict records the decision rather than
-#: being a second source of truth that can drift from the rule.
-WIDTH_TABLE = {
-    # q   width   weights/word   prompt_2 row
-    8:  96,     # 12            Baseline / Embedded
-    7:  98,     # 14            BCH(63,57)
-    6:  96,     # 16            BCH(63,45), BCH(63,51)
-    5:  95,     # 19            BCH(63,39), BCH(63,36)
-    4:  96,     # 24            BCH(63,30)
-    3:  96,     # 32            no published code in this study
-    2:  96,     # 48
-    1:  96,     # 96
-}
+#: The GLB word is this multiple of the scratchpad's when a design declares no
+#: table (Eyeriss v1's published 16 b / 64 b ratio).
+DEFAULT_GLB_MULT = 4
 
 
 def declared_datawidth(n, k, weight_bits=DEFAULT_WEIGHT_BITS):
@@ -150,94 +146,157 @@ def nearest_multiple(q, base=BASE_WIDTH):
     return max(q, n * q)
 
 
-def declared_width(q, weight_bits=DEFAULT_WEIGHT_BITS):
-    """The declared SCRATCHPAD width for an arm storing `q`-bit weights.
+class WidthTable:
+    """ONE DESIGN's declared word widths, per `q` -- THE WIDTH TABLE as data.
 
-    `WIDTH_TABLE` first, so a hand-picked width wins; otherwise the rule. A
-    table entry that `q` does not divide raises rather than being quietly
-    rounded -- a width the datawidth does not divide ABORTS `timeloop-mapper`
-    (`buffer.cpp:302`), and discovering that at import time is the point.
+    `spad` and `glb` map `q -> width` for the scratchpad row and the GLB row;
+    either may be empty, and a `q` neither lists falls back to THE RULE:
+    `nearest_multiple(q, base)` for the scratchpad, `x glb_mult` for a GLB.
+    `source` names the file (or "the rule") in every refusal.
 
-    `weight_bits` is accepted so a study at a payload other than 8 bits gets a
-    consistent base, and is deliberately NOT used to constrain the answer: an
-    arm's width must suit the arm's OWN datawidth and nothing else.
+    Checked at construction, because a width its own `q` does not divide ABORTS
+    `timeloop-mapper` (`buffer.cpp:302`) and discovering that at load is the
+    point; a GLB word that is not a whole multiple of its scratchpad's breaks
+    the `q | W implies q | mW` argument and is refused too.
     """
-    q = int(q)
-    if q < 1:
-        raise ValueError(f"q={q}: a datawidth must be at least 1 bit")
-    w = WIDTH_TABLE.get(q)
-    if w is None:
-        return nearest_multiple(q, base_width(weight_bits))
-    if int(w) % q != 0:
-        raise ValueError(
-            f"WIDTH_TABLE[{q}] = {w} is not a multiple of {q} (remainder "
-            f"{int(w) % q}). timeloop-mapper asserts "
-            f"`width % (word_bits * block_size) == 0` (buffer.cpp:302) and "
-            f"ABORTS -- there is no floor path. The rule gives "
-            f"{nearest_multiple(q, base_width(weight_bits))}.")
-    return int(w)
+
+    def __init__(self, spad=None, glb=None, glb_mult=DEFAULT_GLB_MULT, source="the rule"):
+        self.spad = {int(q): int(w) for q, w in (spad or {}).items()}
+        self.glb = {int(q): int(w) for q, w in (glb or {}).items()}
+        self.default_glb_mult = int(glb_mult)
+        self.source = source
+        if self.default_glb_mult < 1:
+            raise ValueError(f"{source}: a GLB word is a POSITIVE multiple of the "
+                             f"scratchpad's, not {glb_mult}")
+        for which, table in (("spad_width", self.spad), ("glb_width", self.glb)):
+            for q, w in table.items():
+                if q < 1:
+                    raise ValueError(f"{source}: q={q}: a datawidth is at least 1 bit")
+                if w % q != 0:
+                    raise ValueError(
+                        f"{source}: {which} {w} at q={q} is not a multiple of {q} "
+                        f"(remainder {w % q}). timeloop-mapper asserts "
+                        f"`width % (word_bits * block_size) == 0` (buffer.cpp:302) "
+                        f"and ABORTS -- there is no floor path. The rule gives "
+                        f"{nearest_multiple(q) * (1 if which == 'spad_width' else self.default_glb_mult)}.")
+        for q in set(self.spad) & set(self.glb):
+            if self.glb[q] % self.spad[q] != 0 or self.glb[q] < self.spad[q]:
+                raise ValueError(
+                    f"{source}: at q={q} the GLB word ({self.glb[q]}) is not a whole "
+                    f"multiple of the scratchpad's ({self.spad[q]}); `q | W` must "
+                    f"imply `q | glb_width`, which only a whole multiple guarantees")
+
+    @classmethod
+    def rule(cls, glb_mult=DEFAULT_GLB_MULT, source="the rule (nearest multiple of q to 96)"):
+        """No declared numbers at all: every width from the rule."""
+        return cls({}, {}, glb_mult, source)
+
+    # ---- the base row: what the 8-bit arm declares -------------------------
+    def base_width(self, weight_bits=DEFAULT_WEIGHT_BITS):
+        """The scratchpad width the `weight_bits`-bit arm declares -- the
+        depth denominator. 96 at the study's 8-bit payload."""
+        wb = int(weight_bits)
+        return self.spad.get(wb) or nearest_multiple(wb, BASE_WIDTH)
+
+    def glb_mult(self, weight_bits=DEFAULT_WEIGHT_BITS):
+        """GLB word / scratchpad word on the base row (4 for Eyeriss v1)."""
+        wb = int(weight_bits)
+        if wb in self.glb:
+            return self.glb[wb] // self.base_width(wb)
+        return self.default_glb_mult
+
+    # ---- per level -----------------------------------------------------------
+    def spad_width(self, q, weight_bits=DEFAULT_WEIGHT_BITS):
+        q = int(q)
+        if q < 1:
+            raise ValueError(f"q={q}: a datawidth must be at least 1 bit")
+        return self.spad.get(q) or nearest_multiple(q, self.base_width(weight_bits))
+
+    def glb_width(self, q, weight_bits=DEFAULT_WEIGHT_BITS):
+        q = int(q)
+        if q in self.glb:
+            return self.glb[q]
+        return self.spad_width(q, weight_bits) * self.glb_mult(weight_bits)
+
+    def level_width(self, q, is_scratchpad, weight_bits=DEFAULT_WEIGHT_BITS):
+        """What ONE weight level declares for the datawidth IT stores."""
+        return (self.spad_width(q, weight_bits) if is_scratchpad
+                else self.glb_width(q, weight_bits))
+
+    def renormalised_depth(self, depth, width, is_scratchpad,
+                           weight_bits=DEFAULT_WEIGHT_BITS):
+        """The depth EVERY arm declares for this level: the published total
+        bits divided by the BASE row's width, never by the arm's own."""
+        base = self.base_width(weight_bits)
+        if not is_scratchpad:
+            base *= self.glb_mult(weight_bits)
+        return max(1, int((int(depth) * int(width) / base) + 0.5))
+
+    def listed(self, q):
+        """Is `q` declared, or would it fall back to the rule?"""
+        return int(q) in self.spad
+
+    def to_dict(self):
+        return {"source": self.source,
+                "widths": {q: {"spad_width": self.spad_width(q),
+                               "glb_width": self.glb_width(q)}
+                           for q in sorted(set(self.spad) | set(self.glb), reverse=True)},
+                "glb_mult": self.glb_mult()}
 
 
-def base_width(weight_bits=DEFAULT_WEIGHT_BITS):
-    """The width the 8-bit arm declares, and the depth denominator.
-
-    At the study's 8-bit payload this is `BASE_WIDTH` (96) exactly. At any
-    other payload it is the multiple of that payload nearest 96, so the base
-    arm is always legal for itself.
-    """
-    return nearest_multiple(int(weight_bits), BASE_WIDTH)
+# ---- the module-level spellings, kept for every caller that has no design ---
+def base_width(weight_bits=DEFAULT_WEIGHT_BITS, table=None):
+    """The width the 8-bit arm declares, and the depth denominator."""
+    return (table or WidthTable.rule()).base_width(weight_bits)
 
 
-def level_width(q, is_scratchpad, glb_mult=4, weight_bits=DEFAULT_WEIGHT_BITS):
-    """What ONE weight level declares: the table width, x `glb_mult` above the
-    PE array. `q | W` implies `q | 4W`, so the divisibility survives."""
-    w = declared_width(q, weight_bits)
-    return w if is_scratchpad else w * int(glb_mult)
+def declared_width(q, weight_bits=DEFAULT_WEIGHT_BITS, table=None):
+    """The declared SCRATCHPAD width for an arm storing `q`-bit weights: the
+    design's table where it lists `q`, THE RULE otherwise."""
+    return (table or WidthTable.rule()).spad_width(q, weight_bits)
 
 
-def renormalised_depth(depth, width, is_scratchpad, glb_mult=4,
-                       weight_bits=DEFAULT_WEIGHT_BITS):
-    """The depth EVERY arm declares for this level: the published total bits
-    divided by the BASE width, not by the arm's own width.
-
-    Computed at the base so the arms share a depth and differ only in `width`
-    (by <= 2 %) and `datawidth` -- which is what makes `capacity_ratio`
-    reproduce prompt_2's `eff. capacity` column, and what leaves
-    `assert_pair_geometry`'s depth check meaningful.
-    """
-    base = base_width(weight_bits)
-    if not is_scratchpad:
-        base *= int(glb_mult)
-    return max(1, int((int(depth) * int(width) / base) + 0.5))
+def level_width(q, is_scratchpad, glb_mult=DEFAULT_GLB_MULT,
+                weight_bits=DEFAULT_WEIGHT_BITS, table=None):
+    """What ONE weight level declares: the scratchpad width, x `glb_mult`
+    above the PE array. `q | W` implies `q | mW`, so divisibility survives."""
+    return (table or WidthTable.rule(glb_mult)).level_width(q, is_scratchpad, weight_bits)
 
 
-def audit(weight_bits=DEFAULT_WEIGHT_BITS, glb_mult=4, codes=None):
+def renormalised_depth(depth, width, is_scratchpad, glb_mult=DEFAULT_GLB_MULT,
+                       weight_bits=DEFAULT_WEIGHT_BITS, table=None):
+    """The depth EVERY arm declares for this level (see `WidthTable`)."""
+    return (table or WidthTable.rule(glb_mult)).renormalised_depth(
+        depth, width, is_scratchpad, weight_bits)
+
+
+def audit(weight_bits=DEFAULT_WEIGHT_BITS, glb_mult=DEFAULT_GLB_MULT, codes=None,
+          table=None):
     """A printable table of every arm: q, declared widths, weights per word,
-    effective capacity. Re-derives the rule instead of trusting `WIDTH_TABLE`,
-    so running this is what makes the dict reviewable."""
+    effective capacity. With no `table` it is THE RULE's table, which is what
+    a design's widths.yaml must reproduce or deliberately depart from."""
+    table = table or WidthTable.rule(glb_mult)
     codes = codes or [(63, 57), (63, 51), (63, 45), (63, 39), (63, 36), (63, 30)]
-    base = base_width(weight_bits)
+    base = table.base_width(weight_bits)
     per_word_base = base // int(weight_bits)
-    lines = [f"  PROMPT_2 WIDTH TABLE -- base width {base} b, "
-             f"GLB {glb_mult}x, payload {weight_bits} b",
+    lines = [f"  THE WIDTH TABLE -- {table.source}; base width {base} b, "
+             f"GLB {table.glb_mult(weight_bits)}x, payload {weight_bits} b",
              "",
              f"  {'arm':<20} {'q':>3} {'spad W':>7} {'GLB W':>7} "
              f"{'w/word':>7} {'eff. cap':>9}  legal",
              "  " + "-" * 68]
     rows = [("Baseline / Embedded", int(weight_bits))]
-    seen = {int(weight_bits)}
     for n, k in codes:
-        q = declared_datawidth(n, k, weight_bits)
-        rows.append((f"BCH({n},{k})", q))
-        seen.add(q)
+        rows.append((f"BCH({n},{k})", declared_datawidth(n, k, weight_bits)))
     for label, q in rows:
-        w = declared_width(q, weight_bits)
-        g = level_width(q, False, glb_mult, weight_bits)
+        w = table.spad_width(q, weight_bits)
+        g = table.glb_width(q, weight_bits)
         per_word = w // q
         lines.append(
             f"  {label:<20} {q:>3} {w:>7} {g:>7} {per_word:>7} "
             f"{per_word / per_word_base:>8.4f}x  "
-            + (f"{w} % {q} == 0" if w % q == 0 else f"!! {w} % {q} != 0"))
+            + (f"{w} % {q} == 0" if w % q == 0 else f"!! {w} % {q} != 0")
+            + ("" if table.listed(q) else "  (rule)"))
     lines.append("")
     lines.append("  Each arm's width suits its OWN datawidth. No arm has to be")
     lines.append("  legal for another arm's datawidth -- they are never mapped")

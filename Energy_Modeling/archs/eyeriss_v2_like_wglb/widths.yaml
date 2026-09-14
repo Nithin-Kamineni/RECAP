@@ -1,0 +1,36 @@
+# THE WIDTH TABLE for this design (CLAUDE.md, PROTECTED SECTION -- read it
+# before touching a number here). One declared word width PER ARM, keyed by the
+# `datawidth` q that arm stores; applied per level, on every run, by
+# arch.patch._set_weight_geometry(). Both widths are DATA here, and the
+# quantisation q = round(8*K/N) is derived by physics.widths.declared_datawidth().
+#
+# THE ARMS DO NOT SHARE A DECLARED WIDTH. Each row is legal for ITS OWN q and
+# for nothing else: 95 % 5 == 0 is the whole rule at q=5, and 95 % 8 = 7 is
+# IRRELEVANT because the 8-bit arm is never mapped at width 95 -- it is mapped
+# at 96. `timeloop-mapper` asserts width % datawidth == 0 PER LEVEL, PER RUN
+# (buffer.cpp:302, no floor path, exit 134): one arm at a time. No test and no
+# guard objects to widths differing across arms; assert_pair_geometry() checks
+# DEPTH only.
+#
+# DEPTH IS SHARED: every arm declares depth' = round(depth x width / 96) for a
+# scratchpad and / 384 for a GLB, computed at THIS 8-bit row, so every arm holds
+# the published total bits and the eff. capacity column is (W_arm/q)/(96/8).
+#
+#   q   spad_width   glb_width   weights/word   eff. capacity   arm
+#   8       96          384           12           1.0000x      baseline / embedded
+#   7       98          392           14           1.1667x      BCH(63,57)
+#   6       96          384           16           1.3333x      BCH(63,45), BCH(63,51)
+#   5       95          380           19           1.5833x      BCH(63,39), BCH(63,36)
+#   4       96          384           24           2.0000x      BCH(63,30)
+#
+# A q not listed falls back to the RULE in eccenergy/physics/widths.py: the
+# multiple of q nearest 96 (x4 for a GLB), which reproduces every row above.
+# The GLB word is 4x the scratchpad's on every row -- Eyeriss v1's published
+# 16 b / 64 b ratio -- and q | W implies q | 4W, so divisibility survives.
+# The schema (arch/design.py) refuses a width its own q does not divide.
+widths:
+  8: {spad_width: 96, glb_width: 384}
+  7: {spad_width: 98, glb_width: 392}
+  6: {spad_width: 96, glb_width: 384}
+  5: {spad_width: 95, glb_width: 380}
+  4: {spad_width: 96, glb_width: 384}

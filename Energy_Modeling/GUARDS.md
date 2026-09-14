@@ -26,75 +26,77 @@ An override is **recorded**: it lands on the run manifest as `guard_overrides`
 and on the figure's caveat list. You cannot ablate by accident, and you cannot
 publish an ablation without the figure saying it is one.
 
-**136 invariants over 141 refusal sites.** tier 1 (PARSE): 26, tier 2 (IMPOSSIBLE): 99, tier 3 (COUPLING): 8, tier 4 (DERIVED): 3
+**139 invariants over 146 refusal sites.** tier 1 (PARSE): 28, tier 2 (IMPOSSIBLE): 100, tier 3 (COUPLING): 8, tier 4 (DERIVED): 3
 
 ## Tier 1 — PARSE  *(never overridable)*
 
 | id | raises | refuses | where |
 |---|---|---|---|
-| `design-order-not-integer` | `ConfigError` | `order:` in a design.yaml that is not an integer | `arch/design.py:201` |
-| `design-yaml-parse` | `ConfigError` | a design file that is not valid YAML | `arch/design.py:68` |
+| `design-order-not-integer` | `ConfigError` | `order:` in a design.yaml that is not an integer | `arch/design.py:301` |
+| `design-yaml-parse` | `ConfigError` | a design file that is not valid YAML | `arch/design.py:84` |
 | `generate-usage` | `SystemExit` | `python3 -m eccenergy.arch.generate` with no known mode | `arch/generate.py:188` |
+| `leakage-not-a-table` | `ConfigError` | a design.yaml `leakage_nw:` that is not density -> nW | `arch/design.py:318` |
 | `not-a-boolean` | `ConfigError` | a boolean knob that is not 1/0/true/false | `settings/env.py:42` |
 | `not-a-key-value-table` | `ConfigError` | an `ECC_*_LIST` entry that is not `key=number` | `settings/env.py:90` |
 | `not-a-number` | `ConfigError` | a float knob that is not a number | `settings/env.py:64` |
 | `not-an-integer` | `ConfigError` | an integer knob that is not an integer | `settings/env.py:53` |
 | `one-value-not-a-list` | `ConfigError` | a list where ONE value is meant (only the swept axis takes a list) | `settings/env.py:111` |
-| `unknown-approach` | `ConfigError` | ECC_APPROACHES naming an arm that does not exist | `config.py:186` |
-| `unknown-arch-fidelity` | `ConfigError` | ECC_ARCH_FIDELITY naming no known fidelity | `config.py:496` |
-| `unknown-capacity-scope` | `ConfigError` | ECC_WEIGHT_CAPACITY_SCOPE naming no known scope | `config.py:453` |
-| `unknown-classify` | `ConfigError` | ECC_CLASSIFY that is neither `instances` nor `name` | `config.py:443` |
-| `unknown-decode-site` | `ConfigError` | ECC_RECON_DECODE_SITE naming no known site | `config.py:333` |
-| `unknown-encoder-granularity` | `ConfigError` | ECC_RECON_ENCODER_GRANULARITY naming no known granularity | `config.py:290` |
-| `unknown-encoder-site` | `ConfigError` | ECC_RECON_ENCODER_SITE naming no known site | `config.py:325` |
-| `unknown-experiment` | `ConfigError` | ECC_EXPERIMENT naming no known experiment | `config.py:174` |
-| `unknown-format` | `ConfigError` | ECC_FORMATS naming a format matplotlib is not asked for | `config.py:515` |
-| `unknown-knob` | `ConfigError` | `cfg.with_()` naming a knob no settings group declares | `config.py:633` |
-| `unknown-opt-metric` | `ConfigError` | ECC_OPT_METRIC naming no known objective | `config.py:500` |
-| `unknown-palette` | `ConfigError` | ECC_PALETTE that is neither `house` nor `cvd` | `config.py:511` |
-| `unknown-parity-grouping` | `ConfigError` | ECC_PARITY_GROUPING naming no known grouping | `config.py:280` |
-| `unknown-phase` | `ConfigError` | ECC_PHASE that is neither Pre nor Post | `config.py:412` |
-| `unknown-recon-packing` | `ConfigError` | ECC_RECON_PACKING naming no known packing | `config.py:286` |
-| `unknown-sweep` | `ConfigError` | ECC_SWEEP naming no known axis | `config.py:180` |
-| `unknown-victory-scaling` | `ConfigError` | ECC_VICTORY_SCALING naming no known scaling | `config.py:504` |
+| `unknown-approach` | `ConfigError` | ECC_APPROACHES naming an arm that does not exist | `config.py:198` |
+| `unknown-arch-fidelity` | `ConfigError` | ECC_ARCH_FIDELITY naming no known fidelity | `config.py:519` |
+| `unknown-capacity-scope` | `ConfigError` | ECC_WEIGHT_CAPACITY_SCOPE naming no known scope | `config.py:479` |
+| `unknown-classify` | `ConfigError` | ECC_CLASSIFY that is neither `instances` nor `name` | `config.py:469` |
+| `unknown-decode-site` | `ConfigError` | ECC_RECON_DECODE_SITE naming no known site | `config.py:359` |
+| `unknown-encoder-granularity` | `ConfigError` | ECC_RECON_ENCODER_GRANULARITY naming no known granularity | `config.py:316` |
+| `unknown-encoder-site` | `ConfigError` | ECC_RECON_ENCODER_SITE naming no known site | `config.py:351` |
+| `unknown-experiment` | `ConfigError` | ECC_EXPERIMENT naming no known experiment | `config.py:186` |
+| `unknown-format` | `ConfigError` | ECC_FORMATS naming a format matplotlib is not asked for | `config.py:538` |
+| `unknown-knob` | `ConfigError` | `cfg.with_()` naming a knob no settings group declares | `config.py:656` |
+| `unknown-opt-metric` | `ConfigError` | ECC_OPT_METRIC naming no known objective | `config.py:523` |
+| `unknown-palette` | `ConfigError` | ECC_PALETTE that is neither `house` nor `cvd` | `config.py:534` |
+| `unknown-parity-grouping` | `ConfigError` | ECC_PARITY_GROUPING naming no known grouping | `config.py:292` |
+| `unknown-phase` | `ConfigError` | ECC_PHASE that is neither Pre nor Post | `config.py:438` |
+| `unknown-recon-packing` | `ConfigError` | ECC_RECON_PACKING naming no known packing | `config.py:312` |
+| `unknown-sweep` | `ConfigError` | ECC_SWEEP naming no known axis | `config.py:192` |
+| `unknown-victory-scaling` | `ConfigError` | ECC_VICTORY_SCALING naming no known scaling | `config.py:527` |
 | `values-unknown-sweep` | `SystemExit` | `--values` for a sweep that has no knob | `__main__.py:81` |
+| `widths-not-a-table` | `ConfigError` | a widths.yaml that is not q -> {spad_width, glb_width} | `arch/design.py:254`<br>`arch/design.py:269` |
 
 ## Tier 2 — IMPOSSIBLE  *(never overridable)*
 
 | id | raises | refuses | where |
 |---|---|---|---|
-| `acc-bits-not-narrower` | `ConfigError` | an accumulator narrower than the operands it accumulates | `config.py:275` |
+| `acc-bits-not-narrower` | `ConfigError` | an accumulator narrower than the operands it accumulates | `config.py:287` |
 | `accelergy-wrote-no-ert` | `SystemExit` | Accelergy producing no ERT/ART at all | `toolchain/ert.py:287` |
-| `activation-bits-positive` | `ConfigError` | ECC_ACTIVATION_BITS <= 0 | `config.py:267` |
-| `approaches-empty` | `ConfigError` | ECC_APPROACHES empty -- nothing to compare | `config.py:190` |
+| `activation-bits-positive` | `ConfigError` | ECC_ACTIVATION_BITS <= 0 | `config.py:279` |
+| `approaches-empty` | `ConfigError` | ECC_APPROACHES empty -- nothing to compare | `config.py:202` |
 | `arm-half-mapped` | `SystemExit` | an arm with only some of its shapes mapped (two chips in one bar) | `study/placement_study.py:173` |
 | `arm-phase-is-pre` | `SystemExit` | Task 1 or Task 2 filed as anything but a `Pre` result | `study/embedded.py:334`<br>`study/baseline.py:134 *(frozen)*` |
 | | | ↳ COUPLING BY KIND, TIER 2 BY NECESSITY: its other site is in the FROZEN `study/baseline.py`, which cannot be taught to consult ECC_ALLOW. A guard that could be lifted at one of its two sites and not the other is worse than either. | |
 | `boundary-declares-no-ert-row` | `SystemExit` | moving a toll out of a boundary Timeloop never billed | `study/placement_study.py:277` |
-| `capacity-scale-positive` | `ConfigError` | ECC_WEIGHT_CAPACITY_SCALE <= 0 | `config.py:446` |
-| `clock-positive` | `ConfigError` | a declared clock rate that is not positive | `config.py:1082` |
-| `const-arch-empty` | `ConfigError` | a held architecture axis with no ECC_CONST_ARCH | `config.py:211` |
-| `const-model-empty` | `ConfigError` | a held model axis with no ECC_CONST_MODEL | `config.py:223` |
-| `datawidth-le-weight-bits` | `ConfigError` | a REDUCED weight wider than the full one | `config.py:491` |
-| `datawidth-levels-unknown` | `ValueError` | ECC_WEIGHT_DATAWIDTH_LEVELS naming a level the design has not got | `arch/patch.py:784` |
-| `datawidth-positive` | `ConfigError` | ECC_WEIGHT_DATAWIDTH below 1 bit | `config.py:483` |
+| `capacity-scale-positive` | `ConfigError` | ECC_WEIGHT_CAPACITY_SCALE <= 0 | `config.py:472` |
+| `clock-positive` | `ConfigError` | a declared clock rate that is not positive | `arch/design.py:309`<br>`config.py:1132` |
+| `const-arch-empty` | `ConfigError` | a held architecture axis with no ECC_CONST_ARCH | `config.py:223` |
+| `const-model-empty` | `ConfigError` | a held model axis with no ECC_CONST_MODEL | `config.py:235` |
+| `datawidth-le-weight-bits` | `ConfigError` | a REDUCED weight wider than the full one | `config.py:514` |
+| `datawidth-levels-unknown` | `ValueError` | ECC_WEIGHT_DATAWIDTH_LEVELS naming a level the design has not got | `arch/patch.py:792` |
+| `datawidth-positive` | `ConfigError` | ECC_WEIGHT_DATAWIDTH below 1 bit | `config.py:506` |
 | `dc-clock-mismatch` | `SystemExit` | a DC datapath entry measured at another clock period | `physics/recon_dc.py:128` |
-| `depth-scale-positive` | `ConfigError` | ECC_WEIGHT_DEPTH_SCALE <= 0 | `config.py:462` |
-| `design-dir-missing` | `ConfigError` | a named design with no directory | `arch/design.py:100` |
-| `design-free-levels-shape` | `ConfigError` | `mapspace_free_levels:` that is not dimension -> [levels] | `arch/design.py:195` |
+| `depth-scale-positive` | `ConfigError` | ECC_WEIGHT_DEPTH_SCALE <= 0 | `config.py:488` |
+| `design-dir-missing` | `ConfigError` | a named design with no directory | `arch/design.py:116` |
+| `design-free-levels-shape` | `ConfigError` | `mapspace_free_levels:` that is not dimension -> [levels] | `arch/design.py:295` |
 | `design-inputs-not-written` | `SystemExit` | a mapper input that `write_globals()` never wrote | `toolchain/inputs.py:263` |
-| `design-label-empty` | `ConfigError` | a design with no `label:` for a figure axis | `arch/design.py:191` |
-| `design-name-mismatch` | `ConfigError` | a design.yaml whose `name:` is not its directory | `arch/design.py:188` |
-| `design-not-a-mapping` | `ConfigError` | a design.yaml that is not a mapping of fields | `arch/design.py:185` |
-| `design-todo` | `ConfigError` | a scaffolded design still saying TODO where evidence goes | `arch/design.py:226` |
+| `design-label-empty` | `ConfigError` | a design with no `label:` for a figure axis | `arch/design.py:291` |
+| `design-name-mismatch` | `ConfigError` | a design.yaml whose `name:` is not its directory | `arch/design.py:288` |
+| `design-not-a-mapping` | `ConfigError` | a design.yaml that is not a mapping of fields | `arch/design.py:285` |
+| `design-todo` | `ConfigError` | a scaffolded design still saying TODO where evidence goes | `arch/design.py:344` |
 | `designs-dir-missing` | `SystemExit` | the cloned exercises repo lacking its designs directory | `toolchain/inputs.py:210` |
 | `dilation-needs-layers` | `SystemExit` | a dilation spot check with no layer named | `report/dilation_view.py:181` |
 | `dilation-unknown-layer` | `SystemExit` | a dilation spot check naming a layer the model does not have | `study/dilation.py:274`<br>`study/dilation_tables.py:66`<br>`study/dilation_tables.py:308`<br>`study/dilation_tables.py:551` |
-| `dram-static-terms-nonnegative` | `ConfigError` | a negative DRAM background or refresh term | `config.py:342` |
+| `dram-static-terms-nonnegative` | `ConfigError` | a negative DRAM background or refresh term | `config.py:368` |
 | `ert-arm-cache-cold` | `SystemExit` | an ERT arm without its own mapping | `study/ert_view.py:275` |
 | `ert-arm-capacity-wrong` | `SystemExit` | a quantisation arm whose Effective size is not 8/q the reference's | `study/ert_view.py:498` |
 | `ert-arm-fails-guards` | `SystemExit` | an arm's own mapping failing the arm's own guards | `study/ert_view.py:462` |
-| `ert-arm-one-arch` | `ConfigError` | ECC_RECON_ERT_ARM with more than one architecture | `config.py:538` |
+| `ert-arm-one-arch` | `ConfigError` | ECC_RECON_ERT_ARM with more than one architecture | `config.py:561` |
 | `ert-arm-shapes-differ` | `SystemExit` | an ERT arm and the reference mapped on DIFFERENT layer shapes | `study/ert_view.py:284` |
 | `ert-probe-failed` | `SystemExit` | the ERT probe failing to run | `toolchain/ert_probe.py:142` |
 | `ert-probe-fingerprint-moved` | `SystemExit` | a sidecar fingerprint that is not the current architecture | `toolchain/ert_probe.py:205` |
@@ -106,63 +108,64 @@ publish an ablation without the figure saying it is one.
 | `ert-split-left-residue` | `SystemExit` | an access toll moved out of a category that did not empty | `study/ert_view.py:548` |
 | `ert-toll-mismatch` | `SystemExit` | an evaluator-charged toll that is not the stats-side amount | `study/placement_study.py:288` |
 | `figure-draws-the-total` | `SystemExit` | a figure whose bars do not add up to the result's total | `report/recon_view.py:100` |
-| `glb-width-mult-ge-1` | `ConfigError` | a weight GLB word narrower than the scratchpad's | `config.py:468` |
+| `glb-width-mult-ge-1` | `ConfigError` | a weight GLB word narrower than the scratchpad's | `arch/design.py:277` |
 | `layers-not-in-model` | `SystemExit` | ECC_LAYERS naming layers the model does not have | `arch/workloads.py:157` |
 | `level-carries-no-weights` | `SystemExit` | a level named as a weight site that carries no Weights | `study/ert_view.py:341` |
 | `missing-path` | `SystemExit` | a required input file that is not there | `paths.py:277` |
 | `narrow-once` | `ValueError` | the mapper AND the evaluator both narrowing (it squares the saving) | `study/narrowing.py:130` |
-| `need-k-lt-n` | `ConfigError` | a BCH code with K >= N | `config.py:259` |
-| `need-weak-k-lt-n` | `ConfigError` | a weak code with WEAK_K >= WEAK_N | `config.py:440` |
-| `negative-price` | `ConfigError` | a NEGATIVE per-bit or per-MAC price | `config.py:312` |
+| `need-k-lt-n` | `ConfigError` | a BCH code with K >= N | `config.py:271` |
+| `need-weak-k-lt-n` | `ConfigError` | a weak code with WEAK_K >= WEAK_N | `config.py:466` |
+| `negative-price` | `ConfigError` | a NEGATIVE per-bit or per-MAC price | `config.py:338` |
 | | | ↳ the `>= 0` half of `zero-price`: zero is an ablation, negative is not a price. | |
 | `no-arch-yamls` | `SystemExit` | an audit with no architecture YAML to read | `study/diagnose.py:61` |
 | `no-boundary-mapped` | `SystemExit` | ECC_RECON_ERT_AWARE=1 with not one boundary mapped | `study/placement_study.py:186` |
-| `no-cnn-transformer-mix` | `ConfigError` | one sweep mixing CNNs and transformers (two workload files) | `config.py:422` |
+| `no-cnn-transformer-mix` | `ConfigError` | one sweep mixing CNNs and transformers (two workload files) | `config.py:448` |
 | `no-dilatable-level` | `SystemExit` | Task 4 on a design with no weight level a dilation can touch | `study/dilated_view.py:108` |
 | `no-weight-path` | `SystemExit` | a placement study on a design that declares no weight path | `report/recon_view.py:388` |
 | `noc-file-missing` | `SystemExit` | the interconnect coefficients file being absent | `arch/load.py:84` |
 | `noc-no-entry` | `SystemExit` | a design with no interconnect entry (it would map with free wires) | `arch/load.py:96` |
-| `noc-share-low-gt-high` | `ConfigError` | a published share band with low above high | `arch/design.py:213` |
-| `noc-share-needs-band` | `ConfigError` | `noc_published_share:` without `low:` and `high:` | `arch/design.py:206` |
-| `noc-share-needs-citation` | `ConfigError` | a claim about a PUBLISHED design with no citation | `arch/design.py:209` |
+| `noc-share-low-gt-high` | `ConfigError` | a published share band with low above high | `arch/design.py:331` |
+| `noc-share-needs-band` | `ConfigError` | `noc_published_share:` without `low:` and `high:` | `arch/design.py:324` |
+| `noc-share-needs-citation` | `ConfigError` | a claim about a PUBLISHED design with no citation | `arch/design.py:327` |
 | `nothing-evaluated` | `SystemExit` | an arm that produced no result at all | `study/embedded.py:348`<br>`study/baseline.py:304 *(frozen)*` |
-| `pair-geometry` | `ValueError` | the two arms declaring a different DEPTH (real silicon one arm lacks) | `arch/patch.py:1265` |
+| `pair-geometry` | `ValueError` | the two arms declaring a different DEPTH (real silicon one arm lacks) | `arch/patch.py:1273` |
 | | | ↳ THE ONE GUARD WITH AN OVERRIDE OUTSIDE `ECC_ALLOW`: `ECC_DISABLE_ASSERT_PAIR_GEOMETRY=1` (env.sh section 5) predates the tiers and is left exactly as it was. | |
-| `panels-need-panel-models` | `ConfigError` | ECC_EXPERIMENT=panels with no ECC_PANEL_MODELS | `config.py:241` |
+| `panels-need-panel-models` | `ConfigError` | ECC_EXPERIMENT=panels with no ECC_PANEL_MODELS | `config.py:253` |
 | `panels-nothing-to-plot` | `SystemExit` | a panel figure with no group in any panel | `report/panels.py:197` |
-| `placement-duplicate-key` | `ConfigError` | two placements sharing one key | `arch/design.py:285` |
-| `placement-missing-field` | `ConfigError` | a placement missing a required field | `arch/design.py:282` |
-| `placement-prefix` | `ConfigError` | `reduced:` naming a stage the weight path does not declare | `arch/design.py:290` |
-| `placement-site-counter-unknown` | `ConfigError` | a placement with no known site counter | `arch/design.py:298` |
-| `placement-site-stage-unknown` | `ConfigError` | a placement whose `site_stage:` is not a stage of this design | `arch/design.py:294` |
-| `placements-empty` | `ConfigError` | a placements.yaml that declares no boundary | `arch/design.py:271` |
+| `placement-duplicate-key` | `ConfigError` | two placements sharing one key | `arch/design.py:403` |
+| `placement-missing-field` | `ConfigError` | a placement missing a required field | `arch/design.py:400` |
+| `placement-prefix` | `ConfigError` | `reduced:` naming a stage the weight path does not declare | `arch/design.py:408` |
+| `placement-site-counter-unknown` | `ConfigError` | a placement with no known site counter | `arch/design.py:416` |
+| `placement-site-stage-unknown` | `ConfigError` | a placement whose `site_stage:` is not a stage of this design | `arch/design.py:412` |
+| `placements-empty` | `ConfigError` | a placements.yaml that declares no boundary | `arch/design.py:389` |
 | `placements-need-weight-path` | `ConfigError` | boundaries declared without the weight path they cut through | `arch/placements.py:121` |
-| `recon-needs-an-arch` | `ConfigError` | the placement study with no architecture | `config.py:383` |
+| `recon-needs-an-arch` | `ConfigError` | the placement study with no architecture | `config.py:409` |
 | `recon-nothing-collected` | `SystemExit` | a panelled placement study with a panel that collected nothing | `report/recon_view.py:426` |
-| `recon-one-model` | `ConfigError` | the placement study on more than one model | `config.py:399` |
+| `recon-one-model` | `ConfigError` | the placement study on more than one model | `config.py:425` |
 | `stacks-refused` | `SystemExit` | a figure with no stacks to draw | `study/common.py:187` |
 | `standard-file-missing` | `SystemExit` | the apples-to-apples contract file being absent | `arch/load.py:391` |
-| `sweep-archs-empty` | `ConfigError` | ECC_SWEEP=arch with no architectures | `config.py:206` |
-| `sweep-k-lt-n` | `ConfigError` | an ECC_SWEEP_KS entry that is not below N | `config.py:254` |
-| `sweep-ks-empty` | `ConfigError` | ECC_SWEEP=bch with no codes | `config.py:249` |
-| `sweep-models-empty` | `ConfigError` | ECC_SWEEP=model with no models | `config.py:218` |
+| `sweep-archs-empty` | `ConfigError` | ECC_SWEEP=arch with no architectures | `config.py:218` |
+| `sweep-k-lt-n` | `ConfigError` | an ECC_SWEEP_KS entry that is not below N | `config.py:266` |
+| `sweep-ks-empty` | `ConfigError` | ECC_SWEEP=bch with no codes | `config.py:261` |
+| `sweep-models-empty` | `ConfigError` | ECC_SWEEP=model with no models | `config.py:230` |
 | `sweep-nothing-to-plot` | `SystemExit` | a sweep figure with no group | `report/sweep.py:62` |
 | `task4-cache-cold` | `SystemExit` | Task 4 without the reconstruction arm's OWN mapping | `study/dilated_view.py:130` |
 | `task4-capacity-not-dilated` | `SystemExit` | a re-planned mapping whose weight capacity is not N/K the reference's | `study/dilated_view.py:193` |
 | `task4-shapes-differ` | `SystemExit` | Task 4's two arms mapped on DIFFERENT layer shapes | `study/dilated_view.py:146` |
 | `timeloop-mapper-not-on-path` | `SystemExit` | timeloop-mapper not being on PATH | `toolchain/inputs.py:193` |
 | `timeloop-model-not-on-path` | `SystemExit` | timeloop-model not being on PATH | `toolchain/ert_probe.py:632` |
-| `unknown-ert-arm` | `ConfigError` | ECC_RECON_ERT_ARM naming no arm of this design | `config.py:545` |
+| `unknown-ert-arm` | `ConfigError` | ECC_RECON_ERT_ARM naming no arm of this design | `config.py:568` |
 | `unknown-placement` | `SystemExit` | ECC_RECON_PLACEMENTS naming a boundary the design does not define | `report/recon_view.py:411` |
-| `victory-ge-1` | `ConfigError` | ECC_VICTORY below 1 | `config.py:508` |
-| `weight-bits-positive` | `ConfigError` | ECC_WEIGHT_BITS <= 0 | `config.py:263` |
+| `victory-ge-1` | `ConfigError` | ECC_VICTORY below 1 | `config.py:531` |
+| `weight-bits-positive` | `ConfigError` | ECC_WEIGHT_BITS <= 0 | `config.py:275` |
 | `weight-path-drifted` | `SystemExit` | a weight path and a placement list that have drifted apart | `report/recon_view.py:398` |
-| `weight-path-duplicate-stage` | `ConfigError` | two weight-path stages sharing one key | `arch/design.py:247` |
-| `weight-path-empty` | `ConfigError` | a weight_path.yaml with no stages | `arch/design.py:237` |
-| `weight-path-missing-field` | `ConfigError` | a weight-path stage missing a required field | `arch/design.py:244` |
-| `weight-path-stage-no-prefixes` | `ConfigError` | a stage that matches no Timeloop level, so it can never be measured | `arch/design.py:254` |
-| `weight-path-starts-at-dram` | `ConfigError` | a weight path that does not begin at the DRAM | `arch/design.py:261` |
-| `weight-path-unknown-kind` | `ConfigError` | a weight-path stage of no known kind | `arch/design.py:251` |
+| `weight-path-duplicate-stage` | `ConfigError` | two weight-path stages sharing one key | `arch/design.py:365` |
+| `weight-path-empty` | `ConfigError` | a weight_path.yaml with no stages | `arch/design.py:355` |
+| `weight-path-missing-field` | `ConfigError` | a weight-path stage missing a required field | `arch/design.py:362` |
+| `weight-path-stage-no-prefixes` | `ConfigError` | a stage that matches no Timeloop level, so it can never be measured | `arch/design.py:372` |
+| `weight-path-starts-at-dram` | `ConfigError` | a weight path that does not begin at the DRAM | `arch/design.py:379` |
+| `weight-path-unknown-kind` | `ConfigError` | a weight-path stage of no known kind | `arch/design.py:369` |
+| `widths-not-a-multiple` | `ConfigError` | a declared word width its own datawidth q does not divide (timeloop-mapper aborts on it) | `arch/design.py:278` |
 | `workload-groups-indivisible` | `SystemExit` | a workload layer whose channels do not divide by its groups | `arch/workloads.py:83` |
 | `workload-no-models` | `SystemExit` | none of the requested models being in the workload file | `arch/workloads.py:126` |
 
@@ -170,23 +173,23 @@ publish an ablation without the figure saying it is one.
 
 | id | raises | refuses | where |
 |---|---|---|---|
-| `ert-arm-needs-optimiser` | `ConfigError` | ECC_RECON_ERT_AWARE=1 without RECON_OPTIMIZER=True and ECC_PHASE=Post | `config.py:520` |
-| `panels-needs-arch-or-model-sweep` | `ConfigError` | a panel layout that would vary two axes at once | `config.py:235` |
-| `recon-no-split-read-write` | `ConfigError` | ECC_SPLIT_READ_WRITE=1 inside the placement study | `config.py:404` |
-| `rerun-needs-the-mapper` | `ConfigError` | ECC_RERUN_OPTIMISER=1 together with a knob that never invokes Timeloop | `config.py:434` |
-| `task3-is-pre` | `ConfigError` | a fixed, ECC-unaware mapping filed as a `Post` result | `config.py:373` |
+| `ert-arm-needs-optimiser` | `ConfigError` | ECC_RECON_ERT_AWARE=1 without RECON_OPTIMIZER=True and ECC_PHASE=Post | `config.py:543` |
+| `panels-needs-arch-or-model-sweep` | `ConfigError` | a panel layout that would vary two axes at once | `config.py:247` |
+| `recon-no-split-read-write` | `ConfigError` | ECC_SPLIT_READ_WRITE=1 inside the placement study | `config.py:430` |
+| `rerun-needs-the-mapper` | `ConfigError` | ECC_RERUN_OPTIMISER=1 together with a knob that never invokes Timeloop | `config.py:460` |
+| `task3-is-pre` | `ConfigError` | a fixed, ECC-unaware mapping filed as a `Post` result | `config.py:399` |
 | | | ↳ TWO SITES, TWO EXCEPTIONS, ON PURPOSE. This one is raised while RESOLVING the config, so `--dry-run` reports it; `task3-is-pre-figure` is the same invariant checked again before the figure is drawn, and it raises `SystemExit` because that is what it raised before phase 6. Giving a site an id may not change what it throws. | |
 | `task3-is-pre-figure` | `SystemExit` | the same, caught at the figure instead of at the config | `report/recon_view.py:375` |
-| `task4-is-post` | `ConfigError` | a re-optimised mapping filed as a `Pre` result | `config.py:359` |
+| `task4-is-post` | `ConfigError` | a re-optimised mapping filed as a `Pre` result | `config.py:385` |
 | `task4-not-task3` | `SystemExit` | RECON_OPTIMIZER=True drawn under Task 3's heading | `report/recon_view.py:370` |
 
 ## Tier 4 — DERIVED
 
 | id | raises | refuses | where |
 |---|---|---|---|
-| `derived-datawidth` | `ConfigError` | ECC_WEIGHT_DATAWIDTH set beside an arm that also derives q | `config.py:550` |
-| `derived-datawidth-levels` | `ConfigError` | ECC_WEIGHT_DATAWIDTH_LEVELS set beside an arm that also derives them | `config.py:557` |
-| `zero-price` | `ConfigError` | a ZERO per-bit or per-MAC price | `config.py:318` |
+| `derived-datawidth` | `ConfigError` | ECC_WEIGHT_DATAWIDTH set beside an arm that also derives q | `config.py:573` |
+| `derived-datawidth-levels` | `ConfigError` | ECC_WEIGHT_DATAWIDTH_LEVELS set beside an arm that also derives them | `config.py:580` |
+| `zero-price` | `ConfigError` | a ZERO per-bit or per-MAC price | `config.py:344` |
 | | | ↳ THE ABLATION: `what if this term were free` is the upper bound on how much it was worth. `> 0` was the wrong rule for a PRICE (ProjectRestructure Appendix B); the invariant is `>= 0` and `negative-price` holds the other half. | |
 
 ## Tests of structure — `tests/contract/`
@@ -200,6 +203,8 @@ this file's freshness, and every script outside the package that imports it.
 | `tests/contract/test_designs_are_data.py` | `test_there_are_designs_at_all` | A tree with no `design.yaml` would make every test below vacuous. |
 | `tests/contract/test_designs_are_data.py` | `test_every_design_loads_and_validates` | `design.yaml` parses, names itself, and carries a label. |
 | `tests/contract/test_designs_are_data.py` | `test_the_two_halves_are_declared_together` | A design declares BOTH `weight_path.yaml` and `placements.yaml`, or neither. |
+| `tests/contract/test_designs_are_data.py` | `test_the_facts_env_sh_used_to_hold_are_declared_here` | EnvReorganisation phase 1: the clock, the leakage densities and THE |
+| `tests/contract/test_designs_are_data.py` | `test_a_bad_declared_fact_is_refused_by_name` | The schema is a REFUSAL, not a warning -- for the new fields too. |
 | `tests/contract/test_designs_are_data.py` | `test_a_declared_weight_path_is_well_formed` | Stages: unique keys, known kinds, a DRAM stage first, prefixes present. |
 | `tests/contract/test_designs_are_data.py` | `test_declared_placements_name_stages_that_exist` | Every `reduced` entry and every `site_stage` is on this design's path. |
 | `tests/contract/test_designs_are_data.py` | `test_a_broken_design_file_is_refused_by_name` | The schema is a REFUSAL, not a warning -- and it names the file. |

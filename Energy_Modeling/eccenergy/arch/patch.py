@@ -407,10 +407,16 @@ def _weight_level_parts(text, scope="exclusive"):
         yield part, name, True, None
 
 
-def _set_weight_geometry(text, bits, levels=(), glb_mult=4, scope="exclusive",
-                         arch="?", quiet=False,
-                         weight_bits=widths.DEFAULT_WEIGHT_BITS):
+def _set_weight_geometry(text, bits, levels=(), glb_mult=widths.DEFAULT_GLB_MULT,
+                         scope="exclusive", arch="?", quiet=False,
+                         weight_bits=widths.DEFAULT_WEIGHT_BITS, table=None):
     """PROMPT_2's WIDTH TABLE, applied PER LEVEL and PER ARM in one pass.
+
+    THE NUMBERS COME FROM THE DESIGN since 2026-09-14: `table` is `arch`'s
+    `archs/<name>/widths.yaml` (`arch.design.width_table()`), and THE RULE in
+    `physics/widths.py` for a q it does not list or a design that declares no
+    file. `glb_mult` only shapes that rule fallback for a caller with no design
+    (`arch="?"`).
 
     THE ARMS DO NOT SHARE A DECLARED WIDTH. Each weight level declares the
     width that suits ITS OWN datawidth, and no level has to be legal for any
@@ -457,6 +463,9 @@ def _set_weight_geometry(text, bits, levels=(), glb_mult=4, scope="exclusive",
     Runs BEFORE `_scale_weight_depth`, so the swept ladder multiplies the
     renormalised depth rather than the published one.
     """
+    if table is None:
+        table = (design.width_table(arch) if arch and arch != "?"
+                 else widths.WidthTable.rule(glb_mult))
     want_levels = set(levels or ())
     names = [name for _p, name, is_w, _why
              in _weight_level_parts(text, scope) if is_w]
@@ -495,9 +504,8 @@ def _set_weight_geometry(text, bits, levels=(), glb_mult=4, scope="exclusive",
         narrowed = bits is not None and (not want_levels or name in want_levels)
         q = int(bits) if narrowed else int(weight_bits)
         is_spad = name == spad
-        want_w = widths.level_width(q, is_spad, glb_mult, weight_bits)
-        want_d = widths.renormalised_depth(d0, w0, is_spad, glb_mult,
-                                                weight_bits)
+        want_w = table.level_width(q, is_spad, weight_bits)
+        want_d = table.renormalised_depth(d0, w0, is_spad, weight_bits)
         if want_w % q != 0:                      # unreachable; a guard, not a path
             bad.append(f"{name}: width {want_w} % datawidth {q} != 0")
             out.append(part)
@@ -524,13 +532,13 @@ def _set_weight_geometry(text, bits, levels=(), glb_mult=4, scope="exclusive",
             f"not divide -- " + "; ".join(bad) + ".\n"
             f"  timeloop-mapper asserts `width % (word_bits * block_size) == 0` "
             f"(buffer.cpp:302) and ABORTS; there is no floor path.\n"
-            f"  Every entry of eccenergy/widths.WIDTH_TABLE is a multiple "
-            f"of its own q, so this is a table edit, not a configuration\n"
-            f"  problem. Run `python3 -m eccenergy.code_widths` and fix the "
-            f"entry; do NOT reach for a width that suits a DIFFERENT arm.")
+            f"  Every row of {table.source} is checked to be a multiple of "
+            f"its own q at load, so this is a table edit, not a configuration\n"
+            f"  problem. Fix the entry in archs/{arch}/widths.yaml; do NOT reach "
+            f"for a width that suits a DIFFERENT arm.")
     if not quiet and arch:
         note = (f"  [weight-geometry] {arch}: THE WIDTH TABLE (base "
-                f"{widths.base_width(weight_bits)}b, GLB {glb_mult}x"
+                f"{table.base_width(weight_bits)}b, GLB {table.glb_mult(weight_bits)}x"
                 + (f", q={bits} on "
                    + ("+".join(sorted(want_levels)) if want_levels else "every level")
                    if bits is not None else ", 8-bit arm")
@@ -1310,9 +1318,9 @@ def _patched_text(arch, cfg, apply_per_arch=True, quiet=False):
     if apply_per_arch:
         text = _set_weight_geometry(text, getattr(cfg, "weight_datawidth", None),
                                     getattr(cfg, "weight_datawidth_levels", ()),
-                                    cfg.weight_width_glb_mult,
-                                    cfg.weight_capacity_scope, arch, quiet,
-                                    weight_bits=cfg.weight_bits)
+                                    scope=cfg.weight_capacity_scope, arch=arch,
+                                    quiet=quiet, weight_bits=cfg.weight_bits,
+                                    table=design.width_table(arch))
     # BOTH depth knobs run AFTER the reshape, on the renormalised depth. They
     # used to straddle it (capacity before, ladder after), which was harmless
     # only while the reshape was usually a no-op: once THE WIDTH TABLE applies

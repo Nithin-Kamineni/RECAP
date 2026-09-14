@@ -2061,3 +2061,73 @@ mapper sees has not moved since 2026-09-13); every evaluated total identical;
    10 overwrites it from ECC_RECON_LAYER=all under ECC_RECON_MODELING=1. When
    phase 3 deletes that override, env.sh's default must be spelled so the
    scope stays whole-model, or every total moves and the gate says so.
+
+================================================================================
+ENVREORGANISATION PHASE 1 -- the architecture facts live in archs/
+================================================================================
+2026-09-14.  plans/EnvReorganisation.md section 7, phase 1.
+
+GATE: PASSED. 302 fingerprint rows byte-identical; every evaluated total,
+manifest and report byte-identical (the strict diff, not the classifier);
+suite 484 -> 493 passing, 10 skipped, nothing lost (recorded with
+--accept-tests). The six resnet18 arms print the same six hashes
+(2db6a4d92ff5 / 410ee95e7f78 / 1519e6934e32 / 04320e626edd / 653c73722712 /
+32154e84bb0f); nothing is colder than it was.
+
+WHAT MOVED, AND WHERE TO:
+  clock          env.sh ECC_ARCH_CLOCK_MHZ table  -> archs/<name>/design.yaml `clock_mhz:`
+                 (200 on the two v1 files, 1000 elsewhere -- the same eight values)
+  leakage        env.sh ECC_LEAKAGE_NW table      -> archs/<name>/design.yaml `leakage_nw:`
+                 (2.693 / 70.0 / 7844.9 on all eight; they MAY diverge later)
+  THE WIDTH TABLE  physics/widths.py WIDTH_TABLE   -> archs/<name>/widths.yaml
+                 `q -> {spad_width, glb_width}`, all eight designs, the five rows
+                 of prompt_2 (96/98/96/95/96 and x4). physics/widths.py KEEPS
+                 THE RULE (nearest multiple of q to 96) as the fallback for an
+                 unlisted q or a design with no file, and grows a `WidthTable`
+                 type that checks every row at load; arch/design.py reads the
+                 file (the ONLY reader of archs/<name>/*.yaml) and refuses a
+                 width its own q does not divide, or a GLB word that is not a
+                 whole multiple of the scratchpad's.
+  GLB multiplier ECC_WEIGHT_WIDTH_GLB_MULT          -> the ratio the design's own
+                 8-bit row declares (4 everywhere). Knob deleted.
+  DRAM depth     ECC_DRAM_DEPTH                     -> archs/_shared/standard.yaml
+                 `study.dram.depth_words`, WHICH ALREADY EXISTED and which
+                 `validate` already audited every arch YAML against. The plan's
+                 4.3 sketched a new `dram_depth:` key; a second key for one
+                 number is the drift this project keeps paying for, so the
+                 existing one is read instead (recorded divergence from 4.3).
+
+HOW THE RECORD STAYED BYTE-IDENTICAL (the point of the phase): the four fields
+(`arch_clock_mhz`, `leakage_nw`, `weight_width_glb_mult`, `dram_depth`) are
+still fields of the six settings groups and still in FIELD_ORDER, so every
+manifest and result file carries the same keys with the same values, and the
+two that are in IN_FINGERPRINT hash the same bytes. `from_env()` leaves each
+None; `config._resolve()` fills it from the designs. `with_(field=...)` is
+still an override and is sticky across later with_() calls, exactly as the env
+tables were -- the first version re-derived on EVERY with_() and broke
+test_phase_c's chained `arch_clock_mhz={}` override; the rule now is that only
+the two fields that depend on the HELD design (leakage_nw, weight_width_glb_mult)
+re-derive, and only when the call moves the design axis (const_arch,
+sweep_archs, sweep, experiment, weight_bits). `Config.leakage_nw_for(arch)`
+prices any OTHER design of a multi-design run from its own file; the record
+field is the held design's. `Config.width_table(arch)` likewise.
+
+CHECKED, NOT ASSUMED:
+  * mutation through ECC_ARCH_PIN_DIR (a pinned COPY of archs/, the tree
+    untouched): clock_mhz 200 -> 250 moves the reference fingerprint; q=5
+    width 95/380 -> 100/400 moves recon2/3/4/5 and not the reference; a q=5
+    width of 97 is refused at load, naming the file and the remainder.
+  * tests/contract/test_designs_are_data.py: every declared design states a
+    positive clock, all three leakage densities and a widths.yaml whose every
+    row divides its q; every bad declaration is a ConfigError naming the file.
+  * eccenergy/tests/test_code_widths.py: the three in-scope designs' files ARE
+    prompt_2's table row for row, and the RULE reproduces them.
+  * GUARDS.md: 139 guards (was 136): leakage-not-a-table, widths-not-a-table
+    (tier 1), widths-not-a-multiple (tier 2); glb-width-mult-ge-1 and
+    clock-positive now also fire at the file, where the number is declared.
+
+ALSO: `make arch NEW=<name>` writes widths.yaml and a design.yaml with
+clock_mhz and leakage_nw stubs; CLAUDE.md's pointers to the moved facts were
+corrected in place (the PROTECTED width section keeps every sentence; only the
+two file pointers moved). env.sh is 96 lines shorter; the width, leakage and
+clock prose there now points at the files.

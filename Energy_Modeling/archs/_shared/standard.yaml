@@ -38,7 +38,10 @@ study:
     type: LPDDR4
     width_bits: 64             # physical DRAM word == transfer granularity
     datawidth_bits: 8          # one 8-bit operand per scalar access
-    depth_words: 1048576
+    depth_words: 1048576       # THE DECLARED DRAM DEPTH. arch.patch._patch_dram_depth()
+                               # writes it onto every design's DRAM level, so it is in
+                               # every fingerprint; changing it colds EVERY cache.
+                               # (Until 2026-09-14 env.sh's ECC_DRAM_DEPTH repeated it.)
 
   # WHAT `packing_rule: dense_bytes` MEANS.
   # This study maps DENSE workloads.  A level whose published geometry

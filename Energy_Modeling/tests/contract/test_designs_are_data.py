@@ -68,6 +68,54 @@ def test_the_two_halves_are_declared_together(name):
 
 
 @pytest.mark.parametrize("name", DESIGNS)
+def test_the_facts_env_sh_used_to_hold_are_declared_here(name):
+    """EnvReorganisation phase 1: the clock, the leakage densities and THE
+    WIDTH TABLE are the design's, in its directory. Every declared design today
+    states all three; a design may omit the clock (it runs at the study
+    default) or the widths (it takes the rule), but not a HALF leakage table."""
+    from eccenergy.physics import widths as widths_mod
+    mhz = design.clock_mhz(name)
+    assert mhz is not None and mhz > 0, f"{name}: no positive clock_mhz in design.yaml"
+    lk = design.leakage_nw(name)
+    assert lk is not None and set(lk) >= set(design.LEAKAGE_KEYS), (
+        f"{name}: leakage_nw must declare {design.LEAKAGE_KEYS}, got {lk}")
+    t = design.width_table(name)
+    assert isinstance(t, widths_mod.WidthTable)
+    assert name in t.source, f"{name}: no widths.yaml -- it would take the rule"
+    for q in range(1, 9):
+        assert t.spad_width(q) % q == 0 and t.glb_width(q) % q == 0
+
+
+def test_a_bad_declared_fact_is_refused_by_name(tmp_path, monkeypatch):
+    """The schema is a REFUSAL, not a warning -- for the new fields too."""
+    from eccenergy.physics import widths as widths_mod
+    with pytest.raises(ConfigError) as e:
+        design.validate_widths("x", {"widths": {5: {"spad_width": 97, "glb_width": 380}}},
+                               tmp_path / "widths.yaml")
+    assert "97" in str(e.value) and "multiple" in str(e.value)
+    with pytest.raises(ConfigError) as e:
+        # 104 % 8 == 0, so the per-q check passes and the RATIO check must fire
+        design.validate_widths("x", {"widths": {8: {"spad_width": 96, "glb_width": 104}}},
+                               tmp_path / "widths.yaml")
+    assert "multiple of the scratchpad" in str(e.value)
+    with pytest.raises(ConfigError):
+        design.validate_widths("x", {"widths": {"eight": {"spad_width": 96}}},
+                               tmp_path / "widths.yaml")
+    with pytest.raises(ConfigError) as e:
+        design._validate_design("x", {"name": "x", "label": "x", "clock_mhz": -5},
+                                tmp_path / "design.yaml")
+    assert "clock_mhz" in str(e.value)
+    with pytest.raises(ConfigError) as e:
+        design._validate_design("x", {"name": "x", "label": "x",
+                                      "leakage_nw": {"sram_bit": "lots"}},
+                                tmp_path / "design.yaml")
+    assert "leakage_nw" in str(e.value)
+    # and a missing file is the RULE, not an error -- exactly the numbers the
+    # study's own file declares
+    assert widths_mod.WidthTable.rule().spad_width(5) == 95
+
+
+@pytest.mark.parametrize("name", DESIGNS)
 def test_a_declared_weight_path_is_well_formed(name):
     """Stages: unique keys, known kinds, a DRAM stage first, prefixes present."""
     stages = weight_path_mod.stages_of(name)

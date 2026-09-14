@@ -506,61 +506,23 @@ declare -A ECC_RECON_PLACEMENTS=(
 : "${ECC_ONCHIP_BW_BITAWARE:=1}"
 
 # ---- component standby (leakage) power -------------------------------------
-# prompt_7 Issue 5. The study charges NO standby power to the accelerator: the
-# `leak` row exists in Accelergy's price list but is never parsed into a total,
-# and the prices themselves are not credible (DRAM and two scratchpad types
-# come out EXACTLY 0; a 52 kB SRAM is priced at 1.36 uW, ~1000x low, because
-# the CACTI config is pinned to the least-leaky transistor recipe there is).
-#
-# These are the replacement densities, in nW. SRAM is CACTI 45nm `itrs-lop`
-# measured on this design's own 52 kB array; RF is the 40nm register number
-# from accelergy-aladdin-plug-in's reg.csv that a later reformat dropped; MAC
-# is the ERT's own leak row. LOP is the right recipe for an EDGE accelerator --
-# `itrs-hp` would be 59.37 nW/bit and is the wrong physics here.
-#
-# WHY THIS IS A KNOB AND NOT A CONSTANT: standby energy = power x TIME, so once
-# reconstruction finishes sooner than embedded it pays proportionally less of
-# it. With equal cycles more leakage SHRINKS the saving slightly; with
-# reconstruction ahead on latency more leakage GROWS it. Sweep it.
-declare -A ECC_LEAKAGE_NW=(
-    [sram_bit]=2.693        # per stored bit   (CACTI 45nm itrs-lop; itrs-hp = 59.37)
-    [rf_bit]=70.0           # per stored bit   (aladdin reg.csv, 40nm)
-    [mac_instance]=7844.9 ) # per MAC          (ERT leak row, 0.00784449 pJ/cycle @1GHz)
-: "${ECC_STATIC_ENERGY:=1}"          # 1 = charge the above to ALL THREE arms
-
+# prompt_7 Issue 5. 1 = charge component standby energy (power x TIME, from
+# each design's own `leakage_nw:` densities) to ALL THREE arms as a `Standby`
+# category; 0 = not charged and not even a category, which reproduces every
+# pre-Phase-A total to the pJ. THE DENSITIES ARE THE DESIGN'S, in nW, in
+# archs/<name>/design.yaml (since 2026-09-14; this file held them as
+# ECC_LEAKAGE_NW). POWER, not energy: the evaluator multiplies by that design's
+# cycle period at the point of use (TRAP 2 below). Evaluator-only.
+# 0 | 1
+: "${ECC_STATIC_ENERGY:=1}"
 # ---- clock rate, per architecture ------------------------------------------
-# prompt_7 Issue 14. ECC_GLOBAL_CYCLE_SECONDS (section 5) is ONE number for every
-# design and it was 1 GHz, while Eyeriss v1 silicon runs at 200 MHz. Pairing the
-# real chip's ABSOLUTE off-chip MB/s with a 5x faster model clock makes the
-# modelled chip ~5x more memory-starved than the real one (at 480 MB/s it would
-# wait on DRAM ~89% of the run, against ~44% for silicon).
-#
-# UNITS ARE MHz. 1000 = 1 GHz, 200 = the JSSC 2017 rate. Section 10 flattens
-# this table into ECC_ARCH_CLOCK_MHZ_LIST and config.Config.cycle_seconds_for()
-# resolves it PER DESIGN into that design's own `global_cycle_seconds`, which is
-# what globals.yaml carries into the mapper and what every per-cycle term is
-# charged over. A design with no entry keeps ECC_GLOBAL_CYCLE_SECONDS (section
-# 5), so this table adds designs rather than replacing the default.
-#
-# A MULTI-ARCHITECTURE RUN IS FINE: globals.yaml is written once PER DESIGN
-# (ecc_energy_study/globals_<arch>.yaml), so two designs on one figure are each
-# clocked at their own rate instead of sharing whichever was written last.
-#
-# WHAT THIS DOES NOT CHANGE: when a design is fully off-chip-bound its wall-clock
-# time is set by bandwidth alone, so BOTH clocks give the same absolute run time
-# and the SAME percentage saving. The saving stays at its ceiling for any clock
-# above ~131 MHz at 480 MB/s. The clock buys defensibility, not a better number.
-declare -A ECC_ARCH_CLOCK_MHZ=(
-    [eyeriss_like_wglb]=200     # Eyeriss v1, JSSC 2017 core clock
-    [eyeriss_like]=200          # the retired v1 variant, same silicon
-    [eyeriss_v2_like]=1000      [eyeriss_v2_like_wglb]=1000   # no cited rate; model default
-    [simba_like]=1000           [simple_weight_stationary]=1000
-    [simple_input_stationary]=1000  [simple_output_stationary]=1000 )
-
-# TRAP 1 -- THIS COLDS THE CACHE, ON PURPOSE. `global_cycle_seconds` is in the
-# mapper fingerprint (config.py, `fingerprint()`), so changing a design's rate
-# re-maps that design. Accepted: it is batched into prompt_7.md's Phase C with
-# the other architecture changes, not paid separately.
+# THE CLOCK IS THE DESIGN'S: `clock_mhz:` in archs/<name>/design.yaml (since
+# 2026-09-14; this file held it as ECC_ARCH_CLOCK_MHZ). Eyeriss v1 declares its
+# JSSC 2017 200 MHz, every other design the 1 GHz model default; a design that
+# declares none runs at ECC_GLOBAL_CYCLE_SECONDS (section 5).
+# config.Config.cycle_seconds_for() is the ONLY place MHz becomes seconds, and
+# it reaches the mapper through globals_<arch>.yaml, so a changed clock colds
+# that design's cache (prompt_7 C1.5 / Issue 14).
 #
 # TRAP 2 -- EVERY PER-CYCLE CONSTANT MUST BE CONVERTED WITH THE SAME PERIOD, or
 # standby energy silently moves by 5x. Two live cases, handled differently:
@@ -571,9 +533,9 @@ declare -A ECC_ARCH_CLOCK_MHZ=(
 #                           idle_pJ_per_cycle(T) = idle_pJ_per_cycle(1ns) x T/1ns
 #                       equivalently: use power_uW.idle.total x T. At 200 MHz the
 #                       BCH(63,30) idle is 2.8310811 x 5 = 14.1554055 pJ/cycle.
-#   ECC_LEAKAGE_NW      is POWER (nW), not energy, so it needs NO rescaling --
-#                       energy per cycle = nW x T. That is why it is declared in
-#                       nW and not in pJ/cycle.
+#   leakage_nw          (design.yaml) is POWER (nW), not energy, so it needs NO
+#                       rescaling -- energy per cycle = nW x T. That is why it
+#                       is declared in nW and not in pJ/cycle.
 #
 # The wiring must apply the first rule in config.py where the DC tables are read,
 # NOT at the point of use, so no caller can forget it.
@@ -810,8 +772,9 @@ declare -A ECC_ARCH_CLOCK_MHZ=(
 #   BCH(63,30)           4      96        384            24           2.0000x
 #
 # BCH(63,51) shares q=6 with BCH(63,45) and BCH(63,36) shares q=5 with
-# BCH(63,39), so they take the same widths. Read the live table with
-#   python3 -m eccenergy.physics.widths
+# BCH(63,39), so they take the same widths. The table each design declares is
+# archs/<name>/widths.yaml; `python3 -m eccenergy.physics.widths` prints the
+# RULE's table, which every declared file reproduces today.
 #
 # THE ARMS DO NOT SHARE A DECLARED WIDTH. THIS IS THE POINT, AND IT HAS BEEN
 # GOT WRONG REPEATEDLY. Each arm declares the width that suits ITS OWN
@@ -853,10 +816,11 @@ declare -A ECC_ARCH_CLOCK_MHZ=(
 # DRAM IS NEVER REWRITTEN. recon.py owns the DRAM K/N scaling; narrowing DRAM
 # here as well would double-count it there.
 #
-# The GLB multiplier below is the one number left to set: 4x is Eyeriss v1's
-# published 16-b spad / 64-b GLB ratio, and q dividing W implies q dividing
-# 4W, so one scratchpad width settles every weight level at once.
-: "${ECC_WEIGHT_WIDTH_GLB_MULT:=4}"
+# THE TABLE IS DATA, PER DESIGN: archs/<name>/widths.yaml declares
+# q -> {spad_width, glb_width}, and the GLB/scratchpad ratio (4x, Eyeriss v1's
+# published 16-b / 64-b) is whatever that file's 8-bit row says. There is no
+# knob for it any more ( went on 2026-09-14). A q the
+# file does not list takes the RULE in eccenergy/physics/widths.py.
 
 # LET THE TWO ARMS DECLARE DIFFERENT `depth:` ON A WEIGHT LEVEL.
 # archs.assert_pair_geometry() checks that the reconstruction arm and the
@@ -881,7 +845,7 @@ declare -A ECC_ARCH_CLOCK_MHZ=(
 : "${ECC_DISABLE_ASSERT_PAIR_GEOMETRY:=0}"
 
 # THE ONLY SWEPT VARIABLE: `depth:` of the on-chip weight levels. Explicitly
-# NOT swept: width, datawidth, DRAM (ECC_DRAM_DEPTH), any level not holding
+# NOT swept: width, datawidth, DRAM (), any level not holding
 # Weights, bandwidths, n_banks, technology, PE counts, dataflow constraints.
 #
 # Its own cache slug (`wdepth<scale>`) and NOT `wcap`, because the two mean
@@ -961,9 +925,10 @@ declare -A ECC_ARCH_CLOCK_MHZ=(
 # cited figure. Set it EMPTY to reproduce the ERT-denominator numbers.
 : "${ECC_MAC_PJ_OVERRIDE:=0.23}"
 
-# DRAM geometry and the global clock, shared by every design (globals.yaml).
-# Both invalidate every architecture's mapper cache.
-: "${ECC_DRAM_DEPTH:=1048576}"
+# The global clock default, for a design whose design.yaml declares no
+# `clock_mhz` (globals.yaml). In every fingerprint. The DRAM depth is NOT here
+# any more: archs/_shared/standard.yaml `study.dram.depth_words` is the one
+# declaration (it was repeated here as until 2026-09-14).
 : "${ECC_GLOBAL_CYCLE_SECONDS:=1e-9}"
 
 # ---- interconnect ----------------------------------------------------------
@@ -1344,24 +1309,6 @@ for _k in "${!ECC_RECON_IDLE_PJ[@]}"; do
     ECC_RECON_IDLE_PJ_LIST="${ECC_RECON_IDLE_PJ_LIST}${_k}=${ECC_RECON_IDLE_PJ[${_k}]};"
 done
 
-# prompt_7 Phase A: section 6's leakage densities, flattened the same way. They
-# are POWER in nW, so nothing here rescales them for the clock period -- the
-# evaluator multiplies by the cycle period at the point of use (section 6's
-# TRAP 2). `config._table` reads this into `Config.leakage_nw`.
-ECC_LEAKAGE_NW_LIST=""
-for _k in "${!ECC_LEAKAGE_NW[@]}"; do
-    ECC_LEAKAGE_NW_LIST="${ECC_LEAKAGE_NW_LIST}${_k}=${ECC_LEAKAGE_NW[${_k}]};"
-done
-
-# prompt_7 Phase C1.5: section 6's per-design clock, flattened the same way.
-# `config.Config.cycle_seconds_for(arch)` reads it; a design with no entry falls
-# back to ECC_GLOBAL_CYCLE_SECONDS. UNITS ARE MHz -- the inversion to seconds
-# happens once, in config.py, so no caller can do it twice or not at all.
-ECC_ARCH_CLOCK_MHZ_LIST=""
-for _k in "${!ECC_ARCH_CLOCK_MHZ[@]}"; do
-    ECC_ARCH_CLOCK_MHZ_LIST="${ECC_ARCH_CLOCK_MHZ_LIST}${_k}=${ECC_ARCH_CLOCK_MHZ[${_k}]};"
-done
-
 : "${ECC_SWEEP_ARCHS:=${ECC_ARCHS}}"
 : "${ECC_SWEEP_MODELS:=${ECC_MODELS}}"
 : "${ECC_SWEEP_KS:=${ECC_KS}}"
@@ -1451,15 +1398,15 @@ export ECC_PROJECT_ROOT ECC_SIF ECC_TASKFILE ECC_USE_CONTAINER ECC_PYTHON \
        ECC_RECON_DECODE_SITE ECC_RECON_ENCODER_SITE ECC_RECON_CLOCK_GATING_PCT ECC_ENERGY_MODEL_REV \
        ECC_DRAM_PJ_PER_BIT ECC_BASELINE_DRAM_PJ_PER_BIT \
        ECC_DRAM_BACKGROUND_PJ ECC_DRAM_REFRESH_PJ ECC_DRAM_BANDWIDTH_MBPS \
-       ECC_STATIC_ENERGY ECC_LEAKAGE_NW_LIST ECC_LATENCY_MODEL \
-       ECC_ARCH_CLOCK_MHZ_LIST ECC_RECON_BW_SCALE ECC_ONCHIP_BW_BITAWARE \
+       ECC_STATIC_ENERGY ECC_LATENCY_MODEL \
+ ECC_RECON_BW_SCALE ECC_ONCHIP_BW_BITAWARE \
        ECC_WEIGHT_BITS ECC_ACTIVATION_BITS ECC_ACC_BITS ECC_ARCH_FIDELITY \
-       ECC_FORCE_DATAWIDTH ECC_FORCE_TECHNOLOGY ECC_DRAM_DEPTH ECC_MAC_PJ_OVERRIDE \
+       ECC_FORCE_DATAWIDTH ECC_FORCE_TECHNOLOGY ECC_MAC_PJ_OVERRIDE \
        ECC_WEIGHT_CAPACITY_SCALE ECC_WEIGHT_CAPACITY_SCOPE \
        ECC_WEIGHT_FACTOR_RELAX ECC_MAPSPACE_CONSTRAIN \
        ECC_WEIGHT_DATAWIDTH ECC_WEIGHT_DATAWIDTH_LEVELS \
        ECC_WEIGHT_DEPTH_SCALE ECC_WEIGHT_DEPTH_LEVELS \
-       ECC_WEIGHT_WIDTH_GLB_MULT ECC_DISABLE_ASSERT_PAIR_GEOMETRY \
+ ECC_DISABLE_ASSERT_PAIR_GEOMETRY \
        ECC_DEPTH_SWEEP_SCALES ECC_DEPTH_SWEEP_RECON_DW \
        ECC_DEPTH_SWEEP_GATE_VICTORIES ECC_DEPTH_SWEEP_GATE_SCALES \
        ECC_GLOBAL_CYCLE_SECONDS ECC_NOC ECC_NOC_WIRE_PJ_PER_BIT_MM \

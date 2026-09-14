@@ -144,23 +144,34 @@ def test_an_arm_width_need_not_divide_another_arms_datawidth():
 
 
 def test_the_rule_reproduces_the_table_without_reading_it():
-    """`WIDTH_TABLE` is a record of a decision, not a second source of truth:
-    the rule alone must give the same numbers."""
+    """The declared table (archs/<name>/widths.yaml since 2026-09-14) is a
+    record of a decision, not a second source of truth: the RULE alone must
+    give the same numbers, and every in-scope design's file must say what
+    prompt_2 says."""
+    from ..arch import design
     for label, q, width, _p, _c in PROMPT_2_TABLE:
         got = widths.nearest_multiple(q, widths.BASE_WIDTH)
         assert got == width, (
             f"{label}: the rule gives {got}, the table says {width} -- one of "
-            f"them is wrong and the dict must never win silently")
-    # BREAKAGE: a table entry the rule contradicts is still returned (a
-    # hand-picked width is allowed), but one its own q does not divide raises.
-    saved = dict(widths.WIDTH_TABLE)
-    try:
-        widths.WIDTH_TABLE[5] = 97          # 97 % 5 = 2
-        expect_raises(lambda: widths.declared_width(5),
-                      "a table width its own q does not divide was accepted")
-    finally:
-        widths.WIDTH_TABLE.clear()
-        widths.WIDTH_TABLE.update(saved)
+            f"them is wrong and the file must never win silently")
+    for arch in ("eyeriss_like_wglb", "simple_weight_stationary", "eyeriss_v2_like_wglb"):
+        t = design.width_table(arch)
+        assert arch in t.source, f"{arch} fell back to the rule: {t.source}"
+        for label, q, width, per_word, _c in PROMPT_2_TABLE:
+            assert t.listed(q), f"{arch}: q={q} is not declared in widths.yaml"
+            assert t.spad_width(q) == width, (arch, label, t.spad_width(q), width)
+            assert t.glb_width(q) == width * 4, (arch, label)
+        assert t.glb_mult() == 4 and t.base_width() == 96
+    # BREAKAGE: a declared width its own q does not divide is refused AT LOAD,
+    # never quietly rounded -- timeloop-mapper would abort on it (buffer.cpp:302).
+    expect_raises(lambda: widths.WidthTable({5: 97}, {}, source="mutation"),
+                  "a table width its own q does not divide was accepted")
+    # ...and a GLB word that is not a whole multiple of its scratchpad's too.
+    expect_raises(lambda: widths.WidthTable({5: 95}, {5: 381}, source="mutation"),
+                  "a GLB word that is not a multiple of the scratchpad's was accepted")
+    # a q the file does not list takes the rule, and says so
+    t = widths.WidthTable({8: 96}, {8: 384}, source="partial")
+    assert not t.listed(5) and t.spad_width(5) == 95 and t.glb_width(5) == 380
 
 
 def test_every_q_from_1_to_the_payload_has_a_legal_width():

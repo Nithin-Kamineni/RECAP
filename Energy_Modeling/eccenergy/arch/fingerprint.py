@@ -37,6 +37,7 @@ import json
 from ..paths import ARCH_COMPONENTS
 from ..physics import recon_dc, widths
 
+from . import design
 from .load import arch_source, load_standard, paper_source
 from .patch import MAPSPACE_FREE_LEVELS, _patched_text, _relax_weight_factors, _scale_weight_capacity, _scale_weight_depth, _set_weight_geometry, patched_weight_geometry
 
@@ -275,9 +276,9 @@ def effective_variant(arch, cfg):
         base = _set_weight_geometry(arch_source(arch, cfg).read_text(),
                                     getattr(cfg, "weight_datawidth", None),
                                     getattr(cfg, "weight_datawidth_levels", ()),
-                                    getattr(cfg, "weight_width_glb_mult", 4),
-                                    cfg.weight_capacity_scope, arch, quiet=True,
-                                    weight_bits=cfg.weight_bits)
+                                    scope=cfg.weight_capacity_scope, arch=arch,
+                                    quiet=True, weight_bits=cfg.weight_bits,
+                                    table=design.width_table(arch))
         if _scale_weight_capacity(base, cfg.weight_capacity_scale,
                                   cfg.weight_capacity_scope, arch,
                                   quiet=True) != base:
@@ -287,18 +288,19 @@ def effective_variant(arch, cfg):
     # no-op rule, because there is no configuration in which it is off. It
     # marks the boundary in `ls`: a directory without it predates 2026-09-12
     # and was mapped on the published word shape.
-    parts.append(f"wt{widths.base_width(cfg.weight_bits)}"
-                 + (f"x{cfg.weight_width_glb_mult}"
-                    if cfg.weight_width_glb_mult != 4 else ""))
+    table = design.width_table(arch)
+    parts.append(f"wt{table.base_width(cfg.weight_bits)}"
+                 + (f"x{table.glb_mult(cfg.weight_bits)}"
+                    if table.glb_mult(cfg.weight_bits) != 4 else ""))
     if getattr(cfg, "weight_depth_scale", 1.0) != 1.0:
         # Same no-op rule as the capacity scale, measured on the RESHAPED text
         # -- the ladder multiplies the renormalised depth.
         base = _set_weight_geometry(arch_source(arch, cfg).read_text(),
                                     getattr(cfg, "weight_datawidth", None),
                                     getattr(cfg, "weight_datawidth_levels", ()),
-                                    getattr(cfg, "weight_width_glb_mult", 4),
-                                    cfg.weight_capacity_scope, arch, quiet=True,
-                                    weight_bits=cfg.weight_bits)
+                                    scope=cfg.weight_capacity_scope, arch=arch,
+                                    quiet=True, weight_bits=cfg.weight_bits,
+                                    table=design.width_table(arch))
         if _scale_weight_depth(base, cfg.weight_depth_scale,
                                cfg.weight_depth_levels,
                                cfg.weight_capacity_scope, arch,
@@ -315,14 +317,14 @@ def effective_variant(arch, cfg):
         # diffing the arm's geometry against the 8-bit arm's.
         src_text = arch_source(arch, cfg).read_text()
         eight = _set_weight_geometry(src_text, None, (),
-                                     getattr(cfg, "weight_width_glb_mult", 4),
-                                     cfg.weight_capacity_scope, arch, quiet=True,
-                                     weight_bits=cfg.weight_bits)
+                                     scope=cfg.weight_capacity_scope, arch=arch,
+                                     quiet=True, weight_bits=cfg.weight_bits,
+                                     table=design.width_table(arch))
         dw_levels = tuple(getattr(cfg, "weight_datawidth_levels", ()) or ())
         armed = _set_weight_geometry(src_text, cfg.weight_datawidth, dw_levels,
-                                     getattr(cfg, "weight_width_glb_mult", 4),
-                                     cfg.weight_capacity_scope, arch, quiet=True,
-                                     weight_bits=cfg.weight_bits)
+                                     scope=cfg.weight_capacity_scope, arch=arch,
+                                     quiet=True, weight_bits=cfg.weight_bits,
+                                     table=design.width_table(arch))
         if armed != eight:
             # Same spelling as `wdepth<scale>-<levels>`: an arm narrowing
             # only `filter_glb` is a different architecture from one

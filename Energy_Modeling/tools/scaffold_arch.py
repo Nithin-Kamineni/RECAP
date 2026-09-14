@@ -31,9 +31,20 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 DESIGN = """# ONE DESIGN, DECLARED. `arch_paper.yaml` beside this file is the CHIP (every
 # number cited); this is what the study needs to know ABOUT the chip.
 #
-# The design's CLOCK is not here: env.sh section 7's ECC_ARCH_CLOCK_MHZ table
-# owns it, because it is a knob a run may override.
 name: {name}
+
+# THE CORE CLOCK, in MHz. Reaches the mapper (globals_<arch>.yaml), so it is in
+# the fingerprint. Omit it to run at ECC_GLOBAL_CYCLE_SECONDS (1 GHz).
+clock_mhz: 1000
+
+# COMPONENT STANDBY DENSITIES, in nW (POWER; the evaluator applies this
+# design's cycle period). Charged to all three arms under ECC_STATIC_ENERGY=1.
+# These are the study's values (see archs/eyeriss_like_wglb/design.yaml for
+# where each came from); replace them if this design's silicon says otherwise.
+leakage_nw:
+  sram_bit: 2.693
+  rf_bit: 70.0
+  mac_instance: 7844.9
 
 # What a figure axis says. A LABEL MAY NAME A STRUCTURE, NEVER A CAPACITY: a
 # title is the last place a reader meets the design, so it must not be the one
@@ -67,6 +78,19 @@ label: "{name}"
 #   low: 0.06
 #   high: 0.10
 #   citation: "TODO: paper, section, figure"
+"""
+
+WIDTHS = """# THE WIDTH TABLE for this design (CLAUDE.md, PROTECTED SECTION): one word
+# width PER ARM, keyed by the datawidth q that arm stores. The arms do NOT
+# share a width; each row need only divide its OWN q. Depth is shared and is
+# renormalised at the 8-bit row. These are the study's rows (the RULE in
+# eccenergy/physics/widths.py reproduces them); a q not listed takes the rule.
+widths:
+  8: {spad_width: 96, glb_width: 384}
+  7: {spad_width: 98, glb_width: 392}
+  6: {spad_width: 96, glb_width: 384}
+  5: {spad_width: 95, glb_width: 380}
+  4: {spad_width: 96, glb_width: 384}
 """
 
 WEIGHT_PATH = """# THE WEIGHT PATH of this design: the stages a weight crosses from DRAM to the
@@ -159,6 +183,7 @@ def main(argv=None):
     d.mkdir(parents=True)
     files = {
         "design.yaml": DESIGN.format(name=name),
+        "widths.yaml": WIDTHS,
         "weight_path.yaml": WEIGHT_PATH,
         "placements.yaml": PLACEMENTS,
         "README.md": README.format(name=name),

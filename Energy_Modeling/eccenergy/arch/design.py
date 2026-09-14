@@ -2,7 +2,11 @@
 
     archs/<name>/
         arch_paper.yaml    the chip, every number cited          (Timeloop reads it)
-        design.yaml        what the study needs to know ABOUT the chip
+        design.yaml        what the study needs to know ABOUT the chip: label,
+                           axis order, the constrained mapspace, per-design
+                           modelling facts, and since 2026-09-14 the CLOCK
+                           (`clock_mhz`) and the LEAKAGE DENSITIES (`leakage_nw`)
+        widths.yaml        THE WIDTH TABLE, as data: q -> {spad_width, glb_width}
         weight_path.yaml   the stages a weight crosses, outer to inner
         placements.yaml    the reconstruction boundaries
         README.md          what it is and what it is not
@@ -19,10 +23,14 @@ boundaries into two tables in `recon.py`, and three places in the drivers asked
     mapspace_free_levels("eyeriss_like_wglb")   prompt_3's constrained search
     flag(arch, "weights_stored_compressed")     a per-design modelling caveat
 
-WHAT IS NOT HERE, AND WHY. The design's CLOCK: `env.sh` section 7's
-`ECC_ARCH_CLOCK_MHZ` table owns it, because it is a knob a run may override and
-`env.sh` is the one file a user edits (CLAUDE.md). Declaring it twice is how the
-two spellings drift.
+EVERY ARCHITECTURE-RELATED FACT LIVES IN THE DIRECTORY (EnvReorganisation
+phase 1, 2026-09-14). The clock, the leakage densities and THE WIDTH TABLE used
+to be three bash tables in env.sh, one entry per design, beside a `derived`
+field nobody could override per design anyway; they are read here now and
+`config._resolve()` derives the record fields (`arch_clock_mhz`, `leakage_nw`,
+`weight_width_glb_mult`) from them, so every manifest still carries the same
+keys with the same values and no fingerprint moved. `dram_depth` is the one
+shared fact and stays in `_shared/standard.yaml` (`study.dram.depth_words`).
 
 IT IS READ THROUGH `paths.ARCH_SRC`, so `ECC_ARCH_PIN_DIR` covers it: a
 submission that pinned `archs/` at submit time keeps reading the design it
@@ -41,12 +49,20 @@ import yaml
 
 from ..contracts.errors import ConfigError
 from ..paths import ARCH_SRC
+from ..physics import widths
 from ..settings import guards
 
 #: The files a design directory may declare, and whether one is required.
 DESIGN_FILE = "design.yaml"
 WEIGHT_PATH_FILE = "weight_path.yaml"
 PLACEMENTS_FILE = "placements.yaml"
+WIDTHS_FILE = "widths.yaml"
+
+#: The three densities `study/energy.py` prices standby power from, per
+#: stored bit (SRAM macro / register file) and per MAC. A design that charges
+#: standby (ECC_STATIC_ENERGY=1) must declare all three; a missing one is a
+#: refusal at the charging site, never a zero.
+LEAKAGE_KEYS = ("sram_bit", "rf_bit", "mac_instance")
 
 #: What a weight-path stage's `kind` may be.
 STAGE_KINDS = ("dram", "storage", "network")
@@ -174,12 +190,96 @@ def weight_path_doc(name):
     return _read(ARCH_SRC / name / WEIGHT_PATH_FILE)
 
 
+# ------------------------------------------------ the facts env.sh used to hold
+def clock_mhz(name):
+    """This design's declared core clock in MHz, or `None` if it declares none
+    (it then runs at `ECC_GLOBAL_CYCLE_SECONDS`). `config.Config.
+    cycle_seconds_for()` is the ONLY place this becomes seconds."""
+    v = flag(name, "clock_mhz")
+    return None if v is None else float(v)
+
+
+def clock_table():
+    """`{design: MHz}` for every declared design that declares a clock -- the
+    record field `arch_clock_mhz`, exactly as env.sh's table used to flatten."""
+    out = {}
+    for p in _dirs():
+        v = clock_mhz(p.name)
+        if v is not None:
+            out[p.name] = v
+    return out
+
+
+def leakage_nw(name):
+    """This design's `leakage_nw: {sram_bit, rf_bit, mac_instance}` in nW, as
+    floats, or `None` if it declares none."""
+    v = flag(name, "leakage_nw")
+    return None if v is None else {str(k): float(x) for k, x in v.items()}
+
+
+def widths_doc(name):
+    """`widths.yaml`, or `None` -- the design then takes THE RULE."""
+    return _read(ARCH_SRC / name / WIDTHS_FILE)
+
+
+@functools.lru_cache(maxsize=None)
+def width_table(name):
+    """THE WIDTH TABLE this design declares, as a `physics.widths.WidthTable`.
+
+    A design with no `widths.yaml` -- and a name that is not a declared design
+    at all, looked up in `example_designs/` as-is -- gets the RULE, which is
+    what every design declared before the file existed and reproduces every
+    row of the study's table. So a missing file colds nothing; a file that
+    departs from the rule is a different chip, and its fingerprint says so.
+    """
+    doc = widths_doc(name)
+    path = ARCH_SRC / name / WIDTHS_FILE
+    if doc is None:
+        return widths.WidthTable.rule(
+            source=f"the rule ({name} declares no {WIDTHS_FILE})")
+    return validate_widths(name, doc, path)
+
+
 def placements_doc(name):
     """`placements.yaml`, or `None` -- loaded WITH the weight path, never alone."""
     return _read(ARCH_SRC / name / PLACEMENTS_FILE)
 
 
 # ------------------------------------------------------------------- the schema
+def validate_widths(name, doc, path):
+    """`widths:` is `q -> {spad_width, glb_width}`, every width a whole
+    multiple of its own q, every GLB word a whole multiple of its scratchpad's."""
+    if not isinstance(doc, dict) or not isinstance(doc.get("widths"), dict) \
+            or not doc["widths"]:
+        raise guards.refusal("widths-not-a-table",
+            f"{path}: expected `widths:` as q -> {{spad_width, glb_width}}")
+    spad, glb = {}, {}
+    for q, row in doc["widths"].items():
+        try:
+            qi = int(q)
+            if not isinstance(row, dict):
+                raise TypeError
+            if "spad_width" in row:
+                spad[qi] = int(row["spad_width"])
+            if "glb_width" in row:
+                glb[qi] = int(row["glb_width"])
+            if not row or set(row) - {"spad_width", "glb_width"}:
+                raise TypeError
+        except (TypeError, ValueError):
+            raise guards.refusal("widths-not-a-table",
+                f"{path}: row {q!r}: {row!r} is not {{spad_width: <int>, "
+                f"glb_width: <int>}} keyed by an integer q") from None
+    try:
+        return widths.WidthTable(spad, glb, source=str(path))
+    except ValueError as exc:
+        msg = str(exc)
+        if "multiple of the scratchpad" in msg or "POSITIVE multiple" in msg:
+            raise guards.refusal("glb-width-mult-ge-1", msg) from None
+        raise guards.refusal("widths-not-a-multiple",
+            f"{msg}\n  -> fix the entry in {path}; do NOT reach for a width that "
+            f"suits a DIFFERENT arm (CLAUDE.md, THE WIDTH TABLE)") from None
+
+
 def _validate_design(name, doc, path):
     if not isinstance(doc, dict):
         raise guards.refusal("design-not-a-mapping",
@@ -200,6 +300,24 @@ def _validate_design(name, doc, path):
         except (TypeError, ValueError):
             raise guards.refusal("design-order-not-integer",
                 f"{path}: `order:` must be an integer") from None
+    if doc.get("clock_mhz") is not None:
+        try:
+            ok = float(doc["clock_mhz"]) > 0
+        except (TypeError, ValueError):
+            ok = False
+        if not ok:
+            raise guards.refusal("clock-positive",
+                f"{path}: `clock_mhz: {doc['clock_mhz']!r}` -- a clock rate is a "
+                f"positive number of MHz (1000 = the study default, 200 = JSSC 2017)")
+    if doc.get("leakage_nw") is not None:
+        lk = doc["leakage_nw"]
+        bad = (not isinstance(lk, dict)
+               or any(not isinstance(v, (int, float)) or isinstance(v, bool) or v < 0
+                      for v in lk.values()))
+        if bad:
+            raise guards.refusal("leakage-not-a-table",
+                f"{path}: `leakage_nw:` must map density names to non-negative "
+                f"nW, e.g. {{sram_bit: 2.693, rf_bit: 70.0, mac_instance: 7844.9}}")
     band = doc.get("noc_published_share")
     if band is not None:
         if not isinstance(band, dict) or "low" not in band or "high" not in band:

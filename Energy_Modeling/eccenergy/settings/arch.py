@@ -85,12 +85,16 @@ class ArchSettings:
     #: which is the same term the roofline charges. In the fingerprint through
     #: the patched text, so changing it colds every cache.
     dram_bandwidth_mbps: Optional[float]
-    #: ECC_ARCH_CLOCK_MHZ, flattened by env.sh section 10 into
-    #: ECC_ARCH_CLOCK_MHZ_LIST: `{arch: MHz}`. `cycle_seconds_for()` is the
-    #: ONLY place it is inverted to seconds (env.sh section 6 TRAP 2 -- two
-    #: conversions of one period is a silent 5x). A design with no entry keeps
-    #: `global_cycle_seconds`.
-    arch_clock_mhz: dict
+    #: `{arch: MHz}` -- DERIVED, since 2026-09-14, from every declared design's
+    #: `clock_mhz:` in archs/<name>/design.yaml (`arch.design.clock_table()`);
+    #: it was env.sh's ECC_ARCH_CLOCK_MHZ table, flattened. `from_env()` leaves
+    #: it None and `config._resolve()` fills it, so the record every manifest
+    #: carries keeps the same key and the same values. `cycle_seconds_for()`
+    #: is the ONLY place it is inverted to seconds (env.sh section 6 TRAP 2 --
+    #: two conversions of one period is a silent 5x). A design with no entry
+    #: keeps `global_cycle_seconds`. `cfg.with_(arch_clock_mhz={...})` still
+    #: overrides it, for one `with_()`: the tests that vary a clock use that.
+    arch_clock_mhz: Optional[dict]
     #: ECC_ONCHIP_BW_BITAWARE (prompt_7 C1.3). 1 = a level the arm narrows to
     #: `datawidth: q` declares its `read_bandwidth`/`write_bandwidth` x 8/q,
     #: because the port moves BITS and a q-bit weight is fewer of them. This
@@ -101,7 +105,12 @@ class ArchSettings:
     arch_fidelity: str
     force_technology: str
     force_datawidth: Optional[int]
-    dram_depth: int
+    #: DERIVED since 2026-09-14 from archs/_shared/standard.yaml
+    #: `study.dram.depth_words` -- the one DRAM geometry every design shares
+    #: and `validate` already audits every arch YAML against. It was
+    #: ECC_DRAM_DEPTH, which repeated that number. Still in the fingerprint:
+    #: `_patch_dram_depth()` writes it onto every design's DRAM level.
+    dram_depth: Optional[int]
     global_cycle_seconds: str
     #: TASK 4 -- CAPACITY DILATION. Multiplies the declared `depth:` of the
     #: weight-carrying storage levels in the architecture THE MAPPER SEES, so
@@ -163,17 +172,20 @@ class ArchSettings:
     #: correction.
     weight_depth_scale: float
     #: PROMPT_2's WIDTH TABLE is NOT A KNOB and has no field here. Every
-    #: weight level's `width:` is chosen by `widths.level_width()` from
-    #: the datawidth THAT LEVEL ends up storing, and `archs`
-    #: `_set_weight_geometry()` applies it to every run: 96 b for an 8-bit
-    #: level, 98 / 96 / 95 / 96 for q = 7 / 6 / 5 / 4, x this multiplier above
-    #: the PE array. THE ARMS DO NOT SHARE A WIDTH -- each one's width suits
-    #: its own datawidth and no other arm's, which is why 95 at q=5 is correct
-    #: and does not have to divide 8. Depth is renormalised at the BASE width
+    #: weight level's `width:` comes from the design's own
+    #: archs/<name>/widths.yaml (`q -> {spad_width, glb_width}`, THE RULE in
+    #: physics/widths.py for an unlisted q), and `arch.patch.
+    #: _set_weight_geometry()` applies it to every run: 96 b for an 8-bit
+    #: level, 98 / 96 / 95 / 96 for q = 7 / 6 / 5 / 4, x4 above the PE array.
+    #: THE ARMS DO NOT SHARE A WIDTH -- each one's width suits its own
+    #: datawidth and no other arm's, which is why 95 at q=5 is correct and
+    #: does not have to divide 8. Depth is renormalised at the BASE width
     #: (96), so it IS shared, and that is what `assert_pair_geometry` checks.
-    #: 4x is Eyeriss v1's published 16-b spad / 64-b GLB ratio, and
-    #: `q | W` implies `q | 4W`, so one table settles every weight level.
-    weight_width_glb_mult: int
+    #: THIS FIELD IS DERIVED since 2026-09-14: the GLB/scratchpad ratio the
+    #: held design's 8-bit row declares (4, Eyeriss v1's 16-b / 64-b ratio).
+    #: It was ECC_WEIGHT_WIDTH_GLB_MULT; it stays a record field so every
+    #: fingerprint and manifest keeps the key and the value.
+    weight_width_glb_mult: Optional[int]
     #: `ECC_DISABLE_ASSERT_PAIR_GEOMETRY=1`: let the reconstruction and
     #: embedded arms declare DIFFERENT `depth:` on a weight level, for a study
     #: that varies depth between them on purpose. It disables the DEPTH check
@@ -223,7 +235,7 @@ class ArchSettings:
             arch_fidelity=_s("ECC_ARCH_FIDELITY", "paper").lower(),
             force_technology=_s("ECC_FORCE_TECHNOLOGY"),
             force_datawidth=_oi("ECC_FORCE_DATAWIDTH"),
-            dram_depth=_i("ECC_DRAM_DEPTH", 1048576),
+            dram_depth=None,               # standard.yaml study.dram.depth_words
             global_cycle_seconds=_s("ECC_GLOBAL_CYCLE_SECONDS", "1e-9"),
             # ROUNDED AT LOAD, and that is not cosmetic. The cache slug is
             # `wcap{scale:g}`, so 63/39 spelled 1.61539 by python and 1.6154 by the
@@ -246,7 +258,7 @@ class ArchSettings:
             # unconditional (eccenergy/widths.py): every weight level takes
             # the width that suits the datawidth it stores, on every run, so there
             # is nothing to set and nothing that can be set wrong.
-            weight_width_glb_mult=int(_f("ECC_WEIGHT_WIDTH_GLB_MULT", 4)),
+            weight_width_glb_mult=None,    # archs/<name>/widths.yaml, 8-bit row
             disable_pair_geometry_assert=_b("ECC_DISABLE_ASSERT_PAIR_GEOMETRY", False),
             weight_depth_levels=tuple(_list("ECC_WEIGHT_DEPTH_LEVELS")),
             weight_datawidth_levels=tuple(_list("ECC_WEIGHT_DATAWIDTH_LEVELS")),
@@ -259,7 +271,7 @@ class ArchSettings:
             noc_router_pj=_of("ECC_NOC_ROUTER_PJ"),
             noc_pe_latch_pj=_of("ECC_NOC_PE_LATCH_PJ"),
             noc_scale=_f("ECC_NOC_SCALE", 1.0),
-            arch_clock_mhz=_table("ECC_ARCH_CLOCK_MHZ_LIST"),
+            arch_clock_mhz=None,           # archs/<name>/design.yaml clock_mhz
             dram_bandwidth_mbps=_of("ECC_DRAM_BANDWIDTH_MBPS"),
             onchip_bw_bitaware=_b("ECC_ONCHIP_BW_BITAWARE", False),
         )

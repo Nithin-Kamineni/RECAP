@@ -249,7 +249,8 @@ onchip_bandwidth:
 
 arch_clock:
   status: >-
-    ECC_ARCH_CLOCK_MHZ (env.sh section 6), resolved per design by
+    `clock_mhz:` in each archs/<name>/design.yaml (since 2026-09-14; it was
+    env.sh's ECC_ARCH_CLOCK_MHZ table), resolved per design by
     Config.cycle_seconds_for() since prompt_7 C1.5 and carried into the mapper by
     globals_<arch>.yaml.
   values:

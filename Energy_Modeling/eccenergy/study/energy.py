@@ -482,7 +482,7 @@ def latency_post_cycle_seconds(cfg):
     return cycle_seconds(cfg)
 
 
-def standby_energy(raw, cfg, *, cycle_scale=1.0):
+def standby_energy(raw, cfg, *, cycle_scale=1.0, arch=None):
     """Component standby energy for THIS plan, per level and in total (pJ).
 
     `E = density_nW x units x instance_cycles x cycle_period`, with `units` the
@@ -494,10 +494,16 @@ def standby_energy(raw, cfg, *, cycle_scale=1.0):
     A missing density is a REFUSAL, not a zero. The whole point of Defect 2 is
     that a side of the comparison was silently charged nothing; a knob that
     silently charges nothing is the same failure with a switch on it. `dram` is
-    the one deliberate omission -- env.sh declares no off-chip density, exactly
-    as ECC_DRAM_BACKGROUND_PJ and ECC_DRAM_REFRESH_PJ are 0 on purpose.
+    the one deliberate omission -- no design declares an off-chip density,
+    exactly as ECC_DRAM_BACKGROUND_PJ and ECC_DRAM_REFRESH_PJ are 0 on purpose.
+
+    THE DENSITIES ARE THE DESIGN'S (EnvReorganisation phase 1): `leakage_nw:`
+    in archs/<name>/design.yaml, through `Config.leakage_nw_for(arch)`; a
+    caller with no `arch` gets the held design's, which is what the record
+    field holds and what `with_(leakage_nw=...)` overrides.
     """
-    dens = getattr(cfg, "leakage_nw", None) or {}
+    dens = (cfg.leakage_nw_for(arch) if hasattr(cfg, "leakage_nw_for")
+            else getattr(cfg, "leakage_nw", None)) or {}
     # THIS DESIGN's clock, not the study's (prompt_7 C1.5). Standby energy is
     # power x TIME and `ECC_LEAKAGE_NW` is POWER, so the period is applied here
     # exactly once -- at 200 MHz that is 5 ns, and reading the 1 GHz study
@@ -515,11 +521,11 @@ def standby_energy(raw, cfg, *, cycle_scale=1.0):
             continue
         if key not in dens:
             raise ValueError(
-                f"ECC_STATIC_ENERGY=1 but ECC_LEAKAGE_NW has no {key!r} entry "
+                f"ECC_STATIC_ENERGY=1 but the leakage table has no {key!r} entry "
                 f"(it holds {sorted(dens) or 'nothing'}), so level {c['level']!r} "
                 f"would be charged zero standby energy -- which is the defect "
-                f"this knob exists to fix. Source env.sh, or set "
-                f"ECC_LEAKAGE_NW_LIST={key}=<nW>;...")
+                f"this knob exists to fix. Declare `leakage_nw: {{sram_bit, "
+                f"rf_bit, mac_instance}}` in archs/{arch or '<design>'}/design.yaml.")
         units = 1.0 if c["kind"] == "mac" else c["bits_per_instance"]
         if not units:
             raise ValueError(
@@ -536,7 +542,7 @@ def standby_energy(raw, cfg, *, cycle_scale=1.0):
     return total, rows
 
 
-def apply_standby_energy(raw, cfg, verbose=True):
+def apply_standby_energy(raw, cfg, verbose=True, arch=None):
     """Charge the accelerator's standby energy to the `Standby` category.
 
     THE SYMMETRY FIX (prompt_7 Defect 2). Applied to the `Raw` record, beside
@@ -558,7 +564,8 @@ def apply_standby_energy(raw, cfg, verbose=True):
     tl_leak = sum(float(c["timeloop_leakage_pJ"])
                   for c in standby_components(raw, cfg)) if raw.per_layer else 0.0
     info = {"charged": bool(getattr(cfg, "static_energy", False)),
-            "densities_nW": dict(getattr(cfg, "leakage_nw", None) or {}),
+            "densities_nW": dict((cfg.leakage_nw_for(arch) if hasattr(cfg, "leakage_nw_for")
+                                  else getattr(cfg, "leakage_nw", None)) or {}),
             "cycle_seconds": latency_post_cycle_seconds(cfg),
             "timeloop_leakage_pJ": tl_leak,
             "timeloop_leakage_note": (
@@ -583,7 +590,7 @@ def apply_standby_energy(raw, cfg, verbose=True):
         scale = float(lat["cycles"]) / float(raw.cycles)
         source = (f"roofline cycles ({lat['cycles']:,.0f} against Timeloop's "
                   f"{raw.cycles:,.0f}, x{scale:.4f})")
-    total, rows = standby_energy(raw, cfg, cycle_scale=scale)
+    total, rows = standby_energy(raw, cfg, cycle_scale=scale, arch=arch)
     info.update(energy_pJ=total, per_level=rows, cycle_scale=scale,
                 cycles_source=source,
                 ratio_to_timeloop_leakage=(total / tl_leak) if tl_leak else None)
@@ -596,7 +603,7 @@ def apply_standby_energy(raw, cfg, verbose=True):
         if lp.get("status") == "ok" and lp.get("physical"):
             one = Raw(raw.base, raw.base_w, raw.base_i, 0.0, 0.0, 1, 0, 0,
                       per_layer=[lp], levels=[])
-            e, _ = standby_energy(one, cfg, cycle_scale=scale)
+            e, _ = standby_energy(one, cfg, cycle_scale=scale, arch=arch)
             lp["standby_energy_pJ"] = e
             lp["total_energy_pJ"] = float(lp.get("total_energy_pJ", 0.0)) + e
         per_layer.append(lp)
@@ -773,7 +780,7 @@ def gather(cfg, mapper, model, layers, verbose=True):
     )
 
 
-def finish(raw, cfg, verbose=True):
+def finish(raw, cfg, verbose=True, arch=None):
     """Every evaluator-side model, in the one order they must be applied.
 
     The raw cache holds pure Timeloop output; these four turn it into what is
@@ -790,7 +797,7 @@ def finish(raw, cfg, verbose=True):
     """
     raw = apply_dram_override(apply_mac_override(raw, cfg, verbose), cfg, verbose)
     raw = apply_latency_model(raw, cfg, verbose)
-    return apply_standby_energy(raw, cfg, verbose)
+    return apply_standby_energy(raw, cfg, verbose, arch=arch)
 
 
 # ------------------------------------------------------------------ raw cache
