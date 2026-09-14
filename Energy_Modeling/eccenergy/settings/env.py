@@ -8,7 +8,7 @@ the six frozen settings objects beside this module.
 Each helper turns a string into the type the knob means, and REFUSES rather than
 guessing: `ECC_VICTORY=two_thousand` is a `ConfigError` naming the knob, not a
 silent default. `_one()` refuses a list where one value is meant -- only the
-swept axis takes a list -- `_table()` parses env.sh section 10's `key=value;`
+swept axis takes a list -- `_table()` parses env.sh section 8's `key=value;`
 flattening of a bash associative array, which cannot be exported any other way,
 and `_scoped_list()` tells `ECC_LAYERS`' bare list from its per-model form.
 
@@ -77,7 +77,7 @@ def _of(name):
 
 
 def _table(name):
-    """`key=value;key=value` -> `{key: float(value)}` (env.sh section 10's
+    """`key=value;key=value` -> `{key: float(value)}` (env.sh section 8's
     flattening of a `declare -A` table, which bash cannot export)."""
     out = {}
     for entry in os.environ.get(name, "").split(";"):

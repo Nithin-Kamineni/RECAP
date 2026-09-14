@@ -34,7 +34,8 @@ PHYS_CATS = ("DRAM", "Global buffer", "Local (spads/RF)", "NoC", "Compute")
 STANDBY_CAT = "Standby"
 #: Which ECC_LEAKAGE_NW density prices a level, and what it is a density OF.
 #: `sram`/`rf` are per STORED BIT, `mac` per instance; `dram` is off-chip and
-#: no density is declared for it (env.sh section 6), so it is charged nothing
+#: no density is declared for it (archs/<name>/design.yaml `leakage_nw:`,
+#: since EnvReorganisation phase 1), so it is charged nothing
 #: -- the same deliberate omission as ECC_DRAM_BACKGROUND_PJ.
 STANDBY_DENSITY = {"sram": "sram_bit", "rf": "rf_bit", "mac": "mac_instance"}
 #: Split variants, used when ECC_SPLIT_READ_WRITE=1. NoC is not split: a
@@ -515,8 +516,9 @@ def standby_energy(raw, cfg, *, cycle_scale=1.0, arch=None):
         row = dict(c)
         if key is None:                       # dram: off chip, not modelled here
             row.update(density_nW=None, units=None, power_nW=0.0, energy_pJ=0.0,
-                       note="off chip: env.sh section 6 declares no density, "
-                            "as E_background and E_refresh are also 0")
+                       note="off chip: no leakage density is declared for DRAM "
+                            "(archs/<name>/design.yaml), as E_background "
+                            "and E_refresh are also 0")
             rows.append(row)
             continue
         if key not in dens:

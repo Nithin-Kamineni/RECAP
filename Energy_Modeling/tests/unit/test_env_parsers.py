@@ -148,7 +148,7 @@ def test_one_value_is_empty_when_unset():
 
 # ---------------------------------------------------------------------- table
 def test_a_table_parses_env_shs_flattened_associative_array():
-    """bash cannot export a `declare -A`, so env.sh section 10 flattens it."""
+    """bash cannot export a `declare -A`, so env.sh section 8 flattens it."""
     set_env(X="sram_bit=1.5;rf_bit=0.25;mac_instance=30")
     assert env._table("X") == {"sram_bit": 1.5, "rf_bit": 0.25, "mac_instance": 30.0}
 

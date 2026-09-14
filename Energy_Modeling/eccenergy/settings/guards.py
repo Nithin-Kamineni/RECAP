@@ -14,15 +14,15 @@ turn off.
                   arithmetically cannot hold.  NEVER overridable.
     3 COUPLING    "ECC_SPLIT_READ_WRITE=1 inside the placement study".  Encodes
                   THE COMBINATIONS WE THOUGHT OF.  Overridable.
-    4 DERIVED     "the arm declares q=4, but you set ECC_WEIGHT_DATAWIDTH=5".
-                  Refuses you for setting a knob the system also derives.
-                  Overridable.
+    4 DERIVED     "a price of ZERO is an ablation, not a price".  Refuses you
+                  for setting a knob the system also derives, or for asking
+                  for the bound rather than the number.  Overridable.
 
 Tiers 3 and 4 are the ABLATION BLOCKERS (section 6.3: six of fifteen plausible
 ablations were refused outright). They are refused by DEFAULT and run when you
 name them:
 
-    ECC_ALLOW="zero-price,derived-datawidth"
+    ECC_ALLOW="zero-price,recon-no-split-read-write"
 
 -- never a blanket `ECC_GUARDS=off`, which section 10 rules out: it would be set
 once, forgotten, and a wrong number would reach a figure with nothing saying so.
@@ -223,7 +223,7 @@ GUARDS = {
     "pair-geometry":            _g(2, "the two arms declaring a different DEPTH (real silicon one arm lacks)",
                                  ValueError,
                                  note="THE ONE GUARD WITH AN OVERRIDE OUTSIDE `ECC_ALLOW`: "
-                                      "`ECC_DISABLE_ASSERT_PAIR_GEOMETRY=1` (env.sh section 5) "
+                                      "`ECC_DISABLE_ASSERT_PAIR_GEOMETRY=1` (env.sh section 4) "
                                       "predates the tiers and is left exactly as it was."),
     "datawidth-levels-unknown": _g(2, "ECC_WEIGHT_DATAWIDTH_LEVELS naming a level the design has not got",
                                  ValueError),
@@ -283,8 +283,11 @@ GUARDS = {
                                       "bound on how much it was worth. `> 0` was the wrong rule "
                                       "for a PRICE (ProjectRestructure Appendix B); the invariant "
                                       "is `>= 0` and `negative-price` holds the other half."),
-    "derived-datawidth":        _g(4, "ECC_WEIGHT_DATAWIDTH set beside an arm that also derives q"),
-    "derived-datawidth-levels": _g(4, "ECC_WEIGHT_DATAWIDTH_LEVELS set beside an arm that also derives them"),
+    # `derived-datawidth` and `derived-datawidth-levels` RETIRED
+    # (EnvReorganisation phase 4, 2026-09-14) with the two env reads they
+    # policed: `settings/arch.py` no longer reads ECC_WEIGHT_DATAWIDTH or
+    # ECC_WEIGHT_DATAWIDTH_LEVELS, so the ERT arm is the only thing that can
+    # set either and the coupling they refused cannot be constructed.
 }
 
 

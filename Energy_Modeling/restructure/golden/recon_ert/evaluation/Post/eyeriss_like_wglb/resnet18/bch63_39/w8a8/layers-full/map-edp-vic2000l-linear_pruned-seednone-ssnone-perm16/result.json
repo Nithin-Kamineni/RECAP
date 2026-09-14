@@ -9112,7 +9112,7 @@
           "instances_declared": 1,
           "kind": "dram",
           "level": "DRAM",
-          "note": "off chip: env.sh section 6 declares no density, as E_background and E_refresh are also 0",
+          "note": "off chip: no leakage density is declared for DRAM (archs/<name>/design.yaml), as E_background and E_refresh are also 0",
           "power_nW": 0.0,
           "timeloop_leakage_pJ": 0.0,
           "units": null

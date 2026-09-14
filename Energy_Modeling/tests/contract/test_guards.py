@@ -195,10 +195,14 @@ def test_the_frozen_sites_are_still_where_the_registry_says():
 # ------------------------------------------------------------------ ECC_ALLOW
 def test_ecc_allow_names_guards_and_never_switches_them_all_off():
     """Section 10: a blanket off would be set once and forgotten. Only ids count."""
-    os.environ["ECC_ALLOW"] = "zero-price derived-datawidth"
-    assert G.allowed() == {"zero-price", "derived-datawidth"}
-    os.environ["ECC_ALLOW"] = "zero-price,derived-datawidth"
-    assert G.allowed() == {"zero-price", "derived-datawidth"}
+    # Two LIVE ids, in both spellings. They were `zero-price derived-datawidth`
+    # until EnvReorganisation phase 4 retired the second one; a parse test that
+    # names a guard the registry has not got still passes, which is exactly why
+    # it has to be kept honest by hand.
+    os.environ["ECC_ALLOW"] = "zero-price recon-no-split-read-write"
+    assert G.allowed() == {"zero-price", "recon-no-split-read-write"}
+    os.environ["ECC_ALLOW"] = "zero-price,recon-no-split-read-write"
+    assert G.allowed() == {"zero-price", "recon-no-split-read-write"}
     for blanket in ("1", "all", "off", "true"):
         os.environ["ECC_ALLOW"] = blanket
         assert G.allowed() == {blanket}          # a name, matching no guard

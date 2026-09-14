@@ -132,9 +132,12 @@ def dilated_view(cfg, ses, arch, model, base_cats, ref_raw):
             f"for {arch}/{model} at weight capacity x{dil_scale:g}, and it is "
             f"not in the cache.\n"
             f"  expected: {dses.results.mapper_cache(arch, variant, fp)}\n"
-            f"  -> map it:  ECC_WEIGHT_CAPACITY_SCALE={dil_scale:g} \\\n"
-            f"                ECC_CONST_ARCH={arch} bash hpc/run_all.sh --map-only\n"
-            f"     or the whole sweep:  bash hpc/map_capacity_sweep.sh\n"
+            f"  TASK 4's CAPACITY DILATION IS RETIRED (EnvReorganisation 9.5,\n"
+            f"  2026-09-14): quantising the weights is the mechanism now, and\n"
+            f"  ECC_WEIGHT_CAPACITY_SCALE is no longer read from the\n"
+            f"  environment, so there is no shell spelling left that maps this\n"
+            f"  chip. What still reads back is whatever `wcap` directories are\n"
+            f"  already on disk; the live depth ladder is ECC_SWEEP=area.\n"
             f"  Refusing rather than falling back to the reference mapping: "
             f"that fallback IS Task 3, and this heading says otherwise.")
 

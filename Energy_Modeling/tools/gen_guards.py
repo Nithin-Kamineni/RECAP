@@ -105,7 +105,7 @@ def render():
         "| **4 DERIVED** | refuses you for setting what is also derived | yes — `ECC_ALLOW` |",
         "",
         "```",
-        '   ECC_ALLOW="zero-price,derived-datawidth"     <- names guards, never a blanket off',
+        '   ECC_ALLOW="zero-price,recon-no-split-read-write"   <- names guards, never a blanket off',
         "```",
         "",
         "An override is **recorded**: it lands on the run manifest as `guard_overrides`",

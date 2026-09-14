@@ -165,3 +165,11 @@
 	    validate/manifests/validate.json/config/sweep: 'arch' -> 'fix'
 	  verdict: record/prose only -- every number identical. Read the lists,
 	           then record it:  bash restructure/gate.sh --accept-record '<why>'
+2026-09-14T08:18:20Z	EnvReorganisation phase 4: env.sh was renumbered from ten sections to the eight of 4.1, so every "env.sh section N" pointer in the tree was corrected. ONE of them is a string in the result record: the standby table note for the off-chip row said "env.sh section 6 declares no density". Section 6 is OUTPUT AND FIGURES now, and the leakage densities have not been in env.sh at all since phase 1 -- they are archs/<name>/design.yaml leakage_nw -- so the sentence now names that file instead of a section number. Two files, one sentence, no number under it: 0 numbers moved, 0 record keys, 2 prose.
+	  NUMBERS MOVED (always red): 0
+	  RECORD keys added/removed (no number in them): 0
+	  PROSE (strings, text lines): 2
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/detail/standby_energy/per_level[0]/note: 'off chip: env.sh section 6 declares no density, as E_background and E_' -> 'off chip: no leakage density is declared for DRAM (archs/<name>/design'
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/detail/standby_energy/per_level[0]/note: 'off chip: env.sh section 6 declares no density, as E_background and E_' -> 'off chip: no leakage density is declared for DRAM (archs/<name>/design'
+	  verdict: record/prose only -- every number identical. Read the lists,
+	           then record it:  bash restructure/gate.sh --accept-record '<why>'

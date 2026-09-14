@@ -37,7 +37,7 @@ nobody runs. It is one command away if a future phase wants it back:
 
 ProjectRestructure §10 is still what not to do, and §9.1 says what the gate
 covered and what it could not.
-**`GUARDS.md` (generated, `make guards`) is the list of every guard** -- 133 of
+**`GUARDS.md` (generated, `make guards`) is the list of every guard** -- 131 of
 them, each with an id and a TIER. Tiers 3 and 4 are liftable by naming them in
 `ECC_ALLOW` (env.sh section 1), and an override is RECORDED on the manifest as
 `guard_overrides` and on the figure's caveat list. Tiers 1 and 2 never lift.
@@ -120,11 +120,20 @@ full working record.
 
 ## Running it
 
-`env.sh` is the only file you edit: every `ECC_*` knob, ten commented sections,
-sourced by `run.sh`, `hpc/run_all.sh`, `hpc/map.sbatch` and `hpc/tl.sh`, so a
-value cannot mean one thing to the mapper and another to the evaluator. Sections
-1–9 are knobs; section 10 is derived. **Read env.sh for what a knob does — it is
-commented; do not restate it here.**
+`env.sh` is the only file you edit: every `ECC_*` knob, sourced by `run.sh`,
+`hpc/run_all.sh`, `hpc/map.sbatch`, `hpc/tl.sh`, `hpc/smoke_models.sh` and
+`restructure/snapshot.py`, so a value cannot mean one thing to the mapper and
+another to the evaluator. **EIGHT SECTIONS SINCE 2026-09-14** (EnvReorganisation
+phase 4), in the order §4.1 asks for — what you turn, the mapper, the chip, the
+prices, then the plumbing: **1** what to compute and plot, **2** the mapper,
+**3** the chip, **4** the prices, **5** the cluster, **6** output, **7** misc,
+**8** derived. **2 AND 3 ARE WALLED OFF AND MARKED: THEY COLD THE MAPPER
+CACHE**, and section 4 names the four price knobs that re-fingerprint the arms
+with an ERT bump and only those. Each knob carries ONE option-line comment above
+its value and the reasoning sits in its section's preamble. env.sh's own header
+maps the old ten section numbers onto the new eight, for a docstring that still
+says "section 6". **Read env.sh for what a knob does — it is commented; do not
+restate it here.**
 
 Every value is written `${VAR:=default}`, so **the environment wins over the
 file** and a one-off never needs an edit.
@@ -160,7 +169,7 @@ transfer, image build and the cost model.
 
 **ONE SUBMISSION MAPS ONE ARCHITECTURE.** `hpc/run_all.sh` snapshots
 `archs/` at submit time into `hpc/.runtime/archpin.<pid>/` and exports
-`ECC_ARCH_PIN_DIR` (env.sh section 7) to every map job and the dependent eval,
+`ECC_ARCH_PIN_DIR` (env.sh section 5) to every map job and the dependent eval,
 so **editing `archs/` while an array is in flight is free** — the queued jobs
 keep mapping the chip you submitted. It prints the pin when it submits; quote
 that line when a run is questioned. Only the top-level submitter takes the
@@ -326,7 +335,7 @@ while `weights_spad` keeps 8-bit weights at width 96. Read a design's table in i
 `depth' = round(depth × width / 96)` is computed at the BASE width, not the arm's
 own, so every arm declares the same depth — which is what makes the `eff. capacity`
 column above come out as `(W_arm/q)/(96/8)`, and what leaves the depth check
-something real to check. `ECC_DISABLE_ASSERT_PAIR_GEOMETRY=1` (env.sh §5, default
+something real to check. `ECC_DISABLE_ASSERT_PAIR_GEOMETRY=1` (env.sh §4, default
 `0`) turns that depth check off for a study that varies depth between the arms on
 purpose. It is the only thing that knob disables — **there is no width check for it
 to disable**.
@@ -371,7 +380,7 @@ Nothing but `toolchain/results_store.py` writes one. Schema: `docs/RESULTS_SCHEM
    geometry and redrawing is milliseconds.
 
 Anything that changes what the mapper sees or optimises gets its own cache
-subdirectory. **So anything touching env.sh §2/§5, or an arch YAML, takes the
+subdirectory. **So anything touching env.sh §2/§3, or an arch YAML, takes the
 whole matrix cold at once** — budget for it.
 
 **The fingerprint hashes the ARCHITECTURE, not the price list Accelergy derives
@@ -656,7 +665,7 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   models; the declared count is reported beside it). A PE count that differs
   between an ERT arm's own plan and the reference is REPORTED per shape (both
   counts, cycles, Timeloop EDP ratio; manifest `title_caveats`), never refused.
-  The DC tables live in env.sh §6.
+  The DC tables live in env.sh §4.
 - **Adding an architecture**: **one directory, and nothing else** (phase 5).
   `make arch NEW=<name>` scaffolds `archs/<name>/` with six files —
   `arch_paper.yaml` (the chip, every number cited), `design.yaml` (label, axis
@@ -731,7 +740,7 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   clock and it is CLOCK power, so 200 MHz is **x5** -- on the reconstruction
   engines only. `leakage_nw` (each `design.yaml`; env.sh's `ECC_LEAKAGE_NW`
   before 2026-09-14) is POWER in nW and must NOT be rescaled; that
-  is why the two are declared in different units. env.sh section 6 TRAP 2 had
+  is why the two are declared in different units. env.sh section 4's TRAP had
   documented this since before it existed in code.
 - **TIME and STANDBY POWER are still evaluator-only in the REPORT, and the
   re-timing is not in the fingerprint** (prompt_7 Phase A). `toolchain.latency_post.

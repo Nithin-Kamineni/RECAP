@@ -22,7 +22,7 @@ from .env import _b, _f, _i, _list, _of, _oi, _one, _s, _table
 #: ns. Every entry of `data/dc/BCH_N63_results.json` carries it as
 #: `measurement.clock_period_ns` and every one of them is 1.0; `ecc.py` checks
 #: the entry it actually reads against this and refuses on a mismatch rather
-#: than rescaling from the wrong base. env.sh section 6, TRAP 2.
+#: than rescaling from the wrong base. env.sh section 4's TRAP.
 DC_MEASUREMENT_CLOCK_NS = 1.0
 
 #: The fields of this group the MAPPER sees, and therefore the ones
@@ -66,7 +66,7 @@ class EnergySettings:
     #: pJ per bit per refresh window.
     dram_background_pj: float
     dram_refresh_pj: float
-    #: ECC_STATIC_ENERGY (env.sh section 6). 1 = charge COMPONENT STANDBY
+    #: ECC_STATIC_ENERGY (env.sh section 4). 1 = charge COMPONENT STANDBY
     #: ENERGY -- the accelerator's own leakage -- as a physical category,
     #: `Standby`, to ALL THREE ARMS. prompt_7 Defect 2: the reconstruction
     #: engines are billed standby power from a Design Compiler run while the
@@ -87,7 +87,7 @@ class EnergySettings:
     #: exactly 0 (prompt_7 section 5.2c: CACTI pinned to `itrs-lstp`, an
     #: Aladdin table whose register leakage is a literal 0, and a Neurosim
     #: plug-in that answered 0 pJ). POWER, not energy: the cycle period is
-    #: applied at the point of use, never here (env.sh section 6 TRAP 2).
+    #: applied at the point of use, never here (env.sh section 4's TRAP).
     leakage_nw: Optional[dict]
     #: ECC_LATENCY_MODEL. 1 = re-time the chosen mapping with
     #: `latency_post.roofline()`. Evaluator-only and NOT in the fingerprint,
@@ -97,7 +97,7 @@ class EnergySettings:
     baseline_inflates_onchip: bool
     split_read_write: bool
     classify_mode: str
-    #: ECC_MAC_PJ_OVERRIDE (env.sh section 5): rescale the Compute category to
+    #: ECC_MAC_PJ_OVERRIDE (env.sh section 3): rescale the Compute category to
     #: MACs x this value in the EVALUATOR. None = the ERT's value. It is the
     #: denominator of every ECC percentage and nothing else: the saved pJ do not
     #: depend on it (energy.apply_mac_override, tests/test_mac_override.py).

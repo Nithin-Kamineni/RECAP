@@ -7,7 +7,7 @@ three sites that charge them (`study/stacks.py`'s recon column,
 `study/placement_eval.py`, and the ERT bump the MAPPER is given) each pick their
 own denominator.
 
-LOOKUP ORDER: env.sh section 6's two tables, matched on (n, k); then
+LOOKUP ORDER: env.sh section 4's two tables, matched on (n, k); then
 `data/dc/BCH_N63_results.json`, matched the same way; then the fallback
 constants, with a warning. env.sh is FIRST so the run's own configuration prices
 the datapath -- the JSON is the synthesis archive, and a value typed into
@@ -18,7 +18,7 @@ THE IDLE TERM IS RESCALED TO THE DESIGN'S CLOCK, ONCE, here: it is pJ per cycle
 measured at DC's 1 ns clock and it is CLOCK power, so a 5 ns cycle burns five
 times as much of it. The incremental term is switching energy per codeword and
 is NOT rescaled. An entry that states a different measurement clock is REFUSED
-rather than rescaled from the wrong base (env.sh section 6, TRAP 2).
+rather than rescaled from the wrong base (env.sh section 4's TRAP).
 
 WHY THIS IS IN `physics/` AND READS A FILE. It is the one module here that
 touches the disk, and the exception is deliberate: `data/dc/` is a cited, static
@@ -74,7 +74,7 @@ def load_recon_terms(cfg, k=None):
     delta, idle sets the `leak` delta -- and `build_stacks()` /
     `recon.evaluate_placement()` charge them on their own denominators.
 
-    Lookup order: env.sh section 6's two tables, matched on (n, k); the DC JSON,
+    Lookup order: env.sh section 4's two tables, matched on (n, k); the DC JSON,
     matched the same way; the fallback constants, with a warning. env.sh is
     FIRST so that the run's own configuration is what prices the datapath: the
     JSON is the synthesis archive, and a value typed into section 6 is a
@@ -84,7 +84,7 @@ def load_recon_terms(cfg, k=None):
     `ECC_RECON_PJ` is not applied here -- see `load_recon_energy`.
     """
     inc, idle, prov = _recon_terms_at_dc_clock(cfg, k)
-    # THE ONE SITE THE CLOCK RESCALING IS APPLIED (env.sh section 6, TRAP 2;
+    # THE ONE SITE THE CLOCK RESCALING IS APPLIED (env.sh section 4's TRAP;
     # prompt_7 C1.5). `idle` is pJ PER CYCLE measured at a 1 ns DC clock and it
     # is CLOCK power, so a 5 ns cycle burns five times as much of it. `inc` is
     # switching energy per codeword (CV^2) and does NOT scale with the period.

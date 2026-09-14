@@ -546,7 +546,7 @@ def test_standby_scales_with_time_not_with_traffic():
         f"twice the run length charged {e2 / e1:.6f}x the standby energy")
     # AND THE PERIOD IS APPLIED ONCE: five times the cycle PERIOD is five times
     # the standby energy for the same CYCLE count, because ECC_LEAKAGE_NW is
-    # POWER in nW (env.sh section 6 TRAP 2).
+    # POWER in nW (env.sh section 4's TRAP).
     #
     # THE PERIOD'S OWNER CHANGED IN prompt_7 C1.5. This used to vary
     # `global_cycle_seconds` and assert the x5; that knob is now the STUDY
@@ -562,7 +562,7 @@ def test_standby_scales_with_time_not_with_traffic():
     assert math.isclose(e_slow, 5.0 * e_fast, rel_tol=1e-12), (
         f"ECC_LEAKAGE_NW is POWER in nW; five times the cycle PERIOD must be "
         f"five times the energy for the same cycle count -- got "
-        f"{e_slow / e_fast:.6f}x (env.sh section 6 TRAP 2)")
+        f"{e_slow / e_fast:.6f}x (env.sh section 4's TRAP)")
     # the design in play is one of them, so `e1` is whichever its clock is
     assert math.isclose(e1, e_slow if period == 5e-09 else e_fast, rel_tol=1e-12), (
         f"the standby charge was not computed at this design's own period "
@@ -657,7 +657,7 @@ def test_the_replacement_densities_are_orders_above_the_ert():
 def test_dram_is_charged_no_standby_and_says_so():
     """The ONE deliberate omission, made explicit rather than left as a zero.
 
-    env.sh section 6 declares no off-chip leakage density, exactly as
+    no design declares an off-chip leakage density, exactly as
     ECC_DRAM_BACKGROUND_PJ and ECC_DRAM_REFRESH_PJ are 0 on purpose. A silent
     zero and a stated omission look identical on a figure; only one of them can
     be audited.

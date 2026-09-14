@@ -51,7 +51,7 @@ ROOT = Path(__file__).resolve().parent.parent
 #: (name, argv, extra env). `--eval` never invokes Timeloop, so no stage here
 #: can move a mapping -- the snapshot reads the caches, it does not fill them.
 STAGES = (
-    # Task 1 is a `Pre` result BY CONSTRUCTION (env.sh section 3): there is no
+    # Task 1 is a `Pre` result BY CONSTRUCTION (env.sh section 1): there is no
     # reduced weight representation yet, so no mapping could have been optimised
     # for one. ECC_RECON_ERT_AWARE=0 because env.sh ships it at 1 and Task 1
     # and Task 2 are taken at the configuration they are DEFINED at, so the

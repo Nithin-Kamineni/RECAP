@@ -64,7 +64,7 @@ def is_offchip(level):
 def offchip_items_per_cycle(cfg):
     """`ECC_DRAM_BANDWIDTH_MBPS` as items per cycle, or None for unlimited.
 
-    env.sh section 6 states the conversion and this is the only implementation
+    env.sh section 4 states the conversion and this is the only implementation
     of it:  MB/s x 1e6 x the cycle period / bytes per item. At 480 MB/s and a
     1 ns model cycle that is 0.48 8-bit words per cycle; at the 200 MHz
     Eyeriss-v1 clock (`ECC_ARCH_CLOCK_MHZ`, Phase C) the same 480 MB/s is 2.4.
@@ -91,7 +91,7 @@ def cycle_seconds(cfg):
     against. `Config.cycle_seconds_for()` is the one place MHz becomes seconds.
 
     A configuration on more than one design has no single answer, and the
-    placement study is pinned to one by env.sh section 4; anything else falls
+    placement study is pinned to one by env.sh section 1; anything else falls
     back to the study default, which is what it meant before Phase C.
     """
     archs = getattr(cfg, "archs", None) or []

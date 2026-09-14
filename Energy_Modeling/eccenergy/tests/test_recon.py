@@ -2029,7 +2029,11 @@ def test_capacity_dilation_scales_only_weight_levels_and_never_a_latch():
     from ..arch import load
     from ..arch import patch
     import re
-    cfg = _cfg(ECC_WEIGHT_CAPACITY_SCALE="1.6154")
+    # `with_()`, not the environment: EnvReorganisation phase 4 retired
+    # ECC_WEIGHT_CAPACITY_SCALE as a knob (9.5) and kept the FIELD, so this
+    # is now the only way to a dilated chip -- and the only thing the code
+    # under test ever saw.
+    cfg = _cfg().with_(weight_capacity_scale=1.6154)
     for arch, want, forbidden in (
             ("eyeriss_like", {"weights_spad"}, {"ifmap_glb", "psum_glb",
                                                 "ifmap_spad", "psum_spad"}),
@@ -2109,7 +2113,7 @@ def test_each_capacity_is_its_own_mapper_cache_and_a_no_op_keeps_the_old_one():
     from ..arch import patch
     seen = {}
     for scale in ("1.0", "0.5", "1.6154"):
-        cfg = _cfg(ECC_WEIGHT_CAPACITY_SCALE=scale)
+        cfg = _cfg().with_(weight_capacity_scale=float(scale))
         for arch in ("eyeriss_like", "eyeriss_v2_like",
                      "simple_weight_stationary"):
             key = (fingerprint_mod.effective_variant(arch, cfg),
@@ -2117,13 +2121,13 @@ def test_each_capacity_is_its_own_mapper_cache_and_a_no_op_keeps_the_old_one():
             assert seen.setdefault(key, (arch, scale)) == (arch, scale), \
                 (key, seen[key], (arch, scale))
     # 1.0 is the declared design and must keep the slug it always had
-    cfg1 = _cfg(ECC_WEIGHT_CAPACITY_SCALE="1.0")
+    cfg1 = _cfg().with_(weight_capacity_scale=1.0)
     for arch in ("eyeriss_like", "simple_weight_stationary"):
         assert "wcap" not in fingerprint_mod.effective_variant(arch, cfg1), arch
 
     # a scale so close to 1 that every weight depth rounds back is a no-op and
     # keeps the undilated cache rather than re-mapping an unchanged design
-    tiny = _cfg(ECC_WEIGHT_CAPACITY_SCALE="1.0005")
+    tiny = _cfg().with_(weight_capacity_scale=1.0005)
     for arch in ("eyeriss_like", "simple_weight_stationary"):
         assert (fingerprint_mod.effective_variant(arch, tiny)
                 == fingerprint_mod.effective_variant(arch, cfg1)), arch
@@ -2223,8 +2227,7 @@ def test_capacity_dilation_scale_is_derived_from_the_code_not_configured():
     # The scale is quantised to four DECIMALS, not to four significant
     # figures, so the tolerance has to be absolute: 0.25 x 63/39 = 0.403846
     # stores as 0.4038, which is 1.1e-4 relative but 4.6e-5 absolute.
-    cfg = _cfg(ECC_CONST_K="39", ECC_RECON_K="39",
-               ECC_WEIGHT_CAPACITY_SCALE="0.25")
+    cfg = _cfg(ECC_CONST_K="39").with_(weight_capacity_scale=0.25)
     assert math.isclose(capacity.capacity_dilation_scale(cfg),
                         0.25 * 63 / 39, abs_tol=5e-5)
 

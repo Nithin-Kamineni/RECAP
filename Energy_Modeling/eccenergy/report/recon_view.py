@@ -278,7 +278,7 @@ def figure(cfg, ses, panels):
 
     SEVERAL -> `report/panels.stacked_panels`, one panel per design, each with
     its OWN x axis of its own boundaries and its own two reference bars. The
-    rule this does not break is the one env.sh section 4 and CLAUDE.md state:
+    rule this does not break is the one env.sh section 1 and CLAUDE.md state:
     the boundaries of two designs must never share an x axis, because
     "reconstruct after the mesh" beside a design with no mesh is meaningless.
     Separate stacked axes are not that -- what they share is the page, the

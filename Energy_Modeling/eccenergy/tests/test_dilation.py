@@ -836,7 +836,7 @@ def _ert_cfgs():
     """`(reference, recon2, recon4)` configurations on Eyeriss v1 at BCH(63,30).
 
     The two DC tables are EMPTIED first, so the toll below comes from the DC
-    JSON and nothing else. `stacks.load_recon_terms` reads env.sh section 6 BEFORE
+    JSON and nothing else. `stacks.load_recon_terms` reads env.sh section 4 BEFORE
     the JSON, and section 10 rebuilds the flattened lists from the `declare -A`
     tables on every source -- an unconditional assignment, so the environment
     cannot override them. Without this, a value typed into section 6 while
@@ -935,7 +935,7 @@ def test_the_ert_bump_is_recomputed_from_the_patched_arch_and_the_dc_table():
     DESIGN'S. Design Compiler measured 2.8310811 pJ/cycle for BCH(63,30) at a
     1 ns clock; Eyeriss v1 runs at the published 200 MHz, so the engine burns
     5 ns of clock power per cycle and the row is 14.1554055 -- which is the
-    worked example env.sh section 6's TRAP 2 spells out. Both clocks are
+    worked example env.sh section 4's TRAP spells out. Both clocks are
     asserted below, because pinning only one of them is how a factor of five
     hides.
 
@@ -971,7 +971,7 @@ def test_the_ert_bump_is_recomputed_from_the_patched_arch_and_the_dc_table():
     assert b2["leak_delta_pj"] == b4["leak_delta_pj"], (b2, b4)
     assert abs(b2["leak_delta_pj"] - 2.8310811 * scale) < 1e-9, (b2, scale)
     # and both ends of it, spelled out: 1 ns is what DC measured, 5 ns is what
-    # eyeriss_like_wglb runs at (prompt_7 C1.5, env.sh section 6 TRAP 2).
+    # eyeriss_like_wglb runs at (prompt_7 C1.5, env.sh section 4's TRAP).
     at_1ns = fingerprint.ert_bump(_P2_ARCH, r2.with_(arch_clock_mhz={}))
     assert abs(at_1ns["leak_delta_pj"] - 2.8310811) < 1e-9, at_1ns
     assert abs(b2["leak_delta_pj"] - 14.1554055) < 1e-6, (b2, "200 MHz")

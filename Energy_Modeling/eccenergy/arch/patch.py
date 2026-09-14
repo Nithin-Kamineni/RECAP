@@ -1281,7 +1281,7 @@ def assert_pair_geometry(arch, cfg_ref, cfg_arm, ref_name="embedded",
             f"invalidated the previous sweep (FINDINGS 7.8). The comparison\n"
             f"  is void; fix the configuration rather than correcting the "
             f"energy. A study that varies depth between the arms on purpose\n"
-            f"  sets ECC_DISABLE_ASSERT_PAIR_GEOMETRY=1 (env.sh section 5), "
+            f"  sets ECC_DISABLE_ASSERT_PAIR_GEOMETRY=1 (env.sh section 4), "
             f"which disables THIS check and nothing else.")
     if problems and disabled:
         print(f"  [pair-geometry] {arch}: ECC_DISABLE_ASSERT_PAIR_GEOMETRY=1 -- "

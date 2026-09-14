@@ -23,7 +23,7 @@ is one enumerator now, and `ECC_SWEEP` says which axis it walks:
     arch    the designs of ECC_ARCHS       model, code, depth held
     fix     nothing -- the point itself; the arms ARE the comparison
     area    the depth ladder ECC_DEPTH_SWEEP_SCALES (passed as `--depths`,
-            because the ladder is a shell list in env.sh section 5 and not a
+            because the ladder is a shell list in env.sh section 1 and not a
             field of the configuration)
 
 ONE CONFIGURATION PER MODEL, derived here. The LAYER SCOPE is per model

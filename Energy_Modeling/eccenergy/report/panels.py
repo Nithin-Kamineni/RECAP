@@ -9,7 +9,7 @@ TWO CALLERS, ONE RENDERER.
 * `report/recon_view.py`: one panel per ARCHITECTURE, that design's own
   reconstruction boundaries in each. A reconstruction boundary is
   design-specific, so the boundaries of two designs must never share an x axis
-  (CLAUDE.md, env.sh section 4) -- "reconstruct after the mesh" beside a design
+  (CLAUDE.md, env.sh section 1) -- "reconstruct after the mesh" beside a design
   with no mesh is meaningless. Two panels is not that: each keeps its own axis,
   its own boundary list and its own reference bars, and what is shared is the
   page, the legend, the category set and the energy unit. The panel HEADING

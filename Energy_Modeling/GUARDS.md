@@ -19,14 +19,14 @@ until phase 6; this file is the one screen that answers *what is there*.
 | **4 DERIVED** | refuses you for setting what is also derived | yes — `ECC_ALLOW` |
 
 ```
-   ECC_ALLOW="zero-price,derived-datawidth"     <- names guards, never a blanket off
+   ECC_ALLOW="zero-price,recon-no-split-read-write"   <- names guards, never a blanket off
 ```
 
 An override is **recorded**: it lands on the run manifest as `guard_overrides`
 and on the figure's caveat list. You cannot ablate by accident, and you cannot
 publish an ablation without the figure saying it is one.
 
-**133 invariants over 139 refusal sites.** tier 1 (PARSE): 27, tier 2 (IMPOSSIBLE): 100, tier 3 (COUPLING): 3, tier 4 (DERIVED): 3
+**131 invariants over 137 refusal sites.** tier 1 (PARSE): 27, tier 2 (IMPOSSIBLE): 100, tier 3 (COUPLING): 3, tier 4 (DERIVED): 1
 
 ## Tier 1 — PARSE  *(never overridable)*
 
@@ -50,7 +50,7 @@ publish an ablation without the figure saying it is one.
 | `unknown-encoder-site` | `ConfigError` | ECC_RECON_ENCODER_SITE naming no known site | `config.py:370` |
 | `unknown-experiment` | `ConfigError` | ECC_EXPERIMENT naming no known experiment | `config.py:184` |
 | `unknown-format` | `ConfigError` | ECC_FORMATS naming a format matplotlib is not asked for | `config.py:540` |
-| `unknown-knob` | `ConfigError` | `cfg.with_()` naming a knob no settings group declares | `config.py:655` |
+| `unknown-knob` | `ConfigError` | `cfg.with_()` naming a knob no settings group declares | `config.py:646` |
 | `unknown-opt-metric` | `ConfigError` | ECC_OPT_METRIC naming no known objective | `config.py:525` |
 | `unknown-palette` | `ConfigError` | ECC_PALETTE that is neither `house` nor `cvd` | `config.py:536` |
 | `unknown-parity-grouping` | `ConfigError` | ECC_PARITY_GROUPING naming no known grouping | `config.py:311` |
@@ -71,7 +71,7 @@ publish an ablation without the figure saying it is one.
 | `arm-half-mapped` | `SystemExit` | an arm with only some of its shapes mapped (two chips in one bar) | `study/placement_study.py:174` |
 | `boundary-declares-no-ert-row` | `SystemExit` | moving a toll out of a boundary Timeloop never billed | `study/placement_study.py:278` |
 | `capacity-scale-positive` | `ConfigError` | ECC_WEIGHT_CAPACITY_SCALE <= 0 | `config.py:474` |
-| `clock-positive` | `ConfigError` | a declared clock rate that is not positive | `arch/design.py:309`<br>`config.py:1189` |
+| `clock-positive` | `ConfigError` | a declared clock rate that is not positive | `arch/design.py:309`<br>`config.py:1180` |
 | `const-arch-empty` | `ConfigError` | a held architecture axis with no ECC_CONST_ARCH | `config.py:242` |
 | `const-model-empty` | `ConfigError` | a held model axis with no ECC_CONST_MODEL | `config.py:254` |
 | `datawidth-le-weight-bits` | `ConfigError` | a REDUCED weight wider than the full one | `config.py:516` |
@@ -127,7 +127,7 @@ publish an ablation without the figure saying it is one.
 | `noc-share-needs-citation` | `ConfigError` | a claim about a PUBLISHED design with no citation | `arch/design.py:327` |
 | `nothing-evaluated` | `SystemExit` | an arm that produced no result at all | `study/embedded.py:344`<br>`study/baseline.py:303 *(frozen)*` |
 | `pair-geometry` | `ValueError` | the two arms declaring a different DEPTH (real silicon one arm lacks) | `arch/patch.py:1273` |
-| | | ↳ THE ONE GUARD WITH AN OVERRIDE OUTSIDE `ECC_ALLOW`: `ECC_DISABLE_ASSERT_PAIR_GEOMETRY=1` (env.sh section 5) predates the tiers and is left exactly as it was. | |
+| | | ↳ THE ONE GUARD WITH AN OVERRIDE OUTSIDE `ECC_ALLOW`: `ECC_DISABLE_ASSERT_PAIR_GEOMETRY=1` (env.sh section 4) predates the tiers and is left exactly as it was. | |
 | `panels-need-panel-models` | `ConfigError` | ECC_EXPERIMENT=panels with no ECC_PANEL_MODELS | `config.py:272` |
 | `panels-nothing-to-plot` | `SystemExit` | a panel figure with no group in any panel | `report/panels.py:197` |
 | `placement-duplicate-key` | `ConfigError` | two placements sharing one key | `arch/design.py:403` |
@@ -149,8 +149,8 @@ publish an ablation without the figure saying it is one.
 | `sweep-models-empty` | `ConfigError` | ECC_SWEEP=model with no models | `config.py:249` |
 | `sweep-nothing-to-plot` | `SystemExit` | a sweep figure with no group | `report/sweep.py:62` |
 | `task4-cache-cold` | `SystemExit` | Task 4 without the reconstruction arm's OWN mapping | `study/dilated_view.py:130` |
-| `task4-capacity-not-dilated` | `SystemExit` | a re-planned mapping whose weight capacity is not N/K the reference's | `study/dilated_view.py:193` |
-| `task4-shapes-differ` | `SystemExit` | Task 4's two arms mapped on DIFFERENT layer shapes | `study/dilated_view.py:146` |
+| `task4-capacity-not-dilated` | `SystemExit` | a re-planned mapping whose weight capacity is not N/K the reference's | `study/dilated_view.py:196` |
+| `task4-shapes-differ` | `SystemExit` | Task 4's two arms mapped on DIFFERENT layer shapes | `study/dilated_view.py:149` |
 | `timeloop-mapper-not-on-path` | `SystemExit` | timeloop-mapper not being on PATH | `toolchain/inputs.py:193` |
 | `timeloop-model-not-on-path` | `SystemExit` | timeloop-model not being on PATH | `toolchain/ert_probe.py:632` |
 | `unknown-ert-arm` | `ConfigError` | ECC_RECON_ERT_ARM naming no arm of this design | `config.py:567` |
@@ -179,8 +179,6 @@ publish an ablation without the figure saying it is one.
 
 | id | raises | refuses | where |
 |---|---|---|---|
-| `derived-datawidth` | `ConfigError` | ECC_WEIGHT_DATAWIDTH set beside an arm that also derives q | `config.py:572` |
-| `derived-datawidth-levels` | `ConfigError` | ECC_WEIGHT_DATAWIDTH_LEVELS set beside an arm that also derives them | `config.py:579` |
 | `zero-price` | `ConfigError` | a ZERO per-bit or per-MAC price | `config.py:363` |
 | | | ↳ THE ABLATION: `what if this term were free` is the upper bound on how much it was worth. `> 0` was the wrong rule for a PRICE (ProjectRestructure Appendix B); the invariant is `>= 0` and `negative-price` holds the other half. | |
 

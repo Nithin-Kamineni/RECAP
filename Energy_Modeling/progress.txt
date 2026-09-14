@@ -2437,3 +2437,191 @@ per important knob everywhere else, and the cache-colding section walled off
 and marked. Every default must stay identical in effect -- this phase's
 defaults are the gate's baseline now.
 
+
+================================================================================
+ENVREORGANISATION PHASE 4 -- THE NEW env.sh
+================================================================================
+2026-09-14.  plans/EnvReorganisation.md section 7, phase 4.  Commit: this one.
+
+GATE: PASSED. 302 fingerprint rows byte-identical. NUMBERS MOVED: 0 -- every
+energy, count, cycle and exit status identical, on every JSON leaf, CSV cell
+and stdout token. RECORD KEYS MOVED: 0, which is the point of the phase: the
+four deleted knobs were never deleted as FIELDS, so every manifest and result
+carries the same keys with the same values and the config_hash does not move.
+PROSE: 2, one sentence in two result files, read in full and DECLARED
+(restructure/golden/record.log). Suite 493 passed / 10 skipped, unchanged. A
+clean re-run afterwards is green on all six items with no flag.
+
+THE PHASE'S OWN THREE GATE ITEMS, because a rewritten env.sh is exactly where
+a default drifts silently:
+  (a) Config.to_dict() dumped from a CLEAN shell before and after
+      (`env -i bash -c 'source ./env.sh; ...'`), on the DEFAULT and on all
+      FOUR axes ECC_SWEEP can take (bch, model, arch, area) plus fix:
+      BYTE-IDENTICAL, every key and every value, not only the ones the gate's
+      stages touch. The whole exported ECC_ environment was diffed the same
+      way: the ONLY difference on any axis is the four deleted knobs, and
+      nothing else moved by a character.
+  (b) `bash hpc/run_all.sh --dry-run`: 6 chips, 12 shapes, 72 units, cached
+      72/72, 0 to map, 0 jobs -- byte-identical to the run before the rewrite.
+  (c) ONE REAL SLURM JOB, not --dry-run (42087026_0,
+      hpc/logs/phase4-smoke.42087026_0.out): the cached unit
+      eyeriss_like_wglb / resnet18 / K=39 / depth x1 / reference / conv1,
+      submitted through the real hpc/map.sbatch against a task file the real
+      enumerator wrote. `raw cache hit: resnet18`, fp-2db6a4d92ff5, 8 seconds
+      wall. Nothing was re-solved and nothing was overwritten.
+
+--------------------------------------------------------------------------
+THE SHAPE OF IT -- 3.3 AND 4.1
+--------------------------------------------------------------------------
+TEN SECTIONS BECAME EIGHT, in 4.1's order: what you turn, the mapper, the
+chip, the prices, then the plumbing.
+
+  1 WHAT TO COMPUTE AND PLOT   ECC_APPROACHES, ECC_SWEEP, ECC_ARCHS,
+                               ECC_MODELS, ECC_CODE_N, ECC_KS, the depth trio
+                               (ECC_DEPTH_SWEEP_SCALES, _DEPTH_SCALE,
+                               _DEPTH_LEVELS), ECC_LAYERS, ECC_JOBS, ECC_ALLOW
+  2 THE MAPPER                 >>> COLDS THE MAPPER CACHE <<<
+  3 THE CHIP                   >>> COLDS THE MAPPER CACHE <<<
+  4 THE PRICES                 evaluator only (old 4 + old 6)
+  5 THE CLUSTER                6 OUTPUT     7 MISC     8 DERIVED
+
+EVERY IMPORTANT KNOB NOW HAS EXACTLY ONE OPTION LINE ABOVE ITS VALUE, in 3.3's
+style (`# resnet18 | mobilenet_v2 | ...`), and the long-form reasoning -- the
+decisions, the traps, what a value cost when it was got wrong -- moved into the
+PREAMBLE of the section it belongs to, out of the way of the values. Not one
+sentence of it was dropped; the file is 1295 -> 1115 lines because the four
+deleted knobs took their prose with them and the rest was deduplicated, and the
+114 assignments now sit in dense readable blocks instead of one per screen.
+
+THE COLD ZONE IS WALLED OFF AND MARKED. Sections 2 and 3 sit inside a `####`
+banner that says what a moved fingerprint costs and ends with an explicit END
+OF THE COLD ZONE marker. The lists in section 1 are noted as colding in the
+sense 4.1 gives them -- they ARE the chips, so widening one ADDS work and never
+moves an existing entry -- and the depth pair is called out as the one thing in
+section 1 that re-fingerprints.
+
+FOUR PRICE KNOBS RE-FINGERPRINT THE BUMPED ARMS, AND THE FILE NOW SAYS SO.
+4.1 files the reconstruction datapath's price under "the prices (evaluator
+only)". MEASURED 2026-09-14 on eyeriss_like_wglb, that is not quite true: the
+price is carried into the ERT BUMP, which IS hashed, so the two DC tables,
+ECC_RECON_PJ, ECC_RECON_CLOCK_GATING_PCT and ECC_RECON_ENCODER_GRANULARITY
+move recon2 off fp-1519e6934e32 while leaving the reference at fp-2db6a4d92ff5.
+That is the knob working (prompt_6 RULE 5.3: the mapper and the evaluator must
+price ONE engine), but a wall that said "nothing below colds anything" would
+have been false in the one direction that costs a wave of SLURM. The section
+keeps 4.1's membership and each of the five carries a `>>> BUMPED ARMS <<<`
+line; the same measurement put ECC_DRAM_BANDWIDTH_MBPS's cold on its own line.
+Measured at the same time and recorded in section 3: ECC_MAC_PJ_OVERRIDE does
+NOT move arch_fingerprint() on either arm, although it reaches the supplied ERT
+the mapper optimises against -- 4.1 files it under "the chip" and it stays
+there, with the fact stated beside it.
+
+--------------------------------------------------------------------------
+THE FOUR KNOBS 4.2 MARKED FOR DELETION -- DECIDED, AND WHY
+--------------------------------------------------------------------------
+ALL FOUR ENV READS ARE GONE. Phase 4 is the last phase gated on UNCHANGED
+NUMBERS (section 7: "phase 4 before phase 5 on purpose"), so it is the last
+place the deletion can be PROVED to move nothing; in phase 5 or 6 it would be
+mixed with changes that move numbers on purpose. THE FIELDS STAY, which is why
+the record did not move.
+
+  ECC_WEIGHT_CAPACITY_SCALE / _SCOPE   9.5 retired Task 4's capacity dilation.
+      `settings/arch.py` pins the constants at the DECLARED design (1.0,
+      `exclusive`) with the phase-1 pattern the moved arch facts already use.
+      1.0 is `wcap`-free -- `effective_variant()` adds the slug only when the
+      scale is not 1.0 -- so every cache directory stays where it is.
+      `study/capacity.py`, `study/dilated_view.py`, `study/dilation_cache.py`
+      and the banner still read the FIELD, and `cfg.with_(weight_capacity_
+      scale=...)` still builds a dilated chip: that is now the only way to one.
+  ECC_WEIGHT_DATAWIDTH / _LEVELS       DERIVED FROM THE ARM, as 4.2 says.
+      `config._resolve()` assigns `weight_datawidth = q` and the placement's
+      narrowed level list once ECC_RECON_ERT_ARM names a boundary; from_env()
+      now hands it None and (). Only the reads went.
+
+GUARDS RETIRED (GUARDS.md 133 -> 131): `derived-datawidth` and
+`derived-datawidth-levels`, the two tier-4 guards that existed to refuse the
+knob BESIDE an arm that derives it. With no env read there is no second
+spelling, so the coupling cannot be constructed and a guard that cannot fire is
+folklore -- the rule that retired `ert-arm-needs-optimiser` and
+`unknown-placement` in phase 3. Tier 4 is `zero-price` alone now, so the
+ECC_ALLOW examples in guards.py, tools/gen_guards.py and
+tests/contract/test_guards.py were repointed at live ids (that parse test
+passes whatever id it names, which is exactly why it has to be kept honest by
+hand).
+
+THE ONE CONSEQUENCE, AND WHAT WAS DONE ABOUT IT: hpc/map_capacity_sweep.sh's
+ONLY axis was `--export=...,ECC_WEIGHT_CAPACITY_SCALE=<s>`. With the read gone
+every job it submits maps the SAME chip into the SAME directory -- a silent
+no-op wave of SLURM, the failure this project has paid for most often. IT NOW
+REFUSES, at the top, naming the retirement and what still works. It is left
+whole rather than deleted (9.9's precedent was for launchers phase 3 REPLACED;
+nothing replaces this one) because it is the record of what Task 4 step 1 was,
+and because bringing it back is one hunk: restore the read in
+settings/arch.py and delete the block. `study/dilated_view.py`'s
+`task4-cache-cold` refusal told the reader to set that knob and run the sweep;
+it now says the dilation is retired and names what does still read back.
+
+  NOT CHANGED, DELIBERATELY: the refusal text of `datawidth-levels-unknown`
+  (`arch/patch.py`). It still spells the derived level list
+  `ECC_WEIGHT_DATAWIDTH_LEVELS`, and it must: that exact string is pinned byte
+  for byte inside GATE ITEM 1, in the six REFUSED rows of
+  fingerprints.tsv (simple_weight_stationary at recon5), which no flag can
+  accept. The sibling guards `datawidth-positive`, `capacity-scale-positive`
+  and `unknown-capacity-scope` keep their wording for the same reason -- one
+  field, one name across the project.
+
+--------------------------------------------------------------------------
+THE RENUMBERING, AND THE ~50 POINTERS THAT FOLLOWED IT
+--------------------------------------------------------------------------
+Reordering the file moves every section number, and 46 docstrings, comments,
+refusal messages and doc lines said "env.sh section N". All of them were
+corrected in one reviewed pass -- old 6 (DC tables, the clock-period TRAP,
+ECC_STATIC_ENERGY) -> 4; old 5 -> 3 for the chip knobs, 4 for
+ECC_DISABLE_ASSERT_PAIR_GEOMETRY, 1 for the depth ladder; old 3 -> 1; old 10 ->
+8; old 7 -> 5 -- and env.sh's own header carries the whole old->new table, so a
+pointer that is missed still resolves. The TRAP's number went with the section
+it was numbered inside, so it is "section 4's TRAP" everywhere now.
+
+ONE of those pointers is not a comment: the standby table's off-chip note is a
+STRING IN THE RESULT RECORD, and it said "env.sh section 6 declares no
+density". Section 6 is OUTPUT AND FIGURES now, and the leakage densities have
+not been in env.sh at all since PHASE 1 -- they are `archs/<name>/design.yaml`
+`leakage_nw:` -- so the sentence names that file instead of a section number.
+That is the whole of the phase's prose divergence: two files, one sentence, no
+number under it. The lesson is phase 3's, from the other direction: a section
+NUMBER inside a record is a pointer that rots the moment the file is reordered,
+and the fix is to name the file that declares the thing.
+
+--------------------------------------------------------------------------
+CHECKED, NOT ASSUMED
+--------------------------------------------------------------------------
+* `bash -n` on env.sh and on every shell consumer after every edit, and each
+  still sources it: run.sh:66, hpc/run_all.sh:100, hpc/map.sbatch:65,
+  hpc/tl.sh:27, hpc/smoke_models.sh:51, hpc/map_capacity_sweep.sh:67, and
+  restructure/snapshot.py (which builds its own environment from it);
+* eccenergy/tests/test_dilation.py's env.sh routing test, which sources the
+  REAL file, is green unchanged: the held point is still the first entry of
+  each list, ECC_STEM is still ReconSweep_optimiser__<model>, ECC_LAYERS is
+  still not overwritten by anything, the per-model table still survives env.sh
+  whole, a real sweep axis still keeps its own name and `area` still routes
+  like `fix`;
+* 114 assignments, against 118 before, and the four missing are exactly the
+  four deleted knobs -- counted, not eyeballed. The export list was rebuilt
+  from the old one minus those four, so no variable silently stopped being
+  exported;
+* the DERIVED block (old section 10) was moved VERBATIM: the point-sweep
+  collapse, the panel routing, the ECC_STEM cases and `ecc_write_taskfile` are
+  character for character what phase 3 left, which is why the routing test and
+  the dry-run did not move;
+* LF endings throughout (`grep -c $'\r' env.sh` = 0), and the file was written
+  atomically with a pre-edit copy kept.
+
+NOTE FOR PHASE 5 (ECC_METRICS): env.sh does NOT declare ECC_METRICS or
+ECC_RECON_DEFAULT -- they are phases 5 and 6 and were deliberately not added.
+Their homes are section 1, beside ECC_SWEEP: ECC_METRICS is the y axis
+("energy | edp | latency | area", one figure ROW per entry) and
+ECC_RECON_DEFAULT says which placement a bare `recon` bar means. Section 1's
+preamble calls ECC_APPROACHES, ECC_SWEEP, the three lists and ECC_LAYERS "the
+four lines that decide the study"; that sentence is where the two new knobs
+belong. Note `area` is a value of BOTH (an x axis in ECC_SWEEP, a y axis in
+ECC_METRICS, 6.3), so both option lines must say which.

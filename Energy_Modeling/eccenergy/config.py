@@ -388,7 +388,7 @@ def _resolve(self):
         if not self.archs:
             raise guards.refusal("recon-needs-an-arch",
                 "the reconstruction placement study needs at least one "
-                "architecture.\n  -> set ECC_ARCHS (env.sh section 3); "
+                "architecture.\n  -> set ECC_ARCHS (env.sh section 1); "
                 "ECC_SWEEP=fix holds its FIRST entry")
         # SEVERAL ARCHITECTURES ARE ONE PANEL EACH, NOT ONE AXIS. Each
         # design has its own weight path and therefore its own list of
@@ -407,7 +407,7 @@ def _resolve(self):
                 f"the reconstruction placement study runs on ONE model, not "
                 f"{len(self.models)} ({', '.join(self.models)}).\n"
                 f"  -> ECC_SWEEP=fix holds the FIRST entry of ECC_MODELS "
-                f"(env.sh section 3); set ECC_CONST_MODEL for another")
+                f"(env.sh section 1); set ECC_CONST_MODEL for another")
         if self.split_read_write:
             guards.refuse("recon-no-split-read-write",
                 "ECC_SPLIT_READ_WRITE=1 splits the on-chip categories in "
@@ -567,22 +567,13 @@ def _resolve(self):
             raise guards.refusal("unknown-ert-arm",
                 f"ECC_RECON_ERT_ARM={self.recon_ert_arm!r}: {exc}") from None
         q = widths.declared_datawidth(self.code_n, self.code_k)
-        if (self.weight_datawidth is not None and spec["narrow_levels"]
-                and self.weight_datawidth != q):
-            guards.refuse("derived-datawidth",
-                f"ECC_RECON_ERT_ARM={self.recon_ert_arm} declares datawidth q = "
-                f"round({self.weight_bits}*{self.code_k}/{self.code_n}) = {q}, but "
-                f"ECC_WEIGHT_DATAWIDTH={self.weight_datawidth}. Leave it EMPTY: the arm "
-                f"sets it.")
-        if (self.weight_datawidth_levels
-                and tuple(self.weight_datawidth_levels) != tuple(spec["narrow_levels"])):
-            guards.refuse("derived-datawidth-levels",
-                f"ECC_RECON_ERT_ARM={self.recon_ert_arm} narrows "
-                f"{'+'.join(spec['narrow_levels']) or 'NOTHING on chip'} (the storage "
-                f"levels in its placement's reduced set), but "
-                f"ECC_WEIGHT_DATAWIDTH_LEVELS="
-                f"{'+'.join(self.weight_datawidth_levels)}. Leave it EMPTY: the arm "
-                f"sets it.")
+        # `derived-datawidth` and `derived-datawidth-levels` RETIRED with the
+        # two env reads (EnvReorganisation phase 4). Both existed to refuse
+        # ECC_WEIGHT_DATAWIDTH / _LEVELS set BESIDE an arm that derives them;
+        # `settings/arch.py` no longer reads either name, so the arm is the
+        # only thing that can set them and the coupling cannot be violated. A
+        # guard that cannot fire is folklore -- the same rule that retired
+        # `ert-arm-needs-optimiser` and `unknown-placement` in phase 3.
         if spec["narrow_levels"]:
             self.weight_datawidth = q
             self.weight_datawidth_levels = tuple(spec["narrow_levels"])
@@ -804,14 +795,14 @@ class Config:
         """
         if self.stem_override:
             # ECC_STEM forces ONE output name, deliberately overriding the
-            # two disambiguating suffixes below. env.sh section 10 sets it
+            # two disambiguating suffixes below. env.sh section 8 sets it
             # so an architecture sweep always lands on `ArchitectureSweep.png`
             # whether it drew one model or a panel per model. The cost is
             # real: a one-model and a two-model sweep then overwrite each
             # other, and only the manifest beside the figure records which
             # is on disk. Do not set it by hand for a run with ECC_LAYERS --
             # that is exactly the case the layer suffix exists to protect.
-            # ONE sanctioned exception (prompt_6 9): env.sh section 10 keeps
+            # ONE sanctioned exception (prompt_6 9): env.sh section 8 keeps
             # `ReconSweep_optimiser__<model>` fixed on a layer-scoped run,
             # because that study IS one layer; the scope is in the manifest and
             # the title. The model suffix (2026-09-11) is what keeps two
@@ -827,7 +818,7 @@ class Config:
                 # TASK 4 OWNS ITS OWN NAME, on a layer-scoped run too. Its bars
                 # come from a mapping solved against N/K more weight room, so
                 # they are not comparable with the fixed-mapping figure and
-                # must never overwrite it. env.sh section 10 appends the same
+                # must never overwrite it. env.sh section 8 appends the same
                 # suffix for a whole-model run (where ECC_STEM is set and the
                 # branch above returns early), so the two agree -- this is the
                 # ECC_LAYERS case, which env.sh deliberately leaves nameless so
@@ -1170,7 +1161,7 @@ class Config:
         model clock makes the modelled chip ~5x more memory-starved than the
         one the paper describes.
 
-        THE ONLY PLACE MHz BECOMES SECONDS. env.sh section 6's TRAP 2 is that
+        THE ONLY PLACE MHz BECOMES SECONDS. env.sh section 4's TRAP is that
         a per-cycle constant converted twice, or not at all, is a silent 5x on
         every standby and idle term; keeping the inversion here means no
         caller can do either. A design that declares no `clock_mhz` in its
@@ -1211,7 +1202,7 @@ class Config:
     def dc_idle_scale(self, arch=None):
         """What `ECC_RECON_IDLE_PJ` must be MULTIPLIED BY at this design's clock.
 
-        env.sh section 6, TRAP 2, and it is live for the first time in
+        env.sh section 4's TRAP, and it is live for the first time in
         prompt_7 C1.5. The DC tables give the reconstruction engine's idle term
         in pJ PER CYCLE, measured at a 1 ns clock
         (`data/dc/BCH_N63_results.json`, `measurement.clock_period_ns = 1.0`).
@@ -1243,7 +1234,7 @@ class Config:
         """`ECC_DRAM_BANDWIDTH_MBPS` as ITEMS per cycle of THIS design's clock,
         or None for unlimited.
 
-        env.sh section 6 states the conversion and there are exactly two
+        env.sh section 4 states the conversion and there are exactly two
         implementations of it -- this one, which the ARCHITECTURE declares
         (prompt_7 C1.1), and `latency_post.offchip_items_per_cycle()`, which
         the evaluator charges. They must agree; `tests/test_phase_c.py` asserts
@@ -1481,7 +1472,7 @@ class Config:
     def recon_scope(self):
         """`resnet18`, or `resnet18  ·  layer3.0.conv1` on a layer-scoped run.
 
-        The optimiser figure has ONE path whatever the scope (env.sh section 10,
+        The optimiser figure has ONE path whatever the scope (env.sh section 8,
         prompt_6 9), so the scope has to be on the pixels: a picture gets
         separated from its manifest the moment it is dropped into a slide.
         """

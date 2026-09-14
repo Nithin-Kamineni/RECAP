@@ -59,7 +59,7 @@ THE PROPERTIES, AND WHY EACH ONE IS THE GATE IT IS
    is the CHECK: a bar whose plan was solved at neither 1.00 nor this run's
    K/N belongs to a different code and is refused. Breakage: a third scale.
 9. `test_the_dc_idle_term_is_rescaled_to_this_designs_clock`            (C1.5)
-   env.sh section 6's TRAP 2, LIVE FOR THE FIRST TIME. The DC tables give the
+   env.sh section 4's TRAP, LIVE FOR THE FIRST TIME. The DC tables give the
    engine's idle term in pJ PER CYCLE at a 1 ns clock; at 200 MHz it is x5,
    and until C1.5 gave a design its own clock the factor was 1.0 on every run
    so nothing had ever exercised it. The INCREMENTAL term is per codeword and
@@ -174,7 +174,7 @@ def _cfg(arm="reference", code_k=None, **over):
     cfg = config.load_config()
     assert cfg.archs == [ARCH], (
         f"this suite reads the LIVE configuration and it is on {cfg.archs}; "
-        f"env.sh section 4 should pin the placement study to {ARCH}")
+        f"env.sh section 1 should pin the placement study to {ARCH}")
     if code_k is not None:
         cfg = cfg.with_(const_k=code_k, recon_ert_arm="reference")
     cfg = cfg.with_(recon_ert_arm="reference", **over)
@@ -257,7 +257,7 @@ def test_offchip_limit_is_declared_once_and_agrees_with_the_roofline():
     _close(latency_post.offchip_items_per_cycle(
         cfg.with_(global_cycle_seconds=cfg.cycle_seconds_for(ARCH))),
         want)
-    # THE RULE, not the knob: env.sh section 6 states the conversion once and
+    # THE RULE, not the knob: env.sh section 4 states the conversion once and
     # this is it. `want` is whatever ECC_DRAM_BANDWIDTH_MBPS currently says --
     # pinning a number here would pin one operating point rather than the
     # arithmetic, and 480 / 240 / 120 are all documented settings.
@@ -508,7 +508,7 @@ def test_the_clock_is_per_design_and_inverted_once():
     # and the cache slug says which clock a directory was mapped at
     assert "clk5e-09" in fingerprint.effective_variant(ARCH, cfg)
 
-    # BREAKAGE: invert twice. env.sh section 6's TRAP 2 is that a per-cycle
+    # BREAKAGE: invert twice. env.sh section 4's TRAP is that a per-cycle
     # constant converted twice is a silent 5x on every standby and idle term.
     expect_raises(
         lambda: _close(float(cfg.cycle_seconds_for(ARCH)),
@@ -655,7 +655,7 @@ def test_the_roofline_reproduces_the_plan_it_re_times():
 #  9. C1.5 -- the DC idle term is pJ PER CYCLE, and the cycle changed
 # ---------------------------------------------------------------------------
 def test_the_dc_idle_term_is_rescaled_to_this_designs_clock():
-    """env.sh section 6, TRAP 2. It costs 5x if missed, and it had never fired.
+    """env.sh section 4's TRAP. It costs 5x if missed, and it had never fired.
 
     `ECC_RECON_IDLE_PJ` is pJ per cycle measured by Design Compiler at a 1 ns
     clock. It is CLOCK power -- prompt_7 5.3 measures the DC "idle" constant at

@@ -120,7 +120,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-# ECC_SWEEP=area's ladder is a shell list (env.sh section 5) and not a field of
+# ECC_SWEEP=area's ladder is a shell list (env.sh section 1) and not a field of
 # the resolved configuration, so it travels to the enumerator as an argument.
 # Every other axis is already in the configuration.
 DEPTHS=""

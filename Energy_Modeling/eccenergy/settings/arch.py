@@ -90,7 +90,7 @@ class ArchSettings:
     #: it was env.sh's ECC_ARCH_CLOCK_MHZ table, flattened. `from_env()` leaves
     #: it None and `config._resolve()` fills it, so the record every manifest
     #: carries keeps the same key and the same values. `cycle_seconds_for()`
-    #: is the ONLY place it is inverted to seconds (env.sh section 6 TRAP 2 --
+    #: is the ONLY place it is inverted to seconds (env.sh section 4's TRAP --
     #: two conversions of one period is a silent 5x). A design with no entry
     #: keeps `global_cycle_seconds`. `cfg.with_(arch_clock_mhz={...})` still
     #: overrides it, for one `with_()`: the tests that vary a clock use that.
@@ -219,10 +219,15 @@ class ArchSettings:
     def from_env():
         """Every `ECC_*` knob of this group, read once.
 
-        `weight_datawidth` and `weight_datawidth_levels` are usually EMPTY here
-        and are filled in by `config._resolve()` from the ERT arm: the arm IS a
-        datawidth configuration, and letting the knob and the arm both set them
-        is how two chips end up sharing one cache directory.
+        FOUR OF THESE FIELDS NO LONGER HAVE AN ENVIRONMENT SPELLING
+        (EnvReorganisation phase 4). `weight_datawidth` and
+        `weight_datawidth_levels` are ALWAYS empty here and are filled in by
+        `config._resolve()` from the ERT arm -- the arm IS a datawidth
+        configuration, and letting a knob and an arm both set them is how two
+        chips end up sharing one cache directory. `weight_capacity_scale` and
+        `weight_capacity_scope` are constants at the declared design, because
+        9.5 retired Task 4's capacity dilation. The fields stay; only the reads
+        went, so every key and value of the configuration RECORD is unmoved.
         """
         return ArchSettings(
             arch_fidelity=_s("ECC_ARCH_FIDELITY", "paper").lower(),
@@ -230,18 +235,30 @@ class ArchSettings:
             force_datawidth=_oi("ECC_FORCE_DATAWIDTH"),
             dram_depth=None,               # standard.yaml study.dram.depth_words
             global_cycle_seconds=_s("ECC_GLOBAL_CYCLE_SECONDS", "1e-9"),
-            # ROUNDED AT LOAD, and that is not cosmetic. The cache slug is
-            # `wcap{scale:g}`, so 63/39 spelled 1.61539 by python and 1.6154 by the
-            # shell that submitted the mapping wave are the SAME architecture (both
-            # round `depth: 224` to 362, so the fingerprints match) filed under two
-            # different directory names -- and the evaluator then refuses a cache
-            # it actually has. Four decimals is finer than any buffer depth can
-            # resolve and is what env.sh documents.
-            weight_capacity_scale=round(_f("ECC_WEIGHT_CAPACITY_SCALE", 1.0), 4),
-            weight_capacity_scope=_s("ECC_WEIGHT_CAPACITY_SCOPE", "exclusive").lower(),
+            # TASK 4'S CAPACITY DILATION IS RETIRED (EnvReorganisation 9.5,
+            # decided 2026-09-14; the two knobs left env.sh in phase 4). The
+            # FIELDS stay -- `study/capacity.py`, `study/dilated_view.py`, the
+            # cache slug and the banner all read them, and the record must keep
+            # the keys -- but the value is now the declared design and nothing
+            # else. `cfg.with_(weight_capacity_scale=...)` is the one remaining
+            # way to a dilated chip, which is what `dilation_cache.py` and the
+            # tests use; there is no longer an environment spelling of it.
+            #
+            # 1.0 IS `wcap`-FREE. `fingerprint.effective_variant()` adds the
+            # `wcap<scale>` slug only when the scale is not 1.0, so pinning the
+            # constant here leaves every cache directory exactly where it was.
+            weight_capacity_scale=1.0,      # EnvReorganisation 9.5: retired
+            weight_capacity_scope="exclusive",
             weight_factor_relax=_b("ECC_WEIGHT_FACTOR_RELAX", False),
             mapspace_constrain=_b("ECC_MAPSPACE_CONSTRAIN", False),
-            weight_datawidth=_oi("ECC_WEIGHT_DATAWIDTH"),
+            # DERIVED FROM THE ARM, never from the environment (phase 4). The
+            # ERT arm IS a datawidth configuration: `config._resolve()` assigns
+            # `weight_datawidth = q` and the placement's narrowed level list
+            # once `ECC_RECON_ERT_ARM` names a boundary. Letting a knob and an
+            # arm both set them is how two chips end up sharing one cache
+            # directory, which is what the two retired tier-4 guards
+            # (`derived-datawidth`, `derived-datawidth-levels`) refused.
+            weight_datawidth=None,         # config._resolve(), from the arm
             # Quantised to four decimals for the same reason the capacity scale is:
             # one geometry must have exactly ONE spelling, or 0.7071 written
             # `0.71` by the shell and `0.7071` by python is the same architecture
@@ -254,7 +271,7 @@ class ArchSettings:
             weight_width_glb_mult=None,    # archs/<name>/widths.yaml, 8-bit row
             disable_pair_geometry_assert=_b("ECC_DISABLE_ASSERT_PAIR_GEOMETRY", False),
             weight_depth_levels=tuple(_list("ECC_WEIGHT_DEPTH_LEVELS")),
-            weight_datawidth_levels=tuple(_list("ECC_WEIGHT_DATAWIDTH_LEVELS")),
+            weight_datawidth_levels=(),    # config._resolve(), from the arm
             noc_enabled=_b("ECC_NOC", True),
             noc_wire_pj_per_bit_mm=_of("ECC_NOC_WIRE_PJ_PER_BIT_MM"),
             noc_router_pj=_of("ECC_NOC_ROUTER_PJ"),

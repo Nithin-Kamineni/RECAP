@@ -58,7 +58,7 @@ from .. import config
 from .energy import onchip_cats, plot_cats
 from ..paths import ROOT
 
-#: prompt_6 RULE 3 (4.3.3): the Design Compiler tables live in env.sh section 6
+#: prompt_6 RULE 3 (4.3.3): the Design Compiler tables live in env.sh section 4
 #: (`ECC_RECON_INCREMENTAL_PJ` / `ECC_RECON_IDLE_PJ`, flattened by section 10
 #: into `cfg.recon_incremental_table` / `cfg.recon_idle_table`), not here, and
 #: the lookup that reads them is `physics/recon_dc.py`.

@@ -61,7 +61,7 @@ IN_FINGERPRINT = frozenset({
 @dataclass(frozen=True)
 class ReconSettings:
     recon_json: str
-    #: prompt_6 RULE 3: the two Design Compiler tables from env.sh section 6
+    #: prompt_6 RULE 3: the two Design Compiler tables from env.sh section 4
     #: (flattened by section 10), `{configuration id: pJ}` -- incremental per
     #: codeword, idle per cycle per engine. Read by `ecc.load_recon_terms`
     #: when the JSON has no entry for the (N,K) in play. ECC_RECON_INCLUDE_IDLE

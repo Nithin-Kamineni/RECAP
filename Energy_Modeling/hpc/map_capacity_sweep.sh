@@ -66,6 +66,35 @@ set --
 
 source ./env.sh
 
+# ---------------------------------------------------------------------------
+#  RETIRED 2026-09-14 -- EnvReorganisation phase 4, decision 9.5
+# ---------------------------------------------------------------------------
+#  THIS SCRIPT'S ONLY AXIS IS A CONSTANT NOW. Every job below was submitted
+#  with `--export=...,ECC_WEIGHT_CAPACITY_SCALE=<s>`, and phase 4 deleted that
+#  environment read: `settings/arch.py` pins `weight_capacity_scale` at 1.0,
+#  the declared design. So each of these jobs would map the SAME chip, fill
+#  the SAME cache directory, and report a capacity sweep that never varied
+#  capacity -- a silent no-op wave of SLURM, which is the one failure this
+#  project has paid for most often.
+#
+#  It refuses instead of running. The script is left whole rather than deleted
+#  because it is the record of what Task 4's step 1 WAS, and because bringing
+#  it back is one hunk: restore the `ECC_WEIGHT_CAPACITY_SCALE` read in
+#  `eccenergy/settings/arch.py` and delete this block.
+#
+#  The FIELD is not retired -- `cfg.with_(weight_capacity_scale=...)` still
+#  builds a dilated chip, which is what `study/dilation_cache.py` and the
+#  tests use, and the `wcap<s>` directories already on disk still read back
+#  with `python3 -m eccenergy.report.dilation_view`.
+echo "map_capacity_sweep.sh: RETIRED (EnvReorganisation 9.5, 2026-09-14)." >&2
+echo "  Task 4's capacity dilation is retired: quantising the weights is the" >&2
+echo "  mechanism now, and ECC_WEIGHT_CAPACITY_SCALE is no longer read from" >&2
+echo "  the environment, so every job this would submit maps the same chip." >&2
+echo "  Reading what is already on disk still works:" >&2
+echo "      bash hpc/tl.sh python3 -m eccenergy.report.dilation_view --levels" >&2
+echo "  The live depth ladder is ECC_SWEEP=area (env.sh section 1)." >&2
+exit 2
+
 # ---- the sweep ------------------------------------------------------------
 # Each entry is one architecture handed to the mapper. The REFERENCE arm is a
 # scale s and its RECONSTRUCTION arm is s x N/K, so the list is normally a set
