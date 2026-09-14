@@ -1997,3 +1997,67 @@ WHAT IS LEFT OF PHASE 7, for the next session:
   * `physics/recon_dc.py` is the next signature-narrowing candidate: it asks
     `cfg` for nine things including two METHODS (`cycle_seconds_for`,
     `dc_idle_scale`), which is an L1 module depending on L3 behaviour.
+
+================================================================================
+ENVREORGANISATION PHASE 0 -- the gate is back, and the golden is today's tree
+================================================================================
+2026-09-14.  plans/EnvReorganisation.md section 7, phase 0.
+
+GATE: PASSED on an unchanged tree after the golden was re-taken. 302 fingerprint
+rows byte-identical to the pre-plan golden of 46a8df1 (the architecture the
+mapper sees has not moved since 2026-09-13); every evaluated total identical;
+484 passed / 10 skipped, unchanged.
+
+1. RESTORED from 46a8df1, from Energy_Modeling/:
+       git checkout 46a8df1 -- restructure/gate.sh restructure/snapshot.py \
+                               restructure/_fingerprints.py restructure/golden \
+                               restructure/README.md
+   The two migration scripts were spent and stay deleted; gen_guards.py and
+   scaffold_arch.py already live in tools/.
+
+2. WHY THE OLD GOLDEN COULD NOT BE GREEN, measured before anything was retaken
+   (a plain gate run against it, read-only): gate 1 identical, gate 6
+   identical, gates 2-5 red on exactly the env.sh defaults that moved after it
+   was taken -- ECC_RECON_ERT_AWARE 0->1, ECC_RECON_PACKING aligned->stream,
+   ECC_STATIC_ENERGY 0->1, ECC_KS 30->"39 57 45 30", ECC_FORMATS "png pdf"->png,
+   the ECC_ARCHS order. Two of those made the snapshot's baseline/embedded
+   stages EXIT 2: they force ECC_PHASE=Pre RECON_OPTIMIZER=False, and with
+   ECC_RECON_ERT_AWARE=1 now the default the coupling guard
+   `ert-arm-needs-optimiser` refuses that pairing. That is EnvReorganisation
+   6.1 (the phase is per ARM, not per run) showing up in the gate itself.
+
+3. snapshot.py: the baseline and embedded stages now also set
+   ECC_RECON_ERT_AWARE=0, so the golden holds Task 1's and Task 2's TOTALS and
+   not a refusal. Under phase 2's derived phase all three overrides become
+   inert, and the totals must then be unchanged -- which is what the gate will
+   check. recon_default no longer refuses: env.sh's defaults ARE the ERT-aware
+   study since 2026-09-14, so recon_default and recon_ert produce the same
+   files (both kept: a default drifting away from the live configuration would
+   show here).
+
+4. ONE ADDITION TO THE GATE, needed before phase 1 rather than discovered in
+   phase 2: restructure/compare.py and `--accept-record "<why>"`. Every
+   manifest and result file carries Config.to_dict(), and phases 1-4 delete
+   knobs -- a deleted knob is a key that vanishes from the record of every
+   result with no number moving, and `diff -ur` reports that exactly like a
+   moved energy. The classifier calls every numeric leaf / CSV cell / stdout
+   numeric token RED if it moved (no flag lifts that) and lists record keys
+   and prose separately; a record/prose divergence still FAILS the gate until
+   it is read and recorded, and the acceptance rewrites the affected golden
+   artefacts alone and appends the reason AND the classifier's list to
+   golden/record.log -- the same shape as --accept-tests. Mutation-tested
+   before the golden was taken: a perturbed total_energy_pJ, a changed numeric
+   CSV cell and a changed number inside a stdout line are each red alone;
+   three deleted config keys, a dropped text column and a reworded banner line
+   are each record/prose only. Each gate run takes ~1m40 on the login node.
+
+5. THE GOLDEN NOW ON DISK (commit it, then phase 1):
+       baseline   11,461,860,098.98 pJ    embedded   10,871,981,186.98 pJ
+       recon1..5  10,111,323,349 / 9,796,634,404 / 9,803,418,621 /
+                  10,009,198,114 / 13,562,977,367 pJ   (resnet18, eyeriss_like_wglb,
+                  BCH(63,39), whole model, ERT-aware, from the six mapped arms)
+   Note for phase 3: the EFFECTIVE layer scope of the default run is the
+   WHOLE MODEL -- env.sh section 1 says ECC_LAYERS=layer3.0.conv1, but section
+   10 overwrites it from ECC_RECON_LAYER=all under ECC_RECON_MODELING=1. When
+   phase 3 deletes that override, env.sh's default must be spelled so the
+   scope stays whole-model, or every total moves and the gate says so.
