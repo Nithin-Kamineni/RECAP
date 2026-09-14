@@ -3448,3 +3448,456 @@ NOT DONE -- SESSION 2 OWES:
      stage's output by mtime, so a figure render in another shell lands inside
      a stage's window and is reported as a moved NUMBER.
   DO NOT START PHASE 7 (docs).
+
+
+================================================================================
+ENVREORGANISATION PHASE 6 (SESSION 2 OF 2) -- THE OTHER TWO DESIGNS
+================================================================================
+2026-09-14.  plans/EnvReorganisation.md section 7, phase 6.  Session 2 of 2;
+session 1 is fa86c89.  Its "NOTE FOR SESSION 2" was the task list.
+
+GATE BEFORE ANY CHANGE: GREEN, all six items, no flag -- 302 fingerprint rows
+identical, every evaluated total and guard report identical, 527 passed /
+10 skipped.  That is the baseline every claim below is against.
+
+--------------------------------------------------------------------------
+WHAT MOVED IN GATE ITEM 1, AND WHY -- STATED BEFORE THE GATE WAS RE-RUN
+--------------------------------------------------------------------------
+THIS PHASE DELIBERATELY CHANGES WHAT IS COMPUTED for two of the three scoped
+designs, so item 1 was NOT expected to be byte-identical.  The four causes,
+each of them a decision recorded below and none of them a silent drift:
+
+  (a) THE TWO FREE-SETS (task A).  `mapspace_free_levels:` reaches the patched
+      YAML, so declaring one re-fingerprints EVERY row of that design -- all of
+      simple_weight_stationary's and all of eyeriss_v2_like_wglb's, both grids.
+      This is the knob working: an unconstrained search and a constrained one
+      are different accelerators (CLAUDE.md), and they must not share a cache.
+  (b) simple_weight_stationary's WITHDRAWN recon5 (task B).  Six REFUSED rows
+      of restructure/golden/fingerprints.tsv are GONE, not changed -- the arm
+      no longer exists.
+  (c) eyeriss_v2_like_wglb's NEW WEIGHT GLB (the user's decision).  A level
+      added to arch_paper.yaml re-fingerprints that design outright.
+  (d) its five boundaries replace four, so its arm rows are a different set.
+
+  eyeriss_like_wglb -- the design every published number comes from -- was NOT
+  touched by any of the four, and its rows were predicted to be byte-identical.
+
+--------------------------------------------------------------------------
+TASK B: THE LATCH-AT-THE-END BOUNDARY IS WITHDRAWN (the user's decision)
+--------------------------------------------------------------------------
+THE BRIEF: "the approach that latches at the end before reading is not
+feasible and is not working -- its placements need not be considered in ANY
+architecture.  Find where it is still declared and remove it there."
+
+WHERE IT WAS: `simple_weight_stationary`'s recon5, "R5 - reconstruct at the MAC
+input (stationary register reduced too)", whose `reduced` set ended at
+`weight_reg` -- the design's depth-1, 8-bit stationary latch between the
+scratchpad and the MAC.  It is the ONLY place in the project: R4b (the
+retained-reconstruction register) was already removed on 2026-09-10, and
+`weight_reg` appears in simple_input_stationary and simple_output_stationary
+but neither declares a weight path or any boundary at all.
+
+WHY IT COULD NEVER HAVE WORKED, from two directions that never met:
+  * the STUDY's: rebuilding one weight needs the retained bits of G_rec = 9
+    co-resident weights and this register holds ONE.  The design's own
+    placement description already said `feasibility()` was expected to reject
+    it.
+  * the CODE's: `arch.patch._weight_level_parts()` refuses to declare
+    `datawidth: q` on a depth-1 level at all -- "a pipeline latch, not a reuse
+    level" -- so every one of recon5's arms raised
+        ValueError: ECC_WEIGHT_DATAWIDTH_LEVELS names weight_reg, which
+        simple_weight_stationary has no weight-carrying level called.
+        It has: pe_spad, weight_glb.
+    and restructure/golden/fingerprints.tsv PINNED those six REFUSED rows.
+  The two tables said the boundary existed; the geometry code said the level
+  was not a level.  Both were right and the placement was the thing that was
+  wrong.
+
+THE FIX, BOTH TABLES TOGETHER (which is what the directory makes mandatory):
+  * placements.yaml: recon5 DELETED, with the reason where it stood.
+  * weight_path.yaml: `weight_reg` STAYS A STAGE and becomes
+    `reducible: false`.  Deleting the stage would have been the wrong repair:
+    the level carries real Weights energy in the stats, and a level no stage
+    claims fails `cross_check()` (weight_stats.read_weight_path -> `unclaimed`).
+    Non-reducible is also the honest statement -- it is a property of the
+    silicon, not a preference.
+  simple_weight_stationary now declares FOUR boundaries, R4a innermost.
+
+VERIFIED: `validate_placement_space()` ok=True (every reducible stage reached,
+every reduced set a prefix); `arm_narrow_levels` for recon4 is unchanged at
+(weight_glb, pe_spad); the six REFUSED golden rows are gone.
+
+--------------------------------------------------------------------------
+eyeriss_v2_like_wglb: THE ARCH WAS MISSING A LEVEL, NOT THE PLACEMENT LIST
+--------------------------------------------------------------------------
+THE SYMPTOM the brief expected: `validate_placement_space()` ok=False with four
+violations -- recon2/3/4 skipped a reducible stage and `weight_glb` was reduced
+by no boundary at all.  Two tests PINNED that as a known gap.
+
+WHAT IT ACTUALLY WAS, found by probing rather than by reading: the weight path
+declared a `weight_glb` stage with `prefixes: ["weight_glb"]`, and the design
+HAS NO LEVEL OF THAT NAME.  Its levels were iact_glb, psum_glb, weight_noc,
+... -- so the stage matched nothing, the 64 kB weight level's energy would have
+been UNCLAIMED, and `cross_check()` would have failed on the first real
+evaluation.  Nobody had seen it because the design has never been evaluated.
+
+THE USER'S DECISION (2026-09-14), which made it one problem instead of two:
+the earlier Eyeriss v2 designs this study verifies against DO carry a weight
+global buffer of smartbuffer_SRAM in addition to the NoC.  The weight path was
+RIGHT; arch_paper.yaml was missing the level.  So:
+
+  DRAM
+   -> weight_glb  24 kB   16 GLB clusters x one 1.5 kB weight bank   <-- NEW
+   -> weight_noc   288 B  16 x 3 weight routers x 2 ports x 24 b     <-- RESIZED
+   -> inter_cluster_mesh  -> cluster_local  -> weights_spad
+
+  EVERY NUMBER IS DERIVED FROM A PUBLISHED ONE, which is the rule for a
+  declared capacity.  JETCAS 2019's Table IV "Global Buffer 192 KB" is fully
+  accounted for by Sec. III-D (three 1.5 kB iact banks -> 72 kB and four
+  1.875 kB psum banks -> 120 kB per cluster), so a weight GLB is a DIVERGENCE
+  either way -- but its bank size is the paper's own and its bank count is the
+  16 clusters the routers are distributed over.  `weight_noc` is now sized by
+  Sec. III-C's "a bitwidth of 24 bits" per router port, 96 ports = 288 B, and
+  is `smartbuffer_RF_decoded` because 288 B is register state and not an SRAM
+  macro.  provenance.yaml marks weight_glb `diverges_from_paper: true` and both
+  levels keep the DIAGNOSTIC ONLY warning; README.md, design.yaml's label
+  ("Eyeriss v2 (+weight GLB)") and FINDINGS all say so.
+
+  THE BOUNDARIES ARE FIVE NOW, and recon2 means on this design what it means
+  on the other two -- reconstruct at the weight global buffer, which is what
+  ECC_RECON_DEFAULT=recon2 is documented to mean.  Before this it was "@ the
+  destination cluster edge", so the DEFAULT BAR meant a different thing per
+  design and nothing said so.
+
+  MEASURED AFTER: validate_placement_space ok=True; ert_arms ('recon2',
+  'recon4') -- which is eyeriss_like_wglb's set exactly, and for the same two
+  reasons (a weight-GLB read port and a scratchpad write port); weight
+  capacity 80,160 on chip; 11 loop levels, the deepest in the study.
+
+THREE TESTS CHANGED, AND ONE STOPPED RELYING ON A BROKEN DESIGN:
+  * test_a_reducible_stage_no_boundary_reduces_stops_the_run REBUILT on a
+    SYNTHETIC design -- it registers a fake arch whose path has one extra
+    reducible stage and whose placements are unchanged.  A test that can only
+    fail while a real design is broken stops testing anything the moment the
+    design is fixed; the registries take a synthetic entry precisely so it does
+    not need a real defect to stand on.  NOTE: the first cut DROPPED A
+    BOUNDARY instead, and that is not the failure mode -- the stage stays
+    reached by every boundary below it.  The gap is an ADDED stage.
+  * test_the_placement_space_check_is_recorded_on_every_result: same synthetic.
+  * test_every_placement_space_is_valid_for_every_supported_design: the
+    `expected_invalid` set is EMPTY now, which is the point of it.
+  * _EXPECTED_ERT_ARMS['eyeriss_v2_like_wglb'] ('recon3',) -> ('recon2','recon4').
+  * test_a_boundary_the_design_has_not_got_is_never_a_refusal: its witness was
+    v2wglb-has-four; the two designs SWAPPED (v2wglb 4->5, SWS 5->4), so it is
+    simple_weight_stationary now, and it also asserts the five-boundary design
+    still DRAWS recon5 -- otherwise it would pass on a name unknown everywhere.
+  * test_several_architectures_are_one_panel_each: compared two LENGTHS (5 vs
+    4) and stopped witnessing anything when SWS came to 4.  It compares what a
+    KEY MEANS now -- equal lengths are exactly the case panels exist for.
+
+--------------------------------------------------------------------------
+TASK C: THE WIDTH TABLES ARE VERIFIED, NOT REDONE
+--------------------------------------------------------------------------
+All three widths.yaml are BYTE-IDENTICAL to each other and were not touched.
+What was unverified is that those widths are legal for each design's OWN
+levels, and that is now measured rather than assumed: every weight level of
+every design was patched at every q the table declares and checked against the
+one rule timeloop-mapper imposes, `width % datawidth == 0`
+(buffer.cpp:302, no floor path, exit 134).
+
+  ALL LEGAL, at q = 7, 6, 5 and 4, on all three designs:
+    eyeriss_like_wglb         filter_glb 43 x {392,384,380,384}; weights_spad 3 x {98,96,95,96}
+    simple_weight_stationary  weight_glb 768 x ...; pe_spad 32 x ...;
+                              weight_reg 1 x width 8 dw 8 ON EVERY ARM
+    eyeriss_v2_like_wglb      weight_glb 512 x ...; weight_noc 6 x ...;
+                              weights_spad 24 x ...
+  and DEPTH is the same on every arm of every design, which is the only thing
+  assert_pair_geometry() checks.
+
+  95 % 8 IS STILL IRRELEVANT and nothing was "fixed".  Two things worth having
+  measured: `weight_reg` stays 8/8 on EVERY arm -- an independent confirmation,
+  from the geometry code, that the withdrawn boundary could never have been
+  declared -- and the renormalisation preserves total bits exactly on the two
+  NEW v2 levels (512 x 384 = 196,608 b = 24 kB; 6 x 384 = 2,304 b = 288 B).
+
+--------------------------------------------------------------------------
+TASK A: BOTH FREE-SETS, WRITTEN BEFORE ANYTHING WAS MAPPED
+--------------------------------------------------------------------------
+Only eyeriss_like_wglb declared `mapspace_free_levels:`; the other two were
+searched UNCONSTRAINED, which is the wrong regime (FINDINGS 2.2) -- and
+arch/patch.py only PRINTS a `[mapspace] ... no MAPSPACE_FREE_LEVELS entry`
+note, so a run that skipped this would silently have done the wrong search.
+
+METHOD: prompt_3, "Porting it to another design or layer" -- read the level
+names and which dimensions appear where out of THAT DESIGN'S OWN
+timeloop-mapper.map.txt.  593 cached maps for simple_weight_stationary and 38
+for eyeriss_v2_like_wglb were tallied per level for which dimensions the
+unconstrained mapper actually split there; the counts are in each design.yaml
+above its free-set, so the evidence travels with the declaration.  Level NAMES
+were taken from each design's current arch YAML and verified against the
+declared levels, never copied from v1 -- v1 has no `pe_spad` and neither of
+these has a `filter_glb`.
+
+  simple_weight_stationary        eyeriss_v2_like_wglb
+    C: DRAM weight_glb PE pe_spad   C: DRAM weight_glb PE_cluster weights_spad
+    M: DRAM weight_glb PE pe_spad   M: DRAM PE_cluster PE SIMD
+    R: weight_glb pe_spad           R: iact_glb weights_spad
+    S: pe_spad                      S: PE
+    P: DRAM input_glb psum_glb      P: DRAM iact_glb psum_glb
+    Q: DRAM input_glb psum_glb      Q: DRAM weight_glb psum_glb
+    N: (none -- batch 1)            N: (none -- batch 1)
+
+ONE RENAME AND ONE RESIZE APPLY TO THAT EVIDENCE, and both are recorded in the
+files: simple_weight_stationary's 64 kB `operand_glb` was split by dataspace
+into `weight_glb` + `input_glb` on 2026-09-13, so its rows go to both heirs by
+dataspace; and eyeriss_v2_like_wglb's `weight_noc` was the 64 kB reuse level
+when those maps were solved, so the reuse it carried (Q 34/38, P 20, C 19)
+goes to the new `weight_glb` and the 288 B router level takes nothing.
+
+EVERY DIMENSION KEEPS A TEMPORAL LEVEL, which is what makes a free-set feasible
+rather than merely small -- a dimension free only at a spatial container is
+bounded by that container's mesh.  The one exception is v2's S, and it is the
+design's own answer: 33 of 38 maps put S on the PE fanout and none put it in a
+weight level.  If a shape ever returns nothing feasible, that is the tell
+prompt_3 names and the fix is to widen S there.
+
+--------------------------------------------------------------------------
+TASK E (ASK 1): WHAT THE USER PICKED, AND WHAT WAS BUILT
+--------------------------------------------------------------------------
+The five proposals from session 1 were put to the user.  THEY PICKED THREE and
+added a fourth of their own.  All four are built; nothing else was.
+
+ 1. `bash hpc/run_all.sh --smoke`  -- NO KNOBS.  Submits TWO real one-row jobs,
+    one unit the cache already holds and one it does not, as a 2-task array
+    through the SAME sbatch, the SAME map.sbatch and the SAME arch pin as a
+    matrix -- so what it proves is what a matrix does, not a special path.
+    `toolchain.units._smoke_pair()` picks the pair and `_print_smoke` SAYS SO
+    when one half is missing: a wholly warm configuration prints "THE MAPPER
+    PATH IS NOT SMOKED", which is precisely the silence that hid the cold-map
+    import bug through three phases of "one real job before the matrix".
+    7 unit tests in tests/unit/test_smoke_pair.py, including the mutation that
+    matters -- a pair that is two of the same kind.
+
+ 2. `ECC_SCOPE=dev|full` -- ONE env.sh knob, one option line.  `dev` fills
+    ECC_LAYERS with the six-layer table plan 6.9 defines; `full` leaves it
+    empty.  An explicit ECC_LAYERS WINS over either, which is env.sh's own
+    rule.  A TYPO IS REFUSED, not ignored: `ECC_SCOPE=devv` prints why and
+    returns 1, and every consumer sources env.sh under `set -euo pipefail`, so
+    `bash run.sh diagnose` exits 1 rather than silently sweeping whole models.
+    Verified on all four paths (full, dev, explicit-wins, typo).
+
+ 4. THE COST LINE on `--dry-run`, measured and never modelled.  It reads
+    `map_seconds` out of the `mapping.json` of the CACHED units of this same
+    configuration and prints the median x the cold count, with the range and
+    how many entries it is from.  Proposal 5 is folded in, as session 1 asked:
+    a bundle is SERIAL, so with ECC_JOBS set the line says what ECC_MAP_TIME
+    must cover for the worst bundle, and without it says the wall time is about
+    the slowest single map.  Where nothing comparable is cached it says
+    UNKNOWN and points at `--smoke`, rather than inventing a number.
+
+ +. THE USER'S OWN, added when they answered: a THIRD ECC_LAYERS spelling,
+    `<model>.<layer>` -- and `<model>.all` for that model whole.
+        ECC_LAYERS="resnet18.conv1"                  one layer of one model
+        ECC_LAYERS="resnet18.all"                    that model, whole
+        ECC_LAYERS="resnet18.conv1 mobilenet_v2.features.9.conv.2"
+    It resolves to the SAME per-model table the `=` form does, so nothing
+    downstream learns a third shape.  TELLING IT FROM A BARE LAYER NAME IS THE
+    WHOLE PROBLEM: layer names contain dots (`layer3.0.conv1`) and model names
+    do not, so a token is the dotted form exactly when the text before its
+    FIRST dot is a KNOWN MODEL -- which is why `_scoped_list()` takes the model
+    registry as an argument.  `settings/env.py` may not reach for one itself
+    (it is L0 and `settings/arch.py` imports IT), so `settings/run.py`, which
+    already imports CNN_MODELS and TRANSFORMER_MODELS, hands it over.
+    Mixing spellings is refused by name, as the `=` form already was, and so is
+    `resnet18.all` beside `resnet18.conv1`.  Verified end to end through
+    `--dry-run`: `resnet18.conv1` -> 1 shape / 6 units, `resnet18.all` ->
+    12 shapes / 72 units.
+
+ NOT BUILT, because the user did not pick it: proposal 3, `run.sh design <name>`.
+
+--------------------------------------------------------------------------
+TASK F: ECC_SWEEP=area STAYS REFUSED, AND WHY
+--------------------------------------------------------------------------
+`sweep-has-no-figure` (tier 2) was narrowed to `area` alone in session 1.  It is
+REVIEWED AND KEPT.  The reason is recorded where a person will meet it -- in
+env.sh section 1, beside the axis -- and is not the one session 1 expected:
+
+  What it needs, in order: a DEPTH in the result namespace and the stem (two
+  points of the ladder write one `latest.json` today); a depth slot in
+  report/sweep.py's point spec and `_point_cfg`, which pins arch/model/K and
+  has nowhere to put a fourth axis; and a dependent eval from run_all.sh,
+  which short-circuits this axis.
+
+  NONE OF THAT IS THE BLOCKER.  The ladder is 7 scales x the arms of COLD
+  mappings, so the figure could not have been LOOKED AT in the session that
+  built it -- and phase 6's own rule is that every figure is reviewed by eye.
+  Shipping a renderer nobody has seen output from is how the two legibility
+  defects of session 1 got in.  Map the ladder first, then lift it.
+
+--------------------------------------------------------------------------
+CHECKED, NOT ASSUMED
+--------------------------------------------------------------------------
+* `bash -n env.sh` after every edit; ECC_SCOPE added to the export list in its
+  alphabetical slot; `env -i` runs for all four ECC_SCOPE paths;
+* every consumer still sources env.sh -- run.sh, hpc/run_all.sh, hpc/map.sbatch,
+  hpc/tl.sh, hpc/smoke_models.sh, hpc/map_capacity_sweep.sh,
+  restructure/snapshot.py;
+* `bash -n hpc/run_all.sh`;
+* `bash run.sh validate` PASSES on all three scoped designs; `diagnose` shows
+  v2wglb's two weight levels and 11 loop levels with no new warning;
+* every file written atomically (temp + os.replace) with a pre-edit copy kept
+  under Claude-sandbox/pre-p6s2/;
+* `make guards` was the LAST step before the gate.
+
+--------------------------------------------------------------------------
+A BUG THE FREE-SETS SURFACED, AND WHY ONLY THIS DESIGN COULD FIND IT
+--------------------------------------------------------------------------
+`_constrain_mapspace()` APPENDED A SECOND `temporal:` KEY on
+simple_weight_stationary -- duplicate-key YAML, which timeloopfe rejects, and a
+constrained mapspace the mapper would never have seen.  Caught by
+test_noc.py::test_injection_is_valid_yaml_on_every_arch_and_moves_the_fingerprint
+the moment that design got a free-set.
+
+  THE CAUSE: that design writes its constraints in FLOW style --
+      temporal: {permutation: [P, Q, R, S]}
+      temporal: {factors: [R=1, S=1, M=1, C=1]}
+  -- and every other design writes them in BLOCK style.  Both of
+  `_constrain_mapspace`'s regexes require a newline after `temporal:`, so
+  neither matched, and the pins fell through to the `constraints:` branch,
+  which CREATES a block.  The design has been in the study since the
+  beginning; the bug was unreachable because it only declared a free-set today.
+
+  THE FIX: a flow-style branch that merges into `{...}` -- into an existing
+  `factors: [...]` where there is one, and adding one inside the braces where
+  there is not.  It searches only AFTER `constraints:`, because a spatial
+  container declares `spatial: {meshX: 16, meshY: 16}` as an ATTRIBUTE and
+  pinning factors into the mesh would be rewriting the array.
+  VERIFIED on all three designs: the pins land on the right levels, the free
+  dimensions are the declared ones, and `_duplicate_keys` is None everywhere.
+  eyeriss_like_wglb's 51 fingerprint rows are byte-identical after it, which is
+  the proof it touched no design that writes block style.
+
+--------------------------------------------------------------------------
+LOOKED AT THE FIGURE -- ONE DEFECT FOUND, AND PHASE 6 IS WHAT CREATED IT
+--------------------------------------------------------------------------
+Mapping array 42132147 (session 1's, 29 units) COMPLETED -- 48/48 cached on the
+six-layer scope's resnet18 half -- so the bch figure was drawn with all four
+codes for the first time.  NOTE FOR ANYONE FOLLOWING SESSION 1'S INSTRUCTION:
+`--replot` CANNOT DRAW IT.  It reads results/_raw/ only, and a freshly mapped
+unit has no raw record yet; `bash hpc/run_all.sh --eval-only` is the command
+that reads the mapper cache and fills it.  `--replot` after that is instant.
+
+THE DEFECT: THE CODE-STRENGTH AXIS WAS NOT IN CODE-STRENGTH ORDER.
+`_bch_points` walked `ECC_KS` in its declared order, and that knob's FIRST
+entry is the value every other axis HOLDS -- so env.sh's default `39 57 45 30`
+drew 39, 57, 45, 30.  A monotonic result read like noise.
+  IT ONLY BECAME A DEFECT IN THIS PHASE.  Until the abstract `recon` arm was
+  retired, NO BAR ON THIS FIGURE MOVED WITH K: the two reference bars still do
+  not (the baseline pays a dearer per-bit DRAM PRICE, not extra traffic, and
+  the embedded arm stores no external parity), and the abstract arm was the
+  only K-dependent bar there had ever been.  An unordered axis under flat bars
+  hides nothing.  Now every reconstruction bar is a real chip mapped at its own
+  code, the trend IS the figure, and the order is the whole readability of it.
+  Sorted by K DESCENDING: increasing strength left to right, and with it
+  increasing BER (1.5, 5, 6.5, 9.5 %), which is the direction the group labels
+  already read in.  `cfg.const_k` is untouched -- the held value is still
+  ECC_KS' first entry and nothing in the renderer can move it.
+
+MEASURED, eyeriss_like_wglb, conv1 + layer3.0.conv1, ECC_METRICS=energy, seven
+bars per code, each from its own cache -- THE K-DEPENDENCE, VISIBLE AT LAST:
+
+  BCH(63,K)   baseline  embedded      R1      R2      R3      R4       R5
+    57 (q=7)   1,574.88  1,493.67   -5.5%   -5.5%   -5.4%   -4.7%   +11.2%
+    45 (q=6)   1,574.88  1,493.67   -6.2%   -6.2%   -6.1%   -5.4%   +14.1%
+    39 (q=5)   1,574.88  1,493.67   -6.7%   -7.5%   -7.3%   -6.2%   +15.4%
+    30 (q=4)   1,574.88  1,493.67   -7.3%   -8.1%   -8.0%   -6.8%   +14.3%
+
+  MONOTONIC IN THE RIGHT DIRECTION on R1-R4: a stronger code retains fewer bits
+  on chip and drives fewer across the DRAM interface, so the saving grows as K
+  falls.  Predicted before it was drawn, which is the rule.  R5 is a PENALTY at
+  every code -- the per-PE engine count is the array -- and it is NOT monotonic
+  (+15.4 % at K=39 against +14.3 % at K=30), which is the engine term and the
+  retained-bit term pulling opposite ways.  The two reference bars are flat
+  across all four codes, exactly as session 1 predicted.
+
+TWO THINGS SEEN AND DELIBERATELY NOT CHANGED, recorded so the next session can
+decide rather than re-discover:
+  * A SAVING AND A PENALTY ARE THE SAME COLOUR.  `draw_panel` prints every
+    percentage in `#B03A2E` -- which is also the Compute band's colour -- so
+    "-8.1%" and "+15.4%" differ only by their sign glyph.  Introducing a
+    two-colour rule would restyle EVERY figure in the project, so it is a
+    decision to take deliberately and not a defect to slip into this phase.
+  * EACH GROUP RESERVES ABOUT A THIRD MORE WIDTH THAN ITS BARS USE.  Harmless
+    at four groups; worth measuring before the whole-model figures.
+
+--------------------------------------------------------------------------
+GATE AFTER: PASSED, all six items, NO FLAG on the final run
+--------------------------------------------------------------------------
+  item 1   302 rows identical (against the re-taken golden -- see below)
+  items 2-5  identical: every evaluated total and every guard report
+  item 6   535 passed, 10 skipped, 0 failed (GROWTH: 527 -> 535)
+
+THE GOLDEN RE-TAKE, WITH THE USER'S DECISION (2026-09-14).  The FIRST
+post-change gate was RED ON ITEM 1 ONLY, and every moved row was one of the
+four causes stated at the top of this entry.  `--accept-record` cannot take a
+moved fingerprint and must not be able to, so fingerprints.tsv was re-taken BY
+HAND -- session 1's precedent for the banner lines, applied to item 1 --
+after the diff was read row by row and put to the user with the accounting:
+
+    MOVED      simple_weight_stationary  51 -> 45 rows   (recon5 withdrawn,
+                                                          6 REFUSED rows gone,
+                                                          + the free-set)
+               eyeriss_v2_like_wglb      45 -> 51 rows   (weight GLB added,
+                                                          4 -> 5 boundaries,
+                                                          + the free-set)
+    IDENTICAL  eyeriss_like_wglb         51 rows  <- EVERY PUBLISHED NUMBER
+               eyeriss_like, eyeriss_v2_like, simba_like,
+               simple_input_stationary, simple_output_stationary
+               _components_digest 91e7f4dbe0b6   _config_hash e390be6e
+
+  ITEMS 2-5 WERE BYTE-IDENTICAL ON THAT SAME RED RUN, which is the thing worth
+  keeping: no energy, latency or cycle count moved anywhere in the project.
+  restructure/golden/record.log carries the entry with the per-design
+  accounting in full; pytest.txt was brought current separately with
+  --accept-tests, which is the growth branch.
+
+--------------------------------------------------------------------------
+NOT DONE -- WHAT SESSION 3 OWES, AND WHY
+--------------------------------------------------------------------------
+TASK D DID NOT RUN.  The two new designs are NOT mapped and NO figure exists
+for either.  The reason is the cluster and nothing else: the batch queue gave a
+start estimate of the NEXT DAY (08:38) for a 4-unit array, and two attempts to
+get the work done through an interactive allocation produced nothing -- the
+first ran 90 minutes on ONE unconstrained shape without finishing (which is
+FINDINGS 2.2 measured rather than argued, and is why the free-sets had to be
+written first), and the second never got a node before it was cancelled.
+EVERYTHING THAT MAKES THE MAPPING POSSIBLE IS IN PLACE AND GATED -- both
+free-sets, both designs' tables, the flow-style patcher fix, the width
+verification -- so this is queue time, not work.
+
+  THE COMMAND, and it is now one line each:
+      ECC_SCOPE=dev ECC_ARCHS=simple_weight_stationary \
+        ECC_CONST_ARCH=simple_weight_stationary bash hpc/run_all.sh
+      ECC_SCOPE=dev ECC_ARCHS=eyeriss_v2_like_wglb \
+        ECC_CONST_ARCH=eyeriss_v2_like_wglb bash hpc/run_all.sh
+  SMOKE FIRST -- `bash hpc/run_all.sh --smoke` is built for exactly this now,
+  and BOTH halves must COMPLETE: these two designs have never had a cold map
+  run to completion at the live configuration, so the mapper path is unproven
+  for them in a way it is not for v1.
+  WATCH FOR, in this order:
+    * a shape that comes back with NOTHING FEASIBLE -- that is prompt_3's tell
+      that a free-set is too tight, and v2's `S` is the one to widen first
+      (it is spatial-only, bounded by meshY 12 against S <= 7);
+    * v2's `weight_noc` is SIX WORDS DEEP after renormalisation.  A 288 B level
+      in series between the GLB and the mesh was flagged as a risk when the
+      sizing was chosen and has never been mapped.  If it strangles the mapper,
+      that is a finding about the level and not about the free-set.
+
+ALSO STILL OWED:
+  * FINDINGS 2.11 is written, and the abstract-arm history label and open
+    defect 2 are closed -- but the two new designs contribute NO NUMBERS to it
+    yet.  Whole models ONLY for the final figures.
+  * `hpc/run_all.sh --local` DOES NOT PIN `archs/` (FINDINGS 6, defect 5, found
+    the hard way this session -- a design.yaml was edited while a --local run
+    was in flight).  One `pin_archs` call in `stage_map_local` fixes it.
+  * DO NOT START PHASE 7 (docs).

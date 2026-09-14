@@ -45,6 +45,8 @@ inside the mapper.
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import sys
 
 from .. import paths
@@ -303,6 +305,7 @@ def _print_bill(cfg, units, bundles, depths):
           + ("" if not cold_bundles or len(cold_bundles) == len(cold)
              else f"   (ECC_JOBS bundling: up to "
                   f"{max(len(b) for b in cold_bundles)} units per job, SERIAL)"))
+    _print_cost(units, cold, cold_bundles)
     if cold:
         print("  COLD units (these are the ones a submission solves):")
         for u in cold[:40]:
@@ -310,6 +313,107 @@ def _print_bill(cfg, units, bundles, depths):
                   f"K{u.code_k:<3d} x{u.depth:<6g} {u.shape:<34s} {u.why}")
         if len(cold) > 40:
             print(f"    ... and {len(cold) - 40} more")
+
+
+def _map_seconds(unit):
+    """What this cache entry's own map COST, in seconds, or None.
+
+    `mapping.json` beside every solved shape records `map_seconds`. It is the
+    only measured cost this project has, and it is per (chip, shape) -- which
+    is exactly the unit the bill is counting.
+    """
+    try:
+        with open(os.path.join(str(unit.cache_dir), "mapping.json")) as fh:
+            got = json.load(fh).get("map_seconds")
+        return float(got) if got is not None else None
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def _humanise(seconds):
+    if seconds < 90:
+        return f"{seconds:.0f} s"
+    if seconds < 5400:
+        return f"{seconds / 60:.0f} min"
+    return f"{seconds / 3600:.1f} h"
+
+
+def _print_cost(units, cold, cold_bundles):
+    """WHAT THE COLD UNITS WILL COST, from this configuration's OWN cache.
+
+    `--dry-run` said "30 to map" and listed them, but not what 30 costs, so the
+    difference between minutes and hours was invisible at the moment it is
+    decided (EnvReorganisation phase 6 session 1, ask 1 proposal 4). The
+    estimate is the MEDIAN and the RANGE of the `map_seconds` the cached units
+    of this same configuration already recorded -- measured, never modelled,
+    and absent rather than guessed when nothing comparable is cached.
+
+    A BUNDLE IS SERIAL, so the number that matters for `ECC_MAP_TIME` is the
+    worst bundle's total, not one map (proposal 5, folded in here).
+    """
+    if not cold:
+        return
+    seen = sorted(s for s in (_map_seconds(u) for u in units if u.cached)
+                  if s is not None)
+    if not seen:
+        print("  cost      : unknown -- nothing comparable is cached yet, so "
+              "there is no measured map time to scale. Smoke one COLD unit "
+              "(`--smoke`) and this line fills in.")
+        return
+    med = seen[len(seen) // 2]
+    lo, hi = seen[0], seen[-1]
+    per_bundle = max(len(b) for b in cold_bundles) if cold_bundles else 1
+    print(f"  cost      : ~{_humanise(med * len(cold))} of compute for "
+          f"{len(cold)} cold unit(s)   "
+          f"(median {_humanise(med)} each, range {_humanise(lo)}-{_humanise(hi)}, "
+          f"from {len(seen)} cached map(s) of this configuration)")
+    if per_bundle > 1:
+        print(f"              a bundle is SERIAL: up to {per_bundle} units per "
+              f"job -> ECC_MAP_TIME must cover ~{_humanise(med * per_bundle)} "
+              f"(worst ~{_humanise(hi * per_bundle)}), not one map")
+    else:
+        print(f"              one unit per job, {len(cold_bundles)} in flight "
+              f"at ECC_CONCURRENCY -> wall time is about the slowest single "
+              f"map, ~{_humanise(hi)}")
+
+
+def _smoke_pair(units):
+    """ONE cached unit and ONE cold one -- the two halves of a real smoke test.
+
+    A REAL JOB ON A CACHED UNIT PROVES THE CACHE PATH, NOT THE MAPPER PATH.
+    That is the rule EnvReorganisation phase 6 session 1 paid for: every smoke
+    job since the restructure was submitted against an already-cached unit,
+    exactly as the rule then asked, and a cached unit returns from `stats_for`
+    before it ever reaches `Mapper._map_now`. So `toolchain.inputs` could carry
+    an import of a module that had not existed since ProjectRestructure phase 3
+    -- `ModuleNotFoundError: eccenergy.toolchain.archs` -- and NO COLD MAP
+    COULD RUN AT ALL while every smoke test passed. The rule needs both halves,
+    so this returns both.
+
+    Either half may be missing (a wholly cold matrix has no cached unit, a
+    wholly warm one has nothing to solve); the caller says so rather than
+    inventing one.
+    """
+    cached = next((u for u in units if u.cached), None)
+    cold = next((u for u in units if not u.cached), None)
+    return tuple(u for u in (cached, cold) if u is not None)
+
+
+def _print_smoke(cfg, units, pair):
+    n_cached = sum(1 for u in units if u.cached)
+    print("  smoke     : one CACHED unit and one COLD unit, as two real jobs")
+    print(f"  from      : {len(units)} units   "
+          f"cached {n_cached} / {len(units)}")
+    for u in pair:
+        print(f"    {'CACHED' if u.cached else 'COLD  '} "
+              f"{u.arch:24s} {u.model:<16s} {u.arm:<10s} "
+              f"K{u.code_k:<3d} x{u.depth:<6g} {u.shape:<34s} {u.why}")
+    if not any(u.cached for u in pair):
+        print("    (no cached unit in this configuration -- the cache-path half"
+              " cannot be smoked here)")
+    if all(u.cached for u in pair):
+        print("    (nothing cold in this configuration -- THE MAPPER PATH IS NOT"
+              " SMOKED. Widen the scope or ECC_RERUN_OPTIMISER=1)")
 
 
 def main(argv=None):
@@ -327,6 +431,10 @@ def main(argv=None):
                         "empty = the held ECC_WEIGHT_DEPTH_SCALE")
     p.add_argument("--jobs", default="",
                    help="ECC_JOBS: bundle the units into this many SLURM tasks")
+    p.add_argument("--smoke", action="store_true",
+                   help="with --tasks: print exactly TWO rows -- one unit the "
+                        "cache already holds and one it does not -- as the two "
+                        "tasks of a smoke array. See `_smoke_pair`")
     args = p.parse_args(sys.argv[1:] if argv is None else argv)
 
     from ..config import load_config
@@ -339,6 +447,13 @@ def main(argv=None):
     # what is left and a warm matrix submits nothing at all. The BILL shows
     # both counts, because "cached 72 / 72" is the answer to "is this run
     # going to cost anything".
+    if args.smoke:
+        pair = _smoke_pair(units)
+        if args.tasks:
+            _print_tasks([[u] for u in pair])
+        else:
+            _print_smoke(cfg, units, pair)
+        return 0
     todo = units if args.all else [u for u in units if not u.cached]
     bundles = bundle(todo, jobs)
     if args.tasks:

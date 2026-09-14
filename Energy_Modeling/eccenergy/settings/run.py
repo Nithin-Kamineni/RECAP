@@ -19,6 +19,13 @@ from .arch import CNN_MODELS, TRANSFORMER_MODELS
 from .env import (_b, _f, _i, _list, _list_or_none, _of, _oi, _one, _s,
                   _scoped_list, _table)
 
+#: Every model name this project knows, in one tuple, for the ONE reader that
+#: needs to tell `resnet18.conv1` (the dotted ECC_LAYERS form) from
+#: `layer3.0.conv1` (a bare layer name). Model names carry no dot; layer names
+#: do -- so the text before the first dot being a model IS the rule.
+_KNOWN_MODELS = tuple(CNN_MODELS) + tuple(TRANSFORMER_MODELS)
+
+
 # ------------------------------------------------------------------ registries
 EXPERIMENTS = ("sweep", "diagnose", "baseline", "embedded", "recon", "validate", "dilation",
                "map", "panels")
@@ -276,8 +283,8 @@ class RunSettings:
             # The two spellings of ECC_LAYERS, told apart by the `=`. The
             # resolution into ONE scope needs the held model, which is
             # `_resolve()`'s job; this layer only parses.
-            layers=_scoped_list("ECC_LAYERS")[0],
-            layers_by_model=_scoped_list("ECC_LAYERS")[1],
+            layers=_scoped_list("ECC_LAYERS", models=_KNOWN_MODELS)[0],
+            layers_by_model=_scoped_list("ECC_LAYERS", models=_KNOWN_MODELS)[1],
             overwrite=_b("ECC_OVERWRITE", False),
             cache_strict=_b("ECC_CACHE_STRICT", True),
             rerun_optimiser=_b("ECC_RERUN_OPTIMISER", False),

@@ -110,7 +110,18 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #   area   the buffer-depth ladder ECC_DEPTH_SWEEP_SCALES, all three lists
 #          held. Maps the ladder and submits NO eval: the sweep is a property
 #          of the MAPPINGS, read with
-#          `python3 -m eccenergy.report.dilation_view --levels`
+#          `python3 -m eccenergy.report.dilation_view --levels`.
+#          IT IS THE ONE AXIS WITH NO STACKED-BAR FIGURE, and
+#          `sweep-has-no-figure` still refuses one for it -- reviewed and KEPT
+#          in phase 6 session 2. What it needs, in order: a DEPTH in the
+#          result namespace and the stem (two points of the ladder write one
+#          `latest.json` today), a depth slot in `report/sweep.py`'s point
+#          spec and `_point_cfg` (which pins arch/model/K and has nowhere to
+#          put a fourth axis), and a dependent eval from `hpc/run_all.sh`,
+#          which short-circuits this axis. None of that is the blocker: the
+#          ladder is 7 scales x the arms of COLD mappings, so the figure could
+#          not be LOOKED AT when it was built, and phase 6's own rule is that
+#          every figure is reviewed by eye. Map the ladder first, then lift it.
 : "${ECC_SWEEP:=fix}"
 
 # energy | edp | latency | area   <- a Y AXIS: one figure ROW per entry, drawn
@@ -119,7 +130,12 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${ECC_METRICS:=energy}"
 
 # eyeriss_like_wglb | simple_weight_stationary | eyeriss_v2_like_wglb | eyeriss_v2_like | simple_output_stationary | simple_input_stationary | simba_like   (FIRST = held)
-: "${ECC_ARCHS:=eyeriss_like_wglb simple_weight_stationary eyeriss_v2_like simple_output_stationary simple_input_stationary simba_like}"
+#   THE THREE SCOPED DESIGNS since EnvReorganisation phase 6 (plan 6.8): the two
+#   that declare a weight GLB above the array plus the weight-stationary one.
+#   `eyeriss_v2_like_wglb` -- NOT `eyeriss_v2_like` -- is what "Eyeriss v2" means
+#   here (CLAUDE.md, the user's decision 2026-09-14); the three designs with no
+#   placements.yaml are still nameable and still draw their two reference bars.
+: "${ECC_ARCHS:=eyeriss_like_wglb simple_weight_stationary eyeriss_v2_like_wglb}"
 
 # resnet18 | mobilenet_v2 | resnet50 | efficientnet_b0 | densenet121 | squeezenet1_1 | convnext_tiny | xception   (FIRST = held; all-CNN or all-transformer, never mixed)
 : "${ECC_MODELS:=resnet18 mobilenet_v2}"
@@ -140,8 +156,20 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #   : "${ECC_WEIGHT_DEPTH_LEVELS:=filter_glb}"
 : "${ECC_WEIGHT_DEPTH_LEVELS:=}"
 
+# dev | full   <- dev = THE SIX-LAYER DEVELOPMENT SCOPE (EnvReorganisation 6.9);
+#                 full = whole models, which is what a published number is.
+#                 An explicit ECC_LAYERS below WINS over either.
+: "${ECC_SCOPE:=full}"
+case "$ECC_SCOPE" in
+  dev)  : "${ECC_LAYERS:=resnet18=conv1 layer3.0.conv1; mobilenet_v2=features.1.conv.0.0 features.9.conv.2; efficientnet_b0=features.1.0.block.0.0 features.5.0.block.1.0}" ;;
+  full) : "${ECC_LAYERS:=}" ;;
+  *)    echo "env.sh: ECC_SCOPE=$ECC_SCOPE is not 'dev' or 'full'." >&2
+        echo "  -> a typo here would silently sweep WHOLE MODELS, which is hours." >&2
+        return 1 2>/dev/null || exit 1 ;;
+esac
+
 # EMPTY = the whole model | `conv1 layer3.0.conv1` | `resnet18=conv1 fc; mobilenet_v2=features.9.conv.2`
-#   : "${ECC_LAYERS:=resnet18=conv1 layer3.0.conv1; mobilenet_v2=features.1.conv.0.0 features.9.conv.2; efficientnet_b0=features.1.0.block.0.0 features.5.0.block.1.0}"
+#                         | `resnet18.conv1` one layer of one model | `resnet18.all` that whole model
 : "${ECC_LAYERS:=}"
 
 # EMPTY = one SLURM array task per UNIT | N = bundle the units into N jobs
@@ -1184,7 +1212,7 @@ export ECC_ACC_BITS ECC_ACCOUNT ECC_ACTIVATION_BITS ECC_ALLOW ECC_APPROACHES \
        ECC_RECON_INCREMENTAL_FALLBACK_PJ ECC_RECON_INCREMENTAL_PJ_LIST \
        ECC_RECON_JSON ECC_RECON_PACKING ECC_RECON_PJ ECC_REPLOT_ONLY \
        ECC_RERUN_OPTIMISER ECC_RESULTS_DIR ECC_RUN_NOTE ECC_SEQ ECC_SIF \
-       ECC_SPLIT_READ_WRITE ECC_STATIC_ENERGY ECC_STEM ECC_SWEEP \
+       ECC_SCOPE ECC_SPLIT_READ_WRITE ECC_STATIC_ENERGY ECC_STEM ECC_SWEEP \
        ECC_SWEEP_ARCHS ECC_SWEEP_KS ECC_SWEEP_MODELS ECC_TASKFILE \
        ECC_TITLE_NOTE ECC_USE_CONTAINER ECC_VERBOSE ECC_VICTORY \
        ECC_VICTORY_SCALING ECC_WEAK ECC_WEAK_K ECC_WEAK_N ECC_WEIGHT_BITS \

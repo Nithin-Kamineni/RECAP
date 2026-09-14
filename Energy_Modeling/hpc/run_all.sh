@@ -68,6 +68,13 @@
 #                    IT CANNOT SEE THE CODE A JOB RUNS: it resolves the same
 #                    configuration and reads the same cache, but only a real
 #                    job proves the job works.
+#      --smoke       the answer to that: submit TWO real one-row jobs -- one
+#                    unit the cache already holds and one it does not -- and
+#                    print what to watch. No knobs. A cached unit returns
+#                    before `Mapper._map_now` and proves only the CACHE path,
+#                    which is how a broken cold-map import survived three
+#                    phases of "one real job before the matrix" (phase 6
+#                    session 1). Both halves, or neither.
 #
 #  ECC_SWEEP=area MAPS THE LADDER AND SUBMITS NO EVALUATION, deliberately: the
 #  depth sweep is a property of the MAPPINGS, and an eval job over it would
@@ -114,6 +121,7 @@ while [ $# -gt 0 ]; do
         --replot)    MODE=replot ;;
         --local)     MODE=local ;;
         --dry-run)   MODE=dry ;;
+        --smoke)     MODE=smoke ;;
         -h|--help)   usage; exit 0 ;;
         *) echo "hpc/run_all.sh: unknown option '$1'" >&2; usage >&2; exit 2 ;;
     esac
@@ -306,6 +314,32 @@ submit_map() {
         hpc/map.sbatch
 }
 
+# TWO REAL JOBS, ONE CACHED UNIT AND ONE COLD ONE. It is `submit_map` with a
+# two-row task file: the same sbatch, the same map.sbatch, the same arch pin,
+# so what it proves is what a matrix would do and not a special path.
+submit_smoke() {
+    pin_archs >/dev/null
+    mkdir -p "$(dirname "${ECC_TASKFILE}")" hpc/logs
+    local snap tmp n
+    snap="hpc/.runtime/smoke.$$.txt"
+    tmp="${snap}.part"
+    _units --tasks --smoke > "${tmp}"
+    mv "${tmp}" "${snap}"
+    n=$(awk 'NF {print $1}' "${snap}" | sort -un | wc -l)
+    [ "${n}" -gt 0 ] || {
+        echo "hpc/run_all.sh --smoke: this configuration enumerates no units" >&2
+        exit 2; }
+    sbatch --parsable \
+        --job-name=ecc-smoke \
+        --account="${ECC_ACCOUNT}" --qos="${ECC_QOS}" --partition="${ECC_PARTITION}" \
+        --cpus-per-task="${ECC_MAP_CPUS}" --mem="${ECC_MAP_MEM}" \
+        --time="${ECC_MAP_TIME}" \
+        --array="0-$((n - 1))" \
+        --output="hpc/logs/ecc-smoke.%A_%a.out" \
+        --export=ALL,ECC_TASKFILE="${PWD}/${snap}",ECC_ARCH_PIN_DIR="${ECC_ARCH_PIN_DIR}" \
+        hpc/map.sbatch
+}
+
 submit_eval() {
     local dep=()
     [ -n "${1:-}" ] && dep=(--dependency="afterok:$1")
@@ -358,6 +392,19 @@ case "${MODE}" in
         echo "  --dry-run CANNOT SEE THE CODE A JOB RUNS. It resolves the same"
         echo "  configuration and reads the same cache; only a real job proves the"
         echo "  job works. Smoke ONE cached unit before a matrix."
+        ;;
+    smoke)
+        banner
+        echo "--smoke: TWO real jobs -- the cache path and the MAPPER path."
+        _units --smoke
+        echo
+        SMOKE=$(submit_smoke)
+        echo "smoke job ${SMOKE}   log: hpc/logs/ecc-smoke.${SMOKE}_*.out"
+        echo "  task 0 = the CACHED unit, task 1 = the COLD unit (order above)."
+        echo "  watch : sacct -j ${SMOKE} -n --format=JobID%20,State,Elapsed"
+        echo "  read  : tail -40 hpc/logs/ecc-smoke.${SMOKE}_*.out"
+        echo "  BOTH must COMPLETE before a matrix. A cached unit returns"
+        echo "  before Mapper._map_now and proves nothing about mapping."
         ;;
     eval)
         banner

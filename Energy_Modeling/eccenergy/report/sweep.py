@@ -88,9 +88,31 @@ NOTHING_AT_THIS_POINT = frozenset({
 
 # ----------------------------------------------------------------- the points
 def _bch_points(cfg):
-    """x = code strength, on the held design and network."""
+    """x = code strength, on the held design and network.
+
+    ORDERED BY THE AXIS, NOT BY `ECC_KS`. The knob's FIRST entry is the value
+    every other axis HOLDS, so its order is "the one I want held, then the
+    rest" -- at env.sh's default `39 57 45 30` that draws 39, 57, 45, 30, which
+    is not a code-strength axis at all. Sorting by K DESCENDING puts increasing
+    strength left to right, and with it increasing BER (1.5, 5, 6.5, 9.5 %),
+    which is the direction the group labels already read in.
+
+    IT ONLY BECAME A DEFECT IN PHASE 6. Until the abstract `recon` arm was
+    retired, no bar on this figure moved with K -- the two reference bars still
+    do not, because the baseline pays a dearer per-bit DRAM PRICE and the
+    embedded arm stores no external parity, so neither depends on the code
+    (session 1 measured this). An unordered axis under bars that are all flat
+    hides nothing. Now that every reconstruction bar is a real chip mapped at
+    its own code, the trend IS the figure, and reading it 39 -> 57 -> 45 -> 30
+    makes a monotonic result look like noise. Found by LOOKING at the figure,
+    which is what phase 6 asks for.
+
+    The HELD value is untouched: `cfg.const_k` is resolved from `ECC_KS`' first
+    entry in `config.py` and nothing here can move it.
+    """
+    order = sorted(cfg.sweep_ks, key=lambda k: -int(k))
     return ([(k, cfg.const_arch, cfg.const_model, k, k_label(cfg, k))
-             for k in cfg.sweep_ks], 15)
+             for k in order], 15)
 
 
 def _model_points(cfg):

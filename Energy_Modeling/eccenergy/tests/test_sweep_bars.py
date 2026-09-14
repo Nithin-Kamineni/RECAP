@@ -102,11 +102,24 @@ def test_a_design_that_does_not_declare_a_boundary_drops_the_bar(cfg, capsys):
 
 
 def test_a_boundary_the_design_has_not_got_is_never_a_refusal(cfg):
-    """`eyeriss_v2_like_wglb` declares four; asking for five must not stop."""
+    """`simple_weight_stationary` declares four; asking for five must not stop.
+
+    The witness was `eyeriss_v2_like_wglb` until EnvReorganisation phase 6
+    (2026-09-14). That design has five boundaries now -- it gained the weight
+    GLB its weight path always named -- while simple_weight_stationary came
+    down to four, its MAC-input boundary on the depth-1 latch withdrawn. The
+    designs swapped places; the rule under test did not move.
+    """
+    arch = "simple_weight_stationary"
     c = cfg(ECC_APPROACHES="baseline embedded recon5",
-            ECC_ARCHS="eyeriss_v2_like_wglb", ECC_CONST_ARCH="eyeriss_v2_like_wglb")
-    assert c.bar_arms_for("eyeriss_v2_like_wglb", warn=False) == [
-        "baseline", "embedded"]
+            ECC_ARCHS=arch, ECC_CONST_ARCH=arch)
+    assert c.bar_arms_for(arch, warn=False) == ["baseline", "embedded"]
+    # ...and the design that DOES declare five still draws it, so this is not
+    # passing because the name is unknown everywhere
+    five = "eyeriss_v2_like_wglb"
+    c5 = cfg(ECC_APPROACHES="baseline embedded recon5",
+             ECC_ARCHS=five, ECC_CONST_ARCH=five)
+    assert c5.bar_arms_for(five, warn=False) == ["baseline", "embedded", "recon5"]
 
 
 # ----------------------------------------------------- 3. a missing bar is not 0

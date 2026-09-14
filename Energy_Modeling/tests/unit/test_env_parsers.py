@@ -131,6 +131,53 @@ def test_ecc_layers_has_two_spellings_and_they_may_not_be_mixed():
         env._scoped_list("X")
 
 
+def test_ecc_layers_third_spelling_is_model_dot_layer():
+    """EnvReorganisation phase 6 (the user's ask, 2026-09-14): `resnet18.conv1`
+    is one layer of one model and `resnet18.all` is that model whole, without
+    the `=`/`;` punctuation. It resolves to the SAME per-model table, so
+    nothing downstream learns a third shape.
+
+    THE MODEL LIST HAS TO BE PASSED IN. Layer names contain dots
+    (`layer3.0.conv1`) and model names do not, so "the text before the first
+    dot is a known model" IS the rule that tells the two apart -- and
+    `settings/env.py` may not reach for that list itself.
+    """
+    models = ("resnet18", "mobilenet_v2")
+    set_env(X="resnet18.conv1")
+    assert env._scoped_list("X", models=models) == ([], {"resnet18": ["conv1"]})
+    # a layer name with dots of its own survives: the split is on the FIRST dot
+    set_env(X="resnet18.layer3.0.conv1")
+    assert env._scoped_list("X", models=models) == (
+        [], {"resnet18": ["layer3.0.conv1"]})
+    # `all` in the layer's place is the whole model -- an empty list, exactly
+    # what a sparse `=` table means
+    set_env(X="resnet18.all")
+    assert env._scoped_list("X", models=models) == ([], {"resnet18": []})
+    # several models at once
+    set_env(X="resnet18.conv1 mobilenet_v2.features.9.conv.2")
+    assert env._scoped_list("X", models=models) == (
+        [], {"resnet18": ["conv1"], "mobilenet_v2": ["features.9.conv.2"]})
+
+    # A BARE LAYER NAME IS STILL A BARE LAYER NAME. `layer3.0.conv1` has dots
+    # but `layer3` is not a model, so it must not be read as the dotted form --
+    # this is the whole reason `models` exists.
+    set_env(X="conv1 layer3.0.conv1")
+    assert env._scoped_list("X", models=models) == (
+        ["conv1", "layer3.0.conv1"], {})
+    # ...and WITHOUT the model list, nothing is ever the dotted form
+    set_env(X="resnet18.conv1")
+    assert env._scoped_list("X") == (["resnet18.conv1"], {})
+
+    # BREAKAGE: the spellings may not be mixed, exactly as the `=` form refuses
+    set_env(X="conv1 resnet18.conv1")
+    with pytest.raises(ConfigError):
+        env._scoped_list("X", models=models)
+    # BREAKAGE: `.all` and a named layer of the SAME model contradict
+    set_env(X="resnet18.all resnet18.conv1")
+    with pytest.raises(ConfigError):
+        env._scoped_list("X", models=models)
+
+
 def test_one_value_is_one_value_and_extras_are_refused_not_truncated():
     """A silent truncation here would hold the wrong axis fixed and nothing would
     say so; only the SWEPT axis takes a list."""

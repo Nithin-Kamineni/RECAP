@@ -1120,6 +1120,40 @@ def _constrain_mapspace(text, arch="?", quiet=False):
             touched.append(f"{name}({kind}) {','.join(pins)}")
             out.append(part)
             continue
+        # THE SAME CONSTRAINT, WRITTEN IN FLOW STYLE. `simple_weight_stationary`
+        # writes `temporal: {permutation: [P, Q, R, S]}` and
+        # `temporal: {factors: [R=1, S=1, M=1, C=1]}` on one line; every other
+        # design uses block style, which is why this went unnoticed until that
+        # design was given a free-set (EnvReorganisation phase 6 session 2).
+        # Neither block-style regex matches a `{...}` body, so the pins fell
+        # through to the `constraints:` branch below and it APPENDED A SECOND
+        # `temporal:` KEY -- duplicate-key YAML that timeloopfe rejects, and a
+        # constrained mapspace the mapper would never have seen.
+        # The search starts AFTER `constraints:` on purpose: a spatial
+        # container declares `spatial: {meshX: 16, meshY: 16}` as an ATTRIBUTE,
+        # and pinning factors into the mesh would be rewriting the array.
+        cons_at = re.search(r"\n(\s+)constraints:\s*\n", part)
+        if cons_at:
+            fm = re.compile(rf"^(\s+){kind}:\s*\{{([^}}]*)\}}", re.M).search(
+                part, cons_at.end())
+            if fm:
+                ind, body = fm.group(1), fm.group(2)
+                inner = re.search(r"factors:\s*\[([^\]]*)\]", body)
+                if inner:
+                    existing = [e.strip() for e in inner.group(1).split(",")
+                                if e.strip()]
+                    merged = ", ".join(_merge_factor_list(existing, pins))
+                    new_body = body[:inner.start(1)] + merged + body[inner.end(1):]
+                    touched.append(f"{name}({kind}, flow) {','.join(pins)}")
+                else:
+                    sep = ", " if body.strip() else ""
+                    new_body = body.rstrip() + sep + f"factors: [{', '.join(pins)}]"
+                    touched.append(
+                        f"{name}({kind}, flow + new factors) {','.join(pins)}")
+                part = part[:fm.start(2)] + new_body + part[fm.end(2):]
+                out.append(part)
+                continue
+
         # no factors: list at that kind -- create the block
         km = re.search(rf"\n(\s+){kind}:\s*\n", part)
         if km:

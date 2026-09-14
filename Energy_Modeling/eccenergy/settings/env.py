@@ -105,12 +105,14 @@ def _list(name, default="", sep=None):
     return [tok for tok in raw.replace(",", " ").split() if tok]
 
 
-def _scoped_list(name, default=""):
-    """`ECC_LAYERS`' two spellings, told apart by the `=` (EnvReorganisation 6.9).
+def _scoped_list(name, default="", models=()):
+    """`ECC_LAYERS`' THREE spellings (EnvReorganisation 6.9, extended phase 6).
 
         conv1 layer3.0.conv1                these layers, whichever model runs
         resnet18=conv1; mobilenet_v2=f.1    per MODEL; a model with no entry
                                             runs whole
+        resnet18.conv1                      ONE layer of ONE named model
+        resnet18.all                        that model, WHOLE
 
     Layer names are per network, so one bare list cannot scope a run that
     spans two of them -- a name the other model has not got is refused by
@@ -118,12 +120,48 @@ def _scoped_list(name, default=""):
     swept a whole model is the worse failure). The per-model form is how a
     development scope names two layers of each of three networks.
 
+    THE DOTTED FORM IS THE ONE A PERSON TYPES (the user's ask, 2026-09-14):
+    `resnet18.conv1` is one layer of one model without the `=`/`;` punctuation,
+    and `resnet18.all` is that whole model. It resolves to the SAME per-model
+    table as the `=` form, so nothing downstream learns a third shape.
+
+    TELLING IT APART FROM A BARE LAYER NAME IS WHY `models` IS PASSED IN.
+    Layer names contain dots (`layer3.0.conv1`, `features.9.conv.2`) and model
+    names do not, so a token is the dotted form exactly when the text before
+    its FIRST dot is a KNOWN MODEL. Without that list the rule would be a
+    guess, and `settings/env.py` may not reach for one -- `settings/run.py`
+    hands it the registry it already imports.
+
     Returns `(bare, by_model)`; at most one of the two is non-empty, because
-    the two spellings may not be mixed.
+    the spellings may not be mixed.
     """
     raw = _s(name, default).split("#", 1)[0]
     if "=" not in raw:
-        return [tok for tok in raw.replace(",", " ").split() if tok], {}
+        toks = [tok for tok in raw.replace(",", " ").split() if tok]
+        dotted = [t for t in toks
+                  if "." in t and t.split(".", 1)[0] in tuple(models)]
+        plain = [t for t in toks if t not in dotted]
+        if dotted and plain:
+            raise guards.refusal("not-a-key-value-list",
+                f"{name}: {' '.join(plain)} is a bare layer list and "
+                f"{' '.join(dotted)} is the `model.layer` form. The spellings "
+                f"may not be mixed -- a bare name means 'this layer of whichever "
+                f"model runs', which is not a statement about one network")
+        if dotted:
+            by_model, whole = {}, set()
+            for tok in dotted:
+                model, _, layer = tok.partition(".")
+                if layer == "all":
+                    whole.add(model)
+                    by_model[model] = []
+                    continue
+                if model in whole:
+                    raise guards.refusal("not-a-key-value-list",
+                        f"{name}: {model}.all asks for the whole model and "
+                        f"{tok} asks for one layer of it. Name one or the other")
+                by_model.setdefault(model, []).append(layer)
+            return [], by_model
+        return plain, {}
     by_model = {}
     for entry in raw.split(";"):
         entry = entry.strip()

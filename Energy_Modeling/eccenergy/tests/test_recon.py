@@ -1058,9 +1058,27 @@ def test_several_architectures_are_one_panel_each_and_never_one_axis():
 
     # ...and the boundary lists stay per design, which is what makes panels the
     # only honest layout: these two are NOT the same axis.
+    #
+    # THE WITNESS IS WHAT A KEY MEANS, NOT HOW MANY THERE ARE. Until
+    # EnvReorganisation phase 6 this compared the two LENGTHS (5 against 4), and
+    # that stopped witnessing anything the moment simple_weight_stationary lost
+    # its withdrawn MAC-input boundary and came to 4 as well. Equal LENGTHS are
+    # exactly the case panels exist for: `recon2` on one design is the weight
+    # GLB output and on the other it is a different stop, so drawing them on one
+    # x axis would put two unrelated boundaries at the same tick.
     ws = [p.key for p in placements_mod.placements_for("simple_weight_stationary", cfg)]
     v1 = [p.key for p in placements_mod.placements_for("eyeriss_like", cfg)]
-    assert ws != v1 and len(ws) == 5 and len(v1) == 4, (ws, v1)
+    assert len(ws) == 4 and len(v1) == 4, (ws, v1)
+    ws_reduced = {p.key: tuple(p.reduced)
+                  for p in placements_mod.placements_for("simple_weight_stationary", cfg)}
+    v1_reduced = {p.key: tuple(p.reduced)
+                  for p in placements_mod.placements_for("eyeriss_like", cfg)}
+    shared = set(ws_reduced) & set(v1_reduced)
+    assert shared, (ws, v1)
+    differ = sorted(k for k in shared if ws_reduced[k] != v1_reduced[k])
+    assert differ == sorted(shared - {"recon1"}), (
+        "every boundary key the two designs share, except the DRAM-only control, "
+        f"must reduce a DIFFERENT set of stages: {ws_reduced} vs {v1_reduced}")
     ws_stages = [s.key for s in placements_mod.stages_for("simple_weight_stationary", cfg)]
     v1_stages = [s.key for s in placements_mod.stages_for("eyeriss_like", cfg)]
     assert set(ws_stages) & set(v1_stages) == {"dram"}, (
@@ -1087,9 +1105,14 @@ def test_every_placement_space_is_valid_for_every_supported_design():
     The two tables have to be edited together (CLAUDE.md), and the failure mode
     is silent understatement rather than an error, so this runs the check on
     every registered design rather than only on the one a run happens to draw.
-    `eyeriss_v2_like_wglb` is the known exception: its weight path gained a
-    `weight_glb` stage its placement list does not reach, and it is reported
-    here instead of being evaluated with four understated boundaries.
+
+    THERE IS NO KNOWN-GAP DESIGN ANY MORE. `eyeriss_v2_like_wglb` was the
+    exception until EnvReorganisation phase 6 (2026-09-14): its weight path
+    carried a `weight_glb` stage no placement reached, because the design
+    declared the stage and not the LEVEL. The level exists now (a 24 kB weight
+    GLB, the user's decision) and its five boundaries reach every reducible
+    stage, so the exception list is empty -- and an empty exception list is the
+    point: a design added with the two tables out of step fails HERE.
     """
     from ..arch import arms
     from ..arch import placements as placements_mod
@@ -1100,12 +1123,8 @@ def test_every_placement_space_is_valid_for_every_supported_design():
     from ..study import placement_eval
     from ..toolchain import weight_stats
     cfg = _cfg()
-    expected_invalid = {"eyeriss_v2_like_wglb"}
     for arch in placements_mod.supported_archs():
         ok, detail = arms.validate_placement_space(arch, cfg)
-        if arch in expected_invalid:
-            assert not ok, f"{arch} was expected to be the known-gap design"
-            continue
         assert ok, f"{arch}: {detail['violations']}"
         # every reducible stage reached, and every reduced set a prefix
         assert not detail["reducible_stages_no_placement_reaches"], arch
@@ -1895,11 +1914,6 @@ def test_the_property_tests_also_ran_on_the_real_cache():
 def test_a_reducible_stage_no_boundary_reduces_stops_the_run():
     """The gap `feasibility()` structurally cannot see.
 
-    Since 2026-09-09 the path starts with `dram_interface`, which every
-    placement reduces, so on `eyeriss_v2_like` the prefix rule is satisfied by
-    R1 = (dram_interface,) and on the `_wglb` variant it still fails from R2
-    on: the reducible order there is dram_interface, weight_glb, mesh, ...
-
     `WEIGHT_PATHS` and `PLACEMENTS` are two tables that have to be edited
     together. Extend the path with a reducible stage and forget the boundary,
     and every placement BELOW it keeps its own saving while reporting the new
@@ -1907,11 +1921,15 @@ def test_a_reducible_stage_no_boundary_reduces_stops_the_run():
     module notices, because `feasibility()` only inspects the stages a
     placement does claim.
 
-    `eyeriss_v2_like_wglb` is that case as the module stands: its weight path
-    carries a `weight_glb` stage between DRAM and the mesh, its five placements
-    are `eyeriss_v2_like`'s and none of them reduces it. It has no mapper cache
-    yet, so it has never been run -- which is exactly why the guard has to be
-    structural rather than empirical.
+    THIS IS SHOWN ON A SYNTHETIC DESIGN, NOT ON A BROKEN REAL ONE. Until
+    EnvReorganisation phase 6 (2026-09-14) the live example was
+    `eyeriss_v2_like_wglb`, whose weight path carried a `weight_glb` stage that
+    none of its boundaries reduced. That is FIXED -- the design declares the
+    level now and its five boundaries reach every reducible stage -- so the gap
+    is constructed here instead. A test that can only fail while a real design
+    is broken stops testing anything the moment the design is fixed, and the
+    registries take a synthetic entry precisely so this does not need a real
+    defect to stand on (`_WeightPaths`, `_Placements`).
     """
     from ..arch import arms
     from ..arch import placements as placements_mod
@@ -1922,20 +1940,52 @@ def test_a_reducible_stage_no_boundary_reduces_stops_the_run():
     from ..study import placement_eval
     from ..toolchain import weight_stats
 
-    ok, detail = arms.validate_placement_space("eyeriss_v2_like")
-    assert ok is True, detail["violations"]
-    assert detail["reducible_stages_no_placement_reaches"] == [], detail
-    # ...and every boundary's reduced set really is a prefix of the path
-    assert all(row["is_a_prefix"] for row in detail["per_placement"]), detail
+    # both real v2 designs are WHOLE now -- every reducible stage reached, every
+    # reduced set a prefix
+    for arch in ("eyeriss_v2_like", "eyeriss_v2_like_wglb"):
+        ok, detail = arms.validate_placement_space(arch)
+        assert ok is True, (arch, detail["violations"])
+        assert detail["reducible_stages_no_placement_reaches"] == [], (arch, detail)
+        assert all(row["is_a_prefix"] for row in detail["per_placement"]), (arch, detail)
 
-    ok, detail = arms.validate_placement_space("eyeriss_v2_like_wglb")
-    assert ok is False
-    assert detail["reducible_stages_no_placement_reaches"] == ["weight_glb"], detail
-    assert any("weight_glb" in v for v in detail["violations"]), detail
-    # the prefix violation is named per placement, not just in aggregate
-    bad = [row["placement"] for row in detail["per_placement"]
-           if not row["is_a_prefix"]]
-    assert bad == ["recon2", "recon3", "recon4"], bad
+    # ...now EXTEND a whole design's path with one more reducible stage and
+    # leave its placements alone: exactly the edit that grows one table and
+    # forgets the other. Dropping a BOUNDARY would not do it -- the stage stays
+    # reached by every boundary below it, which is the half `feasibility()`
+    # already covers.
+    fake = "_synthetic_gap_design"
+    stages = weight_path.WEIGHT_PATHS["eyeriss_v2_like_wglb"]
+    every = placements_mod.PLACEMENTS["eyeriss_v2_like_wglb"]
+    extra = weight_path.Stage(
+        key="extra_weight_buffer", label="a second weight buffer nobody reduces",
+        kind="storage", prefixes=("extra_weight_buffer",), reducible=True,
+        evidence="synthetic: this test's whole subject")
+    at = [s.key for s in stages].index("weight_noc")
+    grown = stages[:at] + (extra,) + stages[at:]
+    weight_path.WEIGHT_PATHS[fake] = grown
+    placements_mod.PLACEMENTS[fake] = every
+    try:
+        ok, detail = arms.validate_placement_space(fake)
+        assert ok is False, detail
+        # the stage nobody reaches is named
+        assert (detail["reducible_stages_no_placement_reaches"]
+                == ["extra_weight_buffer"]), detail
+        assert any("extra_weight_buffer" in v for v in detail["violations"]), detail
+        # and the prefix violation is named PER PLACEMENT, not just in aggregate:
+        # every boundary BELOW the new stage now skips it
+        bad = [row["placement"] for row in detail["per_placement"]
+               if not row["is_a_prefix"]]
+        assert bad == ["recon3", "recon4", "recon5"], bad
+        # the boundaries ABOVE it are untouched -- which is why the understatement
+        # is silent: recon1 and recon2 keep reporting their own saving
+        good = [row["placement"] for row in detail["per_placement"]
+                if row["is_a_prefix"]]
+        assert good == ["recon1", "recon2"], good
+    finally:
+        del weight_path.WEIGHT_PATHS[fake]
+        del placements_mod.PLACEMENTS[fake]
+    # the synthetic design must not leak into the every-design check beside this
+    assert fake not in placements_mod.supported_archs()
 
 
 def test_the_placement_space_check_is_recorded_on_every_result():
@@ -1992,8 +2042,26 @@ def test_the_placement_space_check_is_recorded_on_every_result():
 
     good = recorded_for("eyeriss_v2_like")
     assert good["placement_space_covers_the_whole_weight_path"] is True, good
-    bad = recorded_for("eyeriss_v2_like_wglb")
-    assert bad["placement_space_covers_the_whole_weight_path"] is False, bad
+
+    # the FALSE side on a SYNTHETIC design, for the reason the test above gives:
+    # every real design's two tables are in step since EnvReorganisation phase 6,
+    # so a check that can only be shown false by a broken real design would stop
+    # being shown at all
+    fake = "_synthetic_gap_design_on_the_record"
+    stages = weight_path.WEIGHT_PATHS["eyeriss_v2_like_wglb"]
+    extra = weight_path.Stage(
+        key="extra_weight_buffer", label="a second weight buffer nobody reduces",
+        kind="storage", prefixes=("extra_weight_buffer",), reducible=True,
+        evidence="synthetic: this test's whole subject")
+    at = [s.key for s in stages].index("weight_noc")
+    weight_path.WEIGHT_PATHS[fake] = stages[:at] + (extra,) + stages[at:]
+    placements_mod.PLACEMENTS[fake] = placements_mod.PLACEMENTS["eyeriss_v2_like_wglb"]
+    try:
+        bad = recorded_for(fake)
+        assert bad["placement_space_covers_the_whole_weight_path"] is False, bad
+    finally:
+        del weight_path.WEIGHT_PATHS[fake]
+        del placements_mod.PLACEMENTS[fake]
 
 
 
@@ -2320,7 +2388,13 @@ _EXPECTED_ERT_ARMS = {
     "eyeriss_like_wglb": ("recon2", "recon4"),
     "eyeriss_like": ("recon3",),
     "eyeriss_v2_like": ("recon3",),
-    "eyeriss_v2_like_wglb": ("recon3",),
+    # EnvReorganisation phase 6 (2026-09-14): was ("recon3",), when this design
+    # declared a `weight_glb` STAGE with no level under it and its boundaries
+    # skipped the buffer entirely. With the 24 kB weight GLB declared, its
+    # injectable set is exactly eyeriss_like_wglb's and for the same two
+    # reasons -- recon2 is the weight-GLB read port, recon4 the scratchpad write
+    # port -- which is the shape a design with a weight GLB above the array has.
+    "eyeriss_v2_like_wglb": ("recon2", "recon4"),
     "simple_weight_stationary": ("recon2", "recon3", "recon4"),
 }
 

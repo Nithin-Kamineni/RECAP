@@ -21,11 +21,17 @@ stages:
     reducible: true
     evidence: "the decoder is on the DRAM die and off the fetch path, so only the k message bits of each n-bit codeword are read out and driven off the die: the whole per-bit DYNAMIC access constant carries k of every n bits under every boundary (01_project_context Sec. 1 and Sec. 4). The DRAM access is designed to fetch only the message bits of each codeword. The f_if array/interface split was removed 2026-09-09."
   - key: "weight_glb"
-    label: "Weight global buffer"
+    label: "Weight global buffer (24 kB)"
     kind: "storage"
     prefixes: ["weight_glb"]
     reducible: true
-    evidence: "the variant's extra weight level; NOT in the v2 paper -- see archs/eyeriss_v2_like_wglb/README.md"
+    evidence: "the variant's weight global buffer, added 2026-09-14: 16 GLB clusters x one 1.5 kB weight bank = 24 kB. NOT IN JETCAS 2019 -- the paper's 192 kB GLB is fully accounted for by Sec. III-D's iact (72 kB) and psum (120 kB) banks, and in the published v2 weights are not stored in the GLB at all. The earlier v2 designs this study verifies against do carry one beside the routers; the bank SIZE is the paper's own (its iact banks are 1.5 kB) so the capacity is derived from a published number rather than chosen. It keeps Weights alone (`dataspace: {keep: [Weights]}`), so every bit of its energy is weight energy, which is what lets it declare the arm's `datawidth: q`. See archs/eyeriss_v2_like_wglb/README.md and provenance.yaml."
+  - key: "weight_noc"
+    label: "Weight routers (288 B in flight)"
+    kind: "storage"
+    prefixes: ["weight_noc"]
+    reducible: true
+    evidence: "JETCAS 2019 Sec. III-C: 3 weight routers per GLB cluster, each router port with 'a bitwidth of 24 bits'. 16 clusters x 3 routers x 2 ports = 96 ports x 24 b = 2304 b = 288 B of state in flight. Until 2026-09-14 this level was 64 kB and carried the whole weight-reuse argument, because the variant had no weight GLB for that reuse to live in; `weight_glb` above is that buffer now, so this level is the transport it is named for. It is a STORAGE stage rather than a network one because Timeloop maps it as a storage level -- it is the routers' state, not a fanout."
   - key: "inter_cluster_mesh"
     label: "Inter-cluster mesh (HM-NoC)"
     kind: "network"

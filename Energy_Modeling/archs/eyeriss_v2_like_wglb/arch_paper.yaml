@@ -62,8 +62,19 @@ architecture:
   # 1.5 kB (-> 72 kB) and four psum banks of 1.875 kB (-> 120 kB).
   # iacts and psums live in PHYSICALLY SEPARATE SRAM in v2, so
   # they are two parallel storage levels, not one shared GLB.
-  # Weights are NOT stored in the GLB in v2: they stream from
-  # DRAM through the weight routers straight into the PE spads.
+  #
+  # THE WEIGHT GLB IS THIS VARIANT'S ONE ADDITION (2026-09-14).
+  # JETCAS 2019's own 192 kB is fully accounted for by the iact
+  # and psum banks above -- in the PUBLISHED v2 weights are not
+  # stored in the GLB at all, they stream from DRAM through the
+  # weight routers straight into the PE spads.  The earlier v2
+  # designs this study is verifying against DO carry a weight
+  # global buffer beside the routers, and that is what
+  # `weight_glb` below is.  It is sized by the paper's OWN bank
+  # organisation -- one weight bank per GLB cluster, at the same
+  # 1.5 kB the iact banks use -- so the capacity is derived from
+  # a published number rather than chosen.  It is a DIVERGENCE
+  # and provenance.yaml marks it one; see README.md.
   # ------------------------------------------------------------
   - !Parallel
     nodes:
@@ -94,25 +105,49 @@ architecture:
       constraints:
         dataspace: {keep: [Outputs], bypass: [Weights, Inputs]}
 
-    - !Component # weight NoC reuse proxy -- NOT a buffer in the paper.
-      # See README.md: this level stands in for the 3 weight routers per GLB
-      # cluster, which let one DRAM fetch feed many PE clusters. Timeloop's
-      # example-design flow has no router primitive, so without a level here
-      # every weight tile must be refetched from DRAM on each outer temporal
-      # iteration. Sized at 64 kB, comparable to v1's total filter-spad
-      # capacity, so the comparison isolates the missing reuse level rather
-      # than handing v2 extra capacity.
-      name: weight_noc
+    - !Component # weight GLB: 16 clusters x 1 weight bank x 1.5 kB = 24 kB
+      # NOT IN JETCAS 2019 -- see the block comment above and README.md. The
+      # bank SIZE is the paper's own (Sec. III-D's iact banks are 1.5 kB); the
+      # bank COUNT is one per GLB cluster, the same 16 the weight routers are
+      # distributed over. Declared here, reshaped per ECC arm from
+      # archs/eyeriss_v2_like_wglb/widths.yaml by arch.patch._set_weight_geometry().
+      name: weight_glb
       class: smartbuffer_SRAM
       attributes:
-        depth: 8192          # 8192 x 64b = 64 kB -> 65536 8-bit weights
+        depth: 3072          # 3072 x 64b = 196608 b = 24576 B = 24 kB
         width: 64
-        n_banks: 16          # 16 GLB clusters, one weight port each
-        datawidth: 8
-        read_bandwidth: 16
+        n_banks: 16          # 16 GLB clusters, one weight bank each
+        datawidth: 8         # Table IV: "weights & iacts: 8b fixed-point"
+        read_bandwidth: 16   # one 8b weight per bank per cycle
         write_bandwidth: 16
       constraints:
         dataspace: {keep: [Weights], bypass: [Inputs, Outputs]}
+
+  # ------------------------------------------------------------
+  # The weight routers, IN SERIES BELOW THE WEIGHT GLB.
+  #
+  # Sec. III-C: each GLB cluster has 3 weight routers, and every
+  # router port "has a bitwidth of 24 bits".  With 2 ports per
+  # router that is 16 x 3 x 2 = 96 ports of 24 b = 2304 b = 288 B
+  # of state in flight -- a ROUTER stage, not a buffer.
+  #
+  # Until 2026-09-14 this level was 64 kB and carried the whole
+  # weight-reuse argument on its own, because the variant had no
+  # weight GLB for the reuse to live in.  It has one now, so this
+  # level is what its name always said it was.  The reuse level
+  # is `weight_glb` above; this is the transport below it.
+  # ------------------------------------------------------------
+  - !Component
+    name: weight_noc
+    class: smartbuffer_RF_decoded
+    attributes:
+      depth: 96            # 96 ports x 24b = 2304 b = 288 B
+      width: 24            # Sec. III-C: "a bitwidth of 24 bits" per port
+      datawidth: 8         # three dense 8-bit weights per 24b port word
+      read_bandwidth: 3    # one 24b port word = 3 dense 8-bit weights / cycle
+      write_bandwidth: 3
+    constraints:
+      dataspace: {keep: [Weights], bypass: [Inputs, Outputs]}
 
   # ------------------------------------------------------------
   # 16 PE clusters (physically an 8x2 array, Table II).  Flattened

@@ -258,3 +258,37 @@
 	    recon_ert/manifests/ReconSweep_optimiser__resnet18.json/recon_idle_note: 'prompt_6 RULE 3: Reconstruction = codewords x incremental + idle x cyc' -> 'prompt_6 RULE 3: Reconstruction = codewords x incremental + idle x cyc'
 	    recon_ert/manifests/ReconSweep_optimiser__resnet18.json/title_caveats[10]: "R-6 build_stacks()'s `recon` ARM IS NOT A PLACEMENT. It is one point a" -> 'R-6 THE ABSTRACT `recon` ARM IS RETIRED (EnvReorganisation phase 6, 20'
 	    validate/manifests/validate.json/config/approaches: string list 3 -> 7 entries
+2026-09-14T20:16:44Z	EnvReorganisation phase 6 (session 2): fingerprints.tsv RE-TAKEN BY HAND, with the user's decision (2026-09-14), for TWO designs this phase deliberately changed. `--accept-record` cannot take a moved fingerprint and must not be able to; this is the session-1 precedent (the banner lines) applied to item 1, and it is recorded here with the full per-design accounting rather than applied silently. NO ENERGY, LATENCY OR CYCLE NUMBER MOVED: gate items 2-5 were byte-identical on the same run, and item 6 grew 527 -> 535 passed / 10 skipped.
+	  WHY EACH DESIGN MOVED (all four causes were stated BEFORE the gate was re-run):
+	    simple_weight_stationary  51 -> 45 rows
+	        (1) recon5 WITHDRAWN -- the boundary on the depth-1 `weight_reg` latch, which
+	            the user ruled out for every architecture. Its SIX `REFUSED` rows are gone,
+	            not changed: golden had 6, fresh has 0. The arm no longer exists.
+	        (2) `mapspace_free_levels:` declared (prompt_3). It reaches the patched YAML,
+	            so it re-fingerprints every remaining row of this design. That is the knob
+	            working: an unconstrained search and a constrained one are different
+	            accelerators and must not share a mapper cache.
+	    eyeriss_v2_like_wglb      45 -> 51 rows
+	        (3) arch_paper.yaml gained a 24 kB `weight_glb` level and `weight_noc` was
+	            resized from 64 kB to the 288 B its routers actually hold. A level added
+	            to the chip re-fingerprints the design outright.
+	        (4) four boundaries became five, so its arm rows are a different SET. recon2
+	            is the weight-GLB output now, which is what ECC_RECON_DEFAULT=recon2 has
+	            been documented to mean on every other design.
+	        (2) also applies: this design was given a free-set too.
+	  WHAT DID NOT MOVE, verified row by row:
+    eyeriss_like                  45 ->  45 rows   IDENTICAL
+    eyeriss_like_wglb             51 ->  51 rows   IDENTICAL
+    eyeriss_v2_like               45 ->  45 rows   IDENTICAL
+    eyeriss_v2_like_wglb          45 ->  51 rows   MOVED
+    simba_like                    21 ->  21 rows   IDENTICAL
+    simple_input_stationary       21 ->  21 rows   IDENTICAL
+    simple_output_stationary      21 ->  21 rows   IDENTICAL
+    simple_weight_stationary      51 ->  45 rows   MOVED
+	    _components_digest 91e7f4dbe0b6 and _config_hash e390be6e: both UNCHANGED, so no
+	    shared component and no configuration key moved underneath any of this.
+	  eyeriss_like_wglb IS THE ONE THAT MATTERS: every published number in FINDINGS comes
+	  from it, and all 51 of its rows are byte-identical. It also proves the one code
+	  change in this re-take's path -- `_constrain_mapspace` learning flow-style
+	  `temporal: {...}` constraint blocks -- touched no design that writes them in block
+	  style, which is every design but simple_weight_stationary.

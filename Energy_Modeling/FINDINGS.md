@@ -62,7 +62,7 @@ reach and `ModelSweep` not at all (§6.1) — none of the three is a model total
 | 5′ **full-model placement study, two networks** | ✅ **2026-09-11**, §2.10: resnet18 (12 shapes) and mobilenet_v2 (31 shapes), all three arms cached; idle engines are the UTILIZED PEs (Timeloop's own rule), PE differences reported per shape; figures `ReconSweep_optimiser__<model>.png` |
 | convergence of the mapper search | ✅ solved by constraining the mapspace, not by raising the budget (§2.2) |
 | Eyeriss v1 = `eyeriss_like_wglb` | DECIDED 2026-09-10, registered, validates |
-| placement study on other designs | not started; `eyeriss_v2_like_wglb` refused until its GLB boundary exists (prompt_6 Appendix B) |
+| placement study on other designs | **in progress, EnvReorganisation phase 6 (2026-09-14)**: the three scoped designs are `eyeriss_like_wglb` (5 boundaries), `simple_weight_stationary` (4 — its MAC-input boundary on the depth-1 latch is WITHDRAWN) and `eyeriss_v2_like_wglb` (5 — it declares the weight GLB its weight path always named). All three now pass `validate_placement_space()`; see §2.11 |
 | 6 **TIME in the mapper** (prompt_7 Phase C) | ✅ **C1 authored and validated 2026-09-13**, §3.9 — off-chip limit, per-dataspace scale, bit-aware port, per-design clock, MAC price in the ERT, banked SRAM. **EVERY CACHE IS COLD ON PURPOSE**; C2 is the 186-job pass that refills it. Pre-tested on one `fc` shape: −37.6 % cycles and a different plan |
 | transformer workload (prompt_7 Phase D) | ❌ **dropped 2026-09-13**, the user's call — this study is about CNNs. The 52.4 % ceiling stays a PROJECTION with two independent derivations (§4.5, A.6) and the measured `fc`-layer result beside it |
 
@@ -489,6 +489,88 @@ Caveats: prices and dataflow as §2.9; `mobilenet_v2` was mapped under a mapspac
 written for resnet18's shapes (prompt_3), which is why the depthwise layers use 18–126 PEs
 on every arm; percentages are against each network's own embedded bar and are not
 comparable across the two panels.
+
+
+### 2.11 Two designs were declaring boundaries their silicon could not hold
+
+EnvReorganisation phase 6 (2026-09-14) put the placement study on three designs
+instead of one. Neither of the two new ones was wrong in the way it looked
+wrong, and in both cases **the two tables that define the placement space were
+telling the truth and the ARCHITECTURE was not** — which is the opposite of the
+failure `validate_placement_space()` was written to catch.
+
+**`simple_weight_stationary` declared a boundary on a pipeline latch.** Its
+`recon5` — "reconstruct at the MAC input" — reduced `weight_reg`, the design's
+depth-1, 8-bit stationary register between the scratchpad and the MAC. Two
+independent parts of the project had already concluded it was impossible and
+had never been put side by side:
+
+* the study's own: rebuilding one weight needs the retained bits of
+  `G_rec = 9` co-resident weights and the register holds **one**;
+* the geometry code's: `arch.patch._weight_level_parts()` will not declare
+  `datawidth: q` on a depth-1 level at all — *"a pipeline latch, not a reuse
+  level"* — so every arm of that boundary raised `ECC_WEIGHT_DATAWIDTH_LEVELS
+  names weight_reg, which simple_weight_stationary has no weight-carrying level
+  called`, and the gate's golden snapshot **pinned six `REFUSED` rows** as the
+  expected behaviour.
+
+The boundary is **withdrawn** (the user's decision: the latch-at-the-end
+approach is not to be considered in any architecture). `weight_reg` stays a
+*stage* of the weight path — the level carries real Weights energy and a level
+no stage claims fails `cross_check()` — and is `reducible: false`. R4a is the
+innermost boundary the design admits, and it has four.
+
+**`eyeriss_v2_like_wglb` declared a stage with no level under it.** Its weight
+path carried a `weight_glb` stage whose prefix matched **nothing**: the design's
+levels were `iact_glb`, `psum_glb`, `weight_noc`, … and there was no weight GLB
+in the arch YAML at all. The visible symptom was the placement-space check
+(four violations, `weight_glb` reduced by no boundary), but the real one was
+worse and had never fired: the 64 kB weight level's energy would have come back
+**unclaimed**, and `cross_check()` would have failed on the first real
+evaluation. Nobody had seen it because the design has never been evaluated.
+
+The fix was in the architecture, not the placement list: the earlier Eyeriss v2
+designs this study verifies against carry a weight global buffer beside the
+routers, so `arch_paper.yaml` now declares one — **24 kB, 16 GLB clusters × one
+1.5 kB weight bank**, the paper's own bank size — and `weight_noc` is sized as
+the routers it is named for, **288 B** from Sec. III-C's 24-bit ports
+(16 × 3 routers × 2 ports). It is a stated divergence from JETCAS 2019, whose
+192 kB GLB is fully accounted for by iact and psum banks; `provenance.yaml`
+marks it `diverges_from_paper: true` and every figure carries the README's
+"diagnostic variant" label.
+
+**What that bought, beyond the design validating.** Its ERT-injectable set is
+now `('recon2', 'recon4')` — exactly `eyeriss_like_wglb`'s, and for the same two
+reasons, a weight-GLB read port and a scratchpad write port. And `recon2` means
+the same thing on all three designs: *reconstruct at the weight global buffer*,
+which is what `ECC_RECON_DEFAULT=recon2` has been documented to mean since
+phase 6 session 1. Before this it was "at the destination-cluster boundary" on
+this design, so the default reconstruction bar meant something different per
+panel and nothing said so.
+
+**The width tables needed no change, and that is now measured.** All three
+designs' `widths.yaml` are byte-identical; what was unverified was whether those
+widths are legal for each design's *own* levels. Every weight level of every
+design, patched at every `q` the table declares, satisfies
+`width % datawidth == 0` — the one rule `timeloop-mapper` imposes
+(`buffer.cpp:302`, no floor path, `exit=134`) — and every arm declares the same
+depth. Two things worth having measured fell out of it: `weight_reg` stays at
+width 8 / datawidth 8 on **every** arm, which is the geometry code independently
+confirming the withdrawn boundary could never have been declared; and depth
+renormalisation preserves total bits exactly on the two new v2 levels
+(512 × 384 b = 24 kB, 6 × 384 b = 288 B).
+
+**A free-set is not optional, and the cost of not having one is measurable.**
+Only `eyeriss_like_wglb` declared `mapspace_free_levels:`; `arch/patch.py` only
+*prints* a note for a design without one, so an unconstrained search looks like
+a normal run. Asked to solve `resnet18/conv1` on `simple_weight_stationary`
+unconstrained (`random_pruned`, timeout 2000 — the regime its cached maps were
+solved under), the mapper had produced **no output at all after 90 minutes**.
+Both free-sets are now written from each design's own cached maps, per
+prompt_3: 593 maps tallied for `simple_weight_stationary`, 38 for
+`eyeriss_v2_like_wglb`, per level, for which dimensions the unconstrained mapper
+actually split there. The counts sit in each `design.yaml` above the free-set,
+so the evidence travels with the declaration.
 
 
 ## §3 — Verified mechanism facts
@@ -986,8 +1068,17 @@ Each exists because it caught a reported positive that was an artifact.
    `ModelSweep.png` could not be regenerated (eyeriss_like is cold at its current
    fingerprint under the `ss20000` slug) and is stale on disk. Their manifests
    record the per-layer coverage; none is a model total.
-2. **`eyeriss_v2_like_wglb` does not validate.** Its `weight_glb` stage has no
-   boundary. prompt_6 Appendix B has the fix; out of scope until Eyeriss v1 is done.
+2. ~~**`eyeriss_v2_like_wglb` does not validate.** Its `weight_glb` stage has no
+   boundary.~~ **CLOSED 2026-09-14** (EnvReorganisation phase 6). The cause was
+   not the placement list: the design declared a `weight_glb` STAGE whose
+   prefix matched no level, because the arch YAML had no weight GLB in it at
+   all. The earlier Eyeriss v2 designs this study verifies against do carry one
+   (the user's decision), so `arch_paper.yaml` now declares a 24 kB weight GLB
+   — 16 GLB clusters × one 1.5 kB weight bank, the paper's own bank size — and
+   `weight_noc` is sized as the routers it is named for (16 × 3 routers × 2
+   ports × 24 b = 288 B) instead of standing in for the buffer at 64 kB. Its
+   five boundaries now reach every reducible stage, and its ERT-injectable set
+   is `eyeriss_like_wglb`'s. See §2.11.
 3. **`Packing.storage_scale()` and `onchip_narrowing_audit()` disagree.** The audit
    keys off the packing mode's *name*; the narrowing is a measured multiplier. Under
    `aligned` with a power-of-two `q` in a byte-multiple word, `storage_scale` returns
@@ -1001,9 +1092,23 @@ Each exists because it caught a reported positive that was an artifact.
    "recon" arm *is* the embedded arm, so a gate run that way compares embedded with
    itself and reports an effect of exactly zero. Only BCH(63,30) is affected by
    neither, which is a further reason it is the code in use.
-5. **The NoC switching term is an assumption.** 0.25 pJ per flit at v2's
+5. **`hpc/run_all.sh --local` does not pin `archs/`.** `pin_archs()` is called
+   by `submit_map` and `submit_smoke`, so a SLURM submission maps the chip it
+   was submitted with however `archs/` is edited afterwards (CLAUDE.md, "ONE
+   SUBMISSION MAPS ONE ARCHITECTURE"). `stage_map_local` — the `--local` path,
+   which walks the task file in the current process — calls neither, so it
+   reads the LIVE `archs/` for every unit. Found 2026-09-14 by doing exactly
+   that: a `--local` run was in flight when a `design.yaml` gained a
+   `mapspace_free_levels:` block, which re-fingerprints the design, so the
+   units before and after the edit would have been two different chips. Nothing
+   had landed yet so nothing was corrupted, and `map_capacity_sweep.sh` has the
+   same gap (already recorded in CLAUDE.md). The fix is one `pin_archs` call in
+   `stage_map_local`; not made here because it is launcher work and this phase
+   is the sweep renderer.
+
+6. **The NoC switching term is an assumption.** 0.25 pJ per flit at v2's
    router-cluster level and `simba_like`; no paper publishes a pJ/router.
-6. **E_background and E_refresh are not modelled** (both 0). An arm storing fewer
+7. **E_background and E_refresh are not modelled** (both 0). An arm storing fewer
    weight bits would save both, so this understates the embedded and reconstruction
    arms alike.
 

@@ -26,7 +26,7 @@ An override is **recorded**: it lands on the run manifest as `guard_overrides`
 and on the figure's caveat list. You cannot ablate by accident, and you cannot
 publish an ablation without the figure saying it is one.
 
-**139 invariants over 148 refusal sites.** tier 1 (PARSE): 29, tier 2 (IMPOSSIBLE): 106, tier 3 (COUPLING): 3, tier 4 (DERIVED): 1
+**139 invariants over 150 refusal sites.** tier 1 (PARSE): 29, tier 2 (IMPOSSIBLE): 106, tier 3 (COUPLING): 3, tier 4 (DERIVED): 1
 
 ## Tier 1 — PARSE  *(never overridable)*
 
@@ -37,11 +37,11 @@ publish an ablation without the figure saying it is one.
 | `generate-usage` | `SystemExit` | `python3 -m eccenergy.arch.generate` with no known mode | `arch/generate.py:188` |
 | `leakage-not-a-table` | `ConfigError` | a design.yaml `leakage_nw:` that is not density -> nW | `arch/design.py:318` |
 | `not-a-boolean` | `ConfigError` | a boolean knob that is not 1/0/true/false | `settings/env.py:43` |
-| `not-a-key-value-list` | `ConfigError` | an ECC_LAYERS per-model entry that is not `model=layer layer` | `settings/env.py:134` |
+| `not-a-key-value-list` | `ConfigError` | an ECC_LAYERS per-model entry that is not `model=layer layer` | `settings/env.py:145`<br>`settings/env.py:172`<br>`settings/env.py:159` |
 | `not-a-key-value-table` | `ConfigError` | an `ECC_*_LIST` entry that is not `key=number` | `settings/env.py:91` |
 | `not-a-number` | `ConfigError` | a float knob that is not a number | `settings/env.py:65` |
 | `not-an-integer` | `ConfigError` | an integer knob that is not an integer | `settings/env.py:54` |
-| `one-value-not-a-list` | `ConfigError` | a list where ONE value is meant (only the swept axis takes a list) | `settings/env.py:146` |
+| `one-value-not-a-list` | `ConfigError` | a list where ONE value is meant (only the swept axis takes a list) | `settings/env.py:184` |
 | `unknown-approach` | `ConfigError` | ECC_APPROACHES naming an arm that does not exist | `config.py:223` |
 | `unknown-arch-fidelity` | `ConfigError` | ECC_ARCH_FIDELITY naming no known fidelity | `config.py:573` |
 | `unknown-capacity-scope` | `ConfigError` | ECC_WEIGHT_CAPACITY_SCOPE naming no known scope | `config.py:533` |
@@ -134,7 +134,7 @@ publish an ablation without the figure saying it is one.
 | `noc-share-needs-band` | `ConfigError` | `noc_published_share:` without `low:` and `high:` | `arch/design.py:324` |
 | `noc-share-needs-citation` | `ConfigError` | a claim about a PUBLISHED design with no citation | `arch/design.py:327` |
 | `nothing-evaluated` | `SystemExit` | an arm that produced no result at all | `study/embedded.py:344`<br>`study/baseline.py:303 *(frozen)*` |
-| `pair-geometry` | `ValueError` | the two arms declaring a different DEPTH (real silicon one arm lacks) | `arch/patch.py:1273` |
+| `pair-geometry` | `ValueError` | the two arms declaring a different DEPTH (real silicon one arm lacks) | `arch/patch.py:1307` |
 | | | ↳ THE ONE GUARD WITH AN OVERRIDE OUTSIDE `ECC_ALLOW`: `ECC_DISABLE_ASSERT_PAIR_GEOMETRY=1` (env.sh section 4) predates the tiers and is left exactly as it was. | |
 | `panels-need-panel-models` | `ConfigError` | ECC_EXPERIMENT=panels with no ECC_PANEL_MODELS | `config.py:324` |
 | `panels-nothing-to-plot` | `SystemExit` | a panel figure with no group in any panel | `report/panels.py:368` |
@@ -158,7 +158,7 @@ publish an ablation without the figure saying it is one.
 | `sweep-k-lt-n` | `ConfigError` | an ECC_SWEEP_KS entry that is not below N | `config.py:337` |
 | `sweep-ks-empty` | `ConfigError` | ECC_SWEEP=bch with no codes | `config.py:332` |
 | `sweep-models-empty` | `ConfigError` | ECC_SWEEP=model with no models | `config.py:301` |
-| `sweep-nothing-to-plot` | `SystemExit` | a sweep figure with no group | `report/sweep.py:339` |
+| `sweep-nothing-to-plot` | `SystemExit` | a sweep figure with no group | `report/sweep.py:361` |
 | `task4-cache-cold` | `SystemExit` | Task 4 without the reconstruction arm's OWN mapping | `study/dilated_view.py:130` |
 | `task4-capacity-not-dilated` | `SystemExit` | a re-planned mapping whose weight capacity is not N/K the reference's | `study/dilated_view.py:196` |
 | `task4-shapes-differ` | `SystemExit` | Task 4's two arms mapped on DIFFERENT layer shapes | `study/dilated_view.py:149` |

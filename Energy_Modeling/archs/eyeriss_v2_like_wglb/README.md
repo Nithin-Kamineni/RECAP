@@ -11,27 +11,46 @@ so lands 47% above v1 in total energy. This variant exists to test **why**.
 
 ## What it changes
 
-One thing. The `!Nothing` weight branch is replaced by a 64 kB storage level
-named `weight_noc` that keeps `Weights`.
+The `!Nothing` weight branch is replaced by **two** levels in series, both
+keeping `Weights`:
 
-## What that level represents
+| level | size | what it is |
+|---|---|---|
+| `weight_glb` | 24 kB SRAM, 16 banks | the weight global buffer |
+| `weight_noc` | 288 B | the weight routers |
 
-Not a buffer the silicon has. It stands in for the part of v2 that
-Timeloop's dense example-design flow cannot express:
+**This is the shape since 2026-09-14** (the user's decision). Before it there
+was one level: a single 64 kB `weight_noc` that had to be the buffer *and* the
+routers at once, because the variant declared no weight GLB for the reuse to
+live in. The consequence was a weight path with a stage no boundary could sit
+at, and a reconstruction study whose `recon2` meant something different on this
+design than on every other one.
 
-> Per GLB cluster the paper has **3 weight routers (2 ports, 24 b)**, and the
-> hierarchical mesh NoC is explicitly designed so one fetched weight can be
-> broadcast or multicast to many PE clusters.
+## What those levels represent
 
-Timeloop models multicast reuse only across a *spatial* fanout under a shared
-parent. With `!Nothing`, the weight spads' parent is DRAM, so **temporal** reuse
-across the outer loop nest has nowhere to live: each outer iteration refetches
-the weight tile from DRAM. Inserting a storage level gives that reuse somewhere
-to go, which is the closest available proxy for the router network.
+**`weight_glb` — a buffer the earlier v2 designs have, and JETCAS 2019 does
+not.** The paper's Table IV "Global Buffer 192 KB" is fully accounted for by
+Sec. III-D: per GLB cluster, three 1.5 kB iact banks (72 kB) and four 1.875 kB
+psum banks (120 kB). In the *published* v2 weights are not stored in the GLB at
+all. The earlier v2 designs this study verifies against do carry a weight global
+buffer of `smartbuffer_SRAM` beside the routers, and that is what this level is.
+Its **capacity is still derived from a published number rather than chosen**:
+one weight bank per GLB cluster, at the paper's own iact bank size — 16 x 1.5 kB
+= 24 kB. It is a divergence, and `provenance.yaml` marks it one.
 
-It is sized at 65,536 8-bit weights — deliberately close to `eyeriss_like`'s
-shared GLB weight capacity — so the comparison isolates *whether the reuse level
-exists*, not *how much capacity it has*.
+**`weight_noc` — the routers, sized as routers.** Sec. III-C: 3 weight routers
+per GLB cluster, each port with "a bitwidth of 24 bits such that it can send and
+receive three 8b uncompressed iact values ... per cycle". 16 clusters x 3
+routers x 2 ports = 96 ports x 24 b = **2,304 b = 288 B of state in flight**.
+It is a storage level because that is how Timeloop maps it, not because it is a
+buffer.
+
+Why a level has to be there at all: Timeloop models multicast reuse only across
+a *spatial* fanout under a shared parent. With `!Nothing` the weight spads'
+parent is DRAM, so **temporal** reuse across the outer loop nest has nowhere to
+live and each outer iteration refetches the weight tile from DRAM. That reuse
+now lives in `weight_glb`, which is a buffer, rather than in a 64 kB level
+called a NoC.
 
 ## How to read a number from it
 
@@ -39,8 +58,8 @@ As a bound, not a measurement.
 
 - `eyeriss_v2_like` is the **pessimistic** bound: v2 with none of its reuse
   machinery modelled, on a dense workload it was never designed for.
-- `eyeriss_v2_like_wglb` is the **optimistic** bound: v2 with the weight NoC
-  credited as a full reuse level, and still with no router circuit energy
+- `eyeriss_v2_like_wglb` is the **optimistic** bound: v2 given a 24 kB weight
+  GLB the published chip does not have, and still with no router circuit energy
   charged against it.
 
 The truth for a dense workload is between them. Quote the pair, or quote
@@ -86,13 +105,13 @@ Paper fidelity
 
 `arch_paper.yaml` is what `ECC_ARCH_FIDELITY=paper` (the default) maps. It is
 generated from `../eyeriss_v2_like/arch_paper.yaml` with the `!Nothing` weight
-branch replaced by the `weight_noc` level, so the two differ in that branch and
-nothing else. It therefore also carries the corrected weight spad
+branch replaced by the `weight_glb` level and the `weight_noc` routers in series
+below it, so the two differ in that branch and nothing else. It therefore also carries the corrected weight spad
 (`width: 24` -> 288 weights/PE, per JETCAS Table IV and Sec. III-C).
 
 `arch.yaml` is kept for `ECC_ARCH_FIDELITY=stock`.
 
-Note that this variant now has **10 loop levels**, the deepest design in the
+Note that this variant now has **11 loop levels**, the deepest design in the
 study, so `ECC_VICTORY_SCALING=levels` (the default) gives it 4x the base mapper
 effort. A cold run on it is correspondingly slower — that is intentional, since
 under-searching the deepest hierarchy is exactly how a mapper artifact gets

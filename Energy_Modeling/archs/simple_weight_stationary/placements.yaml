@@ -51,12 +51,15 @@ placements:
     site_stage: "pe_spad"
     site_counter: "reads"
     description: "Sec. 6.2's R3a, rated 2/5 and the one row of the WS table rated BELOW the early boundaries. The scratchpad stores the reduced form, so its capacity and its bit-volume fall, but the encoder sits at its read port and a weight-stationary inner loop reads each resident weight hundreds of times: Sec. 6.1's illustrative '100 reduced-width RF reads and 100 reconstructions'. The design's own depth-1 stationary register does not amortize this -- the mapping fills it once per read (Timeloop's own counts), so it is a pipeline latch here, not a reuse register."
-  - key: "recon5"
-    variant: "recon_mac_input"
-    label: "R5 - reconstruct at the MAC input (stationary register reduced too)"
-    short: "R5\n@ MAC input"
-    rating: "2/5"
-    reduced: ["dram", "weight_glb", "weight_noc", "pe_spad", "weight_reg"]
-    site_stage: "weight_reg"
-    site_counter: "reads"
-    description: "Sec. 6.2's MAC row, rated 2/5: the latest boundary the design admits, with even the stationary register holding the reduced form and the encoder on the MAC's operand path. It is evaluated rather than argued away, and `feasibility()` is expected to reject it: rebuilding one weight needs the retained bits of G_rec = 9 co-resident weights and this register holds ONE, so the bits the rebuild depends on are not there. The rejection names the layers and the resident count, which is the answer to Sec. 6.2's row -- not a number produced by pretending the register is wider than the design declares."
+
+# WITHDRAWN 2026-09-14: `recon5`, "R5 - reconstruct at the MAC input", which
+# also reduced the depth-1 `weight_reg` latch. The user's decision: the approach
+# that latches at the end, before the read, is not feasible and its placements
+# are not to be considered in ANY architecture. It was never evaluable either --
+# `arch.patch._weight_level_parts()` will not declare `datawidth: q` on a depth-1
+# level ("a pipeline latch, not a reuse level"), so all six of its arms raised
+# `ECC_WEIGHT_DATAWIDTH_LEVELS names weight_reg, which simple_weight_stationary
+# has no weight-carrying level called`, and restructure/golden/fingerprints.tsv
+# pinned those six REFUSED rows. `weight_reg` is still a STAGE of the weight path
+# -- its weight energy has to be claimed -- but is `reducible: false` now.
+# R4a (`recon4`) is the innermost boundary this design admits.

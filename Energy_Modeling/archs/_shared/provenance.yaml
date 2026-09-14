@@ -627,17 +627,42 @@ eyeriss_v2_like:
       modelled: "a 2-wide SIMD container under each PE (192 PEs x 2 = 384 MACs)"
 
 eyeriss_v2_like_wglb:
-  source_document: "derived from eyeriss_v2_like; the weight level is NOT in the paper"
-  verified: 2026-09-06
+  source_document: "derived from eyeriss_v2_like; the weight GLB is NOT in JETCAS 2019"
+  verified: 2026-09-14
   levels:
-    weight_noc:
-      modelled: "8192 x 64b = 64 kB smartbuffer_SRAM on the Weights branch"
+    weight_glb:
+      modelled: "3072 x 64b = 24 kB smartbuffer_SRAM, n_banks 16, on the Weights branch"
+      diverges_from_paper: true
       rationale: >-
-        A stand-in for the 3 weight routers per GLB cluster, which let one DRAM
-        fetch feed many PE clusters. Timeloop's example-design flow has no
-        router primitive. Sized comparably to v1's total filter-spad capacity so
-        the comparison isolates the missing reuse level rather than handing v2
-        extra capacity.
+        THE VARIANT'S WEIGHT GLOBAL BUFFER, added 2026-09-14 (the user's
+        decision): the earlier Eyeriss v2 designs this study verifies against
+        carry a weight global buffer of smartbuffer_SRAM beside the weight
+        routers. JETCAS 2019 does not: its Table IV "Global Buffer 192 KB" is
+        fully accounted for by Sec. III-D's three 1.5 kB iact banks (72 kB) and
+        four 1.875 kB psum banks (120 kB) per GLB cluster, and in the published
+        v2 weights stream from DRAM through the routers straight into the PE
+        spads. The CAPACITY is nonetheless derived from a published number
+        rather than chosen: one weight bank per GLB cluster at the paper's own
+        1.5 kB bank size, 16 x 1.5 kB = 24 kB.
+      warning: "DIAGNOSTIC ONLY. Do not quote a number from this design as Eyeriss v2."
+    weight_noc:
+      modelled: "96 x 24b = 2304 b = 288 B smartbuffer_RF_decoded, in series BELOW weight_glb"
+      quote: >-
+        Sec. III-C: each iact/weight router port "has a bitwidth of 24 bits such
+        that it can send and receive three 8b uncompressed iact values or two
+        12b compressed iact run-data pairs per cycle"; Sec. III-C gives 3 weight
+        routers per GLB cluster.
+      rationale: >-
+        THE ROUTERS, at last sized as routers (2026-09-14): 16 GLB clusters x 3
+        weight routers x 2 ports = 96 ports of 24 b = 288 B of state in flight.
+        Until 2026-09-14 this level was 8192 x 64b = 64 kB of smartbuffer_SRAM
+        and carried the whole weight-REUSE argument on its own, because the
+        variant declared no weight GLB for that reuse to live in -- without some
+        level here every weight tile is refetched from DRAM on each outer
+        temporal iteration. `weight_glb` above is that buffer now, so this level
+        is the transport it is named for, and the 64 kB stand-in is withdrawn.
+        Read at ECC_ARCH_FIDELITY=paper; provenance for the 64 kB reading is in
+        git (last present at fa86c89).
       warning: "DIAGNOSTIC ONLY. Do not quote a number from this design as Eyeriss v2."
   inherits: eyeriss_v2_like
 

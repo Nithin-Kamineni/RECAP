@@ -15,7 +15,7 @@ name: eyeriss_v2_like_wglb
 # left to right in it. A new design may OMIT it and lands after the ordered
 # ones, alphabetically -- it is a presentation choice, not a registration.
 order: 3
-label: "Eyeriss v2\n(+weight NoC)"
+label: "Eyeriss v2\n(+weight GLB)"
 
 # The published design stores weights COMPRESSED and this study models it
 # DENSE. Every result carries the caveat; before phase 5 this was an
@@ -32,6 +32,51 @@ noc_published_share:
   low: 0.06
   high: 0.1
   citation: "JETCAS 2019 Sec. V / Fig. 18: the hierarchical mesh is \"6%-10% of the total energy consumption\""
+
+# prompt_3's CONSTRAINED MAPSPACE: for each loop dimension, the levels it
+# may be split across. Every level not named here is pinned to 1, which is
+# what collapses the index-factorization space to something the mapper can
+# search EXHAUSTIVELY. A design with no entry is searched unconstrained --
+# and a systematic walk of an unconstrained space is the wrong regime
+# (FINDINGS 2.2), so this is written before the design is mapped.
+#
+# WRITTEN 2026-09-14 (EnvReorganisation phase 6) FROM THIS DESIGN'S OWN MAPS.
+# It is the DEEPEST design in the study -- 11 loop levels -- so it is the one
+# an unconstrained search is least able to walk. Method: prompt_3, "Porting it
+# to another design or layer". 38 cached `timeloop-mapper.map.txt` under
+# ecc_energy_study/outputs/eyeriss_v2_like_wglb were tallied for which
+# dimensions the unconstrained mapper split at each level, most-used first:
+#
+#   C  weights_spad 38/38, PE_cluster 27, iact_glb 27, weight_noc 19, PE 18, DRAM 18
+#   M  SIMD 32, PE 30, PE_cluster 27, DRAM 23, psum_glb 21
+#   R  iact_glb 16, weights_spad 14, psum_glb 6
+#   S  PE 33, iact_glb 3, psum_glb 2
+#   P  psum_glb 25, DRAM 22, weight_noc 20, PE_cluster 15
+#   Q  weight_noc 34, psum_glb 20, PE_cluster 16
+#   N  never split (batch 1)
+#
+# THE WEIGHT ROWS OF THAT EVIDENCE BELONG TO `weight_glb` NOW. Those maps were
+# solved when `weight_noc` was a 64 kB SRAM standing in for the weight buffer
+# AND the routers at once, because the design declared no weight GLB. It
+# declares one since 2026-09-14 (24 kB; see arch_paper.yaml and README.md) and
+# `weight_noc` is 288 B of router state -- six words deep once THE WIDTH TABLE
+# renormalises it, which is a transport stage and not a tiling level. So the
+# reuse `weight_noc` used to carry (Q 34/38, P 20, C 19) is given to
+# `weight_glb`, and `weight_noc` itself takes nothing.
+#
+# EVERY DIMENSION HAS A TEMPORAL LEVEL: C/M/P/Q keep DRAM, R keeps `iact_glb`.
+# S is the one exception and it is the design's own answer -- 33 of 38 maps put
+# S on the PE fanout and none put it in a weight level -- so it stays spatial,
+# bounded by meshY 12 against S <= 7. If a shape ever comes back with nothing
+# feasible, THAT is the tell prompt_3 names, and the fix is to widen S here.
+mapspace_free_levels:
+  C: ["DRAM", "weight_glb", "PE_cluster", "weights_spad"]
+  M: ["DRAM", "PE_cluster", "PE", "SIMD"]
+  R: ["iact_glb", "weights_spad"]
+  S: ["PE"]
+  P: ["DRAM", "iact_glb", "psum_glb"]
+  Q: ["DRAM", "weight_glb", "psum_glb"]
+  N: []
 
 # ---- the core clock, in MHz ------------------------------------------------
 # no cited rate; the study's model default. config.Config.cycle_seconds_for() is the ONLY place MHz becomes

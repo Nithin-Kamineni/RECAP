@@ -17,6 +17,51 @@ name: simple_weight_stationary
 order: 4
 label: "Weight stationary"
 
+# prompt_3's CONSTRAINED MAPSPACE: for each loop dimension, the levels it
+# may be split across. Every level not named here is pinned to 1, which is
+# what collapses the index-factorization space to something the mapper can
+# search EXHAUSTIVELY. A design with no entry is searched unconstrained --
+# and a systematic walk of an unconstrained space is the wrong regime
+# (FINDINGS 2.2), so this is written before the design is mapped.
+#
+# WRITTEN 2026-09-14 (EnvReorganisation phase 6) FROM THIS DESIGN'S OWN MAPS,
+# never by copying eyeriss_like_wglb's -- v1 has no level called `pe_spad` and
+# this design has none called `filter_glb`. Method: prompt_3, "Porting it to
+# another design or layer". 593 cached `timeloop-mapper.map.txt` under
+# ecc_energy_study/outputs/simple_weight_stationary were tallied for which
+# dimensions the UNCONSTRAINED mapper actually split at each level; the levels
+# below are the ones it used, most-used first:
+#
+#   C  pe_spad 417/584, PE 340, DRAM 274, operand_glb 188, psum_glb 176
+#   M  PE 492, DRAM 347, pe_spad 339, operand_glb 187, psum_glb 142
+#   R  pe_spad 161, operand_glb 54, DRAM 32
+#   S  pe_spad 177, operand_glb 52, psum_glb 26, DRAM 23
+#   P  psum_glb 223, DRAM 211, operand_glb 134, pe_spad 101, weight_reg 85
+#   Q  DRAM 249, psum_glb 247, operand_glb 105, pe_spad 100, weight_reg 86
+#   N  never split (batch 1)
+#
+# ONE RENAME APPLIES TO THAT EVIDENCE. Those maps predate 2026-09-13, when the
+# 64 kB `operand_glb` -- which held Inputs BESIDE Weights, so Timeloop's
+# one-datawidth-per-level rule meant the reduced representation could not be
+# declared on it at all -- was split by dataspace into `weight_glb` (36 kB,
+# Weights only) and `input_glb` (28 kB, Inputs only). Its rows above are
+# therefore given to BOTH heirs, by dataspace: the weight dimensions (C, M, R)
+# to `weight_glb`, the activation dimensions (P, Q) to `input_glb`.
+#
+# EVERY DIMENSION HAS A TEMPORAL LEVEL, which is what makes this feasible
+# rather than merely small: a dimension free only at a spatial container is
+# bounded by that container's mesh, so C/M/P/Q keep DRAM and R/S keep
+# `pe_spad`. `weight_reg` is depth 1 and takes nothing -- it is a pipeline
+# latch, not a tiling level.
+mapspace_free_levels:
+  C: ["DRAM", "weight_glb", "PE", "pe_spad"]
+  M: ["DRAM", "weight_glb", "PE", "pe_spad"]
+  R: ["weight_glb", "pe_spad"]
+  S: ["pe_spad"]
+  P: ["DRAM", "input_glb", "psum_glb"]
+  Q: ["DRAM", "input_glb", "psum_glb"]
+  N: []
+
 # ---- the core clock, in MHz ------------------------------------------------
 # no silicon; the study's model default. config.Config.cycle_seconds_for() is the ONLY place MHz becomes
 # seconds; it reaches the mapper through globals_<arch>.yaml and is therefore
