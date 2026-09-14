@@ -276,7 +276,7 @@ def ert_aware_view(cfg, ses, arch, model, base_cats, ref_raw, ref_paths, placeme
             f"ECC_RECON_ERT_AWARE=1 needs {placement.key}'s OWN mapping for {arch}/{model} "
             f"({ert.describe_bump(bump)}), and it is not in the cache.\n"
             f"  expected: {ases.results.mapper_cache(arch, variant, fp, create=False)}\n"
-            f"  -> map it:  bash hpc/map_ert_arms.sh --no-eval   (one sbatch job per arm x shape)\n"
+            f"  -> map it:  bash hpc/run_all.sh --map-only   (one sbatch job per chip x shape)\n"
             f"  Refusing rather than falling back to the reference plan: that fallback IS "
             f"Task 3, and this heading says otherwise.")
     paths_a, _mapper_a = stats_paths_for(acfg, ases, arch, model)

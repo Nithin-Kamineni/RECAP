@@ -10,8 +10,8 @@
 #
 #  ONE REAL MAP PER (MODEL, HARD SHAPE), REFERENCE ARM ONLY -- minutes, before
 #  anyone commits to 6 arms x every shape x eight models (2026-09-13: that is
-#  1,452 jobs). `--dry-run` on map_ert_arms.sh cannot answer this question: it
-#  checks the configuration and submits nothing, so it is blind to the one thing
+#  1,452 jobs). `bash hpc/run_all.sh --dry-run` cannot answer this question: it
+#  checks the configuration and reads the cache, so it is blind to the one thing
 #  that costs a wave of compute, which is whether Timeloop finds a legal mapping
 #  for a shape this model has and the others do not.
 #
@@ -50,8 +50,8 @@ set --
 
 source ./env.sh
 
-# env.sh section 4 names the CNN list in a comment above ECC_RECON_MODEL; this
-# is that list, and it is the default scope.
+# The CNN list `config.CNN_MODELS` declares; this is that list, and it is the
+# default scope.
 [ "${#MODELS[@]}" -gt 0 ] || MODELS=(resnet18 resnet50 densenet121 squeezenet1_1
                                      mobilenet_v2 efficientnet_b0 convnext_tiny xception)
 NSHAPES="${ECC_SMOKE_SHAPES:-3}"
@@ -77,7 +77,9 @@ echo "smoke_models: ${#MODELS[@]} model(s) x ${NSHAPES} hard shape(s), reference
 
 for M in "${MODELS[@]}"; do
     # The hardest shapes of THIS model, one representative layer each.
-    mapfile -t LAYERS < <(ECC_RECON_MODEL="${M}" bash hpc/tl.sh python3 - "${NSHAPES}" 2>/dev/null <<'PY'
+    mapfile -t LAYERS < <(ECC_CONST_MODEL="${M}" ECC_SWEEP_MODELS="${M}" \
+                          ECC_PANEL_MODELS="" ECC_LAYERS="" \
+                          bash hpc/tl.sh python3 - "${NSHAPES}" 2>/dev/null <<'PY'
 import re, sys
 from eccenergy import config
 from eccenergy.arch import workloads
@@ -103,22 +105,34 @@ PY
     [ "${#LAYERS[@]}" -gt 0 ] || {
         echo "  !! ${M}: no layers resolved -- is it in the workload file?" >&2
         continue; }
+    # ONE TASK-FILE ROW PER SHAPE, in hpc/map.sbatch's seven-column format
+    # (EnvReorganisation phase 3): bundle, arch, model, K, depth, arm, layer.
+    # One bundle per row, so `--array=i-i` maps exactly row i.
     SNAP="hpc/.runtime/tasks.smoke.${M}.txt"
-    printf '%s %s\n' "${ECC_ARCHS}" "${M}" > "${SNAP}"
+    : > "${SNAP}"
+    I=0
+    for L in "${LAYERS[@]}"; do
+        printf '%s %s %s %s %s reference %s\n' "${I}" "$(set -- ${ECC_ARCHS}; echo "$1")" \
+            "${M}" "${ECC_CONST_K}" "${ECC_WEIGHT_DEPTH_SCALE}" "${L}" >> "${SNAP}"
+        I=$((I + 1))
+    done
+    I=0
     for L in "${LAYERS[@]}"; do
         if [ "${DRY}" = "1" ]; then
             echo "  would submit: smoke-${M}-${L}"
+            I=$((I + 1))
             continue
         fi
         jid=$(sbatch --parsable \
             --job-name="smoke-${M}-${L}" \
             --account="${ECC_ACCOUNT}" --qos="${ECC_QOS}" --partition="${ECC_PARTITION}" \
             --cpus-per-task="${ECC_MAP_CPUS}" --mem="${ECC_MAP_MEM}" --time=02:00:00 \
-            --array=0-0 \
+            --array="${I}-${I}" \
             --output="hpc/logs/smoke.%A.out" \
-            --export=ALL,ECC_RECON_MODEL="${M}",ECC_RECON_LAYER="${L}",ECC_RECON_ERT_ARM=reference,ECC_TASKFILE="${PWD}/${SNAP}" \
+            --export=ALL,ECC_TASKFILE="${PWD}/${SNAP}" \
             hpc/map.sbatch)
         echo "  job ${jid}  ${M}  ${L}"
+        I=$((I + 1))
     done
 done
 [ "${DRY}" = "1" ] || echo "  read the result with:  bash hpc/smoke_models.sh --report"

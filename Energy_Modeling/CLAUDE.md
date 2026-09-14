@@ -37,7 +37,7 @@ nobody runs. It is one command away if a future phase wants it back:
 
 ProjectRestructure §10 is still what not to do, and §9.1 says what the gate
 covered and what it could not.
-**`GUARDS.md` (generated, `make guards`) is the list of every guard** -- 136 of
+**`GUARDS.md` (generated, `make guards`) is the list of every guard** -- 133 of
 them, each with an id and a TIER. Tiers 3 and 4 are liftable by naming them in
 `ECC_ALLOW` (env.sh section 1), and an override is RECORDED on the manifest as
 `guard_overrides` and on the figure's caveat list. Tiers 1 and 2 never lift.
@@ -95,8 +95,12 @@ pre-Phase-C hash, all six distinct, nothing deleted) rather than any value.
 **THE ONE COMMAND THAT ENDS THE COLD** (Phase C2 — hours of SLURM; 6 arms ×
 the model's distinct shapes, so 72 jobs on resnet18 and 186 on mobilenet_v2):
 
-    ECC_RECON_LAYER=all ECC_RERUN_OPTIMISER=1 ECC_RECON_ERT_AWARE=1 \
-        bash hpc/map_ert_arms.sh
+    ECC_CONST_MODEL=<model> bash hpc/run_all.sh --map-only
+
+(`hpc/map_ert_arms.sh` was that command until 2026-09-14; EnvReorganisation
+phase 3 folded it, `map_by_shape.sh` and `map_depth_sweep.sh` into the one
+launcher. `--dry-run` prints the bill first, and units already in the cache
+are not submitted.)
 
 The pre-Phase-C directories are intact and are the only record of what FINDINGS
 §2.9's numbers were computed from: `fp-718d53aac189` (reference),
@@ -104,8 +108,9 @@ The pre-Phase-C directories are intact and are the only record of what FINDINGS
 `tests/test_mapper_arms.py` asserts they are still there.
 
 The placement study's numbers in FINDINGS §2.9 were produced under RULE 3 (two
-encoder terms, two denominators) from `bash hpc/map_ert_arms.sh` **at the
-pre-Phase-C fingerprints, so they are superseded rather than wrong.** The three
+encoder terms, two denominators) from `bash hpc/map_ert_arms.sh` (deleted
+2026-09-14; `hpc/run_all.sh` is the one launcher now) **at the pre-Phase-C
+fingerprints, so they are superseded rather than wrong.** The three
 sweep figures were regenerated only as far as their caches reach (FINDINGS
 §6.1); `ModelSweep.png` is stale on disk.
 
@@ -134,6 +139,7 @@ ECC_MAPPER_TIMEOUT=2000` back -- a systematic walk of an unconstrained space is 
 wrong regime (FINDINGS §2.2).
 
     bash hpc/run_all.sh          # THE command: map array -> dependent eval+plot
+    bash hpc/run_all.sh --dry-run   # the BILL: chips, shapes, cached, jobs
     bash hpc/run_all.sh --map-only | --eval-only | --replot | --local
 
 `run.sh` runs ONE stage and has no knobs of its own: `map`, `baseline`,
@@ -152,15 +158,14 @@ transfer, image build and the cost model.
 
 ## Changing a declared value is a normal thing to do
 
-**ONE SUBMISSION MAPS ONE ARCHITECTURE.** `hpc/map_ert_arms.sh` snapshots
+**ONE SUBMISSION MAPS ONE ARCHITECTURE.** `hpc/run_all.sh` snapshots
 `archs/` at submit time into `hpc/.runtime/archpin.<pid>/` and exports
 `ECC_ARCH_PIN_DIR` (env.sh section 7) to every map job and the dependent eval,
 so **editing `archs/` while an array is in flight is free** — the queued jobs
-keep mapping the chip you submitted. It prints the pin and the reference
-fingerprint when it submits; quote those two lines when a run is questioned.
-`hpc/run_all.sh` pins the same way (only the top-level submitter takes the
-snapshot; the dependent eval inherits it). `map_by_shape.sh`,
-`map_capacity_sweep.sh` and `map_depth_sweep.sh` do NOT pin yet.
+keep mapping the chip you submitted. It prints the pin when it submits; quote
+that line when a run is questioned. Only the top-level submitter takes the
+snapshot; the dependent eval inherits it. It also snapshots the TASK FILE, for
+the same reason. `map_capacity_sweep.sh` does NOT pin yet.
 Without it, an edit landing 78 seconds into a 282-job array cost the whole run
 (2026-09-13, `efficientnet_b0`): the maps solved one geometry and the eval went
 looking for another, and every layer reported `mapper failed`.
@@ -189,13 +194,14 @@ and pytest warns on it.
 filesystem rather than a pipe — a backgrounded `docker … | grep` buffers until
 the pipeline ends and looks hung when it is fine.
 
-**Fan out, don't queue.** `hpc/map_by_shape.sh` submits one job per layer SHAPE
-instead of one per model, several architectures at once, and ONE dependent eval
-after all of them. `--no-eval` submits maps only; `ECC_LAYERS` maps exactly those
-layers. Each submission snapshots the SLURM task file, because `map.sbatch`
-resolves its (arch, model) pair from it when the job RUNS. **`--array=I-I` is
-required per submission** — without it the extra tasks exit 2 and the dependent
-eval sits on `DependencyNeverSatisfied`.
+**Fan out, don't queue.** `hpc/run_all.sh` submits one job per UNIT — one CHIP
+(architecture × code × buffer depth × arm) crossed with one distinct layer
+SHAPE — and ONE dependent eval after all of them. `--map-only` submits maps
+only; `--dry-run` prints the bill and submits nothing; `ECC_JOBS` bundles the
+units into fewer jobs, walked SERIALLY inside each (so `ECC_MAP_TIME` has to
+cover the bundle). **Units already in the mapper cache are not submitted**, so
+a rerun after a failure queues only what is left. Each submission snapshots the
+task file, because `map.sbatch` resolves its rows when the job RUNS.
 
 ## One sweep, two constants
 
@@ -207,21 +213,35 @@ are never an axis. A run sweeps exactly ONE of the remaining three axes:
 | `bch` | BCH(63,K) | `ECC_SWEEP_KS` | arch, model | `BCHsweep` |
 | `model` | networks | `ECC_SWEEP_MODELS` | arch, K | `ModelSweep` |
 | `arch` | accelerators | `ECC_SWEEP_ARCHS` | model, K | `ArchitectureSweep` |
+| `fix` | **none** — the bars are `ECC_APPROACHES` | — | arch, model, K | `ReconSweep_optimiser__<model>` |
+| `area` | buffer DEPTH | `ECC_DEPTH_SWEEP_SCALES` | arch, model, K | (maps only) |
+
+**`fix` and `area` are POINT sweeps** (EnvReorganisation phase 3, 2026-09-14):
+they hold ALL THREE lists at the first entry, which is the rule every held axis
+follows, and env.sh collapses `ECC_SWEEP_*`/`ECC_CONST_*` onto that point with a
+bare `=` so a leftover in the shell cannot widen them. `fix` IS the placement
+study (`ECC_EXPERIMENT=recon`); `area` maps the depth ladder and submits no
+evaluation, because the sweep is a property of the MAPPINGS. Neither has a
+`report/sweep.py` renderer until phase 6, and `sweep-has-no-figure` says so.
 
 Nothing below `config.py` except `sweep.py` knows which axis is swept. A model
 sweep is all-CNN or all-transformer — mixing families is a config error.
 
-**`ECC_RECON_MODELING=1`** (env.sh §4) is not a fourth sweep: its axis is WHERE on
-the weight path the reconstruction boundary sits. **§4 hard-assigns `ECC_ARCHS`,
-`ECC_MODELS`, `ECC_CODE_N`, `ECC_KS` and (since 2026-09-11) `ECC_LAYERS` with a
-bare `=`**, so setting those names on the command line does nothing and does it
-silently — use the `ECC_RECON_*` spellings (`ECC_RECON_LAYER=<name>` or `all`).
-Under `RECON_OPTIMIZER=True` the figure is always
+**`ECC_SWEEP=fix`** is the placement study — the axis is WHERE on the weight
+path the reconstruction boundary sits, and the bars are what `ECC_APPROACHES`
+names (`recon` = every placement the design declares; `recon1`..`recon5` select
+a subset, and a boundary the design does not declare is a `[skip]` line, never
+a refusal). The figure is always
 `results/figures/ReconSweep_optimiser__<model>.png`, even on a one-layer run; the
 scope is in the manifest and the title, the model in the name (since 2026-09-11,
-so two networks never overwrite each other). `ECC_RECON_ARCHS` is ONE PANEL PER NAME; each panel keeps its own x
+so two networks never overwrite each other).
+**Several architectures are ONE PANEL PER NAME**; each panel keeps its own x
 axis and its own two reference bars, so a percentage on one panel says nothing
-about the other.
+about the other. `fix` holds the architecture, so the multi-panel figure is
+`ECC_EXPERIMENT=recon ECC_SWEEP=arch ECC_SWEEP_ARCHS="a b"`.
+*(`ECC_RECON_MODELING` / `RECON_OPTIMIZER` / `ECC_RECON_ARCHS` / `_MODEL` / `_K`
+/ `_LAYER` / `ECC_RECON_PLACEMENTS` were this paragraph until 2026-09-14;
+EnvReorganisation phase 3 deleted all eight.)
 
 ## The reduced representation is `datawidth`, not depth
 
@@ -240,8 +260,8 @@ reference's per-access read/write/leak.
 **`q = round(8·K/N)`.** Two places used to say `ceil`; they agree everywhere except
 BCH(63,57) (ceil 8, round 7) and BCH(63,51) (ceil 7, round 6) — and at q=8 the
 "recon" arm *is* the embedded arm, so a gate run that way compares embedded with
-itself and reports an effect of exactly zero. `hpc/map_depth_sweep.sh` and
-`study/dilation.py` both call `physics.widths.declared_datawidth()`. **`physics/packing.py`'s
+itself and reports an effect of exactly zero. `study/dilation.py` and
+`config.py`'s arm resolution both call `physics.widths.declared_datawidth()`. **`physics/packing.py`'s
 `Packing` still uses `ceil`** — it is Task 3's physical packing model — so Task 3
 narrows those two codes less than the mapping study does.
 
@@ -559,7 +579,8 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   eccenergy.toolchain.ert_probe` is the proof (FINDINGS §3.5) and writes under
   `paths.ert_probe_dir()`, never the mapper cache.
 - **An ERT arm is a configuration, not a design.** `ECC_RECON_ERT_ARM=<placement
-  key>` (set per job by `hpc/map_ert_arms.sh`) resolves in `config.py` into
+  key>` (column 6 of the task file, exported per unit by `hpc/map.sbatch`)
+  resolves in `config.py` into
   `datawidth: q` on the storage levels of that placement's `reduced` set and,
   where the boundary has one, an ERT bump derived by `arch.fingerprint.ert_bump()`. The arm
   is in the cache slug AND the fingerprint, and every entry's stored ERT is read
@@ -568,8 +589,9 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   too** -- no bump, only `ECC_MAC_PJ_OVERRIDE` on every `compute` row, `set`
   rather than `add`, so `apply_mac_override`'s ratio is exactly 1.0 and the
   mapper and the report price one MAC. `Mapper.supplies_ert` is the test, never
-  `ert_bump is not None`. `ECC_RECON_ERT_AWARE=1` (needs `RECON_OPTIMIZER=True`;
-  the result phase is derived per arm since 2026-09-14) bills each bar from its own chip's plan; the toll Timeloop
+  `ert_bump is not None`. `ECC_RECON_ERT_AWARE=1` (its `RECON_OPTIMIZER=True`
+  coupling went with that knob on 2026-09-14, and the result phase is derived
+  per arm) bills each bar from its own chip's plan; the toll Timeloop
   billed inside the level is MOVED into `Reconstruction`. Timeloop prints leakage
   outside the per-dataspace energies and the raw record never held it, so only
   the access toll is in the bill; the idle term is verified against the stats'
@@ -665,8 +687,11 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   together or not at all, which is what makes "the two tables must be edited
   together" a property of the directory rather than a warning here. Get the
   stage-to-level match right by reading a real `timeloop-mapper.stats.txt` AND
-  `timeloop-mapper.map.txt` from that design's cache. Then the name in
-  `ECC_RECON_PLACEMENTS` in env.sh §4.
+  `timeloop-mapper.map.txt` from that design's cache. Nothing else: the
+  boundaries to compare are `ECC_APPROACHES` (the abstract `recon` draws every
+  one the design declares), and a name this design has not got is a `[skip]`
+  line rather than a refusal, because two designs do not have the same
+  boundaries.
   `test_every_placement_space_is_valid_for_every_supported_design` covers the
   new design automatically, and the schema refuses a boundary that names a stage
   the weight path does not declare.
@@ -739,10 +764,15 @@ carry the rest.
     prompt_6.md         the four RULES, still in force
     prompt_7.1.md       buffer-size sweep, AFTER prompt_7
     Claude-sandbox/     throwaway experiments; never writes to the caches
-    hpc/                run_all.sh, map.sbatch, tl.sh (apptainer wrapper),
-                        map_by_shape.sh, map_ert_arms.sh (prompt_6: one job per
-                        arm x shape, one dependent eval), map_capacity_sweep.sh,
-                        map_depth_sweep.sh, summary.py, HIPERGATOR.md
+    hpc/                run_all.sh -- THE ONE LAUNCHER since 2026-09-14: it
+                        enumerates chips from ECC_APPROACHES x ECC_SWEEP, skips
+                        the units the mapper cache already holds and chains one
+                        dependent eval. map.sbatch (one array task = one BUNDLE
+                        of task-file rows), tl.sh (apptainer wrapper),
+                        map_capacity_sweep.sh, smoke_models.sh, summary.py,
+                        HIPERGATOR.md. map_by_shape.sh, map_ert_arms.sh and
+                        map_depth_sweep.sh were DELETED by EnvReorganisation
+                        phase 3; git has them
     eccenergy/          LAYERED SINCE 2026-09-13 (ProjectRestructure phase 2),
                         and the six big files CUT ALONG THEIR BANNERS (phase 3).
                         A module may import only from LOWER layers;
@@ -777,7 +807,10 @@ carry the rest.
                         becomes seconds. Frozen; `cfg.with_(...)` is the only
                         way to a different one, and it re-runs every check.
                         ABOVE arch/, which is what ended the import cycle
-      L4  toolchain/    inputs.py (what Timeloop is given), ert.py (a supplied
+      L4  toolchain/    units.py (THE UNITS OF MAPPER WORK a run needs and
+                        which are already cached -- what hpc/run_all.sh
+                        enumerates with), inputs.py (what Timeloop is given),
+                        ert.py (a supplied
                         ERT/ART, read back), cache.py (ShapeLock: one entry, one
                         writer), invoke.py (Mapper -- the ONLY module needing
                         the container), stats.py (parsing its output),

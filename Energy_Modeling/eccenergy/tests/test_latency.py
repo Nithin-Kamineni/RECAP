@@ -161,7 +161,7 @@ def _biggest_cache():
             f"DATA and will not fall back to another treatment: a different "
             f"mapspace is a different accelerator, and rule R-2 is false on the "
             f"retired unconstrained caches. Map it first "
-            f"(`bash hpc/map_by_shape.sh`), or point ECC_* at a configuration "
+            f"(`bash hpc/run_all.sh --map-only`), or point ECC_* at a configuration "
             f"whose reference arm is already solved. Treatment: {variant}")
     return fp, n
 
@@ -741,8 +741,7 @@ def main():
               f"  Between prompt_7 Phase C1 and C2 that is expected -- C1 moves\n"
               f"  every fingerprint on purpose (its gate 2). Re-run this suite\n"
               f"  after C2 collects:\n"
-              f"    ECC_RECON_LAYER=all ECC_RERUN_OPTIMISER=1 "
-              f"ECC_RECON_ERT_AWARE=1 bash hpc/map_ert_arms.sh")
+              f"    ECC_RERUN_OPTIMISER=1 bash hpc/run_all.sh --map-only")
         return 0
     fp, n = _biggest_cache()
     print(f"  cache: {fp} ({n} solved shapes)\n")

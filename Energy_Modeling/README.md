@@ -32,14 +32,15 @@ how to add a model or an architecture). This file is the operating manual.
 ```bash
 cd /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling
 module load apptainer
-bash hpc/run_all.sh
-
-ECC_RERUN_OPTIMISER=1 ECC_RECON_ERT_AWARE=1 bash hpc/map_ert_arms.sh
+bash hpc/run_all.sh --dry-run       # the bill: chips, shapes, cached, jobs
+bash hpc/run_all.sh                # map -> evaluate -> plot
 ```
 
-That reads `env.sh`, writes the `<arch> <model>` task list from
-`ECC_ARCHS × ECC_MODELS`, submits the mapping as a SLURM array
-(`hpc/map.sbatch`, one task per pair) and submits the evaluation-and-plot stage
+That reads `env.sh`, writes one task-file row per UNIT of mapper work —
+`<bundle> <arch> <model> <K> <depth> <arm> <layer>`, a CHIP (architecture ×
+code × buffer depth × arm) crossed with a distinct layer SHAPE — **skipping
+every unit the mapper cache already holds**, submits the mapping as a SLURM
+array (`hpc/map.sbatch`, one task per bundle) and submits the evaluation-and-plot stage
 with a SLURM dependency on it, so the figures are drawn by themselves the moment
 the last mapping lands. It returns immediately; `squeue -u $USER` shows both
 jobs. Output: `results/figures/`, `results/tables/`, `results/evaluation/`.

@@ -433,8 +433,8 @@ class Mapper:
                 lines.append(f"       If one of those IS the architecture you meant, "
                              f"put the YAML back the way it was and re-run; if this "
                              f"one is, the mappings have to be solved for it.")
-            lines.append(f"       build it:  ECC_RECON_LAYER=all ECC_RERUN_OPTIMISER=1 "
-                         f"ECC_RECON_ERT_AWARE=1 bash hpc/map_ert_arms.sh")
+            lines.append(f"       build it:  ECC_RERUN_OPTIMISER=1 "
+                         f"bash hpc/run_all.sh --map-only")
             lines.append(f"       (or, one architecture at a time, in the container: "
                          f"bash run.sh)")
         elif self.n_mapped == 0 and self.n_cached == 0:

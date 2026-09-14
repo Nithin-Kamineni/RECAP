@@ -8,8 +8,9 @@ the six frozen settings objects beside this module.
 Each helper turns a string into the type the knob means, and REFUSES rather than
 guessing: `ECC_VICTORY=two_thousand` is a `ConfigError` naming the knob, not a
 silent default. `_one()` refuses a list where one value is meant -- only the
-swept axis takes a list -- and `_table()` parses env.sh section 10's `key=value;`
-flattening of a bash associative array, which cannot be exported any other way.
+swept axis takes a list -- `_table()` parses env.sh section 10's `key=value;`
+flattening of a bash associative array, which cannot be exported any other way,
+and `_scoped_list()` tells `ECC_LAYERS`' bare list from its per-model form.
 
 ProjectRestructure phase 4 moved these out of `config.py`. The rule they enforce
 is unchanged and is in CLAUDE.md: NEVER read `os.environ` outside this module.
@@ -102,6 +103,40 @@ def _list(name, default="", sep=None):
     if sep:
         return [e.strip() for e in raw.split(sep) if e.strip()]
     return [tok for tok in raw.replace(",", " ").split() if tok]
+
+
+def _scoped_list(name, default=""):
+    """`ECC_LAYERS`' two spellings, told apart by the `=` (EnvReorganisation 6.9).
+
+        conv1 layer3.0.conv1                these layers, whichever model runs
+        resnet18=conv1; mobilenet_v2=f.1    per MODEL; a model with no entry
+                                            runs whole
+
+    Layer names are per network, so one bare list cannot scope a run that
+    spans two of them -- a name the other model has not got is refused by
+    `layers-not-in-model`, and it must stay refused (a typo that silently
+    swept a whole model is the worse failure). The per-model form is how a
+    development scope names two layers of each of three networks.
+
+    Returns `(bare, by_model)`; at most one of the two is non-empty, because
+    the two spellings may not be mixed.
+    """
+    raw = _s(name, default).split("#", 1)[0]
+    if "=" not in raw:
+        return [tok for tok in raw.replace(",", " ").split() if tok], {}
+    by_model = {}
+    for entry in raw.split(";"):
+        entry = entry.strip()
+        if not entry:
+            continue
+        key, sep, vals = entry.partition("=")
+        if not sep or not key.strip():
+            raise guards.refusal("not-a-key-value-list",
+                f"{name}: entry {entry!r} is not `model=layer layer`. The two "
+                f"spellings may not be mixed: either a bare list of layer "
+                f"names, or `;`-separated `model=...` entries")
+        by_model[key.strip()] = [t for t in vals.replace(",", " ").split() if t]
+    return [], by_model
 
 
 def _one(name, default=""):

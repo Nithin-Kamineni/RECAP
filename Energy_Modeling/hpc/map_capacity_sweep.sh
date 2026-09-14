@@ -42,7 +42,7 @@
 #  `fingerprint.effective_variant()` drops the slug in that case, so such a job is a
 #  cache HIT and costs seconds.
 #
-#  Structure is `hpc/map_by_shape.sh`'s, deliberately: one job per unit of
+#  Structure is the deleted `hpc/map_by_shape.sh`'s, deliberately: one job per unit of
 #  work, `hpc/map.sbatch` unchanged, the SLURM task file snapshotted per
 #  submission because map.sbatch resolves its (arch, model) pair from it when
 #  the job RUNS, and unknown flags fatal rather than falling through to a
@@ -125,18 +125,25 @@ print(f'{n} {k} {d.name}')" 2>/dev/null | tail -1)
     exit 0
 fi
 
-# One line per architecture, in ECC_ARCHS order, so `map.sbatch --array=i-i`
-# resolves architecture i. Snapshotted so a later run cannot repoint a queued
-# job at a different pair.
+# ONE ROW PER UNIT, WRITTEN HERE, in hpc/map.sbatch's seven-column format
+# (EnvReorganisation phase 3): bundle, arch, model, K, depth, arm, layer. One
+# bundle per row, so `--array=i-i` maps exactly row i. The CAPACITY scale is
+# not a column -- it is this sweep's own axis and travels in `--export`.
+# Snapshotted so a later run cannot repoint a queued job at different work.
 mkdir -p hpc/.runtime hpc/logs
-ecc_write_taskfile
 SNAP="hpc/.runtime/tasks.capsweep.$$.txt"
-cp "${ECC_TASKFILE}" "${SNAP}"
+: > "${SNAP}"
+I=0
+for A in ${ECC_ARCHS}; do
+    for S in ${ECC_CAPSWEEP_SCALES}; do
+        for L in "${LAYERS[@]}"; do
+            printf '%s %s %s %s %s reference %s\n' "${I}" "${A}" "${MODEL}" \
+                "${ECC_CONST_K}" "${ECC_WEIGHT_DEPTH_SCALE}" "${L}" >> "${SNAP}"
+            I=$((I + 1))
+        done
+    done
+done
 NARCH="$(set -- ${ECC_ARCHS}; echo $#)"
-NLINES=$(grep -cve '^[[:space:]]*$' "${SNAP}")
-[ "${NLINES}" = "${NARCH}" ] || {
-    echo "map_capacity_sweep.sh: task file has ${NLINES} line(s) for ${NARCH}" \
-         "architecture(s) -- refusing rather than mapping the wrong pair" >&2; exit 2; }
 
 NSCALE="$(set -- ${ECC_CAPSWEEP_SCALES}; echo $#)"
 echo "map_capacity_sweep: ${NARCH} design(s) x ${#LAYERS[@]} layer(s) x ${NSCALE} capacit(ies)" \
@@ -165,13 +172,13 @@ for A in ${ECC_ARCHS}; do
                 --cpus-per-task="${ECC_MAP_CPUS}" --mem="${ECC_MAP_MEM}" --time="${ECC_MAP_TIME}" \
                 --array="${I}-${I}" \
                 --output="hpc/logs/cap-shape.%A.out" \
-                --export=ALL,ECC_LAYERS="${L}",ECC_TASKFILE="${PWD}/${SNAP}",ECC_WEIGHT_CAPACITY_SCALE="${S}" \
+                --export=ALL,ECC_TASKFILE="${PWD}/${SNAP}",ECC_WEIGHT_CAPACITY_SCALE="${S}" \
                 hpc/map.sbatch)
             JOBS+=("${jid}")
             echo "  job ${jid}  ${A}  x${S}  ${L}"
+            I=$((I + 1))
         done
     done
-    I=$((I + 1))
 done
 DEP=$(IFS=:; echo "${JOBS[*]}")
 echo "capsweep_jobs=${DEP}" > hpc/.runtime/map_capacity_sweep.last

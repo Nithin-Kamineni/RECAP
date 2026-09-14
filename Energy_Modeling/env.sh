@@ -12,7 +12,7 @@
 #
 #   1 PARSE       "ECC_VICTORY=abc is not an integer"        NEVER liftable
 #   2 IMPOSSIBLE  "need K < N";  "a price may not be negative" NEVER liftable
-#   3 COUPLING    "ERT_AWARE=1 needs RECON_OPTIMIZER=True"   liftable, named here
+#   3 COUPLING    "SPLIT_READ_WRITE=1 in the placement study"  liftable, named here
 #   4 DERIVED     "the arm derives q; leave the knob EMPTY"  liftable, named here
 #
 # Tiers 3 and 4 are the ABLATION BLOCKERS. Name one and it becomes a loud warning
@@ -30,7 +30,31 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 : "${ECC_MAPPER_THREADS:=${SLURM_CPUS_PER_TASK:-18}}"
 
-: "${ECC_LAYERS:=layer3.0.conv1}"
+# WHICH LAYERS TO RUN. EMPTY = the whole model, which is what every published
+# number is. Two spellings, told apart by the `=`:
+#   conv1 layer3.0.conv1                         these layers, whichever model
+#   resnet18=conv1 layer3.0.conv1; mobilenet_v2=features.9.conv.2
+#                                                per MODEL; a model with no
+#                                                entry runs whole
+# Layer names are per network, so a bare list cannot scope a run that spans
+# two of them -- a name the other model has not got is REFUSED
+# (`layers-not-in-model`), which is the point: a typo that silently swept a
+# whole model is the worse failure. The layer scope is in every result path
+# and figure title (`layers2__...`), so a two-layer number can never be
+# mistaken for a model. The development scope EnvReorganisation 6.9 asks for
+# is the commented line below; use it while changing code, never for a figure.
+# : "${ECC_LAYERS:=resnet18=conv1 layer3.0.conv1; mobilenet_v2=features.1.conv.0.0 features.9.conv.2; efficientnet_b0=features.1.0.block.0.0 features.5.0.block.1.0}"
+: "${ECC_LAYERS:=}"
+
+# HOW MANY SLURM JOBS TO SPLIT THE MAPPING INTO. EMPTY = one array task per
+# UNIT of work (one chip x one distinct layer shape), with ECC_CONCURRENCY
+# capping how many run at once -- which is what every run before
+# EnvReorganisation phase 3 did. A number BUNDLES: ECC_JOBS=12 over 72 units
+# is 12 jobs of 6 units each, walked sequentially inside the job. Units are
+# assigned round-robin so no bundle collects all the big layers.
+# A BUNDLE IS SERIAL, so ECC_MAP_TIME (section 7) must cover the whole bundle
+# and not one map. `bash hpc/run_all.sh --dry-run` prints the bundling.
+: "${ECC_JOBS:=}"
 
 # Run every stage inside the Timeloop+Accelergy container (1) or with the host
 # python3 (0). The mapper ALWAYS needs the container; evaluation and plotting do
@@ -77,9 +101,24 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${ECC_CODE_N:=63}"
 : "${ECC_KS:=39 57 45 30}" # For RECON: BCH(63,57) (q=7), (63,45) (q=6), (63,39) (q=5), (63,30) (q=4)
 
+# WHICH BARS. baseline | embedded | recon | recon1 | recon2 | ... | recon5
+# `recon` on its own means EVERY placement the design declares, which is the
+# normal thing to want; a reconN name selects a subset. A name the design does
+# not declare is a `[skip]` line, never a refusal -- designs do not have the
+# same boundaries (section 4).
 : "${ECC_APPROACHES:=baseline embedded recon}"
 
-: "${ECC_SWEEP:=arch}"
+# WHICH X AXIS.  bch | model | arch | fix | area
+#   bch    BCH(63,K) over ECC_KS                 (arch, model held)
+#   model  the networks of ECC_MODELS            (arch, code held)
+#   arch   the designs of ECC_ARCHS              (model, code held)
+#   fix    NO x axis: the placement study at one point -- the bars are what
+#          ECC_APPROACHES names, at the FIRST entry of ECC_ARCHS, ECC_MODELS
+#          and ECC_KS
+#   area   the buffer-DEPTH ladder ECC_DEPTH_SWEEP_SCALES (section 5), with
+#          all three lists held. Maps the ladder; read it with
+#          `python3 -m eccenergy.report.dilation_view --levels`
+: "${ECC_SWEEP:=fix}"
 
 # WHICH EVALUATIONS ARE WRITTEN, AND UNDER WHICH PHASE, ARE DERIVED (2026-09-14):
 # and are gone. hpc/run_all.sh writes Task 1
@@ -90,41 +129,51 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 
 # =============================================================================
-#  4. RECONSTRUCTION PLACEMENT STUDY   --   TASK 3, ONE ARCHITECTURE AT A TIME
+#  4. RECONSTRUCTION -- WHERE THE BOUNDARY SITS, AND WHAT IT COSTS
 # =============================================================================
-: "${ECC_RECON_MODELING:=1}"
-
+#  WHICH BOUNDARIES ARE COMPARED IS SECTION 3's `ECC_APPROACHES`, and the axis
+#  is section 3's `ECC_SWEEP` (EnvReorganisation phase 3, 2026-09-14). This
+#  section holds only what a boundary COSTS. Eight knobs that used to live here
+#  are gone:
 #
-# CORRECTED 2026-09-11: this comment used to say True "IS A PLACEHOLDER:
-# setting it stops the run with an error". That has been FALSE since
-# 2026-09-09 -- Task 4 is implemented. What the code refuses now is only the
-# one combination that cannot mean anything, a re-optimised mapping filed as a
-# `Pre` result. The guarantee the placeholder gave is kept by
-# `experiments/recon.dilated_view()` (stops when the reconstruction arm's OWN
-# mapper cache is absent, or when the dilated capacity does not come back N/K
-# times the reference's) and by `task4_checks()`, which records both mapping
-# fingerprints on every result.
+#    ECC_RECON_MODELING     -> ECC_SWEEP=fix IS the placement study
+#    RECON_OPTIMIZER        -> a constant True: every placement is mapped on
+#                              its own chip (Config.recon_optimizer)
+#    ECC_RECON_PLACEMENTS   -> archs/<name>/placements.yaml says which
+#                              boundaries a design HAS; ECC_APPROACHES says
+#                              which of them to compare
+#    ECC_RECON_ARCHS/_ARCH  -> ECC_ARCHS (section 3); a held axis takes its
+#    ECC_RECON_MODEL           FIRST entry, as every other held axis does
+#    ECC_RECON_CODE_N/_K
+#    ECC_RECON_LAYER        -> ECC_LAYERS (section 1), which now has a
+#                              per-model spelling
 #
-# The result PHASE follows from it per arm (Post for a re-mapped placement) and
-# is no longer a knob to keep in agreement.
-: "${RECON_OPTIMIZER:=True}"
+#  WHAT recon1..recon5 MEAN is a property of the architecture's weight path,
+#  not of this file: each design declares its boundaries, their labels and the
+#  levels each one leaves reduced in `archs/<name>/weight_path.yaml` and
+#  `archs/<name>/placements.yaml`, which are loaded together or not at all.
+#  DESIGNS DO NOT HAVE THE SAME BOUNDARIES -- eyeriss_like_wglb and
+#  simple_weight_stationary declare five, the two v2 variants four -- so a
+#  five-name ECC_APPROACHES draws five bars on one design and four on another,
+#  with a `[skip]` line saying so. That is a warning, never a refusal.
 
 # prompt_6 -- RECONSTRUCTION-AWARE MAPPING, ONE PLAN PER BOUNDARY. 1 puts the
 # encoder's energy into the mapper's objective and bills each boundary from
-# the plan of ITS OWN CHIP. Requires RECON_OPTIMIZER=True; config.py refuses
-# anything else. 0 = Task 4 as before.
+# the plan of ITS OWN CHIP. 0 bills every bar from the reference plan, which
+# is Task 3 and is labelled as such.
 #
 # SINCE prompt_7 PHASE B (2026-09-12) the arms are the DISTINCT CHIPS, not
 # the ERT-injectable boundaries: SIX on Eyeriss v1 (+filter GLB), five on
 # v2. A bar whose own chip is not mapped yet is billed from a NAMED plan
 # that narrows the SAME storage levels and says so on its record -- R3 from
-# R2, never from the reference. `bash hpc/map_ert_arms.sh --progress` says
-# which arms are cached and which are cold; Phase C maps the cold ones.
+# R2, never from the reference. `bash hpc/run_all.sh --dry-run` says which
+# chips are cached and which are cold; the launcher maps the cold ones.
 : "${ECC_RECON_ERT_AWARE:=1}"
 
-# WHICH ARM ONE MAPPER JOB SOLVES -- set by hpc/map_ert_arms.sh in --export,
-# not by hand. `reference` (or EMPTY) is the published 8-bit chip with no
-# toll; ANY placement key (recon1 .. recon5) is that boundary's chip.
+# WHICH ARM ONE MAPPER JOB SOLVES -- column 6 of the task file, exported per
+# unit by hpc/map.sbatch, not set by hand. `reference` (or EMPTY) is the
+# published 8-bit chip with no toll; ANY placement key (recon1 .. recon5) is
+# that boundary's chip.
 # config.py resolves it into ECC_WEIGHT_DATAWIDTH=q on the storage levels in
 # the placement's reduced set -- filter_glb on R2/R3/R4, filter_glb AND
 # weights_spad on R5a, and NOTHING on R1, which narrows nothing on chip and
@@ -140,118 +189,11 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # apart today.
 : "${ECC_RECON_ERT_ARM:=}"
 
-# The single point the placement study is run at. These REPLACE section 3's
-# lists when ECC_RECON_MODELING=1, so change the point here, not there.
-# ONE PANEL PER NAME, top panel first, each from section 3's list. Every design
-# named here needs its own mapper cache at the CURRENT fingerprint -- map it
-# with `ECC_RECON_ARCHS=<one> bash hpc/map_by_shape.sh` before adding it, or the
-# run stops and says which one is missing rather than drawing a short figure.
-# Only designs with a weight path in eccenergy/recon.py WEIGHT_PATHS are
-# accepted; ECC_RECON_ARCH is the older one-architecture spelling and seeds the
-# list when ECC_RECON_ARCHS is not set.
-# : "${ECC_RECON_ARCH:=eyeriss_v2_like}"    # the FIRST architecture / the old knob
-: "${ECC_RECON_ARCHS:=eyeriss_like_wglb}"
-#  ^ PROMPT_2 IS A ONE-DESIGN STUDY: "For Eyeriss V1, one layer at a time".
-#    eyeriss_like_wglb IS Eyeriss v1 since 2026-09-10, and it is newly
-#    registered in recon.py's WEIGHT_PATHS/PLACEMENTS with FIVE boundaries --
-#    one more than eyeriss_like, because the filter GLB is a reducible storage
-#    stage above the array network and admits a boundary at its output.
-#    The two-panel figure the previous plan drew is reproduced with
-#        ECC_RECON_ARCHS="simple_weight_stationary eyeriss_like" \
-#            bash hpc/run_all.sh --eval-only
-#    though `eyeriss_like`'s caches are cold after the 2026-09-10 swap.
-#    Unset, this falls back to ECC_RECON_ARCH, the old one-architecture knob.
-# "resnet18", "resnet50", "densenet121", "squeezenet1_1",
-# "mobilenet_v2", "efficientnet_b0", "convnext_tiny", "xception"
-: "${ECC_RECON_MODEL:=resnet18}"          # ONE model
-# ONE LAYER of that model, or every layer of it (prompt_6 8.2). A single-layer
-# run is what makes an ERT-aware sweep affordable: (1 + ERT arms) jobs
-# instead of that many times the layer count. It SEEDS ECC_LAYERS in section
-# 10 whenever ECC_RECON_MODELING=1, so under the placement study set THIS
-# name, not ECC_LAYERS. Empty here = the whole model; on the command line
-# spell the whole model `ECC_RECON_LAYER=all` (an exported empty string is
-# indistinguishable from unset to `:=` and would take this default).
-# layer3.0.conv1 = C128_M256_R3_S3_P14_Q14_ws2_hs2, 294,912 weights, 168/168
-# PEs, refetch 1.000, 344,064 cycles: full PE occupancy, no `PE !=` confound.
-# : "${ECC_RECON_LAYER:=layer3.0.conv1}"
-: "${ECC_RECON_LAYER:=all}"
-: "${ECC_RECON_CODE_N:=63}"               # ONE code geometry
-: "${ECC_RECON_K:=39}"                      # 54 51 45 39 36 30   # ONE code rate, from section 3's list
-                                          # 30 is prompt_2's code -- see section 3.
+# The figure, table and manifest are called `ReconSweep_optimiser`, a fixed
+# name like the three sweeps': a re-run at a different point REWRITES it and
+# the manifest beside it records which point is on disk. Section 10 appends
+# the model, so two networks never overwrite each other.
 
-# The placements explored, per architecture: one bar per entry, left to right.
-# `baseline` and `embedded` are ALWAYS drawn as reference bars -- a placement is
-# meaningless read on its own -- so they need not be listed. An EMPTY entry, or
-# an architecture missing from this array, draws every placement the design
-# defines, which is the normal thing to want.
-#
-# WHAT recon1..recon5 MEAN is a property of the architecture's weight path, not
-# of this file, so the boundaries, their labels and which hierarchy levels each
-# one leaves reduced are defined together in `eccenergy/recon.py`
-# (WEIGHT_PATHS and PLACEMENTS). For eyeriss_v2_like, from Sec. 5.2/5.3 of
-# 01_project_context_and_architectures.txt:
-#   recon1  R1   reconstruct at the source / weight-NoC ingress        [2/5]
-#                (since 2026-09-09 it reduces the DRAM interface and nothing on
-#                chip: it isolates the interface saving every boundary shares
-#                from any on-chip saving, and is no longer a zero-saving control)
-#   recon2  R2   reconstruct at the destination-cluster boundary       [4/5]
-#   recon3  R3   reconstruct at the PE weight-SPad input               [4/5]
-#   recon4  R4a  reconstruct on every weight-SPad read                 [3/5]
-# The bracketed ratings are the source discussion's HYPOTHESES, not results.
-# R4b (SPad output plus a reconstructed-weight reuse register) was REMOVED on
-# 2026-09-10: consecutive weight reuse is 1 on 20 of 21 resnet18 layers, so a
-# latch catches nothing, and a register that does pay has to hold the whole
-# inner tile -- up to 384 weights, the entire scratchpad. See FINDINGS 7.1.
-#
-# A bash associative array CANNOT be exported, so section 10 flattens the entry
-# for ECC_RECON_ARCH into ECC_RECON_PLACEMENT_LIST, which is what the code reads.
-# For eyeriss_like -- RETIRED 2026-09-10, kept only so the pre-swap figure can
-# be reproduced. It declares `!Nothing` where the published 8 kB filter GLB
-# sits, so it has FOUR boundaries and no global-buffer boundary at all. Eyeriss
-# v1 is eyeriss_like_wglb; do not read these four keys as v1's:
-#   recon1  R1   reconstruct at the source, before the array network      [3/5]
-#   recon2  R2   reconstruct after the array multicast, at the column edge[4/5]
-#   recon3  R3   reconstruct at the PE filter-spad input                  [4/5]
-#   recon4  R4a  reconstruct on every filter-spad read                    [3/5]
-#
-# For simple_weight_stationary, from Sec. 6.1/6.2 -- SIX, because it is the only
-# design in the study with both a weight global buffer above the network and a
-# stationary weight register below the scratchpad:
-#   recon1  R1   reconstruct at chip ingress, before the weight buffer [control]
-#   recon2  R2   reconstruct at the global weight-buffer output           [3/5]
-#   recon3  R3   reconstruct at the weight-NoC output / PE input          [4/5]
-#   recon4  R4a  reconstruct on every weight-RF read                      [2/5]
-#   recon5  R5   reconstruct at the MAC input (register reduced too)      [2/5]
-# recon5 here is expected to be reported INFEASIBLE, not to produce a number:
-# the register holds one weight and a rebuild needs G_rec = 9 co-resident. It
-# is listed so the study answers Sec. 6.2's MAC row instead of omitting it.
-# For eyeriss_like_wglb -- EYERISS v1 since 2026-09-10 -- FIVE, because the
-# published 8 kB filter GLB is a reducible storage stage ABOVE the array
-# network and admits a boundary at its output that eyeriss_like has nowhere to
-# put. The numbering follows simple_weight_stationary's, the other design with
-# a weight buffer above its network: recon2 is the global weight buffer on
-# both.
-#   recon1  R1   reconstruct at chip ingress, before the filter GLB    [control]
-#   recon2  R2   reconstruct at the filter-GLB output                     [3/5]
-#   recon3  R3   reconstruct after the array multicast, at the column edge[4/5]
-#   recon4  R4   reconstruct at the PE filter-spad input                  [4/5]
-#   recon5  R5a  reconstruct on every filter-spad read                    [3/5]
-declare -A ECC_RECON_PLACEMENTS=(
-    [eyeriss_v2_like]="recon1 recon2 recon3 recon4"
-    [eyeriss_v2_like_wglb]="recon1 recon2 recon3 recon4"
-    [eyeriss_like]="recon1 recon2 recon3 recon4"
-    [eyeriss_like_wglb]="recon1 recon2 recon3 recon4 recon5"
-    [simple_weight_stationary]="recon1 recon2 recon3 recon4 recon5"
-    # Still to come, each with its own weight path in recon.py:
-    #   [simba_like]="..."  [simple_output_stationary]="..."
-    #   [simple_input_stationary]="..."
-)
-
-# The figure, table and manifest are called `ReconSweep` (`_optimiser` under
-# RECON_OPTIMIZER=True), a fixed name like the three sweeps': a re-run at a
-# different point REWRITES it and the manifest beside it records which point is
-# on disk; a selected-layer run appends its layer scope. (, which
-# only ever held that name, went on 2026-09-14.)
 
 # ---- how the reduced representation is physically exploited ----------------
 # Section 16 of 02_reconstruction_dse_and_implementation.txt: "Reducing weights
@@ -540,7 +482,7 @@ declare -A ECC_RECON_PLACEMENTS=(
 # embedded reference, and a read never issued removes the DRAM ARRAY energy as
 # well as the interface energy -- efficiency 1.0 per uJ, against the
 # f_if x (1 - K/N) = 0.152 a fixed mapping buys. Task 3 cannot show it at all:
-# RECON_OPTIMIZER=False pins ONE mapping on every arm, so both arms refetch
+# a FIXED mapping is ONE mapping on every arm, so both arms refetch
 # identically by construction. The capacity therefore has to be in the
 # architecture the SEARCH sees, which is what this rewrites.
 #
@@ -820,7 +762,7 @@ declare -A ECC_RECON_PLACEMENTS=(
 #   : "${ECC_WEIGHT_DEPTH_LEVELS:=filter_glb}"
 : "${ECC_WEIGHT_DEPTH_LEVELS:=}"
 
-# The depth ladder hpc/map_depth_sweep.sh submits. sqrt(2) steps, NOT factor 2:
+# The depth ladder `ECC_SWEEP=area` submits. sqrt(2) steps, NOT factor 2:
 # the window where Embedded cannot hold the tile and Recon can is exactly as
 # wide, in depth, as the effective-capacity ratio, so a factor-2 grid steps
 # clean over a 1.17x or 1.33x window and reports a grid artifact as "no
@@ -831,11 +773,14 @@ declare -A ECC_RECON_PLACEMENTS=(
 : "${ECC_DEPTH_SWEEP_SCALES:=1.0 0.7071 0.5 0.3536 0.25 0.1768 0.125}"
 
 # The sweep's convergence GATE (the embedded arm at victories 2000/4000/10000,
-# re-checked at depths x1.0 and x0.125) and the reconstruction arm's derived
-# datawidth are hpc/map_depth_sweep.sh's own defaults since 2026-09-14
-# (,,
-#); read the gate with
+# re-checked at depths x1.0 and x0.125) is READ, not submitted, since
+# EnvReorganisation phase 3 deleted hpc/map_depth_sweep.sh: the budgets and
+# the two depths are `report/dilation_view.py`'s GATE_VICTORIES/GATE_SCALES
+# and --victories/--scales win over them. Read it with
 #   bash hpc/tl.sh python3 -m eccenergy.report.dilation_view --gate
+# To MAP another budget, set ECC_VICTORY and re-run `bash hpc/run_all.sh
+# --map-only` -- the victory is in the mapper fingerprint, so each budget is
+# its own cache and the gate reads whichever ones exist.
 
 # ---- the MAC cost, i.e. the DENOMINATOR of every ECC percentage -------------
 # An ECC saving is saved_uJ / total_uJ. The saved uJ are weight traffic and do
@@ -1074,11 +1019,13 @@ declare -A ECC_RECON_IDLE_PJ=(          # pJ per CYCLE per ENGINE
 : "${ECC_EVAL_TIME:=02:00:00}"
 
 # The Timeloop+Accelergy image, and where the generated task list is written.
-# The task list is GENERATED from ECC_ARCHS x ECC_MODELS -- never hand-edited.
+# ONE ROW PER UNIT of mapper work, seven columns -- see `ecc_write_taskfile`
+# in section 10. GENERATED by `eccenergy/toolchain/units.py`, never
+# hand-edited.
 : "${ECC_SIF:=${ECC_PROJECT_ROOT}/timeloop.sif}"
 : "${ECC_TASKFILE:=${ECC_PROJECT_ROOT}/hpc/.runtime/tasks.txt}"
 
-# WHICH COPY OF `archs/` THIS RUN IS. Set by hpc/map_ert_arms.sh in --export,
+# WHICH COPY OF `archs/` THIS RUN IS. Set by hpc/run_all.sh in --export,
 # not by hand: the launcher copies `archs/` into hpc/.runtime/archpin.<pid>/ at
 # SUBMISSION and points every map job and the dependent eval at that copy, so
 # ONE SUBMISSION MAPS ONE ARCHITECTURE and editing `archs/` while the array is
@@ -1168,69 +1115,7 @@ declare -A ECC_RECON_IDLE_PJ=(          # pJ per CYCLE per ENGINE
 _ecc_first() { set -- ${1:-}; echo "${1:-}"; }
 _ecc_count() { set -- ${1:-}; echo "$#"; }
 
-# SECTION 4 TAKES PRECEDENCE OVER SECTION 3. The reconstruction placement study
-# holds the architecture, the model and the code fixed and puts the BOUNDARY on
-# the x axis, so section 3's lists are collapsed onto section 4's single point.
-# This is a plain assignment, not `:=`: with ECC_RECON_MODELING=1 the point is
-# what ECC_RECON_* says, and an ECC_ARCHS left over in the shell must not
-# silently widen a study that only makes sense on one design. Change the point
-# with ECC_RECON_ARCH / ECC_RECON_MODEL / ECC_RECON_K.
-: "${ECC_RECON_OPTIMIZER:=${RECON_OPTIMIZER}}"
-if [ "${ECC_RECON_MODELING}" = "1" ]; then
-    ECC_ARCHS="${ECC_RECON_ARCHS}"
-    ECC_MODELS="${ECC_RECON_MODEL}"
-    ECC_CODE_N="${ECC_RECON_CODE_N}"
-    ECC_KS="${ECC_RECON_K}"
-    # prompt_6 8.2: the placement study's layer scope is ECC_RECON_LAYER --
-    # `all`/`full` (or an empty default above) means every layer of the model.
-    case "${ECC_RECON_LAYER}" in
-        all|ALL|full|FULL|"") ECC_LAYERS="" ;;
-        *)                    ECC_LAYERS="${ECC_RECON_LAYER}" ;;
-    esac
-    ECC_EXPERIMENT="recon"
-    ECC_PANEL_MODELS=""
-    # Which boundaries to draw, per architecture. A bash associative array
-    # cannot be exported, so the entry for EVERY architecture on the figure is
-    # flattened into one scalar of `;`-separated `arch=key key key` entries,
-    # which `config.recon_placements_for()` reads. An architecture with no entry
-    # contributes none, and no entry means "every placement eccenergy/recon.py
-    # defines for that design" -- which is the normal thing to want.
-    ECC_RECON_PLACEMENT_LIST=""
-    for _a in ${ECC_RECON_ARCHS}; do
-        _keys="${ECC_RECON_PLACEMENTS[${_a}]:-}"
-        [ -n "${_keys}" ] || continue
-        ECC_RECON_PLACEMENT_LIST="${ECC_RECON_PLACEMENT_LIST}${_a}=${_keys};"
-    done
-    unset _a _keys
-    # The placement study owns its own output name (section 4), and a
-    # selected-layer run must keep its layer scope in it, as everywhere else.
-    # TASK 4 OWNS ITS OWN NAME. RECON_OPTIMIZER=True re-optimises the mapping
-    # for the reduced weight width, so its bars are not comparable with a
-    # fixed-mapping ReconSweep.png and must never overwrite it. Same rule as
-    # the three sweeps: the stem comes from the configuration alone.
-    _ecc_stem="ReconSweep"
-    _ecc_opt=0
-    case "${ECC_RECON_OPTIMIZER}" in
-        [Tt]rue|1|[Yy]es) _ecc_stem="ReconSweep_optimiser"; _ecc_opt=1 ;;
-    esac
-    if [ -z "${ECC_LAYERS}" ] || [ "${_ecc_opt}" = "1" ]; then
-        # prompt_6 9: the optimiser figure has ONE path PER MODEL,
-        # results/figures/ReconSweep_optimiser__<model>.png, EVEN on a
-        # layer-scoped run (the study is one layer by design); the layer scope
-        # lands in the manifest and the figure title instead of the filename,
-        # and an existing file at that path is overwritten on purpose. The
-        # model suffix is there since 2026-09-11, when the study ran on two
-        # networks: the stem comes from the configuration, and the model IS
-        # configuration -- without it the second model's eval overwrote the
-        # first's figure. The fixed-mapping ReconSweep keeps the layer suffix
-        # on a scoped run and takes the same model suffix on a whole-model one.
-        ECC_STEM="${_ecc_stem}__${ECC_RECON_MODEL}"
-    else
-        ECC_STEM=""
-    fi
-    unset _ecc_stem _ecc_opt
-fi
-: "${ECC_RECON_PLACEMENT_LIST:=}"
+
 
 # prompt_6 RULE 3: the two DC tables of section 6, flattened into `key=pJ;`
 # scalars because bash cannot export a `declare -A` (config._table reads them).
@@ -1250,35 +1135,52 @@ done
 : "${ECC_CONST_MODEL:=$(_ecc_first "${ECC_MODELS}")}"
 : "${ECC_CONST_K:=$(_ecc_first "${ECC_KS}")}"
 
-# ...BUT THE SIX ABOVE ARE `:=`, AND SECTION 4's POINT IS A BARE `=`.
-# Section 4 hard-assigns ECC_ARCHS/ECC_MODELS/ECC_CODE_N/ECC_KS precisely so a
-# value left over in the shell cannot silently widen a one-design study. The
-# names DERIVED from them here were still `:=`, so a leftover survived in the
-# derived name instead and the two disagreed without saying so:
+# ECC_SWEEP=fix AND ECC_SWEEP=area HOLD ALL THREE LISTS, and `fix` IS the
+# reconstruction placement study (EnvReorganisation phase 3, 2026-09-14). The
+# architecture, the model and the code are held at the FIRST entry of their
+# list -- the rule every held axis has always followed -- and the x axis is
+# WHERE the boundary sits. `area` holds the same three and walks the
+# buffer-depth ladder of section 5 instead.
+#
+# ...AND THE SIX ABOVE ARE `:=`, SO THIS COLLAPSE IS A BARE `=`. A value left
+# over in the shell must not silently widen a study that only makes sense at
+# one point. That was got wrong once the other way round: section 4 used to
+# hard-assign ECC_ARCHS/ECC_MODELS/ECC_KS while the names DERIVED from them
+# here stayed `:=`, so a leftover survived in the derived name and the two
+# disagreed without saying so --
 #
 #     source ./env.sh                                  # ECC_CONST_MODEL=resnet18
 #     ECC_RECON_MODEL=convnext_tiny bash hpc/tl.sh ...  # ECC_MODELS=convnext_tiny
 #                                                      # ECC_CONST_MODEL=resnet18 (!)
 #
-# and `config.load_config()` reads the CONST name on a held axis, so that maps
-# resnet18 while every banner says convnext_tiny. Found 2026-09-13 building
-# hpc/smoke_models.sh, which sources this file and then re-invokes per model.
-# Outside the placement study nothing changes: these stay `:=`, and inside it
-# the values are identical on a shell that sourced this file once.
-if [ "${ECC_RECON_MODELING}" = "1" ]; then
-    ECC_SWEEP_ARCHS="${ECC_ARCHS}"
-    ECC_SWEEP_MODELS="${ECC_MODELS}"
-    ECC_SWEEP_KS="${ECC_KS}"
+# and `config.load_config()` reads the CONST name on a held axis, so that
+# mapped resnet18 while every banner said convnext_tiny (found 2026-09-13,
+# building hpc/smoke_models.sh). The LISTS are no longer rewritten at all --
+# hpc/run_all.sh needs them to enumerate chips -- so only the derived names
+# are pinned, and there is nothing left for the two to disagree about.
+case "${ECC_SWEEP}" in
+    fix|fixed|point|area|depth|depths|depthsweep|areasweep) ECC_POINT_SWEEP=1 ;;
+    *)                                                      ECC_POINT_SWEEP=0 ;;
+esac
+if [ "${ECC_POINT_SWEEP}" = "1" ]; then
+    ECC_SWEEP_ARCHS="$(_ecc_first "${ECC_ARCHS}")"
+    ECC_SWEEP_MODELS="$(_ecc_first "${ECC_MODELS}")"
+    ECC_SWEEP_KS="$(_ecc_first "${ECC_KS}")"
     ECC_CONST_ARCH="$(_ecc_first "${ECC_ARCHS}")"
     ECC_CONST_MODEL="$(_ecc_first "${ECC_MODELS}")"
     ECC_CONST_K="$(_ecc_first "${ECC_KS}")"
+    # The placement study is the only evaluator with an axis for these bars;
+    # `sweep-has-no-figure` refuses ECC_EXPERIMENT=sweep/panels here rather
+    # than letting the figure code fail on a group nobody collected.
+    ECC_EXPERIMENT="recon"
+    ECC_PANEL_MODELS=""
 fi
 
 # More than one model on an architecture sweep is the PANEL layout: one panel
 # per model, top to bottom, the same x axis repeated inside each. It adds no
 # axis and no renderer -- it answers the one question a single sweep cannot,
 # whether the architecture ranking survives changing the network.
-if [ "${ECC_RECON_MODELING}" = "1" ]; then
+if [ "${ECC_POINT_SWEEP}" = "1" ]; then
     :                                     # already decided above: recon
 elif [ "$(_ecc_count "${ECC_MODELS}")" -gt 1 ] && [ "${ECC_SWEEP}" = "arch" ]; then
     : "${ECC_EXPERIMENT:=panels}"
@@ -1292,7 +1194,20 @@ fi
 # ECC_LAYERS set, the layer scope must stay in the name, which is what leaving
 # ECC_STEM empty does. The `=` without a colon means an ECC_STEM explicitly
 # exported as empty survives.
-if [ -z "${ECC_LAYERS}" ] && [ "${ECC_RECON_MODELING}" != "1" ]; then
+#
+# TASK 4 OWNS ITS OWN NAME, on a layer-scoped run too (prompt_6 9): the
+# placement bars come from a mapping solved against the reduced weight width,
+# so they are not comparable with a fixed-mapping figure and must never
+# overwrite it. ONE path PER MODEL --
+# results/figures/ReconSweep_optimiser__<model>.png -- EVEN on a layer-scoped
+# run: the study is a few layers by design, the scope lands in the manifest
+# and the figure title rather than the filename, and an existing file at that
+# path is overwritten on purpose. The model suffix is there since 2026-09-11,
+# when the study ran on two networks: without it the second model's eval
+# overwrote the first's figure.
+if [ "${ECC_POINT_SWEEP}" = "1" ]; then
+    : "${ECC_STEM=ReconSweep_optimiser__${ECC_CONST_MODEL}}"
+elif [ -z "${ECC_LAYERS}" ]; then
     case "${ECC_SWEEP}" in
         arch|archs|architecture*) : "${ECC_STEM=ArchitectureSweep}" ;;
         model*)                   : "${ECC_STEM=ModelSweep}" ;;
@@ -1301,18 +1216,40 @@ if [ -z "${ECC_LAYERS}" ] && [ "${ECC_RECON_MODELING}" != "1" ]; then
 fi
 : "${ECC_STEM=}"
 
-# Regenerate the (architecture, model) list the SLURM array walks, from the
-# lists in section 3. GENERATED, never hand-edited: a stale list whose length
-# disagrees with --array is the classic way to silently skip pairs.
+# THE TASK FILE -- ONE ROW PER UNIT OF MAPPER WORK, seven columns:
+#
+#     <bundle> <arch> <model> <K> <depth> <arm> <layer>
+#
+# A UNIT is one CHIP x one distinct layer SHAPE, and a CHIP is (architecture,
+# code, buffer depth, arm) -- every distinct thing the mapper is handed, with
+# its own `arch_fingerprint()` and its own cache directory. `<layer>` is a
+# representative layer of the shape and `<bundle>` is the SLURM array index
+# that walks this row (ECC_JOBS, section 1): with ECC_JOBS empty every row
+# gets its own bundle, which is one array task per unit, exactly as it was
+# before EnvReorganisation phase 3.
+#
+# GENERATED by `python3 -m eccenergy.toolchain.units`, never hand-edited: the
+# arms are DERIVED (`arch.arms.mapper_arms()` -- the reference plus every
+# boundary that is a distinct chip) and the shapes come out of the workload
+# file, so neither can be listed in a shell script without drifting. This
+# function is the FALLBACK for a bare `sbatch hpc/map.sbatch` with no task
+# file: it writes the reference arm of the held point, which is the one unit
+# a bare sbatch could have meant.
 ecc_write_taskfile() {
-    local out="${1:-${ECC_TASKFILE}}" m a
+    local out="${1:-${ECC_TASKFILE}}"
     mkdir -p "$(dirname "${out}")"
-    : > "${out}"
-    for m in ${ECC_MODELS}; do
-        for a in ${ECC_ARCHS}; do
-            printf '%s %s\n' "${a}" "${m}" >> "${out}"
-        done
-    done
+    if ${ECC_PYTHON:-python3} -m eccenergy.toolchain.units --tasks > "${out}.$$" 2>/dev/null \
+       && [ -s "${out}.$$" ]; then
+        mv "${out}.$$" "${out}"
+        return 0
+    fi
+    rm -f "${out}.$$"
+    echo "env.sh: ecc_write_taskfile: the enumerator did not run (no container?)," >&2
+    echo "  falling back to the reference arm of the held point" >&2
+    printf '0 %s %s %s %s reference %s\n' \
+        "$(_ecc_first "${ECC_ARCHS}")" "$(_ecc_first "${ECC_MODELS}")" \
+        "$(_ecc_first "${ECC_KS}")" "${ECC_WEIGHT_DEPTH_SCALE}" \
+        "$(_ecc_first "${ECC_LAYERS}")" > "${out}"
 }
 
 export ECC_PROJECT_ROOT ECC_SIF ECC_TASKFILE ECC_USE_CONTAINER ECC_PYTHON \
@@ -1320,11 +1257,8 @@ export ECC_PROJECT_ROOT ECC_SIF ECC_TASKFILE ECC_USE_CONTAINER ECC_PYTHON \
        ECC_VICTORY ECC_VICTORY_SCALING ECC_MAPPER_TIMEOUT \
        ECC_MAPPER_MAX_PERMUTATIONS ECC_MAPPER_SEED ECC_OPT_METRIC \
        ECC_RERUN_OPTIMISER ECC_ARCHS ECC_MODELS ECC_KS ECC_CODE_N \
-       ECC_APPROACHES ECC_SWEEP ECC_LAYERS \
-       ECC_RECON_MODELING ECC_RECON_ARCH ECC_RECON_ARCHS ECC_RECON_MODEL ECC_RECON_LAYER \
-       ECC_RECON_CODE_N \
-       ECC_RECON_K ECC_RECON_PLACEMENT_LIST \
-       ECC_RECON_OPTIMIZER RECON_OPTIMIZER ECC_RECON_ERT_AWARE ECC_RECON_ERT_ARM \
+       ECC_APPROACHES ECC_SWEEP ECC_LAYERS ECC_JOBS ECC_POINT_SWEEP \
+       ECC_RECON_ERT_AWARE ECC_RECON_ERT_ARM \
        ECC_RECON_PACKING \
        ECC_RECON_ENCODER_GRANULARITY \
  \

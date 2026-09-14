@@ -1,39 +1,56 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  hpc/run_all.sh  --  THE ONE COMMAND
+#  hpc/run_all.sh  --  THE ONE COMMAND, AND SINCE 2026-09-14 THE ONLY LAUNCHER
 # =============================================================================
 #
 #      cd /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling
 #      module load apptainer
 #      bash hpc/run_all.sh                # map -> evaluate -> plot
+#      bash hpc/run_all.sh --dry-run      # the BILL: chips, shapes, cached, jobs
 #
-#  Everything it runs comes from ../env.sh: which architectures, which models,
-#  which code, how hard the mapper searches, what the cluster is asked for.
-#  There are no knobs in this file.
+#  Everything it runs comes from ../env.sh: which arms, which axis, which
+#  architectures, models and codes, how hard the mapper searches, what the
+#  cluster is asked for. There are no knobs in this file.
+#
+#  FOUR LINES OF env.sh DECIDE THE STUDY (EnvReorganisation phase 3):
+#      ECC_APPROACHES   which BARS    baseline embedded recon | recon1 .. recon5
+#      ECC_SWEEP        which X AXIS  bch | model | arch | fix | area
+#      ECC_ARCHS / ECC_MODELS / ECC_KS / ECC_DEPTH_SWEEP_SCALES   the lists
+#      ECC_LAYERS       which layers  empty = whole model; `model=a b;` per model
+#  plus ECC_JOBS, which bundles the work into fewer SLURM jobs.
+#
+#  IT USED TO BE THREE LAUNCHERS, because they enumerated CHIPS along different
+#  axes: this script over (architecture x model), `map_ert_arms.sh` over
+#  (arm x shape) and `map_depth_sweep.sh` over (depth x shape). All three are
+#  deleted (git has them; last present at 608982b). There is ONE enumerator
+#  now -- `eccenergy/toolchain/units.py` -- and one unit of work:
+#
+#      A CHIP  = (architecture, code K, buffer-depth scale, arm)
+#                every distinct thing the mapper is handed, with its own
+#                arch_fingerprint() and its own cache directory
+#      A UNIT  = one chip x one distinct layer SHAPE
+#                one Timeloop search, one cache entry, one task's work
 #
 #  WHAT IT DOES
-#    1. writes the (architecture, model) task list from ECC_ARCHS x ECC_MODELS
-#    2. submits hpc/map.sbatch as a SLURM array over it -- the expensive half,
-#       Timeloop + Accelergy solving one mapping per distinct layer shape
+#    1. writes the task list -- one row per UNIT, seven columns
+#       (bundle, arch, model, K, depth, arm, layer) -- and SKIPS every unit the
+#       mapper cache already holds, which is `Mapper._accept_cached`'s own
+#       answer and not a file count
+#    2. submits hpc/map.sbatch as a SLURM array over the BUNDLES; each task
+#       walks its bundle's rows and exports the row's axes per unit
 #    3. submits ITSELF (`--eval-only`) with --dependency=afterok on that array,
 #       so the evaluation and the figures happen by themselves the moment the
 #       last mapping lands
 #  It returns at once; watch with `squeue -u $USER`. Runs are resumable: rerun
-#  after a failure and every solved shape is a cache hit.
+#  after a failure and every solved shape is a cache hit -- and is not even
+#  submitted the second time.
 #
 #  ONE-OFF OVERRIDES need no edit anywhere, because env.sh lets the environment
 #  win:
 #      ECC_MODELS="resnet18 resnet50 densenet121" bash hpc/run_all.sh
-#      ECC_MAPPER_SEARCH_SIZE=20000 bash hpc/run_all.sh   # bounded dev pass
-#      ECC_MAP_TIME=08:00:00 ECC_CONCURRENCY=6 bash hpc/run_all.sh
-#
-#  WITH ECC_RECON_MODELING=1 (env.sh section 4) every mode below runs the
-#  reconstruction PLACEMENT study of Task 3 instead: one architecture, one model,
-#  one code, and the x axis is WHERE the reconstruction boundary sits. It is an
-#  evaluator-only comparison, so `--eval-only` is the mode to use and the
-#  mapping array only has the one pair to solve.
-#
-#      ECC_RECON_MODELING=1 bash hpc/run_all.sh --eval-only
+#      ECC_SWEEP=bch bash hpc/run_all.sh                 # the code axis
+#      ECC_APPROACHES="baseline embedded recon2" bash hpc/run_all.sh
+#      ECC_MAP_TIME=08:00:00 ECC_JOBS=12 bash hpc/run_all.sh
 #
 #  MODES
 #      (none)        map, then evaluate and plot when the mapping succeeds
@@ -47,6 +64,16 @@
 #      --local       run the mapping HERE instead of submitting it, then
 #                    evaluate and plot. Only inside an allocation (srun), never
 #                    on a login node.
+#      --dry-run     print the bill and the bundling. Submits nothing.
+#                    IT CANNOT SEE THE CODE A JOB RUNS: it resolves the same
+#                    configuration and reads the same cache, but only a real
+#                    job proves the job works.
+#
+#  ECC_SWEEP=area MAPS THE LADDER AND SUBMITS NO EVALUATION, deliberately: the
+#  depth sweep is a property of the MAPPINGS, and an eval job over it would
+#  draw one placement figure per depth on top of the last. Read it with
+#      bash hpc/tl.sh python3 -m eccenergy.report.dilation_view --levels \
+#           --csv results/tables/EyerissV1_mem_arch_sweep.csv
 # =============================================================================
 
 set -euo pipefail
@@ -86,11 +113,18 @@ while [ $# -gt 0 ]; do
         --eval-only) MODE=eval ;;
         --replot)    MODE=replot ;;
         --local)     MODE=local ;;
+        --dry-run)   MODE=dry ;;
         -h|--help)   usage; exit 0 ;;
         *) echo "hpc/run_all.sh: unknown option '$1'" >&2; usage >&2; exit 2 ;;
     esac
     shift
 done
+
+# ECC_SWEEP=area's ladder is a shell list (env.sh section 5) and not a field of
+# the resolved configuration, so it travels to the enumerator as an argument.
+# Every other axis is already in the configuration.
+DEPTHS=""
+[ "${ECC_SWEEP}" = "area" ] && DEPTHS="${ECC_DEPTH_SWEEP_SCALES}"
 
 # --------------------------------------------------------------------------
 #  running one stage
@@ -103,6 +137,15 @@ _run() {
         bash hpc/tl.sh bash run.sh "$@"
     else
         bash run.sh "$@"
+    fi
+}
+
+# The enumerator. It needs the package, so it goes through the same wrapper.
+_units() {
+    if [ "${ECC_USE_CONTAINER}" = "1" ]; then
+        bash hpc/tl.sh python3 -m eccenergy.toolchain.units "$@"
+    else
+        "${ECC_PYTHON:-python3}" -m eccenergy.toolchain.units "$@"
     fi
 }
 
@@ -129,6 +172,18 @@ _plot() {
     fi
 }
 
+# WHICH MODELS THE EVALUATION WALKS. A point sweep (fix, area) holds the model
+# at the first entry of ECC_MODELS, exactly as it holds the architecture and
+# the code, so evaluating ECC_MODELS' whole list there would draw the held
+# study twice and overwrite its own figure.
+_eval_models() {
+    if [ "${ECC_POINT_SWEEP}" = "1" ]; then
+        echo "${ECC_CONST_MODEL}"
+    else
+        echo "${ECC_MODELS}"
+    fi
+}
+
 # Evaluate every model, then draw. Everything here is --eval: mappings are read
 # from the cache and Timeloop is never invoked, so this cannot change a mapping.
 stage_eval() {
@@ -136,12 +191,12 @@ stage_eval() {
     # this stage; it belongs to the mapping stage alone.
     export ECC_RERUN_OPTIMISER=0
     # WHICH evaluations are written is DERIVED (ECC_EVAL_EXPERIMENTS went on
-    # 2026-09-14): the placement study when env.sh section 4 routed the run to
-    # it -- its file holds Task 1's and Task 2's bars itself -- and Task 1 +
-    # Task 2 otherwise.
+    # 2026-09-14): the placement study when the axis routed the run to it --
+    # its file holds Task 1's and Task 2's bars itself -- and Task 1 + Task 2
+    # otherwise.
     local evals="baseline embedded" m x
     [ "${ECC_EXPERIMENT}" = "recon" ] && evals="recon"
-    for m in ${ECC_MODELS}; do
+    for m in $(_eval_models); do
         for x in ${evals}; do
             echo "############ evaluate: ${x} -- ${m} ############"
             ( export ECC_CONST_MODEL="${m}"; _run "${x}" --eval )
@@ -154,31 +209,61 @@ stage_eval() {
     echo "results : ${ECC_RESULTS_DIR}/evaluation/{Pre|Post}/<arch>/<model>/...   (phase per arm)"
 }
 
-# Map every (architecture, model) pair in this process, one at a time. For an
+# Map every UNIT in this process, one at a time, in task-file order. For an
 # interactive allocation; the SLURM array below is the real path.
 stage_map_local() {
-    local m a
-    for m in ${ECC_MODELS}; do
-        for a in ${ECC_ARCHS}; do
-            echo "############ map: ${a} -- ${m} ############"
-            ( export ECC_SWEEP=arch ECC_SWEEP_ARCHS="${a}" ECC_CONST_MODEL="${m}"
-              _run map )
-        done
-    done
+    write_taskfile
+    local line b a m k d arm l
+    while read -r b a m k d arm l; do
+        [ -n "${b:-}" ] || continue
+        echo "############ map: ${a} / ${m} / K${k} / x${d} / ${arm} / ${l} ############"
+        ( unit_env "${a}" "${m}" "${k}" "${d}" "${arm}" "${l}"; _run map )
+    done < <(grep -ve '^[[:space:]]*$' "${ECC_TASKFILE}")
+}
+
+# --------------------------------------------------------------------------
+#  the task file
+# --------------------------------------------------------------------------
+# THE ONE PLACE A UNIT'S AXES ARE TURNED INTO ENVIRONMENT. hpc/map.sbatch has
+# the same list, and `toolchain.units._chip_cfg` builds the same configuration
+# in python -- if the three drift, the launcher skips units a job would
+# re-solve, or submits ones it already has.
+unit_env() {
+    export ECC_SWEEP=arch
+    export ECC_SWEEP_ARCHS="$1"  ECC_CONST_ARCH="$1"
+    export ECC_CONST_MODEL="$2"  ECC_SWEEP_MODELS="$2"  ECC_PANEL_MODELS=""
+    export ECC_CONST_K="$3"      ECC_SWEEP_KS="$3"
+    export ECC_WEIGHT_DEPTH_SCALE="$4"
+    export ECC_RECON_ERT_ARM="$5"
+    export ECC_LAYERS="$6"
+}
+
+write_taskfile() {
+    mkdir -p "$(dirname "${ECC_TASKFILE}")"
+    local tmp="${ECC_TASKFILE}.$$"
+    _units --tasks ${DEPTHS:+--depths "${DEPTHS}"} ${ECC_JOBS:+--jobs "${ECC_JOBS}"} \
+        > "${tmp}"
+    mv "${tmp}" "${ECC_TASKFILE}"
 }
 
 # --------------------------------------------------------------------------
 #  submitting
 # --------------------------------------------------------------------------
-# THE ARCH PIN -- same contract as hpc/map_ert_arms.sh, see eccenergy/paths.py.
-# `archs/` is snapshotted at SUBMISSION and both the map array and the dependent
-# eval read the copy, so editing a declared value while the array is in flight
-# cannot split one run across two architectures.
+# THE ARCH PIN -- see eccenergy/paths.py. `archs/` is snapshotted at SUBMISSION
+# and both the map array and the dependent eval read the copy, so editing a
+# declared value while the array is in flight cannot split one run across two
+# architectures.
 #
 # ONLY THE TOP-LEVEL SUBMITTER PINS. `submit_eval` re-invokes this script as
 # `hpc/run_all.sh --eval-only` inside the eval job, where ECC_ARCH_PIN_DIR is
 # already set by --export=ALL: taking a second snapshot there would read the
 # LIVE archs/ and undo the whole point.
+#
+# WHAT THIS COST BEFORE IT EXISTED (2026-09-13, efficientnet_b0). A psum_spad
+# depth was changed 78 seconds after an array started. The 282 maps solved the
+# pre-edit chip; the eval, twelve minutes later, read the edited file, computed
+# a different fingerprint, found it empty and reported all 82 layers as
+# `mapper failed`. Both halves were correct and they described two chips.
 pin_archs() {
     [ -z "${ECC_ARCH_PIN_DIR}" ] || return 0      # already pinned by our submitter
     local pin="hpc/.runtime/archpin.$$"
@@ -194,13 +279,20 @@ pin_archs() {
     echo "              (this run maps THIS copy; edit archs/ freely from now on)"
 }
 
+# THE TASK FILE IS SNAPSHOTTED PER SUBMISSION, because hpc/map.sbatch resolves
+# its rows when the job RUNS: a later launcher writing ECC_TASKFILE would
+# otherwise repoint every queued job at different work.
 submit_map() {
     pin_archs >/dev/null
-    ecc_write_taskfile
-    local n
-    n=$(grep -cve '^[[:space:]]*$' "${ECC_TASKFILE}")
+    write_taskfile
+    local snap n
+    snap="hpc/.runtime/tasks.$$.txt"
+    cp "${ECC_TASKFILE}" "${snap}"
+    n=$(awk 'NF {print $1}' "${snap}" | sort -un | wc -l)
     [ "${n}" -gt 0 ] || {
-        echo "hpc/run_all.sh: ECC_ARCHS x ECC_MODELS is empty -- nothing to map" >&2
+        echo "hpc/run_all.sh: nothing to map -- every unit is already in the" >&2
+        echo "  mapper cache. Evaluate it with: bash hpc/run_all.sh --eval-only" >&2
+        echo "  (or re-solve with ECC_RERUN_OPTIMISER=1)" >&2
         exit 2; }
     mkdir -p hpc/logs
     sbatch --parsable \
@@ -210,6 +302,7 @@ submit_map() {
         --time="${ECC_MAP_TIME}" \
         --array="0-$((n - 1))%${ECC_CONCURRENCY}" \
         --output="hpc/logs/ecc-map.%A_%a.out" \
+        --export=ALL,ECC_TASKFILE="${PWD}/${snap}",ECC_ARCH_PIN_DIR="${ECC_ARCH_PIN_DIR}" \
         hpc/map.sbatch
 }
 
@@ -227,26 +320,18 @@ submit_eval() {
 }
 
 banner() {
-    local n
-    n=$(grep -cve '^[[:space:]]*$' "${ECC_TASKFILE}" 2>/dev/null || echo 0)
     echo "=============================================================================="
-    if [ "${ECC_RECON_MODELING}" = "1" ]; then
-        echo " STUDY      : reconstruction PLACEMENT (Task 3), fixed mapping."
-        echo "              section 4 of env.sh holds arch/model/code; the x axis"
-        echo "              is WHERE the boundary sits."
-        echo " placements : ${ECC_RECON_PLACEMENT_LIST:-every one this design defines}"\
-             "  packing=${ECC_RECON_PACKING} encoder=${ECC_RECON_ENCODER_GRANULARITY}"
-        if [ "${ECC_RECON_OPTIMIZER}" = "True" ] || [ "${ECC_RECON_OPTIMIZER}" = "1" ]; then
-            echo " remapping  : RECON_OPTIMIZER=True -- TASK 4: the reconstruction bars"
-            echo "              come from a SECOND mapping at weight capacity"
-            echo "              x${ECC_WEIGHT_CAPACITY_SCALE} x N/K (scope=${ECC_WEIGHT_CAPACITY_SCOPE}); needs that"
-            echo "              cache and refuses rather than falling back -> ${ECC_STEM:-ReconSweep_optimiser}"
-        else
-            echo " remapping  : RECON_OPTIMIZER=False -- Task 3, one fixed mapping on every arm"
-            echo "              (True is Task 4; validate the capacity"
-            echo "               assumption first with  bash run.sh dilation)"
-        fi
+    if [ "${ECC_EXPERIMENT}" = "recon" ]; then
+        echo " STUDY      : reconstruction PLACEMENT -- the x axis is WHERE the"
+        echo "              boundary sits. ECC_SWEEP=${ECC_SWEEP} holds the"
+        echo "              architecture, the model and the code at the FIRST entry"
+        echo "              of their list; ECC_APPROACHES names the bars."
+        echo " remapping  : every placement that is a DISTINCT CHIP is mapped on its"
+        echo "              own plan (ert-aware=${ECC_RECON_ERT_AWARE}); a bar whose"
+        echo "              chip is cold is billed from a NAMED plan and says so"
+        echo "              on its record -> ${ECC_STEM:-ReconSweep_optimiser}"
     fi
+    echo " axis       : ${ECC_SWEEP}"
     echo " archs      : ${ECC_ARCHS}"
     echo " models     : ${ECC_MODELS}"
     echo " code       : BCH(${ECC_CODE_N}, ${ECC_KS})   arms: ${ECC_APPROACHES}"
@@ -254,12 +339,26 @@ banner() {
     echo " mapper     : ${ECC_MAPPER_ALGORITHM} victory=${ECC_VICTORY}/${ECC_VICTORY_SCALING}"\
          "search=${ECC_MAPPER_SEARCH_SIZE:-uncapped} threads=${ECC_MAPPER_THREADS}"
     echo " figure     : ${ECC_RESULTS_DIR}/figures/${ECC_STEM:-<self-describing>}"
-    [ "${n}" -gt 0 ] && echo " map tasks  : ${n} (arch, model) pairs, ${ECC_CONCURRENCY} at once"
     [ -n "${ECC_ARCH_PIN_DIR}" ] && echo " arch pin   : ${ECC_ARCH_PIN_DIR}"
     echo "=============================================================================="
 }
 
 case "${MODE}" in
+    dry)
+        banner
+        echo "--dry-run: the bill. Nothing is submitted."
+        _units ${DEPTHS:+--depths "${DEPTHS}"} ${ECC_JOBS:+--jobs "${ECC_JOBS}"}
+        echo
+        echo "  eval      : $(_eval_models) x ${ECC_EXPERIMENT}"\
+             "-> ${ECC_RESULTS_DIR}/figures/${ECC_STEM:-<self-describing>}"
+        [ "${ECC_SWEEP}" = "area" ] && \
+            echo "  (ECC_SWEEP=area submits NO dependent eval -- read the ladder with"\
+                 "python3 -m eccenergy.report.dilation_view --levels)"
+        echo
+        echo "  --dry-run CANNOT SEE THE CODE A JOB RUNS. It resolves the same"
+        echo "  configuration and reads the same cache; only a real job proves the"
+        echo "  job works. Smoke ONE cached unit before a matrix."
+        ;;
     eval)
         banner
         stage_eval
@@ -280,6 +379,14 @@ case "${MODE}" in
         ;;
     all)
         MAP=$(submit_map)
+        if [ "${ECC_SWEEP}" = "area" ]; then
+            banner
+            echo "map  job ${MAP}   log: hpc/logs/ecc-map.${MAP}_*.out"
+            echo "NO dependent eval: ECC_SWEEP=area is a property of the MAPPINGS."
+            echo "Read the ladder when it lands:"
+            echo "  bash hpc/tl.sh python3 -m eccenergy.report.dilation_view --levels"
+            exit 0
+        fi
         EVAL=$(submit_eval "${MAP}")
         banner
         echo "map  job ${MAP}   log: hpc/logs/ecc-map.${MAP}_*.out"

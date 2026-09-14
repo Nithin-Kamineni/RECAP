@@ -191,8 +191,9 @@ def main(argv=None):
     if a.gate:
         # prompt_2's convergence gate: the budgets the EMBEDDED arm is mapped
         # at, re-checked at the largest AND the smallest depth. Script-local
-        # defaults since 2026-09-14 (they were ECC_DEPTH_SWEEP_GATE_*), the
-        # same ones hpc/map_depth_sweep.sh submits; --victories/--scales win.
+        # defaults since 2026-09-14 (they were ECC_DEPTH_SWEEP_GATE_*) and
+        # the ONLY copy since EnvReorganisation phase 3 deleted
+        # hpc/map_depth_sweep.sh; --victories/--scales win over them.
         vs = ([int(float(x)) for x in a.victories.split()] if a.victories
               else list(GATE_VICTORIES))
         scales = ([float(s) for s in a.scales.split()] if a.scales

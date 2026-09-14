@@ -17,20 +17,40 @@ from typing import Optional
 from ..contracts.errors import ConfigError
 from .arch import CNN_MODELS, TRANSFORMER_MODELS
 from .env import (_b, _f, _i, _list, _list_or_none, _of, _oi, _one, _s,
-                  _table)
+                  _scoped_list, _table)
 
 # ------------------------------------------------------------------ registries
 EXPERIMENTS = ("sweep", "diagnose", "baseline", "embedded", "recon", "validate", "dilation",
                "map", "panels")
 
-APPROACHES = ("baseline", "embedded", "recon")
+#: The reconstruction PLACEMENTS `ECC_APPROACHES` may name (EnvReorganisation
+#: 3.1). The abstract `recon` still stands for "every placement this design
+#: declares" -- which is what `Config.recon_placements_for()` answers with an
+#: empty list -- and a `reconN` name selects a SUBSET of them. A design that
+#: does not declare a named boundary is WARNED and drops the bar; it is not
+#: refused, because two designs do not have the same boundaries (CLAUDE.md)
+#: and one `ECC_APPROACHES` has to be legal for both.
+RECON_PLACEMENT_APPROACHES = ("recon1", "recon2", "recon3", "recon4", "recon5")
 
-#: The three axes a run can walk. The other two are held at their constant.
-SWEEPS = ("bch", "model", "arch")
+APPROACHES = ("baseline", "embedded", "recon") + RECON_PLACEMENT_APPROACHES
+
+#: The three ABSTRACT arms every figure draws, in bar order. `ECC_APPROACHES`
+#: may name a placement, but the bar it lands in is still one of these three
+#: until phase 6 teaches `report/sweep.py` to draw a bar per placement.
+BAR_ARMS = ("baseline", "embedded", "recon")
+
+#: The axes a run can walk. `bch`, `model` and `arch` put a list on the x axis
+#: and hold the other two; `fix` and `area` hold ALL THREE -- `fix` is the
+#: placement study at one point (the bars are what `ECC_APPROACHES` names) and
+#: `area` walks the buffer-DEPTH ladder `ECC_DEPTH_SWEEP_SCALES`.
+SWEEPS = ("bch", "model", "arch", "fix", "area")
 
 #: Fixed output name per sweep. The whole point of the naming scheme is that a
 #: re-run at different constants OVERWRITES rather than adding another file.
-SWEEP_STEMS = {"bch": "BCHsweep", "model": "ModelSweep", "arch": "ArchitectureSweep"}
+#: `fix` and `area` are only reached with ECC_STEM blanked by hand -- env.sh
+#: names the placement figure `ReconSweep_optimiser__<model>` under both.
+SWEEP_STEMS = {"bch": "BCHsweep", "model": "ModelSweep", "arch": "ArchitectureSweep",
+               "fix": "FixedPoint", "area": "DepthSweep"}
 
 #: Spellings accepted for ECC_SWEEP.
 SWEEP_ALIASES = {
@@ -38,7 +58,17 @@ SWEEP_ALIASES = {
     "model": "model", "models": "model", "modelsweep": "model",
     "arch": "arch", "archs": "arch", "architecture": "arch",
     "architectures": "arch", "architecturesweep": "arch",
+    "fix": "fix", "fixed": "fix", "point": "fix",
+    "area": "area", "depth": "area", "depths": "area", "depthsweep": "area",
+    "areasweep": "area",
 }
+
+#: The two axes that hold every one of the three lists fixed, so the x axis is
+#: something else entirely: `fix` has no x axis at all (the arms ARE the bars)
+#: and `area` sweeps the depth ladder. Neither has a `report/sweep.py`
+#: renderer until phase 6, which `sweep-has-no-figure` says rather than
+#: letting the figure code fail on a missing group.
+POINT_SWEEPS = ("fix", "area")
 
 #: Which half of the study a result belongs to. See legacy/docs/RESULTS_SCHEMA.md.
 #:
@@ -50,16 +80,20 @@ SWEEP_ALIASES = {
 PHASES = ("Pre", "Post")
 
 
-def result_phase(experiment, recon_optimizer=True):
+def result_phase(experiment):
     """THE PHASE IS DERIVED PER ARM, NOT CONFIGURED (EnvReorganisation 6.1,
     2026-09-14). Baseline and embedded are `Pre` BY CONSTRUCTION -- there is
     no reduced representation for a mapper to have been aware of -- and a
     placement mapped on its own chip is `Post`. One run now spans both, so
     `ECC_PHASE` could not be a single value and is gone; the namespace
     `results/evaluation/{Pre|Post}/...` is unchanged and every file lands
-    where it always did. A fixed-mapping placement study (Task 3,
-    `RECON_OPTIMIZER=False`) stays `Pre`; that knob is removed in phase 3."""
-    if experiment == "recon" and recon_optimizer:
+    where it always did.
+
+    `RECON_OPTIMIZER` was the second argument until EnvReorganisation phase 3
+    (2026-09-14) and is now a constant True: every placement is mapped on its
+    own chip, so the fixed-mapping Task 3 reading of the placement study has
+    no configuration left that selects it."""
+    if experiment == "recon":
         return "Post"
     return "Pre"
 
@@ -94,6 +128,15 @@ class RunSettings:
     const_k: int
     approaches: list
     layers: list
+    #: `ECC_LAYERS`' per-model spelling, `{model: [layer, ...]}` -- empty for
+    #: the bare-list form (EnvReorganisation 6.9). Layer names are per
+    #: network, so a development scope that names two layers of each of three
+    #: networks cannot be one list. `config._resolve()` picks the HELD model's
+    #: entry into `layers`, which is what every consumer reads; a model with
+    #: no entry runs whole. A run that evaluates more than one model at once
+    #: is refused by name -- carrying a scope PER MODEL through
+    #: `paths.layer_slug` and `Session.select_layers` is phase 6's work.
+    layers_by_model: dict
     overwrite: bool
     cache_strict: bool
     #: ECC_RERUN_OPTIMISER=1 -- re-solve a mapping even when a valid cache entry
@@ -149,7 +192,11 @@ class RunSettings:
             const_model=_one("ECC_CONST_MODEL", "resnet18"),
             const_k=_i("ECC_CONST_K", 51),
             approaches=[a.lower() for a in _list("ECC_APPROACHES", "baseline embedded recon")],
-            layers=_list("ECC_LAYERS"),
+            # The two spellings of ECC_LAYERS, told apart by the `=`. The
+            # resolution into ONE scope needs the held model, which is
+            # `_resolve()`'s job; this layer only parses.
+            layers=_scoped_list("ECC_LAYERS")[0],
+            layers_by_model=_scoped_list("ECC_LAYERS")[1],
             overwrite=_b("ECC_OVERWRITE", False),
             cache_strict=_b("ECC_CACHE_STRICT", True),
             rerun_optimiser=_b("ECC_RERUN_OPTIMISER", False),

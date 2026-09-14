@@ -178,8 +178,7 @@ class ResultBuilder:
         # the placement study labels its file `reconstruction_placement` and
         # runs under ECC_EXPERIMENT=recon, and it is the latter that says a
         # placement was mapped on its own chip.
-        self.phase = phase or result_phase(getattr(cfg, "experiment", experiment),
-                                           getattr(cfg, "recon_optimizer", True))
+        self.phase = phase or result_phase(getattr(cfg, "experiment", experiment))
         self.variants = []
         self.warnings = []
         self.approximations = []
@@ -451,7 +450,7 @@ def load(path):
 def load_latest(results, arch, model, phase=None):
     """The most recent result for one (phase, arch, model, ...) namespace."""
     d = results.evaluation_dir(arch, model, phase or result_phase(
-        results.cfg.experiment, getattr(results.cfg, "recon_optimizer", True)))
+        results.cfg.experiment))
     pointer = d / "latest.json"
     if pointer.exists():
         name = json.loads(pointer.read_text(encoding="utf-8"))["latest"]

@@ -92,10 +92,16 @@ def banner(cfg, recon_terms, recon_provenance, ert_arm_row=None):
         rows += [
             ("PLACEMENT STUDY", f"Task 3: fixed mapping, the boundary is the "
                                 f"axis, one panel per architecture -> {cfg.stem}"),
+            # `warn=False`: the banner is a summary, and the `[skip]` line
+            # for a boundary this design does not declare belongs with the
+            # collection that drops it, printed once, not inside a heading.
+            # The RESOLVED bars, not the request: `ECC_APPROACHES`'s abstract
+            # `recon` asks for "every placement this design declares", and a
+            # heading that says so names nothing a reader can check.
             ("panels", "  |  ".join(
                 f"{cfg.arch_label(a).replace(chr(10), ' ')}: "
-                + (", ".join(cfg.recon_placements_for(a))
-                   or "every placement it defines")
+                + (", ".join(cfg.recon_placement_bars(a, warn=False))
+                   or "no placement it defines")
                 for a in cfg.archs)),
             ("reduced form packing", cfg.recon_packing
                 + ("   (retained k bits packed with no per-weight alignment; "
@@ -112,10 +118,7 @@ def banner(cfg, recon_terms, recon_provenance, ert_arm_row=None):
               f"x{cfg.weight_capacity_scale * cfg.code_n / cfg.code_k:.4f} "
               f"(= x{cfg.weight_capacity_scale:g} x N/K), scope "
               f"{cfg.weight_capacity_scope}; the reference bars keep "
-              f"x{cfg.weight_capacity_scale:g}"
-              if cfg.recon_optimizer else
-              "NOT re-run (RECON_OPTIMIZER=False) -- Task 4 is where the "
-              "mapping becomes aware of the reduced width")),
+              f"x{cfg.weight_capacity_scale:g}")),
             ("ERT-aware mapping",
              ("ON (prompt_6): the ERT-injectable boundaries are re-mapped with "
               "the encoder toll in the objective; the figure marks them"

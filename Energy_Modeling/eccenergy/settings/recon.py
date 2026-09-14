@@ -12,6 +12,15 @@ RESIDENCY`), a placement pays the decoder whenever ECC_DECODE=1 does
 (`ECC_RECON_PLACEMENT_CHARGES_DECODE`), the figure is called `ReconSweep`
 (`ECC_RECON_STEM`), and `ECC_RECON_ONCHIP_FRACTION` was read by nothing.
 
+FOUR MORE WENT IN PHASE 3 (2026-09-14), when `hpc/run_all.sh` became the one
+launcher: `ECC_RECON_MODELING` (the mode is `reconN` -- or the abstract
+`recon` -- in `ECC_APPROACHES`, and `ECC_SWEEP=fix` is the axis),
+`RECON_OPTIMIZER` (a constant True: every placement is mapped on its own
+chip; `Config.recon_optimizer` is the property that says so),
+`ECC_RECON_PLACEMENTS` / `ECC_RECON_PLACEMENT_LIST` (the boundaries come from
+`ECC_APPROACHES` intersected with the design's own `placements.yaml`) and
+`ECC_RECON_LAYER` (`ECC_LAYERS`, which now has a per-model spelling).
+
 ONLY `recon_ert_arm` REACHES THE MAPPER. Everything else here is evaluator-side
 and must never enter the cache key: a bar re-costed at a different reconstruction
 energy is the same mapping, and pretending otherwise would cold the matrix for
@@ -23,7 +32,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from ..contracts.errors import ConfigError
-from .env import _b, _f, _i, _list, _of, _oi, _one, _s, _table
+from .env import _b, _f, _of, _s, _table
 
 #: How the reduced representation is physically stored and transported, and how
 #: encoder work is charged. Both are `recon.py`'s, and both are answers to
@@ -66,19 +75,6 @@ class ReconSettings:
     #: CLOCKED-IDLE energy that clock gating removes. 0 reproduces the
     #: pre-gating model exactly; 99.5 is the measured clock/dynamic share.
     recon_clock_gating_pct: float
-    #: The placement study runs on ONE architecture, ONE model and ONE code,
-    #: because each architecture has its own weight path and therefore its own
-    #: list of feasible boundaries. env.sh section 4 collapses section 3's lists
-    #: onto this point when `recon_modeling` is on, so `archs`/`models`/`code_k`
-    #: are already the single values by the time this object exists.
-    recon_modeling: bool
-    recon_optimizer: bool
-    #: The raw `ECC_RECON_PLACEMENT_LIST`, as env.sh section 10 flattens the
-    #: `ECC_RECON_PLACEMENTS` associative array (which bash cannot export):
-    #: `;`-separated `arch=key key key` entries, or a bare space-separated key
-    #: list that applies to every architecture. Read it through
-    #: `recon_placements_for()`, never directly.
-    recon_placement_keys: list
     recon_packing: str
     recon_granularity: str
     #: `destination` | `source` -- see RECON_ENCODER_SITES and
@@ -86,8 +82,10 @@ class ReconSettings:
     recon_encoder_site: str
     #: ECC_RECON_ERT_AWARE (prompt_6 8.1): the ERT arms get their own mapping,
     #: solved with the encoder's energy in the objective, and the figure marks
-    #: which bars came from one. Requires RECON_OPTIMIZER=True and
-    #: ECC_PHASE=Post; anything else is refused in `__post_init__`.
+    #: which bars came from one. It was coupled to RECON_OPTIMIZER=True and
+    #: ECC_PHASE=Post; both knobs are gone (EnvReorganisation phases 2 and 3)
+    #: and the coupling with them, because every placement is now mapped on
+    #: its own chip and the result phase is derived per arm.
     recon_ert_aware: bool
     #: ECC_RECON_ERT_ARM (prompt_6 8.3): WHICH arm one mapper job is solving --
     #: `reference` (also the empty string), or the key of an ERT-injectable
@@ -99,12 +97,6 @@ class ReconSettings:
     #: on fields that already exist; `archs.ert_bump()` derives the ERT
     #: delta from it. Read it through `ert_arm()`.
     recon_ert_arm: str
-    #: ECC_RECON_LAYER (prompt_6 8.2): the placement study's layer scope --
-    #: one layer name, or `all`/empty for the whole model. env.sh section 10
-    #: seeds ECC_LAYERS from it whenever ECC_RECON_MODELING=1, so `layers` is
-    #: already the resolved scope; this field records the spelling for the
-    #: manifest. The launcher (hpc/map_ert_arms.sh) sets it per job.
-    recon_layer: str
     #: ECC_RECON_BW_SCALE (prompt_7 C1.2). 1 = every stage in the arm's
     #: `reduced` set declares `per_dataspace_bandwidth_consumption_scale:
     #: {Weights: ...}` -- K/N at DRAM (a bit stream) and q/8 on chip (whole
@@ -128,16 +120,10 @@ class ReconSettings:
             recon_incremental_fallback_pj=_f("ECC_RECON_INCREMENTAL_FALLBACK_PJ", 1.8995),
             recon_idle_fallback_pj=_f("ECC_RECON_IDLE_FALLBACK_PJ", 2.2301273),
             recon_clock_gating_pct=_f("ECC_RECON_CLOCK_GATING_PCT", 99.5),
-            recon_modeling=_b("ECC_RECON_MODELING", False),
-            # env.sh spells this `RECON_OPTIMIZER` as well, and mirrors it into the
-            # ECC_-prefixed name every other knob uses.
-            recon_optimizer=_b("ECC_RECON_OPTIMIZER", False),
-            recon_placement_keys=_list("ECC_RECON_PLACEMENT_LIST", sep=";"),
             recon_packing=_s("ECC_RECON_PACKING", "stream").lower(),
             recon_granularity=_s("ECC_RECON_ENCODER_GRANULARITY", "weight").lower(),
             recon_encoder_site=_s("ECC_RECON_ENCODER_SITE", "destination").lower(),
             recon_ert_aware=_b("ECC_RECON_ERT_AWARE", False),
             recon_ert_arm=_s("ECC_RECON_ERT_ARM").strip().lower(),
-            recon_layer=_s("ECC_RECON_LAYER").strip(),
             recon_bw_scale=_b("ECC_RECON_BW_SCALE", False),
         )

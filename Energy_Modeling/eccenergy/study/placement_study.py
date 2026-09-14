@@ -4,7 +4,7 @@
     bash run.sh recon --layers "layer3.0.downsample.0 layer4.1.conv2" --eval
     bash hpc/tl.sh bash run.sh recon --eval      # HiPerGator (host python has no pandas)
 
-or, from env.sh, by setting `ECC_RECON_MODELING=1` and running the one command:
+or, from env.sh, by setting `ECC_SWEEP=fix` and running the one command:
 
     bash hpc/run_all.sh --eval-only
 
@@ -178,7 +178,7 @@ def evaluate(cfg, ses, prov, arch, model, raw):
                 f"  missing: {', '.join(detail['missing'])}\n"
                 f"  A HALF-MAPPED ARM IS TWO CHIPS IN ONE BAR -- its own plan on some "
                 f"shapes and a borrowed one on the rest. Finish the maps "
-                f"(bash hpc/map_ert_arms.sh --no-eval) or remove the partial cache "
+                f"(bash hpc/run_all.sh --map-only) or remove the partial cache "
                 f"directory so the bar borrows a named plan instead.")
         if state == "ready":
             solved.add(a.key)
@@ -190,7 +190,7 @@ def evaluate(cfg, ses, prov, arch, model, raw):
             f"otherwise, which is Task 3.\n"
             + "".join(f"  {k:<10} {v['state']:<8} {v['cache']}\n"
                       for k, v in arm_states.items())
-            + f"  -> map them:  bash hpc/map_ert_arms.sh --no-eval")
+            + f"  -> map them:  bash hpc/run_all.sh --map-only")
     views = {a.key: ert_aware_view(cfg, ses, arch, model, cats, raw, paths, a.placement)
              for a in arms if a.key in solved}
     if aware:
@@ -497,7 +497,7 @@ def evaluate(cfg, ses, prov, arch, model, raw):
                 f"arm narrows, so no plan on disk knows the capacity that narrowing frees "
                 f"and no post-processing can re-tile a loop nest to use it. The energy is a "
                 f"valid number for the reference loop nest; it is NOT that chip's own "
-                f"mapping. -> bash hpc/map_ert_arms.sh (prompt_7 Phase C).")
+                f"mapping. -> bash hpc/run_all.sh (prompt_7 Phase C).")
     if dil:
         builder.approximate(TASK4_NOTE)
         builder.approximate(dil.correction.get("provenance", ""))
@@ -588,7 +588,10 @@ def evaluate(cfg, ses, prov, arch, model, raw):
                  "access_counter": p.site_counter,
                  "description": p.description}
                 for p in placements_mod.placements_for(arch, cfg)],
-            "placements_requested": wanted or "all",
+            # The RESOLVED list, so the record names the bars: `wanted` is
+            # empty when ECC_APPROACHES asked for the abstract `recon`, which
+            # means every placement this design declares.
+            "placements_requested": cfg.recon_placement_bars(arch, warn=False) or "all",
         })
     # prompt_7 Phase A. Recorded whether or not the roofline ran: `standby`
     # always says who was charged, and a `latency_model` of None says plainly

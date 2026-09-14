@@ -52,9 +52,9 @@ SHELL = (sorted(ROOT.glob("hpc/*.sh")) + sorted(ROOT.glob("*.sh"))
 LOOSE = sorted(p for p in (list(ROOT.glob("*.py")) + list(ROOT.glob("tools/*.py")))
                if p.name != "setup.py")
 
-#: A `${VAR}` or `$(cmd)` inside an embedded block is SHELL, not Python. Only
-#: one block in the tree has one (`map_depth_sweep.sh`'s datawidth probe), and
-#: a placeholder keeps it parseable without pretending to know the value.
+#: A `${VAR}` or `$(cmd)` inside an embedded block is SHELL, not Python. A
+#: placeholder keeps such a block parseable without pretending to know the
+#: value (`map_capacity_sweep.sh`'s N/K probe is one).
 _SUBST = re.compile(r"\$\{[^}]*\}|\$\([^)]*\)|\$[A-Za-z_][A-Za-z_0-9]*")
 
 
@@ -148,11 +148,19 @@ def test_there_is_something_to_audit():
     directory must fail here rather than quietly auditing nothing.
     """
     labels = [lab for lab, _ in _embedded()]
-    assert len(labels) >= 10, (
+    # THE FLOOR FELL FROM 10 TO 4 ON PURPOSE (EnvReorganisation phase 3,
+    # 2026-09-14). `map_ert_arms.sh`, `map_by_shape.sh` and `map_depth_sweep.sh`
+    # held most of the embedded blocks in the tree -- deriving the arms, the
+    # shapes and the datawidth in heredocs -- and all three are deleted: that
+    # derivation is `eccenergy/toolchain/units.py` now, where the layer rule
+    # and the ordinary suite cover it instead of a grep over shell. A LOWER
+    # floor here is the phase working; a floor of ZERO would still be the
+    # vacuous audit this test exists to refuse.
+    assert len(labels) >= 4, (
         f"only {len(labels)} embedded block(s) found: {labels}. `hpc/*.sh` and the "
         f"loose tools import `eccenergy` -- if they moved, move SHELL/LOOSE with them.")
     assert any("bch_sweep_tables" in lab for lab in labels)
-    assert any("map_ert_arms" in lab for lab in labels)
+    assert any("smoke_models" in lab for lab in labels)
 
 
 def test_every_out_of_package_import_resolves():

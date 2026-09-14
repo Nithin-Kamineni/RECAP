@@ -8,8 +8,9 @@ files are -- one `fp-<hash>` per SCALE, because a dilated array is a different
 chip and its mapping lives under its own fingerprint.
 
 Nothing here invokes a mapper; `hpc/map_capacity_sweep.sh` and
-`hpc/map_depth_sweep.sh` fill the caches this reads. A scale with no cache is
-reported missing, never interpolated.
+`ECC_SWEEP=area bash hpc/run_all.sh` fill the caches this reads (the second
+replaced `hpc/map_depth_sweep.sh` in EnvReorganisation phase 3). A scale with
+no cache is reported missing, never interpolated.
 
 ProjectRestructure phase 3 cut `experiments/dilation.py` (1,851 lines) into this,
 `study/dilation.py`, `study/dilation_tables.py` and `report/dilation_view.py`.

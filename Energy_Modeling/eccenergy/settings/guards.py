@@ -12,7 +12,7 @@ turn off.
     1 PARSE       "ECC_VICTORY=abc is not an integer".  NEVER overridable.
     2 IMPOSSIBLE  "need K < N";  "width must be positive".  Physically or
                   arithmetically cannot hold.  NEVER overridable.
-    3 COUPLING    "ECC_RECON_ERT_AWARE=1 needs RECON_OPTIMIZER=True".  Encodes
+    3 COUPLING    "ECC_SPLIT_READ_WRITE=1 inside the placement study".  Encodes
                   THE COMBINATIONS WE THOUGHT OF.  Overridable.
     4 DERIVED     "the arm declares q=4, but you set ECC_WEIGHT_DATAWIDTH=5".
                   Refuses you for setting a knob the system also derives.
@@ -113,6 +113,7 @@ GUARDS = {
     "not-an-integer":           _g(1, "an integer knob that is not an integer"),
     "not-a-number":             _g(1, "a float knob that is not a number"),
     "not-a-key-value-table":    _g(1, "an `ECC_*_LIST` entry that is not `key=number`"),
+    "not-a-key-value-list":     _g(1, "an ECC_LAYERS per-model entry that is not `model=layer layer`"),
     "one-value-not-a-list":     _g(1, "a list where ONE value is meant (only the swept axis takes a list)"),
     "unknown-experiment":       _g(1, "ECC_EXPERIMENT naming no known experiment"),
     "unknown-sweep":            _g(1, "ECC_SWEEP naming no known axis"),
@@ -156,6 +157,8 @@ GUARDS = {
                                       "ablation, negative is not a price."),
     "dram-static-terms-nonnegative": _g(2, "a negative DRAM background or refresh term"),
     "approaches-empty":         _g(2, "ECC_APPROACHES empty -- nothing to compare"),
+    "sweep-has-no-figure":      _g(2, "a sweep or panel FIGURE on an axis that holds all three lists (fix, area)"),
+    "layers-per-model-one-model": _g(2, "ECC_LAYERS' per-model form on a run that evaluates several models"),
     "sweep-archs-empty":        _g(2, "ECC_SWEEP=arch with no architectures"),
     "sweep-models-empty":       _g(2, "ECC_SWEEP=model with no models"),
     "sweep-ks-empty":           _g(2, "ECC_SWEEP=bch with no codes"),
@@ -167,8 +170,6 @@ GUARDS = {
     "recon-one-model":          _g(2, "the placement study on more than one model"),
     "ert-arm-one-arch":         _g(2, "ECC_RECON_ERT_ARM with more than one architecture"),
     "unknown-ert-arm":          _g(2, "ECC_RECON_ERT_ARM naming no arm of this design"),
-    "unknown-placement":        _g(2, "ECC_RECON_PLACEMENTS naming a boundary the design does not define",
-                                 SystemExit),
     "no-weight-path":           _g(2, "a placement study on a design that declares no weight path", SystemExit),
     "weight-path-drifted":      _g(2, "a weight path and a placement list that have drifted apart", SystemExit),
     "missing-path":             _g(2, "a required input file that is not there", SystemExit),
@@ -272,7 +273,6 @@ GUARDS = {
     "ert-probe-level-no-weights": _g(2, "a probe level carrying no Weights in the reference stats", SystemExit),
 
     # ---- tier 3: COUPLING -- the combinations we thought of --------------
-    "ert-arm-needs-optimiser":  _g(3, "ECC_RECON_ERT_AWARE=1 without RECON_OPTIMIZER=True"),
     "rerun-needs-the-mapper":   _g(3, "ECC_RERUN_OPTIMISER=1 together with a knob that never invokes Timeloop"),
     "recon-no-split-read-write": _g(3, "ECC_SPLIT_READ_WRITE=1 inside the placement study"),
     "panels-needs-arch-or-model-sweep": _g(3, "a panel layout that would vary two axes at once"),

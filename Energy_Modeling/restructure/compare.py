@@ -67,7 +67,11 @@ import re
 import sys
 
 #: Files the gate compares on its own, under its own rules.
-SKIP = {"fingerprints.tsv", "pytest.txt", "pytest.log"}
+#: `record.log` joined them on 2026-09-14 (EnvReorganisation phase 3): it is
+#: the ACCEPTANCE LOG that `--accept-record` appends to, so it exists in the
+#: golden tree and never in a fresh snapshot. `gate.sh` already excluded it
+#: from its own `diff` and from the acceptance rsync; this is the same list.
+SKIP = {"fingerprints.tsv", "pytest.txt", "pytest.log", "record.log"}
 
 _NUM = re.compile(r"[-+]?(?:\d[\d,]*\.?\d*(?:[eE][-+]?\d+)?|\.\d+(?:[eE][-+]?\d+)?)")
 

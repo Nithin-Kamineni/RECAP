@@ -292,12 +292,24 @@ cd /blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling
 bash hpc/run_all.sh --map-only        # or `bash hpc/run_all.sh` for map + eval
 ```
 
-The task list is GENERATED into `hpc/.runtime/tasks.txt` from `ECC_ARCHS x
-ECC_MODELS` in `env.sh`, one `<arch> <model>` per line, and `--array` is sized
-from it at submit time -- so a stale hand-written list can no longer disagree
-with the array. Task 1–6 are the six architectures × `resnet18`, 7–12 ×
-`mobilenet_v2` at the default lists. To map a different set, widen those two
-variables; nothing else changes.
+The task list is GENERATED into `hpc/.runtime/tasks.txt` by
+`eccenergy/toolchain/units.py`, and `--array` is sized from it at submit time
+-- so a stale hand-written list can no longer disagree with the array. Since
+EnvReorganisation phase 3 (2026-09-14) one line is one UNIT of mapper work,
+seven columns:
+
+```
+<bundle> <arch> <model> <K> <depth> <arm> <layer>
+```
+
+a CHIP (architecture × code × buffer-depth scale × arm -- every distinct thing
+the mapper is handed) crossed with one distinct layer SHAPE. **Units already in
+the mapper cache are not written to the file and are not submitted**, so a
+rerun after a failure queues only what is left. `ECC_SWEEP` decides which axis
+is enumerated and `ECC_JOBS` bundles the units into fewer jobs (one array task
+per bundle, walked serially -- so `ECC_MAP_TIME` must cover the bundle).
+`bash hpc/run_all.sh --dry-run` prints the bill and the bundling and submits
+nothing.
 
 **Concurrency.** `ECC_CONCURRENCY` (the `%N` in `--array`) is the only place
 concurrency is capped. The

@@ -55,6 +55,7 @@
     "global_cycle_seconds": "1e-9",
     "latency_model": true,
     "layers": [],
+    "layers_by_model": {},
     "leakage_nw": {
       "mac_instance": 7844.9,
       "rf_bit": 70.0,
@@ -111,14 +112,8 @@
       "BCH_63_57_t1": 1.6574
     },
     "recon_json": "data/dc/BCH_N63_results.json",
-    "recon_layer": "all",
-    "recon_modeling": true,
-    "recon_optimizer": true,
     "recon_packing": "stream",
     "recon_pj_override": null,
-    "recon_placement_keys": [
-      "eyeriss_like_wglb=recon1 recon2 recon3 recon4 recon5"
-    ],
     "replot_only": false,
     "rerun_optimiser": false,
     "results_dir": "results",
@@ -128,7 +123,7 @@
     "static_energy": true,
     "stem": "ReconSweep_optimiser__resnet18",
     "stem_override": "ReconSweep_optimiser__resnet18",
-    "sweep": "arch",
+    "sweep": "fix",
     "sweep_archs": [
       "eyeriss_like_wglb"
     ],
@@ -198,7 +193,7 @@
   "recon_idle_pj_per_cycle_per_engine": 13.945649499999998,
   "recon_pj_per_codeword": 1.4561,
   "recon_provenance": "env.sh DC tables [BCH_63_39_t4]: incremental=1.4561000 pJ/codeword, idle=2.7891299 pJ/cycle/engine at the DC report's 1 ns; idle rescaled x5 to this design's clock (5 ns against the DC report's 1 ns) -> 13.9456495 pJ/cycle/engine. The INCREMENTAL term is per codeword and is NOT rescaled",
-  "swept_axis": "arch",
+  "swept_axis": "fix",
   "swept_values": [
     "baseline",
     "embedded",

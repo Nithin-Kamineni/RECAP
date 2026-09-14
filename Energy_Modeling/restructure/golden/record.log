@@ -91,3 +91,77 @@
 	    validate.txt:12: 1 line(s) reworded, numbers identical
 	  verdict: record/prose only -- every number identical. Read the lists,
 	           then record it:  bash restructure/gate.sh --accept-record '<why>'
+2026-09-14T07:29:03Z	EnvReorganisation phase 3 -- ONE LAUNCHER. Every fingerprint (302 rows) and EVERY NUMBER identical; the classifier reports 0 numbers moved. RECORD: 4 keys deleted from the config of all 8 result/manifest files -- recon_modeling, recon_optimizer, recon_placement_keys, recon_layer, exactly the four ReconSettings fields this phase removes (the mode is reconN in ECC_APPROACHES, the optimiser is a constant True property, the boundaries come from placements.yaml, the scope is ECC_LAYERS) -- and 1 key ADDED, layers_by_model, the per-model spelling of ECC_LAYERS (empty at every default). PROSE: sweep 'arch' -> 'fix' and swept_axis with it, because ECC_SWEEP=fix now IS the placement study; the derived config_hash follows those keys; the banner's axis line and its 'sweeping' row (eyeriss_like_wglb -> the arms, which is what a point sweep compares); and on the baseline/embedded stages only, stem/stem_override 'ReconSweep__resnet18' -> 'ReconSweep_optimiser__resnet18', because snapshot.py's RECON_OPTIMIZER=False override is dead and no longer shortens the name. No file appeared or vanished. Smoked on one real SLURM job (42084595, the cached reference unit eyeriss_like_wglb/resnet18/K39/x1/conv1): cache hit, fp-2db6a4d92ff5, 8 seconds.
+	  NUMBERS MOVED (always red): 0
+	  RECORD keys added/removed (no number in them): 40
+	    baseline/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/layers_by_model: fresh only
+	    baseline/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_layer: golden only
+	    baseline/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_modeling: golden only
+	    baseline/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_optimizer: golden only
+	    baseline/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_placement_keys: golden only
+	    diagnose/manifests/diagnose.json/config/layers_by_model: fresh only
+	    diagnose/manifests/diagnose.json/config/recon_layer: golden only
+	    diagnose/manifests/diagnose.json/config/recon_modeling: golden only
+	    diagnose/manifests/diagnose.json/config/recon_optimizer: golden only
+	    diagnose/manifests/diagnose.json/config/recon_placement_keys: golden only
+	    embedded/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/layers_by_model: fresh only
+	    embedded/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_layer: golden only
+	    embedded/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_modeling: golden only
+	    embedded/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_optimizer: golden only
+	    embedded/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_placement_keys: golden only
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/layers_by_model: fresh only
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_layer: golden only
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_modeling: golden only
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_optimizer: golden only
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_placement_keys: golden only
+	    recon_default/manifests/ReconSweep_optimiser__resnet18.json/config/layers_by_model: fresh only
+	    recon_default/manifests/ReconSweep_optimiser__resnet18.json/config/recon_layer: golden only
+	    recon_default/manifests/ReconSweep_optimiser__resnet18.json/config/recon_modeling: golden only
+	    recon_default/manifests/ReconSweep_optimiser__resnet18.json/config/recon_optimizer: golden only
+	    recon_default/manifests/ReconSweep_optimiser__resnet18.json/config/recon_placement_keys: golden only
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/layers_by_model: fresh only
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_layer: golden only
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_modeling: golden only
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_optimizer: golden only
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_placement_keys: golden only
+	    recon_ert/manifests/ReconSweep_optimiser__resnet18.json/config/layers_by_model: fresh only
+	    recon_ert/manifests/ReconSweep_optimiser__resnet18.json/config/recon_layer: golden only
+	    recon_ert/manifests/ReconSweep_optimiser__resnet18.json/config/recon_modeling: golden only
+	    recon_ert/manifests/ReconSweep_optimiser__resnet18.json/config/recon_optimizer: golden only
+	    recon_ert/manifests/ReconSweep_optimiser__resnet18.json/config/recon_placement_keys: golden only
+	    validate/manifests/validate.json/config/layers_by_model: fresh only
+	    validate/manifests/validate.json/config/recon_layer: golden only
+	    validate/manifests/validate.json/config/recon_modeling: golden only
+	    validate/manifests/validate.json/config/recon_optimizer: golden only
+	    validate/manifests/validate.json/config/recon_placement_keys: golden only
+	  PROSE (strings, text lines): 28
+	    baseline.txt:2: 1 line(s) reworded, numbers identical
+	    baseline.txt:4: 1 line(s) reworded, numbers identical
+	    baseline/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/stem: 'ReconSweep__resnet18' -> 'ReconSweep_optimiser__resnet18'
+	    baseline/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/stem_override: 'ReconSweep__resnet18' -> 'ReconSweep_optimiser__resnet18'
+	    baseline/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/sweep: 'arch' -> 'fix'
+	    baseline/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config_hash: '226f21d4' -> '05d1e98f'
+	    diagnose.txt:2: 1 line(s) reworded, numbers identical
+	    diagnose.txt:4: 1 line(s) reworded, numbers identical
+	    diagnose/manifests/diagnose.json/config/sweep: 'arch' -> 'fix'
+	    embedded.txt:2: 1 line(s) reworded, numbers identical
+	    embedded.txt:4: 1 line(s) reworded, numbers identical
+	    embedded/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/stem: 'ReconSweep__resnet18' -> 'ReconSweep_optimiser__resnet18'
+	    embedded/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/stem_override: 'ReconSweep__resnet18' -> 'ReconSweep_optimiser__resnet18'
+	    embedded/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/sweep: 'arch' -> 'fix'
+	    embedded/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config_hash: '95473f64' -> 'efa35027'
+	    recon_default.txt:4: 1 line(s) reworded, numbers identical
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/sweep: 'arch' -> 'fix'
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config_hash: '46def58a' -> '78bd0f25'
+	    recon_default/manifests/ReconSweep_optimiser__resnet18.json/config/sweep: 'arch' -> 'fix'
+	    recon_default/manifests/ReconSweep_optimiser__resnet18.json/swept_axis: 'arch' -> 'fix'
+	    recon_ert.txt:4: 1 line(s) reworded, numbers identical
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/sweep: 'arch' -> 'fix'
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config_hash: '46def58a' -> '78bd0f25'
+	    recon_ert/manifests/ReconSweep_optimiser__resnet18.json/config/sweep: 'arch' -> 'fix'
+	    recon_ert/manifests/ReconSweep_optimiser__resnet18.json/swept_axis: 'arch' -> 'fix'
+	    validate.txt:2: 1 line(s) reworded, numbers identical
+	    validate.txt:4: 1 line(s) reworded, numbers identical
+	    validate/manifests/validate.json/config/sweep: 'arch' -> 'fix'
+	  verdict: record/prose only -- every number identical. Read the lists,
+	           then record it:  bash restructure/gate.sh --accept-record '<why>'

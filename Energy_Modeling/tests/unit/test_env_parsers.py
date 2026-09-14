@@ -100,10 +100,35 @@ def test_a_comment_ends_a_list():
 
 
 def test_a_semicolon_list_keeps_its_entries_whole():
-    """`ECC_RECON_PLACEMENT_LIST`'s entries are `arch=key key key`, so splitting
-    on spaces would shred them."""
+    """A `key=a b c` entry must survive whole, so splitting on spaces would
+    shred it. `ECC_RECON_PLACEMENT_LIST` was the caller until
+    EnvReorganisation phase 3 retired it; the parser is still how a `;`-form
+    knob is read, and `_scoped_list` below is the live one."""
     set_env(X="eyeriss=r1 r2 r3; simple=r1")
     assert env._list("X", sep=";") == ["eyeriss=r1 r2 r3", "simple=r1"]
+
+
+def test_ecc_layers_has_two_spellings_and_they_may_not_be_mixed():
+    """EnvReorganisation 6.9: layer names are PER NETWORK, so one bare list
+    cannot scope a run that spans two of them. The `=` tells the two forms
+    apart, a model with no entry runs WHOLE (an empty list), and mixing the
+    two is refused rather than half-read."""
+    set_env(X="conv1 layer3.0.conv1")
+    assert env._scoped_list("X") == (["conv1", "layer3.0.conv1"], {})
+    set_env(X="")
+    assert env._scoped_list("X") == ([], {})
+    set_env(X="resnet18=conv1 layer3.0.conv1; mobilenet_v2=features.9.conv.2")
+    assert env._scoped_list("X") == ([], {
+        "resnet18": ["conv1", "layer3.0.conv1"],
+        "mobilenet_v2": ["features.9.conv.2"]})
+    # a model named with NO layers runs whole -- the table may be sparse
+    set_env(X="resnet18=conv1; mobilenet_v2=")
+    assert env._scoped_list("X") == ([], {"resnet18": ["conv1"],
+                                          "mobilenet_v2": []})
+    # BREAKAGE: a bare name beside a table entry is neither spelling
+    set_env(X="resnet18=conv1; layer3.0.conv1")
+    with pytest.raises(ConfigError):
+        env._scoped_list("X")
 
 
 def test_one_value_is_one_value_and_extras_are_refused_not_truncated():

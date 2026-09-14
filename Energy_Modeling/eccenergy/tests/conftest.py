@@ -85,8 +85,8 @@ def pytest_runtest_call(item):
 #: The point every `cfg()` starts from. STATED HERE, NOT INHERITED.
 #:
 #: env.sh is the study's configuration and it moves -- the live code was
-#: BCH(63,30) in September and is BCH(63,39) now, and section 4 reassigns the
-#: architecture outright under `ECC_RECON_MODELING=1`. A test that reads its
+#: BCH(63,30) in September and is BCH(63,39) now, and `ECC_SWEEP=fix` holds
+#: the architecture at whatever heads `ECC_ARCHS`. A test that reads its
 #: design from the environment therefore tests a different chip depending on
 #: when it is run, which is the third of the three causes in this file's header.
 #:
@@ -98,7 +98,6 @@ def pytest_runtest_call(item):
 PINNED_ENV = {
     "ECC_CONST_ARCH": "eyeriss_like_wglb",
     "ECC_SWEEP_ARCHS": "eyeriss_like_wglb",
-    "ECC_RECON_ARCHS": "eyeriss_like_wglb",
     "ECC_CONST_MODEL": "resnet18",
     "ECC_SWEEP_MODELS": "resnet18",
     "ECC_CODE_N": "63",

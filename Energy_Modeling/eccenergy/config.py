@@ -74,8 +74,9 @@ from .settings.mapper import (OPT_METRICS, VICTORY_MAX_SCALE,
 from .settings.recon import (RECON_ENCODER_SITES, RECON_GRANULARITIES,
                              RECON_PACKINGS, ReconSettings)
 from .settings.run import (APPROACH_LABELS, APPROACH_TAGS, APPROACHES,
-                           EXPERIMENTS, SWEEP_ALIASES, SWEEP_STEMS,
-                           SWEEPS, RunSettings)
+                           BAR_ARMS, EXPERIMENTS, POINT_SWEEPS,
+                           RECON_PLACEMENT_APPROACHES, SWEEP_ALIASES,
+                           SWEEP_STEMS, SWEEPS, RunSettings)
 from .settings import guards
 
 #: WHICH DESIGNS EXIST IS DATA (phase 5). These three names are what every
@@ -130,10 +131,9 @@ FIELD_ORDER = (
     "recon_charges_decode", "recon_json", "recon_incremental_table",
     "recon_idle_table", "recon_pj_override",
     "recon_incremental_fallback_pj", "recon_idle_fallback_pj",
-    "recon_clock_gating_pct", "energy_model_rev", "recon_modeling",
-    "recon_optimizer", "recon_placement_keys", "recon_packing",
+    "recon_clock_gating_pct", "energy_model_rev", "recon_packing",
     "recon_granularity",
-    "recon_encoder_site", "recon_ert_aware", "recon_ert_arm", "recon_layer",
+    "recon_encoder_site", "recon_ert_aware", "recon_ert_arm",
     "dram_pj_per_bit", "baseline_dram_pj_per_bit", "dram_background_pj",
     "dram_refresh_pj", "static_energy", "leakage_nw", "latency_model",
     "dram_bandwidth_mbps", "arch_clock_mhz", "recon_bw_scale",
@@ -146,7 +146,7 @@ FIELD_ORDER = (
     "disable_pair_geometry_assert", "weight_depth_levels",
     "weight_datawidth_levels", "noc_enabled", "noc_wire_pj_per_bit_mm",
     "noc_router_pj", "noc_pe_latch_pj", "noc_scale", "mac_pj_override",
-    "layers", "overwrite", "cache_strict", "rerun_optimiser",
+    "layers", "layers_by_model", "overwrite", "cache_strict", "rerun_optimiser",
     "run_note", "opt_metric", "victory", "victory_scaling", "mapper_threads",
     "mapper_timeout", "mapper_algorithm", "mapper_seed", "mapper_search_size",
     "mapper_max_permutations", "results_dir", "replot_only", "from_cache",
@@ -210,6 +210,27 @@ def _resolve(self):
     # `design.yaml`'s declared `order:`.
     if self.sweep_archs is None:
         self.sweep_archs = list(design_mod.known_archs())
+
+    # ECC_SWEEP=fix AND ECC_SWEEP=area HOLD ALL THREE LISTS (EnvReorganisation
+    # 3.1, phase 3). `fix` is the placement study at one point -- the bars are
+    # what ECC_APPROACHES names -- and `area` walks the buffer-DEPTH ladder
+    # with architecture, model and code held. Neither puts one of the three
+    # lists on the x axis, so neither may widen one: env.sh collapses
+    # ECC_SWEEP_* onto the FIRST entry of each list under both, exactly as
+    # section 4 collapsed them for ECC_RECON_MODELING=1 before it.
+    #
+    # `report/sweep.py` has no renderer for either axis until phase 6, and a
+    # missing renderer must SAY so rather than raising a KeyError on a group
+    # that was never collected.
+    if self.sweep in POINT_SWEEPS and self.experiment in ("sweep", "panels"):
+        raise guards.refusal("sweep-has-no-figure",
+            f"ECC_SWEEP={self.sweep} holds all three lists fixed, so there is "
+            f"no x axis for ECC_EXPERIMENT={self.experiment} to draw.\n"
+            f"  -> ECC_SWEEP=fix is the PLACEMENT study (ECC_EXPERIMENT=recon), "
+            f"which env.sh routes to automatically\n"
+            f"  -> ECC_SWEEP=area maps the depth ladder; read it with "
+            f"`python3 -m eccenergy.report.dilation_view --levels`\n"
+            f"  -> a sweep FIGURE over either axis is EnvReorganisation phase 6")
 
     if self.sweep == "arch":
         if not self.sweep_archs:
@@ -367,7 +388,8 @@ def _resolve(self):
         if not self.archs:
             raise guards.refusal("recon-needs-an-arch",
                 "the reconstruction placement study needs at least one "
-                "architecture.\n  -> set ECC_RECON_ARCHS (env.sh section 4)")
+                "architecture.\n  -> set ECC_ARCHS (env.sh section 3); "
+                "ECC_SWEEP=fix holds its FIRST entry")
         # SEVERAL ARCHITECTURES ARE ONE PANEL EACH, NOT ONE AXIS. Each
         # design has its own weight path and therefore its own list of
         # feasible boundaries, so they cannot share an x axis -- env.sh
@@ -384,7 +406,8 @@ def _resolve(self):
             raise guards.refusal("recon-one-model",
                 f"the reconstruction placement study runs on ONE model, not "
                 f"{len(self.models)} ({', '.join(self.models)}).\n"
-                f"  -> set ECC_RECON_MODEL (env.sh section 4)")
+                f"  -> ECC_SWEEP=fix holds the FIRST entry of ECC_MODELS "
+                f"(env.sh section 3); set ECC_CONST_MODEL for another")
         if self.split_read_write:
             guards.refuse("recon-no-split-read-write",
                 "ECC_SPLIT_READ_WRITE=1 splits the on-chip categories in "
@@ -405,6 +428,30 @@ def _resolve(self):
             f"different workload files.\n  CNNs        : {' '.join(cnn)}\n"
             f"  transformers: {' '.join(tfm)}")
     self.workload = "transformer" if tfm else "cnn"
+
+    # ---- the LAYER SCOPE, which is per MODEL (EnvReorganisation 6.9) ----
+    # `ECC_LAYERS` has two spellings and `settings.env._scoped_list` tells
+    # them apart by the `=`: a bare list is these layers of whichever model
+    # runs, and `model=a b; model2=c` is per network. Layer names ARE per
+    # network, so the development scope (two layers each of three models)
+    # cannot be one list -- and `layers-not-in-model` must stay a refusal, so
+    # naming resnet18's layers on a mobilenet run has to be impossible rather
+    # than silent.
+    #
+    # ONE SCOPE PER RUN is what everything downstream assumes:
+    # `paths.layer_slug`, the results namespace and `Session.select_layers`
+    # all take ONE list and apply it to every model. So the table resolves
+    # against the HELD model here, and `Session.setup()` -- the one place the
+    # scope is CONSUMED -- refuses a run that would EVALUATE more than one
+    # model under it (`layers-per-model-one-model`). The refusal cannot live
+    # here: `toolchain.units` enumerates a multi-model map run and derives one
+    # configuration per model from it, and that configuration has to resolve.
+    #
+    # A model with no entry runs WHOLE -- an empty scope, as if ECC_LAYERS
+    # were unset. That is the spelling the plan asks for (6.9) and it is why
+    # the table may be sparse.
+    if self.layers_by_model:
+        self.layers = list(self.layers_by_model.get(self.models[0], ()))
 
     # ECC_FROM_CACHE forbids invoking Timeloop at all, so it cannot also be
     # asked to re-run the mapper. Silently preferring one would mean a run
@@ -494,12 +541,9 @@ def _resolve(self):
                 f"ECC_FORMATS: unsupported format {fmt!r}")
 
     # ---- prompt_6: reconstruction-aware mapping ----------------------
-    if self.recon_ert_aware and not self.recon_optimizer:
-        guards.refuse("ert-arm-needs-optimiser",
-            f"ECC_RECON_ERT_AWARE=1 puts the encoder's energy into the mapper's "
-            f"objective, so the ERT arms are RE-MAPPED: that is Task 4 extended, "
-            f"and it needs RECON_OPTIMIZER=True (got "
-            f"RECON_OPTIMIZER={self.recon_optimizer}).")
+    # `ert-arm-needs-optimiser` RETIRED with RECON_OPTIMIZER (EnvReorganisation
+    # phase 3): the knob it required is a constant True now, so the coupling
+    # can no longer be violated and a guard that cannot fire is folklore.
     if self.recon_ert_arm in ("", "reference"):
         self.recon_ert_arm = "reference"
     else:
@@ -619,6 +663,42 @@ class Config:
                 if f not in kw:
                     flat[f] = None
         return _build({**flat, **kw})
+
+    # ---- what the arms are -------------------------------------------------
+    @property
+    def recon_optimizer(self):
+        """TRUE, ALWAYS -- and no longer a knob (EnvReorganisation phase 3).
+
+        `RECON_OPTIMIZER` chose between Task 3 (one fixed mapping billed to
+        every arm) and Task 4 (the reconstruction arm re-mapped for the
+        reduced width). Since prompt_7 Phase B every placement that is a
+        DISTINCT CHIP gets its own mapping, so the fixed-mapping reading has
+        nothing left to select and the knob was always `True` in practice. It
+        is a property rather than a field so the configuration RECORD loses
+        the key instead of carrying a constant, and so `with_()` refuses it as
+        "not a knob".
+
+        The Task 3 branches that read it are still here, and still read as
+        they did; phase 6 deletes them with the abstract `recon` arm.
+        """
+        return True
+
+    @property
+    def bar_arms(self):
+        """The ABSTRACT arms this run draws, in bar order.
+
+        `ECC_APPROACHES` may name a placement (`recon2`), but the BAR it lands
+        in is one of `baseline` / `embedded` / `recon` until phase 6 teaches
+        `report/sweep.py` to draw a bar per placement. So any `reconN` implies
+        the `recon` bar, and this -- not `approaches` -- is what
+        `build_stacks()` and `draw_panel()` walk. With env.sh's default
+        `baseline embedded recon` the two lists are identical, which is why no
+        number moves.
+        """
+        named = set(self.approaches)
+        if named & set(RECON_PLACEMENT_APPROACHES):
+            named.add("recon")
+        return [a for a in BAR_ARMS if a in named]
 
     @property
     def layer_scope(self):
@@ -764,20 +844,42 @@ class Config:
 
     @property
     def swept_axis(self):
-        return {"bch": "code-strength", "model": "model", "arch": "architecture"}[self.sweep]
+        return {"bch": "code-strength", "model": "model", "arch": "architecture",
+                # The two POINT_SWEEPS hold all three lists, so neither names
+                # one of them. `fix` has no x axis at all -- the bars ARE the
+                # comparison -- and `area` walks the buffer-depth ladder one
+                # mapped depth at a time.
+                "fix": "the held point",
+                "area": "buffer depth"}[self.sweep]
 
     @property
     def swept_values(self):
-        """The x axis, in order."""
-        return {"bch": self.sweep_ks, "model": self.models, "arch": self.archs}[self.sweep]
+        """The x axis, in order.
+
+        Under `fix` that is the ARMS (plan 3.1: "plots exactly what
+        ECC_APPROACHES names"), and under `area` the ONE depth this
+        configuration is evaluated at -- the ladder is a set of runs, one
+        `ECC_WEIGHT_DEPTH_SCALE` each, not a list inside one result.
+        """
+        return {"bch": self.sweep_ks, "model": self.models, "arch": self.archs,
+                "fix": list(self.approaches),
+                "area": [self.weight_depth_scale]}[self.sweep]
 
     @property
     def held(self):
-        """[(axis, value)] for the two axes this run holds fixed -- for titles."""
+        """[(axis, value)] for the two axes this run holds fixed -- for titles.
+
+        A POINT_SWEEP (`fix`, `area`) holds all THREE, and drops the
+        architecture from this list anyway: the study is OF that design, and
+        the heading, the panel row and the figure title each name it already.
+        What `held` is for is the axes that are not the subject, so it stays
+        two entries on every axis and every consumer keeps working.
+        `swept_axis` is what says there is no sweep.
+        """
         pairs = [("architecture", self.arch_label(self.const_arch)),
                  ("model", self.const_model),
                  ("code", f"BCH({self.code_n},{self.code_k}) t={self.code_t}")]
-        drop = {"arch": 0, "model": 1, "bch": 2}[self.sweep]
+        drop = {"arch": 0, "model": 1, "bch": 2, "fix": 0, "area": 0}[self.sweep]
         return [p for i, p in enumerate(pairs) if i != drop]
 
     @property
@@ -1288,31 +1390,53 @@ class Config:
                       f"{', '.join(self.layers)}  (not a full-model result)")
         return title
 
-    def recon_placements_for(self, arch):
+    def recon_placements_for(self, arch, warn=True):
         """Which boundaries to draw for `arch`: `[]` means every one it defines.
 
-        `ECC_RECON_PLACEMENT_LIST` is how env.sh section 10 flattens the
-        `ECC_RECON_PLACEMENTS` associative array, which bash cannot export.
-        Two accepted forms, and the per-architecture one wins:
+        THE SOURCE IS `ECC_APPROACHES` since EnvReorganisation phase 3. The
+        per-architecture `ECC_RECON_PLACEMENTS` table went with
+        `ECC_RECON_MODELING`: the design's own `placements.yaml` already says
+        which boundaries it HAS, so the only thing left for the user to say is
+        which of them to compare -- and that is a bar, which is what
+        `ECC_APPROACHES` is for.
 
-            arch=recon1 recon2;other=recon1     per architecture
-            recon1 recon2                       every architecture
+            baseline embedded recon              every placement this design
+                                                 declares  (env.sh's default)
+            baseline embedded recon2 recon4      exactly those two
 
-        An architecture named with an empty list, or not named at all, draws
-        every placement `recon.PLACEMENTS` defines for it -- which is the normal
-        thing to want and what an empty knob gives.
+        A NAMED BOUNDARY THIS DESIGN DOES NOT DECLARE IS WARNED AND DROPPED,
+        never refused (plan 3.1): `eyeriss_v2_like_wglb` has four boundaries
+        and `eyeriss_like_wglb` five, and one `ECC_APPROACHES` has to be legal
+        for both -- so a five-name list draws five bars on one and four on the
+        other. `warn=False` for a caller that only wants the set (a launcher
+        enumerating chips prints its own bill).
         """
-        entries = self.recon_placement_keys
-        if any("=" in e for e in entries):
-            for e in entries:
-                if "=" not in e:
-                    continue
-                name, _, keys = e.partition("=")
-                if name.strip() == arch:
-                    return [k.lower() for k in keys.replace(",", " ").split()]
+        named = [a for a in self.approaches if a in RECON_PLACEMENT_APPROACHES]
+        if not named:
             return []
-        return [k.lower() for e in entries
-                for k in e.replace(",", " ").split()]
+        declared = [p.key for p in placements.PLACEMENTS.get(arch, ())]
+        keep = [k for k in named if k in declared]
+        missing = [k for k in named if k not in declared]
+        if missing and warn:
+            print(f"  [skip] {arch} does not declare {', '.join(missing)} -- "
+                  f"it has {', '.join(declared) or 'no placement at all'}. "
+                  f"Drawing {len(keep)} bar(s), not {len(named)}.")
+        return keep
+
+    def recon_placement_bars(self, arch, warn=True):
+        """The boundaries this run DRAWS on `arch` -- resolved, never empty.
+
+        `recon_placements_for()` answers what was ASKED, and `[]` there means
+        "every placement this design declares", which is what the abstract
+        `recon` in `ECC_APPROACHES` means. This answers what will actually be
+        on the figure, so a banner row and a result record can NAME the bars
+        instead of saying "all" -- read off the design, which is the only
+        place that knows.
+        """
+        named = self.recon_placements_for(arch, warn=warn)
+        if named:
+            return named
+        return [p.key for p in placements.PLACEMENTS.get(arch, ())]
 
     def mapping_regime_line(self):
         """WHICH MAPPING REGIME the placement bars come from -- the claim a reader

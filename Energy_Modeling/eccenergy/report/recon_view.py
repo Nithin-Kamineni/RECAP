@@ -387,18 +387,15 @@ def run(cfg):
                 + "\n  ".join(space["violations"])
                 + f"\n  -> {space['fix']}")
 
-        defined = placements.placements_for(arch, cfg)
-        unknown = [k for k in cfg.recon_placements_for(arch)
-                   if k not in {p.key for p in defined}
-                   and k not in {p.variant for p in defined}
-                   and k not in ("baseline", "embedded")]
-        if unknown:
-            raise guards.refusal("unknown-placement",
-                f"ECC_RECON_PLACEMENTS[{arch}] names placements this "
-                f"architecture does not define: {', '.join(unknown)}\n"
-                f"  defined: {', '.join(p.key for p in defined)}\n"
-                f"  -> the boundaries are per architecture; see "
-                f"eccenergy/recon.py PLACEMENTS")
+        # `unknown-placement` RETIRED with ECC_RECON_PLACEMENTS
+        # (EnvReorganisation phase 3). The boundaries to draw now come from
+        # ECC_APPROACHES, where a name that is not a placement AT ALL is
+        # already refused one level up and harder (`unknown-approach`, tier
+        # 1); and a name that IS a placement but is not one THIS design
+        # declares must be WARNED and dropped, not refused (plan 3.1) --
+        # `eyeriss_like_wglb` has five boundaries and `eyeriss_v2_like_wglb`
+        # four, and one ECC_APPROACHES has to be legal for both.
+        # `Config.recon_placements_for()` is where that warning is printed.
 
     ses = Session(cfg).setup()
     ses.collect_all()
@@ -412,8 +409,8 @@ def run(cfg):
                 f"nothing collected for {arch}/{model}; see the [skip] lines "
                 f"above.\n  -> every architecture of a panelled placement study "
                 f"needs its own mapper cache: map it first "
-                f"(ECC_RECON_ARCHS={arch} bash hpc/map_by_shape.sh), or drop it "
-                f"from ECC_RECON_ARCHS")
+                f"(ECC_CONST_ARCH={arch} bash hpc/run_all.sh --map-only), or "
+                f"drop it from ECC_ARCHS")
         out = evaluate(cfg, ses, prov, arch, model, raw)
         outs[arch] = out
         panels.append(panel_for(cfg, arch, model, out))

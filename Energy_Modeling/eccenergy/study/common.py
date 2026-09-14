@@ -72,6 +72,26 @@ class Session:
         # consumer -- mapper, raw cache, results writer -- sees only the chosen
         # layers and cannot accidentally mix a full-model number into a
         # two-layer result. The scope is in every path they write to.
+        # ONE RESULT FILE CARRIES ONE LAYER SCOPE. `ECC_LAYERS`' per-model
+        # spelling (EnvReorganisation 6.9) names a different scope per
+        # network, and `select_layers` below applies ONE list to every model
+        # -- as do `paths.layer_slug` and the results namespace. So a run that
+        # evaluates several models under a per-model table is refused HERE,
+        # where the scope is consumed, rather than in `config._resolve()`:
+        # `toolchain.units` derives one configuration per model from exactly
+        # such a run to enumerate the mapper work, and that has to resolve.
+        if cfg.layers_by_model and len(self.models) > 1:
+            raise guards.refusal("layers-per-model-one-model",
+                "ECC_LAYERS is the per-model form ("
+                + "; ".join(f"{m}={len(v)}" for m, v in cfg.layers_by_model.items())
+                + f") but this run evaluates {len(self.models)} models "
+                + f"({', '.join(self.models)}), and one result file carries "
+                f"ONE layer scope.\n"
+                f"  -> map them with `bash hpc/run_all.sh`, which pins one "
+                f"model per unit\n"
+                f"  -> evaluate one model at a time (ECC_CONST_MODEL=<one>)\n"
+                f"  -> a scope PER MODEL inside one result is "
+                f"EnvReorganisation phase 6")
         self.models = select_layers(self.models, cfg.layers)
         self.layer_ids = layer_identities(self.models)
         if cfg.layers:
@@ -192,21 +212,21 @@ class Session:
     def report(self, groups, stacks, labels):
         """The swept axis, one row per group: totals per arm and the savings."""
         cfg = self.cfg
-        ref = cfg.approaches[0]
+        ref = cfg.bar_arms[0]
         print(f"\n  --- {cfg.swept_axis} sweep, reference arm = {ref} ---")
-        head = f"  {'group':22s}" + "".join(f"{a + ' uJ':>13s}" for a in cfg.approaches)
-        head += "".join(f"{a + ' %':>12s}" for a in cfg.approaches[1:])
+        head = f"  {'group':22s}" + "".join(f"{a + ' uJ':>13s}" for a in cfg.bar_arms)
+        head += "".join(f"{a + ' %':>12s}" for a in cfg.bar_arms[1:])
         print(head)
         for g in groups:
             st = stacks[g]
-            pcts = savings(st, cfg.approaches)
+            pcts = savings(st, cfg.bar_arms)
             name = str(labels.get(g, g)).replace("\n", " ")
             line = f"  {name[:22]:22s}"
-            line += "".join(f"{float(st[a].sum()) / 1e6:13,.2f}" for a in cfg.approaches)
-            line += "".join(f"{pcts[a]:11.1f}%" for a in cfg.approaches[1:])
+            line += "".join(f"{float(st[a].sum()) / 1e6:13,.2f}" for a in cfg.bar_arms)
+            line += "".join(f"{pcts[a]:11.1f}%" for a in cfg.bar_arms[1:])
             print(line)
 
-        if "recon" in cfg.approaches:
+        if "recon" in cfg.bar_arms:
             st = stacks[groups[0]]
             total = float(st["recon"].sum())
             share = float(st.loc["Reconstruction", "recon"]) / total * 100 if total else 0.0

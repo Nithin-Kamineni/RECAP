@@ -901,16 +901,20 @@ def test_the_phase_is_derived_per_arm_and_no_knob_can_contradict_it():
     (`task4-is-post`, `task3-is-pre`) that held it in agreement with
     RECON_OPTIMIZER. The namespace under results/evaluation/ is unchanged.
     """
+    from eccenergy.config import ConfigError
     from eccenergy.paths import Results
     from eccenergy.settings.run import result_phase
     from eccenergy.toolchain.results_store import ResultBuilder
     assert result_phase("baseline") == "Pre"
     assert result_phase("embedded") == "Pre"
-    assert result_phase("recon", recon_optimizer=True) == "Post"
-    assert result_phase("recon", recon_optimizer=False) == "Pre"      # Task 3
-    # an ECC_PHASE left in a shell is READ BY NOTHING
-    cfg = _cfg(ECC_RECON_OPTIMIZER="True", ECC_PHASE="Pre")
+    assert result_phase("recon") == "Post"
+    # RECON_OPTIMIZER was the second argument until EnvReorganisation phase 3
+    # and is now a constant True, so `recon` has ONE phase and the signature
+    # has one parameter. `Config.recon_optimizer` is the property that says
+    # so, and it is no longer a knob OR a record key.
+    cfg = _cfg(ECC_PHASE="Pre", ECC_RECON_OPTIMIZER="False")
     assert not hasattr(cfg, "phase") and "phase" not in cfg.to_dict()
+    assert "recon_optimizer" not in cfg.to_dict()
     assert cfg.recon_optimizer is True
     res = Results(cfg)
     b = ResultBuilder(cfg, res, "eyeriss_v2_like", "resnet18",
@@ -919,7 +923,7 @@ def test_the_phase_is_derived_per_arm_and_no_knob_can_contradict_it():
     assert "/Post/" in res.evaluation_dir("eyeriss_v2_like", "resnet18", b.phase).as_posix()
     # the phase follows the RUN's experiment, not a builder's label: Task 1 and
     # Task 2 run under ECC_EXPERIMENT=baseline / embedded and are `Pre`
-    cfg_b = _cfg(ECC_EXPERIMENT="baseline", ECC_RECON_OPTIMIZER="True")
+    cfg_b = _cfg(ECC_EXPERIMENT="baseline")
     b1 = ResultBuilder(cfg_b, Results(cfg_b), "eyeriss_v2_like", "resnet18",
                        experiment="baseline", fixed_mapping=True)
     assert b1.phase == "Pre"
@@ -928,8 +932,14 @@ def test_the_phase_is_derived_per_arm_and_no_knob_can_contradict_it():
     assert math.isclose(capacity.capacity_dilation_scale(cfg),
                         cfg.weight_capacity_scale * cfg.code_n / cfg.code_k,
                         rel_tol=1e-4)
-    # False, and the spelling env.sh uses, are both fine
-    assert _cfg(ECC_RECON_OPTIMIZER="False").recon_optimizer is False
+    # and `with_()` refuses it by name rather than storing a field nobody reads
+    try:
+        cfg.with_(recon_optimizer=False)
+    except ConfigError:
+        pass
+    else:
+        raise AssertionError("with_(recon_optimizer=...) must be refused: it is "
+                             "a property, not a knob")
 
 
 def test_a_multicast_network_boundary_pays_per_destination_not_per_injection():
@@ -1104,35 +1114,46 @@ def test_every_placement_space_is_valid_for_every_supported_design():
 
 
 
-def test_task4_never_lands_on_task3s_figure():
-    """A re-optimised mapping must not overwrite the fixed-mapping figure.
+def test_a_scoped_placement_figure_never_lands_on_a_whole_model_one():
+    """A few layers must not overwrite a whole-model figure, and the reverse.
 
-    Two paths set the name and they have to agree: env.sh section 10 appends
-    `_optimiser` for a whole-model run (which arrives here as ECC_STEM), and
-    `Config.stem` appends it for a layer-scoped one (where env.sh deliberately
-    leaves ECC_STEM empty so the layer scope can land in the name). Before
-    this, a two-layer Task 4 run wrote
-    `ReconSweep__layers2__<names>.png` -- exactly the file the two-layer Task 3
-    run writes.
+    THIS TEST USED TO GUARD A DIFFERENT PAIR. Until EnvReorganisation phase 3
+    it was `test_task4_never_lands_on_task3s_figure`: `RECON_OPTIMIZER=False`
+    was a fixed-mapping study called `ReconSweep` and `True` a re-optimised
+    one called `ReconSweep_optimiser`, and the danger was a two-layer Task 4
+    run writing `ReconSweep__layers2__<names>.png`, which is exactly the
+    two-layer Task 3 file. That knob is gone (a constant True: every placement
+    is mapped on its own chip), so the pair no longer exists and the `_optimiser`
+    half of the name is unconditional.
+
+    What is still real, and is what the layer suffix is FOR, is the scope: a
+    development run on two layers and a published whole-model run are two
+    different numbers, and neither may land on the other's file. env.sh hands
+    the whole-model name in as ECC_STEM, and `Config.stem` builds the scoped
+    one when ECC_STEM is left empty.
     """
-    t3 = _cfg(ECC_RECON_MODELING="1", ECC_LAYERS="layer2.0.conv1 layer4.0.conv2")
-    t4 = _cfg(ECC_RECON_MODELING="1", ECC_LAYERS="layer2.0.conv1 layer4.0.conv2",
-              ECC_RECON_OPTIMIZER="True", ECC_PHASE="Post")
-    assert t3.stem != t4.stem, (t3.stem, t4.stem)
-    assert t4.stem.startswith("ReconSweep_optimiser"), t4.stem
-    assert t3.layer_slug in t4.stem and t3.layer_slug in t3.stem
-    # ...and the whole-model pair, as env.sh spells it
-    w3 = _cfg(ECC_RECON_MODELING="1", ECC_STEM="ReconSweep")
-    w4 = _cfg(ECC_RECON_MODELING="1", ECC_STEM="ReconSweep_optimiser",
-              ECC_RECON_OPTIMIZER="True", ECC_PHASE="Post")
-    assert (w3.stem, w4.stem) == ("ReconSweep", "ReconSweep_optimiser")
+    scoped = _cfg(ECC_LAYERS="layer2.0.conv1 layer4.0.conv2")
+    whole = _cfg(ECC_STEM="ReconSweep_optimiser__resnet18")
+    assert scoped.stem != whole.stem, (scoped.stem, whole.stem)
+    assert scoped.stem.startswith("ReconSweep_optimiser"), scoped.stem
+    assert scoped.layer_slug in scoped.stem
+    assert scoped.layer_slug not in whole.stem
+    # and a ONE-layer scope is a third file again
+    one = _cfg(ECC_LAYERS="layer4.1.conv2")
+    assert len({scoped.stem, whole.stem, one.stem}) == 3
 
 
 def test_the_stem_is_the_recon_stem_and_keeps_a_layer_scope():
+    """`ReconSweep_optimiser`, plus the layer scope when there is one.
+
+    `_optimiser` is unconditional since EnvReorganisation phase 3: the bars
+    come from mappings solved against the reduced weight width, always, so
+    there is no fixed-mapping `ReconSweep` for them to be confused with.
+    """
     cfg = _cfg()
-    assert cfg.stem == "ReconSweep", cfg.stem
+    assert cfg.stem == "ReconSweep_optimiser", cfg.stem
     dev = _cfg(ECC_LAYERS="layer4.1.conv2")
-    assert dev.stem.startswith("ReconSweep__layers1__"), dev.stem
+    assert dev.stem.startswith("ReconSweep_optimiser__layers1__"), dev.stem
 
 
 # ===========================================================================

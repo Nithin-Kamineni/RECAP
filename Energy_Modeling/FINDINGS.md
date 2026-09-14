@@ -19,10 +19,10 @@ records what was LEARNED.
 > about a machine whose memory had no speed limit. Two of them are known to
 > move: the reconstruction column by +0.1699 % (the DC idle term is now rescaled
 > to the design's clock) and any latency figure, which did not exist before.
-> The one command that ends the cold, per model (`ECC_RECON_MODEL` selects it):
+> The one command that ends the cold, per model (`ECC_CONST_MODEL` selects it,
+> and `hpc/map_ert_arms.sh` was folded into it on 2026-09-14):
 >
->     ECC_RECON_LAYER=all ECC_RERUN_OPTIMISER=1 ECC_RECON_ERT_AWARE=1 \
->         bash hpc/map_ert_arms.sh
+>     ECC_CONST_MODEL=<model> bash hpc/run_all.sh --map-only
 >
 > mobilenet_v2 has NOT been re-mapped since Phase C; its §2.9/§2.10 numbers are superseded.
 

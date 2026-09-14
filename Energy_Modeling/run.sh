@@ -21,21 +21,18 @@
 #      bash run.sh baseline --eval Task 1: conventional ECC, external parity
 #      bash run.sh embedded --eval Task 2: embedded ECC beside that baseline,
 #                                  from the same mappings; only DRAM differs
-#      bash run.sh recon --eval    Task 3: the reconstruction PLACEMENT study on
-#                                  ONE architecture, from the same mappings. The
-#                                  x axis is WHERE the boundary sits; the mapper
-#                                  is never re-run. Configure the point in
-#                                  env.sh section 4, or just set
-#                                  ECC_RECON_MODELING=1 and let the one command
-#                                  route everything to it.
-#                                  RECON_OPTIMIZER=True
-#                                  makes it TASK 4 instead: the reconstruction
-#                                  bars are re-derived from a SECOND mapping
-#                                  solved against N/K more weight room, so the
-#                                  two arms no longer refetch identically. It
-#                                  needs that second mapper cache and refuses
-#                                  rather than falling back. -> ReconSweep_optimiser
-#      bash run.sh dilation        Task 4 STEP 1: diff the DRAM weight reads of
+#      bash run.sh recon --eval    the reconstruction PLACEMENT study on ONE
+#                                  architecture: the x axis is WHERE the
+#                                  boundary sits, and each boundary that is a
+#                                  DISTINCT CHIP is billed from its own
+#                                  mapping. ECC_APPROACHES names the bars and
+#                                  ECC_SWEEP=fix routes the one command here,
+#                                  holding the architecture, the model and the
+#                                  code at the first entry of their list. It
+#                                  needs each arm's mapper cache and refuses
+#                                  rather than falling back to the reference
+#                                  plan. -> ReconSweep_optimiser__<model>
+#      bash run.sh dilation        capacity STEP 1: diff the DRAM weight reads of
 #                                  two mapper caches at different weight
 #                                  capacities, so the capacity effect is
 #                                  measured before it is modelled. Maps nothing,

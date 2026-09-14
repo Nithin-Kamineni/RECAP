@@ -45,7 +45,7 @@ def active_categories(cfg, panel_stacks):
 
 def _bar_x(cfg, n, bars=None, width=BAR_WIDTH):
     """Group centres, and the per-bar offset within a group."""
-    bars = list(bars or cfg.approaches)
+    bars = list(bars or cfg.bar_arms)
     span = width + BAR_GAP
     centers = np.arange(n) * (len(bars) * span + 1.4)
     first = -(len(bars) - 1) / 2.0
@@ -67,7 +67,7 @@ def draw_panel(ax, cfg, groups, stacks, group_labels, *, pal, active, div,
     figure widens it rather than forking it:
 
     `bars`        the DataFrame columns to draw per group, and their left-to-
-                  right order. Defaults to `cfg.approaches`, which is what the
+                  right order. Defaults to `cfg.bar_arms`, which is what the
                   three sweeps and the panel figure pass.
     `bar_tags`    the small rotated label under each bar. Defaults to the ECC
                   approach tags; pass `{}` when the group label already names
@@ -88,7 +88,7 @@ def draw_panel(ax, cfg, groups, stacks, group_labels, *, pal, active, div,
                   so this routine stays generic; it is meant for figures with
                   ONE bar per group, and is drawn once per group.
     """
-    approaches = list(bars or cfg.approaches)
+    approaches = list(bars or cfg.bar_arms)
     tags = APPROACH_TAGS if bar_tags is None else bar_tags
     n = len(groups)
     centers, xoff = _bar_x(cfg, n, approaches, bar_width)
@@ -188,7 +188,7 @@ def grouped_stacks(cfg, results, groups, stacks, group_labels, title, stem,
     style.apply_rc()
     pal = style.palette(cfg)
     n = len(groups)
-    cols = list(bars or cfg.approaches)
+    cols = list(bars or cfg.bar_arms)
 
     max_pj = max(float(stacks[g][a].sum()) for g in groups for a in cols)
     div, unit = style.unit_for(max_pj)
@@ -247,7 +247,7 @@ def write_table(cfg, results, panels, stem, bars=None, ref_totals=None,
         return d.get(g)
 
     cats = plot_cats(cfg)
-    cols = list(bars or cfg.approaches)
+    cols = list(bars or cfg.bar_arms)
     rows = {}
     for panel_key, groups, stacks, labels in panels:
         for g in groups:

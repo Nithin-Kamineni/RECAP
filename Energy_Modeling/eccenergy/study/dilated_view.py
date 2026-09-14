@@ -132,8 +132,8 @@ def dilated_view(cfg, ses, arch, model, base_cats, ref_raw):
             f"for {arch}/{model} at weight capacity x{dil_scale:g}, and it is "
             f"not in the cache.\n"
             f"  expected: {dses.results.mapper_cache(arch, variant, fp)}\n"
-            f"  -> map it:  ECC_PHASE=Post ECC_WEIGHT_CAPACITY_SCALE={dil_scale:g} \\\n"
-            f"                ECC_RECON_ARCHS={arch} bash hpc/map_by_shape.sh --no-eval\n"
+            f"  -> map it:  ECC_WEIGHT_CAPACITY_SCALE={dil_scale:g} \\\n"
+            f"                ECC_CONST_ARCH={arch} bash hpc/run_all.sh --map-only\n"
             f"     or the whole sweep:  bash hpc/map_capacity_sweep.sh\n"
             f"  Refusing rather than falling back to the reference mapping: "
             f"that fallback IS Task 3, and this heading says otherwise.")

@@ -60,7 +60,7 @@ def stacked_panels(cfg, results, panels, title, stem, group_fontsize=17,
     pal = style.palette(cfg)
     rows = len(panels)
     n = max(len(p[2]) for p in panels)
-    cols = list(bars or cfg.approaches)
+    cols = list(bars or cfg.bar_arms)
 
     # ONE unit across the whole figure: the panels are meant to be read against
     # each other, and two panels labelled in different units invite exactly the

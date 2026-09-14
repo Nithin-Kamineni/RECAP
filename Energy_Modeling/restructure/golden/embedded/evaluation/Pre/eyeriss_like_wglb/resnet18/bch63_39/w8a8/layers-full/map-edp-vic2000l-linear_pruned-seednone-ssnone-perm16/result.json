@@ -5125,6 +5125,7 @@
       "global_cycle_seconds": "1e-9",
       "latency_model": true,
       "layers": [],
+      "layers_by_model": {},
       "leakage_nw": {
         "mac_instance": 7844.9,
         "rf_bit": 70.0,
@@ -5181,14 +5182,8 @@
         "BCH_63_57_t1": 1.6574
       },
       "recon_json": "data/dc/BCH_N63_results.json",
-      "recon_layer": "all",
-      "recon_modeling": true,
-      "recon_optimizer": false,
       "recon_packing": "stream",
       "recon_pj_override": null,
-      "recon_placement_keys": [
-        "eyeriss_like_wglb=recon1 recon2 recon3 recon4 recon5"
-      ],
       "replot_only": false,
       "rerun_optimiser": false,
       "results_dir": "results",
@@ -5196,9 +5191,9 @@
       "split_read_write": false,
       "sram_scale": 0.6190476190476191,
       "static_energy": true,
-      "stem": "ReconSweep__resnet18",
-      "stem_override": "ReconSweep__resnet18",
-      "sweep": "arch",
+      "stem": "ReconSweep_optimiser__resnet18",
+      "stem_override": "ReconSweep_optimiser__resnet18",
+      "sweep": "fix",
       "sweep_archs": [
         "eyeriss_like_wglb"
       ],
@@ -5227,7 +5222,7 @@
       "weights_per_codeword": 4,
       "workload": "cnn"
     },
-    "config_hash": "95473f64",
+    "config_hash": "efa35027",
     "finished_utc": "<scrubbed>",
     "git_commit": "<scrubbed>",
     "host": "<scrubbed>",

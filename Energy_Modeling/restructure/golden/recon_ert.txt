@@ -1,7 +1,7 @@
 ==============================================================================
 ecc-energy  |  placement (where the reconstruction boundary sits)  |  output=ReconSweep_optimiser__resnet18
 ==============================================================================
-  sweeping              : eyeriss_like_wglb
+  sweeping              : baseline, embedded, recon
   holding               : model=resnet18   code=BCH(63,39) t=4
   approaches            : baseline, embedded, recon
   workload file         : cnn

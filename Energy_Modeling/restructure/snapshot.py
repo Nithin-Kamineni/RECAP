@@ -31,10 +31,11 @@ stage: a phase that changes it has changed behaviour, and the gate says so.
 (`run.sh recon --eval` at env.sh's defaults refused until 2026-09-14, when the
 defaults became the ERT-aware study; `stages.tsv` carries the exit code.)
 
-THE OVERRIDES ABOVE MUST STAY INERT UNDER A LATER PHASE. EnvReorganisation
-deletes `ECC_PHASE` and `RECON_OPTIMIZER` as knobs (phase 2) -- an environment
-variable nothing reads changes nothing, so the stage keeps producing the same
-totals, which is what the gate then checks.
+THE OVERRIDES ABOVE MUST STAY INERT UNDER A LATER PHASE. That is how
+`ECC_PHASE` and `RECON_OPTIMIZER` left this file: EnvReorganisation phases 2
+and 3 deleted them as knobs, the stage totals did not move (which is what the
+gate checked), and the dead overrides were then deleted from `STAGES` rather
+than kept as decoration.
 """
 import json
 import os
@@ -52,18 +53,21 @@ ROOT = Path(__file__).resolve().parent.parent
 STAGES = (
     # Task 1 is a `Pre` result BY CONSTRUCTION (env.sh section 3): there is no
     # reduced weight representation yet, so no mapping could have been optimised
-    # for one. env.sh ships Post + RECON_OPTIMIZER=True, which is Task 4.
-    # ECC_RECON_ERT_AWARE=0 as well, since 2026-09-14: env.sh now ships it
-    # at 1, and 1 is REFUSED beside Pre + optimizer-off by the coupling guard
-    # `ert-arm-needs-optimiser` -- which is exactly the per-arm phase problem
-    # EnvReorganisation 6.1 removes. Until then Task 1 and Task 2 are taken at
-    # the configuration they are defined at, so the golden holds their totals
-    # and not a refusal. (Under a derived phase these three overrides become
-    # inert, and the totals must not move.)
+    # for one. ECC_RECON_ERT_AWARE=0 because env.sh ships it at 1 and Task 1
+    # and Task 2 are taken at the configuration they are DEFINED at, so the
+    # golden holds their totals and not a placement study's.
+    #
+    # ECC_PHASE=Pre and RECON_OPTIMIZER=False WERE HERE TOO, and both are
+    # gone: phase 2 derived the phase per arm and phase 3 made the optimiser a
+    # constant, so neither name is read by anything (the totals did not move
+    # when the code stopped reading them, which is what the gate checked). A
+    # stage override that changes nothing is folklore, so it is deleted rather
+    # than carried -- the only trace it leaves is the recorded `stem`, which
+    # RECON_OPTIMIZER=False used to shorten to `ReconSweep__<model>`.
     ("baseline",      ["bash", "run.sh", "baseline", "--eval"],
-     {"ECC_PHASE": "Pre", "RECON_OPTIMIZER": "False", "ECC_RECON_ERT_AWARE": "0"}),
+     {"ECC_RECON_ERT_AWARE": "0"}),
     ("embedded",      ["bash", "run.sh", "embedded", "--eval"],
-     {"ECC_PHASE": "Pre", "RECON_OPTIMIZER": "False", "ECC_RECON_ERT_AWARE": "0"}),
+     {"ECC_RECON_ERT_AWARE": "0"}),
     # env.sh's defaults, unchanged -- the configuration a bare `run.sh` runs.
     # Since 2026-09-14 that IS the ERT-aware placement study, so this stage and
     # the next produce the same files; both are kept so that a default that

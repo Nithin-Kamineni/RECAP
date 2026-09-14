@@ -88,8 +88,7 @@ def _with_env(**kw):
 
 def load_code(k):
     # No ECC_WEIGHT_WIDTH: THE WIDTH TABLE is automatic (code_widths.py).
-    saved = _with_env(ECC_CODE_N=63, ECC_CONST_K=k, ECC_KS=k,
-                      RECON_OPTIMIZER="False")
+    saved = _with_env(ECC_CODE_N=63, ECC_CONST_K=k, ECC_KS=k)
     try:
         cfg = config.load_config()
         q = widths.declared_datawidth(cfg.code_n, cfg.code_k, cfg.weight_bits)

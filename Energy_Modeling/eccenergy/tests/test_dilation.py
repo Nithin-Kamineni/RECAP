@@ -1242,12 +1242,27 @@ def test_the_capacity_target_is_8_over_q_and_every_code_passes_its_own():
     assert q == 4 and want == 2.0 and abs(63 / 30 - want) > 0.05
 
 
-def test_ecc_recon_layer_seeds_the_scope_and_the_optimiser_stem_stays_fixed():
-    """prompt_6 8.2 / 9, on env.sh itself: under ECC_RECON_MODELING=1 the layer
-    scope is ECC_RECON_LAYER -- a name selects that layer, `all` selects every
-    layer -- and the optimiser stem is `ReconSweep_optimiser__<model>` either
-    way (per model since 2026-09-11), while the fixed-mapping study keeps its
-    layer suffix on a scoped run."""
+def test_ecc_sweep_fix_routes_to_the_placement_study_and_names_it_per_model():
+    """env.sh ITSELF, on the routing EnvReorganisation phase 3 replaced.
+
+    IT USED TO BE `ECC_RECON_MODELING=1` plus `ECC_RECON_LAYER`
+    (`test_ecc_recon_layer_seeds_the_scope_and_the_optimiser_stem_stays_fixed`).
+    Both knobs are gone. What replaced them:
+
+      * `ECC_SWEEP=fix` IS the placement study -- it sets ECC_EXPERIMENT=recon
+        and holds the architecture, the model and the code at the FIRST entry
+        of ECC_ARCHS / ECC_MODELS / ECC_KS, which is the rule every held axis
+        has always followed;
+      * `ECC_LAYERS` is the scope, directly and with no second spelling:
+        EMPTY is the whole model, a bare list is those layers, and
+        `model=a b; model2=c` is per network;
+      * the stem is `ReconSweep_optimiser__<model>` whatever the scope
+        (prompt_6 9), so the layer scope lands in the manifest and the title
+        rather than the filename, and two networks never overwrite each other.
+
+    This runs the real env.sh, because the routing IS env.sh: a test that
+    re-implemented it would agree with itself and not with the file.
+    """
     import subprocess
     from eccenergy.paths import ROOT
     env_sh = pathlib.Path(ROOT) / "env.sh"
@@ -1256,43 +1271,57 @@ def test_ecc_recon_layer_seeds_the_scope_and_the_optimiser_stem_stays_fixed():
 
     def resolve(**env):
         import os
-        e = {k: v for k, v in os.environ.items() if not k.startswith("ECC_") and k != "RECON_OPTIMIZER"}
+        e = {k: v for k, v in os.environ.items()
+             if not k.startswith("ECC_") and k != "RECON_OPTIMIZER"}
         e.update(env)
         out = subprocess.run(
             ["bash", "-c", "source ./env.sh >/dev/null 2>&1; "
-                           "printf '%s|%s|%s|%s' \"$ECC_LAYERS\" \"$ECC_STEM\" \"$ECC_RECON_MODEL\" \"$ECC_RECON_LAYER\""],
+                           "printf '%s|%s|%s|%s|%s|%s' \"$ECC_LAYERS\" \"$ECC_STEM\" "
+                           "\"$ECC_EXPERIMENT\" \"$ECC_CONST_MODEL\" "
+                           "\"$ECC_CONST_ARCH\" \"$ECC_CONST_K\""],
             cwd=str(ROOT), env=e, capture_output=True, text=True, check=True).stdout
-        layers, stem, model, rlayer = out.split("|")
-        return layers, stem, model, rlayer
+        layers, stem, exp, model, arch, k = out.split("|")
+        return layers, stem, exp, model, arch, k
 
-    # env.sh's OWN default point, whatever it is today: the scope follows
-    # ECC_RECON_LAYER and the stem names the model
-    layers, stem, model, rlayer = resolve(ECC_RECON_MODELING="1")
+    # env.sh's OWN default, whatever it is today: the placement study at the
+    # held point, over the WHOLE model, named after it
+    layers, stem, exp, model, arch, k = resolve()
+    assert exp == "recon", exp
     assert model and stem == f"ReconSweep_optimiser__{model}", (stem, model)
-    if rlayer.lower() in ("", "all", "full"):
-        assert layers == "", (layers, rlayer)
-    else:
-        assert layers == rlayer, (layers, rlayer)
-    layers, stem, model, _ = resolve(ECC_RECON_MODELING="1", ECC_RECON_LAYER="layer4.1.conv2",
-                                     ECC_RECON_MODEL="resnet18")
-    assert layers == "layer4.1.conv2" and stem == "ReconSweep_optimiser__resnet18", (layers, stem)
-    layers, stem, model, _ = resolve(ECC_RECON_MODELING="1", ECC_RECON_LAYER="all",
-                                     ECC_RECON_MODEL="resnet18")
-    assert layers == "" and stem == "ReconSweep_optimiser__resnet18", (layers, stem)  # every layer
-    # the model is in the name: two networks never overwrite each other's figure
-    layers, stem, model, _ = resolve(ECC_RECON_MODELING="1", ECC_RECON_LAYER="all",
-                                     ECC_RECON_MODEL="mobilenet_v2")
-    assert layers == "" and stem == "ReconSweep_optimiser__mobilenet_v2", (layers, stem)
-    # ECC_LAYERS is NOT the knob under the placement study: it is overwritten
-    layers, _, _, _ = resolve(ECC_RECON_MODELING="1", ECC_LAYERS="conv1", ECC_RECON_LAYER="layer3.0.conv1")
-    assert layers != "conv1", layers
-    # the fixed-mapping study keeps the layer suffix (an empty stem) when scoped
-    layers, stem, _, _ = resolve(ECC_RECON_MODELING="1", RECON_OPTIMIZER="False", ECC_PHASE="Pre",
-                                 ECC_RECON_LAYER="layer3.0.conv1")
-    assert layers and stem == "", (layers, stem)
-    layers, stem, model, _ = resolve(ECC_RECON_MODELING="1", RECON_OPTIMIZER="False", ECC_PHASE="Pre",
-                                     ECC_RECON_LAYER="all")
-    assert layers == "" and stem == f"ReconSweep__{model}", (layers, stem)
+    assert layers == "", layers
+    assert arch and k, (arch, k)
+
+    # the held point is the FIRST entry of each list, and nothing widens it
+    _, _, _, model, arch, k = resolve(ECC_ARCHS="eyeriss_v2_like_wglb eyeriss_like_wglb",
+                                      ECC_MODELS="mobilenet_v2 resnet18",
+                                      ECC_KS="45 39")
+    assert (arch, model, k) == ("eyeriss_v2_like_wglb", "mobilenet_v2", "45")
+
+    # the model is in the name: two networks never overwrite each other
+    _, stem, _, _, _, _ = resolve(ECC_MODELS="mobilenet_v2 resnet18")
+    assert stem == "ReconSweep_optimiser__mobilenet_v2", stem
+
+    # ECC_LAYERS IS the scope now -- no second knob overwrites it, and the
+    # stem does not move when it is set (the scope is in the manifest)
+    layers, stem, _, _, _, _ = resolve(ECC_LAYERS="conv1")
+    assert layers == "conv1", layers
+    assert stem == "ReconSweep_optimiser__resnet18", stem
+
+    # the per-model spelling survives env.sh untouched, spaces and all
+    table = "resnet18=conv1 layer3.0.conv1; mobilenet_v2=features.9.conv.2"
+    layers, _, _, _, _, _ = resolve(ECC_LAYERS=table)
+    assert layers == table, layers
+
+    # a real sweep axis is NOT the placement study, and keeps its own name
+    layers, stem, exp, _, _, _ = resolve(ECC_SWEEP="bch")
+    assert (exp, stem, layers) == ("sweep", "BCHsweep", "")
+    # ...and a scoped sweep leaves ECC_STEM empty so the scope lands in the name
+    layers, stem, exp, _, _, _ = resolve(ECC_SWEEP="bch", ECC_LAYERS="conv1")
+    assert (exp, stem, layers) == ("sweep", "", "conv1")
+
+    # ECC_SWEEP=area holds the same three axes and routes the same way
+    _, stem, exp, model, _, _ = resolve(ECC_SWEEP="area")
+    assert exp == "recon" and stem == f"ReconSweep_optimiser__{model}", (exp, stem)
 
 
 def test_the_width_table_holds_total_bits_and_puts_the_glb_at_four_times():

@@ -242,7 +242,7 @@ def build_stacks(cfg, raw, recon_pj, code_k=None, recon_pj_by_k=None,
     if recon_idle_pj is None:
         recon_idle_pj = load_recon_energy(cfg, k)[1]
     cycles = getattr(raw, "cycles", None)
-    if "recon" in cfg.approaches and recon_idle_pj and not cycles:
+    if "recon" in cfg.bar_arms and recon_idle_pj and not cycles:
         raise ValueError(
             f"build_stacks: the raw record carries no cycle count, and the "
             f"encoder's idle term is {recon_idle_pj:g} pJ per cycle per engine "
@@ -273,7 +273,7 @@ def build_stacks(cfg, raw, recon_pj, code_k=None, recon_pj_by_k=None,
     columns = {}
 
     # ---- 1. baseline: parity stored next to the data ------------------------
-    if "baseline" in cfg.approaches:
+    if "baseline" in cfg.bar_arms:
         col = base.copy()
         # Accounted parity: whole weights per codeword, message padding, tail
         # padding and whole-DRAM-word granularity. See parity.py, and the
@@ -304,7 +304,7 @@ def build_stacks(cfg, raw, recon_pj, code_k=None, recon_pj_by_k=None,
         columns["baseline"] = col
 
     # ---- 2. embedded: parity inside the already-stored word -----------------
-    if "embedded" in cfg.approaches:
+    if "embedded" in cfg.bar_arms:
         col = base.copy()
         for c in onchip:
             # inputs are embedded too, so only weights pay the weak-ECC parity
@@ -314,7 +314,7 @@ def build_stacks(cfg, raw, recon_pj, code_k=None, recon_pj_by_k=None,
         columns["embedded"] = col
 
     # ---- 3. recon+: parity regenerated on chip ------------------------------
-    if "recon" in cfg.approaches:
+    if "recon" in cfg.bar_arms:
         col = base.copy()
         # RULE 1: weight energy the MAPPER already narrowed (a q-bit plan's
         # levels at Word bits == q) is not scaled again. On an 8-bit plan
@@ -347,7 +347,11 @@ def build_stacks(cfg, raw, recon_pj, code_k=None, recon_pj_by_k=None,
             col["Reconstruction"] = _n_cw * recon_pj + _idle * _ec
         columns["recon"] = col
 
-    df = pd.DataFrame({a: columns[a] for a in cfg.approaches})
+    # `bar_arms`, NOT `approaches`: ECC_APPROACHES may name a PLACEMENT
+    # (`recon2`) since EnvReorganisation phase 3, and the bar it lands in is
+    # still the abstract `recon` column until phase 6 draws one per boundary.
+    # With env.sh's default the two lists are identical.
+    df = pd.DataFrame({a: columns[a] for a in cfg.bar_arms})
     return df.reindex(cats, fill_value=0.0)
 
 

@@ -11,13 +11,30 @@
 #  THERE ARE NO KNOBS IN THIS FILE. What runs, how hard the mapper searches and
 #  what the cluster is asked for all come from ../env.sh.
 #
-#  ONE ARRAY TASK = ONE (architecture, model) PAIR, from the task list env.sh
-#  generates out of ECC_ARCHS x ECC_MODELS. Two models of one architecture may
-#  share layer shapes (resnet18/resnet50 share 5, mobilenet_v2/efficientnet_b0
-#  share 11); that is safe at any concurrency because `timeloop.ShapeLock` puts
-#  an atomic-mkdir lock on each shape's cache entry -- the second task waits and
-#  then takes the first task's mapping as a cache hit. A lock left by a killed
-#  job is taken over once its owner pid is gone, or after 6 h.
+#  ONE ARRAY TASK = ONE BUNDLE of the task file, which is column 1 of every
+#  row. The rows are seven columns:
+#
+#      <bundle> <arch> <model> <K> <depth> <arm> <layer>
+#
+#  and one row is one UNIT of work: one CHIP (architecture x code x
+#  buffer-depth scale x arm -- every distinct thing the mapper is handed) x one
+#  distinct layer SHAPE. With ECC_JOBS empty every row is its own bundle, so a
+#  task is one unit, exactly as it was before EnvReorganisation phase 3; with
+#  ECC_JOBS set, a task walks its bundle's rows SEQUENTIALLY and
+#  ECC_MAP_TIME has to cover all of them.
+#
+#  THE ROW IS THE AXES, and this file exports them per unit. `run_all.sh`'s
+#  `unit_env()` has the same list and `toolchain.units._chip_cfg` builds the
+#  same configuration in python: the launcher decides a unit is cached by
+#  resolving that configuration, so if the three drift, it skips units a job
+#  would re-solve or submits ones it already has.
+#
+#  Two models of one architecture may share layer shapes (resnet18/resnet50
+#  share 5, mobilenet_v2/efficientnet_b0 share 11); that is safe at any
+#  concurrency because `toolchain.cache.ShapeLock` puts an atomic-mkdir lock on
+#  each shape's cache entry -- the second task waits and then takes the first
+#  task's mapping as a cache hit. A lock left by a killed job is taken over
+#  once its owner pid is gone, or after 6 h.
 #
 #  The #SBATCH directives below are a FALLBACK for a bare `sbatch`: sbatch reads
 #  them as text before the script runs, so they cannot contain variables.
@@ -39,7 +56,7 @@
 #SBATCH --cpus-per-task=18
 #SBATCH --mem=16gb
 #SBATCH --time=24:00:00
-#SBATCH --array=0-11%9
+#SBATCH --array=0-0
 #SBATCH --output=hpc/logs/%x.%A_%a.out
 # =============================================================================
 set -euo pipefail
@@ -56,47 +73,70 @@ if [ -n "${SLURM_CPUS_PER_TASK:-}" ] && [ "${SLURM_CPUS_PER_TASK}" != "${ECC_MAP
     export ECC_MAPPER_THREADS="${SLURM_CPUS_PER_TASK}"
 fi
 
-# The task list is generated from ECC_ARCHS x ECC_MODELS, never hand-written.
-# A bare `sbatch hpc/map.sbatch` regenerates it if it is missing.
+# The task list is GENERATED from the configuration, never hand-written. A bare
+# `sbatch hpc/map.sbatch` regenerates it if it is missing; env.sh's
+# `ecc_write_taskfile` falls back to the reference arm of the held point when
+# the enumerator cannot run, which is the one unit a bare sbatch could mean.
 [ -f "${ECC_TASKFILE}" ] || ecc_write_taskfile
 
-NLINES=$(grep -cve '^[[:space:]]*$' "${ECC_TASKFILE}")
 IDX="${SLURM_ARRAY_TASK_ID:-0}"
+NBUNDLE=$(awk 'NF {print $1}' "${ECC_TASKFILE}" | sort -un | wc -l)
 
-# A stale --array is the likeliest mistake: too small and pairs are silently
+# A stale --array is the likeliest mistake: too small and units are silently
 # skipped, too large and tasks die one by one. Both are caught here.
-if [ "${IDX}" -ge "${NLINES}" ]; then
-    echo "map.sbatch: array index ${IDX} but ${ECC_TASKFILE} has only ${NLINES} line(s)." >&2
-    echo "  -> submit with 'bash hpc/run_all.sh', which sizes --array from env.sh." >&2
+if [ "${IDX}" -ge "${NBUNDLE}" ]; then
+    echo "map.sbatch: array index ${IDX} but ${ECC_TASKFILE} has only" \
+         "${NBUNDLE} bundle(s)." >&2
+    echo "  -> submit with 'bash hpc/run_all.sh', which sizes --array from the" >&2
+    echo "     task file it just wrote." >&2
     exit 2
 fi
 if [ "${IDX}" -eq 0 ] && [ -n "${SLURM_ARRAY_TASK_COUNT:-}" ] \
-   && [ "${SLURM_ARRAY_TASK_COUNT}" -lt "${NLINES}" ]; then
+   && [ "${SLURM_ARRAY_TASK_COUNT}" -lt "${NBUNDLE}" ]; then
     echo "map.sbatch: WARNING: --array covers ${SLURM_ARRAY_TASK_COUNT} task(s) but" \
-         "${ECC_TASKFILE} has ${NLINES}: $((NLINES - SLURM_ARRAY_TASK_COUNT)) pair(s)" \
-         "will NOT be mapped. Submit with 'bash hpc/run_all.sh'." >&2
+         "${ECC_TASKFILE} has ${NBUNDLE} bundle(s):" \
+         "$((NBUNDLE - SLURM_ARRAY_TASK_COUNT)) will NOT be mapped." \
+         "Submit with 'bash hpc/run_all.sh'." >&2
 fi
 
-LINE="$(grep -ve '^[[:space:]]*$' "${ECC_TASKFILE}" | sed -n "$((IDX + 1))p")"
-ARCH="$(echo "${LINE}" | awk '{print $1}')"
-MODEL="$(echo "${LINE}" | awk '{print $2}')"
-[ -n "${ARCH}" ] && [ -n "${MODEL}" ] || {
-    echo "map.sbatch: line $((IDX + 1)) of ${ECC_TASKFILE} is not '<arch> <model>': '${LINE}'" >&2
+mapfile -t ROWS < <(awk -v b="${IDX}" 'NF && $1 == b' "${ECC_TASKFILE}")
+[ "${#ROWS[@]}" -gt 0 ] || {
+    echo "map.sbatch: no row of ${ECC_TASKFILE} carries bundle ${IDX}." >&2
     exit 2; }
 
 module load apptainer
 
-# One architecture, one model, per task.
-export ECC_SWEEP=arch
-export ECC_SWEEP_ARCHS="${ARCH}"
-export ECC_CONST_MODEL="${MODEL}"
-
-echo "=== task ${IDX}: arch=${ARCH} model=${MODEL} on $(hostname) ==="
+echo "=== bundle ${IDX}: ${#ROWS[@]} unit(s) on $(hostname) ==="
 echo "=== cores=${ECC_MAPPER_THREADS}  search=${ECC_MAPPER_ALGORITHM}/${ECC_MAPPER_SEARCH_SIZE:-uncapped}" \
-     "victory=${ECC_VICTORY}  layers=${ECC_LAYERS:-<whole model>}" \
-     "rerun=${ECC_RERUN_OPTIMISER} ==="
+     "victory=${ECC_VICTORY}  rerun=${ECC_RERUN_OPTIMISER} ==="
 echo "=== started $(date -Is) ==="
 
-time bash hpc/tl.sh bash run.sh map
+I=0
+for ROW in "${ROWS[@]}"; do
+    read -r _B ARCH MODEL CODE_K DEPTH ARM LAYER <<< "${ROW}"
+    [ -n "${ARCH:-}" ] && [ -n "${MODEL:-}" ] && [ -n "${ARM:-}" ] || {
+        echo "map.sbatch: '${ROW}' is not"                                    \
+             "'<bundle> <arch> <model> <K> <depth> <arm> <layer>'" >&2
+        exit 2; }
+    I=$((I + 1))
+    echo
+    echo "=== unit ${I}/${#ROWS[@]}: ${ARCH} / ${MODEL} / K${CODE_K} /" \
+         "x${DEPTH} / ${ARM} / ${LAYER:-<whole model>} ==="
+    # ONE UNIT, ONE CHIP. The same list as run_all.sh's `unit_env()` and
+    # `toolchain.units._chip_cfg()`; a subshell so one unit's axes cannot leak
+    # into the next.
+    (
+        export ECC_SWEEP=arch
+        export ECC_SWEEP_ARCHS="${ARCH}"  ECC_CONST_ARCH="${ARCH}"
+        export ECC_CONST_MODEL="${MODEL}" ECC_SWEEP_MODELS="${MODEL}"
+        export ECC_PANEL_MODELS=""
+        export ECC_CONST_K="${CODE_K}"    ECC_SWEEP_KS="${CODE_K}"
+        export ECC_WEIGHT_DEPTH_SCALE="${DEPTH}"
+        export ECC_RECON_ERT_ARM="${ARM}"
+        export ECC_LAYERS="${LAYER}"
+        time bash hpc/tl.sh bash run.sh map
+    )
+done
 
+echo
 echo "=== finished $(date -Is) ==="
