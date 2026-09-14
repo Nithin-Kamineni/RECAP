@@ -2200,3 +2200,120 @@ switches deleted here were the case.
 NOTE FOR PHASE 3: `restructure/snapshot.py`'s baseline/embedded stages still
 export ECC_PHASE=Pre and RECON_OPTIMIZER=False; ECC_PHASE is now read by
 nothing (proved: the totals did not move), RECON_OPTIMIZER goes in phase 3.
+
+================================================================================
+ENVREORGANISATION PHASE 3 -- NOT STARTED. Hand-off notes from the phase 0-2 session
+================================================================================
+2026-09-14. Nothing below is implemented; it is what the phase 0-2 session
+measured about the code while preparing phase 3, so the next session does not
+re-derive it. The gate is green at commit 42b25eb; start from there.
+
+WHAT THE GATE WILL HOLD STILL, AND WHAT IT WILL REPORT
+  * every fingerprint (302 rows) and every number, as always;
+  * the RECORD will lose `recon_modeling`, `recon_placement_keys`,
+    `recon_layer` (and `recon_optimizer` if that field goes rather than
+    becoming a constant), and `sweep` changes value "arch" -> "fix" (a string:
+    PROSE). Declare with --accept-record after reading the list, exactly as
+    phase 2 did. A moved number is never accepted.
+
+1. THE EFFECTIVE DEFAULT LAYER SCOPE IS THE WHOLE MODEL. env.sh section 1
+   says `ECC_LAYERS:=layer3.0.conv1`, but section 10 overwrites it from
+   ECC_RECON_LAYER=all under ECC_RECON_MODELING=1. When that override goes,
+   the section-1 default must be EMPTY or every total moves. The plan's
+   six-layer development scope (6.9) is a later, deliberate change of the
+   numbers, not part of a byte-identical phase.
+
+2. ROUTING WITHOUT ECC_RECON_MODELING. Today section 10 routes to the
+   placement study (ECC_EXPERIMENT=recon) and collapses the axes to section
+   4's point (arch/model/K = eyeriss_like_wglb / resnet18 / 39, which ARE the
+   first entries of ECC_ARCHS / ECC_MODELS / ECC_KS). The plan's rule that
+   keeps this byte-identical: `ECC_SWEEP=fix` IS the placement study (3.1:
+   "plots exactly what ECC_APPROACHES names at the fixed model, arch and
+   code") -> ECC_EXPERIMENT=recon, point = first entries; bch/model/arch
+   stay the sweep figures; `area` maps the depth ladder. env.sh's default
+   becomes ECC_SWEEP=fix. The stem stays `ReconSweep_optimiser__<model>`:
+   renaming it is a FILE-SET change the classifier calls red (phase 6).
+   `fix` and `area` need adding to settings/run.py SWEEPS and to
+   config._resolve (hold all three axes); a sweep/panels FIGURE under fix or
+   area has no renderer until phase 6 and should be refused by a named guard
+   rather than KeyError.
+
+3. THE ABSTRACT `recon` IN ECC_APPROACHES STAYS UNTIL PHASE 6 and must mean,
+   for the launcher and for `Config.recon_placements_for()`, "every placement
+   the design declares" (today's ECC_RECON_PLACEMENTS entry / [] = all).
+   `recon1..recon5` names select a subset and a design lacking one is WARNED,
+   not refused (3.1). That keeps env.sh's default `baseline embedded recon`
+   and the record identical; the plan's section 8 default is phase 6's.
+   `recon_placements_for()` reads `recon_placement_keys` today (config.py
+   ~1291); banner.py:97 and recon_view.py:391 call it; hpc/run_all.sh:237
+   prints ECC_RECON_PLACEMENT_LIST. Also settings/env.py's `_list(sep=";")`
+   docstring and tests/unit/test_env_parsers.py:103 describe the list form.
+
+4. RECON_OPTIMIZER READ SITES (all production): placement_study.py:126,
+   banner.py:116, config.py:497 (the ert-arm-needs-optimiser guard -- retire
+   with the knob), 746 (stem), 1342, 1353 (mapping-regime lines),
+   recon_view.py:459/466/517/519, results_store.py (getattr default True),
+   settings/run.py result_phase(). The least churn that is still honest: a
+   `Config.recon_optimizer` PROPERTY returning True (not a field, so the
+   record loses the key -- declare it) and delete the ReconSettings field +
+   ECC_RECON_OPTIMIZER/RECON_OPTIMIZER; the placement-study branches then
+   read as before until phase 6 deletes the Task 3 halves. Tests touching it:
+   test_recon.py 59 (env wipe list), 912-932 (my derived-phase test: drop the
+   `recon_optimizer is False` line), 1120/1127; tools/bch_sweep_tables.py:92;
+   tests/unit/test_settings_groups.py:38; restructure/snapshot.py strips it
+   from the stage environment (inert afterwards, harmless).
+
+5. `recon_modeling` (placement_study.py docstring only), `recon_layer`
+   (record only; invoke.py:436 and test_latency.py:744 print an
+   `ECC_RECON_LAYER=all ...` hint that must become the new command) and
+   `recon_placement_keys` are the other three ReconSettings fields to delete;
+   `ECC_RECON_ARCHS/MODEL/K/CODE_N` and the `declare -A ECC_RECON_PLACEMENTS`
+   array go from env.sh section 4 with the whole section-10 collapse block.
+   config.py:370/387 error hints name ECC_RECON_ARCHS/MODEL; recon_view.py:
+   415-416 and dilated_view.py:136 print `ECC_RECON_ARCHS=<arch> bash
+   hpc/map_by_shape.sh` hints.
+
+6. TESTS THAT EXERCISE SECTION 10 ITSELF and must be rewritten for the new
+   routing: eccenergy/tests/test_dilation.py::test_ecc_recon_layer_seeds_the_
+   scope_and_the_optimiser... (its `resolve()` helper sources env.sh with
+   ECC_RECON_MODELING/RECON_LAYER/RECON_MODEL and asserts ECC_LAYERS/ECC_STEM);
+   test_recon.py 1118-1127 (stems under ECC_RECON_MODELING), 1251 (`_real_case`
+   sets ECC_RECON_MODELING=1 to reopen the manifest's cache). Inert leftovers
+   that can stay or go: conftest PINNED_ENV ECC_RECON_ARCHS, test_baseline_dram
+   :62, test_code_widths:239 and test_dilation:582 ECC_RECON_K, test_recon
+   2192/2205 ECC_RECON_K.
+
+7. THE LAUNCHER. Task file rows `(bundle, arch, model, K, depth, arm, layer)`,
+   one row per UNIT = one chip x one distinct layer SHAPE (a representative
+   layer per shape, as map_ert_arms.sh derives them through
+   workloads.load_workload + Layer.shape_name). The arms per design come from
+   arch.arms.mapper_arms(arch, cfg) filtered by the placements ECC_APPROACHES
+   names (plus `reference`, always). CACHED means what `toolchain.invoke.
+   Mapper._accept_cached` accepts -- stats.txt AND a mapping.json sidecar whose
+   arch_fingerprint, ERT bump and MAC price match -- so reuse that method (a
+   Mapper can be constructed with from_cache semantics) rather than counting
+   stats.txt files; ECC_RERUN_OPTIMISER=1 disables the skip. ECC_JOBS bundles
+   units round-robin (6.10); `--array` runs one bundle per task and map.sbatch
+   walks its bundle's rows sequentially, exporting per unit ECC_SWEEP=arch,
+   ECC_SWEEP_ARCHS, ECC_CONST_MODEL, ECC_CONST_K + ECC_SWEEP_KS,
+   ECC_WEIGHT_DEPTH_SCALE, ECC_RECON_ERT_ARM, ECC_LAYERS. Keep the arch pin
+   (ECC_ARCH_PIN_DIR) and the task-file snapshot per submission. `--dry-run`
+   prints chips, shapes, cached/uncached and the bundling and submits nothing.
+   Delete hpc/map_ert_arms.sh and hpc/map_depth_sweep.sh (9.9) and
+   hpc/map_by_shape.sh (subsumed; its header still documents
+   ECC_RECON_MODELING); hpc/smoke_models.sh exports ECC_RECON_MODEL /
+   ECC_RECON_LAYER per job and must switch to ECC_CONST_MODEL / ECC_LAYERS.
+   hpc/map_capacity_sweep.sh does not read any of the deleted knobs.
+
+8. ECC_LAYERS PER-MODEL SPELLING (6.9): parse in settings/env.py (a `;`/`=`
+   form beside the bare list); config._resolve picks the held model's entry
+   for a one-model run; a multi-model run with a per-model table needs the
+   scope per model in paths.layer_slug/raw_path and Session.select_layers,
+   which is phase 6's evaluator work -- refuse it by name until then.
+   `layers-not-in-model` stays a refusal (a typo must not silently widen).
+
+9. THE SMOKE UNIT (the phase's own gate item): one real SLURM job through the
+   new launcher on a unit that is already CACHED (eyeriss_like_wglb, resnet18,
+   K=39, depth 1.0, reference, e.g. conv1) -- it must come back a cache hit in
+   minutes. --dry-run cannot see the code a job runs (memory: smoke one real
+   job before a matrix). Never run the mapper on the login node.
