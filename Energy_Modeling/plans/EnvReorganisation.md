@@ -134,8 +134,11 @@ list is the held value. Nothing new is needed for the "fixed" half.*
 stands for wherever a figure wants a single reconstruction bar. ► *This is the
 resolution of issue 6.2; the old abstract `recon` arm is retired.*
 
-**One layer for testing.** `ECC_LAYERS` names one layer (or several) of the fixed
-model; empty means the whole model. ► *Today there are two such knobs,
+**A few layers for testing — never whole models while developing.** `ECC_LAYERS`
+names the layers to run; empty means the whole model. The development scope is
+**two layers each from resnet18, mobilenet_v2 and efficientnet_b0** (decided
+2026-09-14) — see 6.9 for the exact names and the per-model spelling this needs.
+Whole models are for the final figures only. ► *Today there are two such knobs,
 `ECC_LAYERS` (§1) and `ECC_RECON_LAYER` (§4, `all` = whole model), and §10 copies
 one into the other. With `ECC_RECON_MODELING` gone only `ECC_LAYERS` is needed.*
 
@@ -543,8 +546,33 @@ row; `ECC_MAPPER_SEED` is empty, so a re-solve is not guaranteed to reproduce.
 
 **Two things that shrink the bill for testing:**
 
-* **`ECC_LAYERS=layer3.0.conv1`** — one layer of the fixed model instead of all 12
-  shapes: `fix` drops from 72 units to 6. Empty means the whole model.
+* **THE DEVELOPMENT SCOPE IS SIX LAYERS, NOT THREE MODELS** (decided 2026-09-14).
+  Every phase is developed and gated on this and nothing larger:
+
+  | model | layers | note |
+  |---|---|---|
+  | `resnet18` | `conv1`, `layer3.0.conv1` | warm at the live config |
+  | `mobilenet_v2` | `features.1.conv.0.0`, `features.9.conv.2` | cold — maps from scratch, 2 shapes |
+  | `efficientnet_b0` | `features.1.0.block.0.0`, `features.5.0.block.1.0` | cold — maps from scratch, 2 shapes |
+
+  With six arms that is **36 units** for `ECC_SWEEP=fix`, against 72 for resnet18
+  alone whole-model and 540 for all three whole-model (12 + 31 + 47 shapes).
+
+  **This needs a per-model spelling of `ECC_LAYERS`**, because layer names are
+  per network and a name a model does not have is refused today
+  (`layers-not-in-model`, tier 2 — and it must stay refused: a typo that silently
+  swept a whole model is the worse failure). Phase 3 adds the form the project
+  already uses for `ECC_RECON_PLACEMENT_LIST`:
+
+  ```bash
+  # bare list = these layers of whichever model is running (today's meaning)
+  : "${ECC_LAYERS:=conv1 layer3.0.conv1}"
+  # per model: `;`-separated `model=layer layer`; a model with no entry runs whole
+  : "${ECC_LAYERS:=resnet18=conv1 layer3.0.conv1; mobilenet_v2=features.1.conv.0.0 features.9.conv.2; efficientnet_b0=features.1.0.block.0.0 features.5.0.block.1.0}"
+  ```
+
+  Layer scope stays in every result path and figure title (`layers2__…`), exactly
+  as today, so a six-layer number can never be mistaken for a model.
 * Once `ECC_RECON_MODELING` is gone, **`ECC_KS` is live again** — today §4's
   `ECC_RECON_K` silently overrides it. So `ECC_KS="57 45 39 30"` with
   `ECC_SWEEP=arch` holds K at 57 (the first entry) — check the first entry is the
@@ -591,10 +619,10 @@ by an explicit re-baseline.
 | **0** | **Gate back** | From `Energy_Modeling/`: `git checkout 46a8df1 -- restructure/gate.sh restructure/snapshot.py restructure/_fingerprints.py restructure/golden restructure/README.md` (the gate ONLY — `gen_guards.py`/`scaffold_arch.py` now live in `tools/`, and the two migration scripts are spent). Then `bash hpc/tl.sh bash restructure/gate.sh --update` to re-take the golden on the current tree, and commit it. **Nothing else until a plain `gate.sh` run is green.** | no | gate green |
 | **1** | **Arch facts → `archs/`** | `clock_mhz`, `leakage_nw` → `design.yaml`; `dram_depth` → `_shared/standard.yaml`; THE WIDTH TABLE + GLB multiplier → `widths.yaml`; delete the three bash arrays and `ECC_WEIGHT_WIDTH_GLB_MULT`. `cycle_seconds_for()` stays the ONLY MHz→s conversion (TRAP 2). | **no** — every fingerprint byte-identical | gate item 1 |
 | **2** | **Dead & settled knobs out** | delete `ONCHIP_FRACTION`, `REQUIRE_GROUP_RESIDENCY`, `PLACEMENT_CHARGES_DECODE`, `RECON_STEM`, `DEPTH_SWEEP_RECON_DW`, `EVAL_EXPERIMENTS`; move the two `DEPTH_SWEEP_GATE_*` into the sweep script; retire `controller` per 6.7; make `ECC_PHASE` derived per arm per 6.1. Retire the matching guards in `settings/guards.py` and `make guards`. | no | gate |
-| **3** | **One launcher** | task file becomes `(arch, model, K, depth, arm)`; `map.sbatch` exports `ECC_RECON_ERT_ARM` from the row; `run_all.sh` enumerates chips from `ECC_APPROACHES × ECC_SWEEP` and **skips cached ones**; `ECC_LAYERS` scopes to one layer; `ECC_JOBS` bundles (6.10); `--dry-run` prints the bill and the bundling (6.9). `map_ert_arms.sh` and `map_depth_sweep.sh` become thin wrappers or are deleted. `ECC_RECON_MODELING`, `RECON_OPTIMIZER`, `ECC_RECON_PLACEMENTS`, `ECC_RECON_LAYER` go. | no | gate + one real smoke unit (`--dry-run` cannot see the code a job runs) |
+| **3** | **One launcher** | task file becomes `(arch, model, K, depth, arm)`; `map.sbatch` exports `ECC_RECON_ERT_ARM` from the row; `run_all.sh` enumerates chips from `ECC_APPROACHES × ECC_SWEEP` and **skips cached ones**; `ECC_LAYERS` scopes to named layers, with the per-model `model=…;` spelling (6.9); `ECC_JOBS` bundles (6.10); `--dry-run` prints the bill and the bundling (6.9). `map_ert_arms.sh` and `map_depth_sweep.sh` become thin wrappers or are deleted. `ECC_RECON_MODELING`, `RECON_OPTIMIZER`, `ECC_RECON_PLACEMENTS`, `ECC_RECON_LAYER` go. | no | gate + one real smoke unit (`--dry-run` cannot see the code a job runs) |
 | **4** | **The new env.sh** | rewrite to the shape in 3.3: four "what to compute" knobs at the top, one option-line comment per important knob, the cache-colding section walled off. Every knob default identical. | no | gate + `test_settings.py` key order pinned |
-| **5** | **`ECC_METRICS`** | figure rows for `energy` / `edp` / `latency` from the raw record; **`area` is new** — ART per level + DC engine area for the recon arm. | `area` is new; others no | new unit tests; gate on the three existing metrics |
-| **6** | **Sweeps draw placements** | per 6.2: retire the abstract `recon` column; `report/sweep.py` and `panels.py` draw a bar per (design, placement) from each arm's own cache, `recon` = `ECC_RECON_DEFAULT`; missing placements warned per 3.1. Then run the three scoped designs (6.8) and fix what `simple_weight_stationary` / `eyeriss_v2_like_wglb` surface. | figures change shape; totals do not | gate on every total; visual review of one figure per axis; all three designs draw |
+| **5** | **`ECC_METRICS`** | figure rows for `energy` / `edp` / `latency` from the raw record; **`area` is new** — ART per level + DC engine area for the recon arm. | `area` is new; others no | new unit tests; gate on the three existing metrics — on the six-layer scope |
+| **6** | **Sweeps draw placements** | per 6.2: retire the abstract `recon` column; `report/sweep.py` and `panels.py` draw a bar per (design, placement) from each arm's own cache, `recon` = `ECC_RECON_DEFAULT`; missing placements warned per 3.1. Then run the three scoped designs (6.8) and fix what `simple_weight_stationary` / `eyeriss_v2_like_wglb` surface. | figures change shape; totals do not | gate on every total; visual review of one figure per axis; all three designs draw — everything on the six-layer scope, whole models only for the final figures |
 | **7** | **Docs** | CLAUDE.md, `plans/README.md`, `GUARDS.md`, `hpc/HIPERGATOR.md`; retire the two old launchers' docs. | no | doc tests |
 
 Phase 4 before phase 5 on purpose: the env.sh rewrite must be gated on
@@ -613,8 +641,8 @@ computed.
 : "${ECC_SWEEP:=fix}"
 # recon1 | recon2 | recon3 | recon4 | recon5   what a bare `recon` means
 : "${ECC_RECON_DEFAULT:=recon2}"
-# one layer name, or empty for the whole model
-: "${ECC_LAYERS:=}"
+# layers to run: bare list, or per model `resnet18=a b; mobilenet_v2=c d`; empty = whole model
+: "${ECC_LAYERS:=resnet18=conv1 layer3.0.conv1; mobilenet_v2=features.1.conv.0.0 features.9.conv.2; efficientnet_b0=features.1.0.block.0.0 features.5.0.block.1.0}"
 # empty = one SLURM task per unit;  N = bundle into N jobs
 : "${ECC_JOBS:=}"
 # energy | edp | latency | area
