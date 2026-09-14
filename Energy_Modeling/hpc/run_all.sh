@@ -180,16 +180,29 @@ _plot() {
     fi
 }
 
-# WHICH MODELS THE EVALUATION WALKS. A point sweep (fix, area) holds the model
-# at the first entry of ECC_MODELS, exactly as it holds the architecture and
-# the code, so evaluating ECC_MODELS' whole list there would draw the held
-# study twice and overwrite its own figure.
+# WHICH MODELS THE EVALUATION WALKS -- and it must be EXACTLY the models the
+# MAPPER WAS ENUMERATED FOR, or the eval asks for mappings no job ever solved.
+#
+# `toolchain.units` enumerates `cfg.models`, which is the MODEL AXIS RESOLVED:
+# the swept list on a model sweep, the PANEL models on a multi-model
+# architecture sweep, and THE HELD MODEL otherwise. Only those two cases ever
+# put more than one model in it. The spellings below are env.sh section 8's
+# own, so the launcher and the file that derives ECC_CONST_MODEL cannot drift.
+#
+# UNTIL 2026-09-14 THIS TESTED ECC_POINT_SWEEP ALONE. That is true of `fix` and
+# `area` but MISSES `bch`, which sweeps the CODE and holds the architecture AND
+# the model (CLAUDE.md's sweep table). So a `bch` run with two names in
+# ECC_MODELS mapped the FIRST and evaluated BOTH: the second was never solved,
+# came back `0/N layers ok, N skipped`, and the eval died on "no valid layers"
+# -- and because the figure is drawn AFTER this loop, a run whose every map
+# COMPLETED produced NO FIGURE AT ALL. Measured: SLURM 42165514 (8/8 map tasks
+# COMPLETED) with 42165515 (eval, FAILED 1:0 in 7s, no figure).
 _eval_models() {
-    if [ "${ECC_POINT_SWEEP}" = "1" ]; then
-        echo "${ECC_CONST_MODEL}"
-    else
-        echo "${ECC_MODELS}"
-    fi
+    case "${ECC_SWEEP}" in
+        model*)                   echo "${ECC_MODELS}" ;;
+        arch|archs|architecture*) echo "${ECC_PANEL_MODELS:-${ECC_CONST_MODEL}}" ;;
+        *)                        echo "${ECC_CONST_MODEL}" ;;
+    esac
 }
 
 # Evaluate every model, then draw. Everything here is --eval: mappings are read
