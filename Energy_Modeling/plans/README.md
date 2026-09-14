@@ -32,6 +32,7 @@ mapper job. `prompt_7.1.md` is a buffer-size sweep to run after prompt_7.
 | `prompt_mac_constant.txt` | which per-MAC energy is the denominator | settled: `ECC_MAC_PJ_OVERRIDE=0.23` |
 | `ProjectRestructure.md` | making the code hold still while the study grows | phases 0–6 **done**, 7 ongoing |
 | `EnvReorganisation.md` | one launcher, one env.sh, any ablation: `run_all.sh` driven by `ECC_APPROACHES` / `ECC_SWEEP` / `ECC_METRICS` | **DELIVERED** — every §9 question answered, phases 0–7 done 2026-09-14 |
+| `TaskD_MapTheTwoDesigns.md` | phase 6's leftover: `simple_weight_stationary` and `eyeriss_v2_like_wglb` mapped at scope, their figures, and FINDINGS 2.11's numbers | **OPEN** — the cold-map path is proven on both, this is queue time |
 
 ## `specs/` — the three source specifications
 
