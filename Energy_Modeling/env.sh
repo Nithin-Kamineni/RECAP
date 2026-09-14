@@ -160,7 +160,7 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # dev | full   <- dev = THE SIX-LAYER DEVELOPMENT SCOPE (EnvReorganisation 6.9);
 #                 full = whole models, which is what a published number is.
 #                 An explicit ECC_LAYERS below WINS over either.
-: "${ECC_SCOPE:=full}"
+: "${ECC_SCOPE:=dev}"
 case "$ECC_SCOPE" in
   dev)  : "${ECC_LAYERS:=resnet18=conv1 layer3.0.conv1; mobilenet_v2=features.1.conv.0.0 features.9.conv.2; efficientnet_b0=features.1.0.block.0.0 features.5.0.block.1.0}" ;;
   full) : "${ECC_LAYERS:=}" ;;
@@ -373,7 +373,7 @@ esac
 : "${ECC_MAPPER_THREADS:=${SLURM_CPUS_PER_TASK:-16}}"
 
 # 1 -> re-solve every unit | 0 -> a valid cache hit is reused
-: "${ECC_RERUN_OPTIMISER:=1}"
+: "${ECC_RERUN_OPTIMISER:=0}"
 
 
 # =============================================================================
