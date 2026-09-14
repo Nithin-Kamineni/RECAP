@@ -37,7 +37,13 @@ RULES, in full, so a reader can predict the verdict:
         holds NO numeric leaf, red if it holds one (a number vanished or
         appeared). Inside a `config` dict the same rule applies and the keys
         are listed separately, because that is the list a phase has to match
-        against the knobs it said it deleted.
+        against the knobs it said it deleted -- with ONE reading peculiar to
+        the record: a BOOLEAN there is a switch, not a measured quantity, so a
+        config key that vanishes with only booleans (or strings, or None)
+        under it is RECORD. A boolean whose VALUE changes is still red,
+        inside the record or out of it (2026-09-14, phase 2: the two deleted
+        switches `recon_placement_charges_decode` and
+        `recon_require_group_residency`).
   * CSV: same row count; columns matched by NAME; a column on one side only
     is RECORD if every cell of it is non-numeric, red otherwise; a numeric
     cell (parses as a float) must be byte-identical; a text cell may differ:
@@ -81,13 +87,17 @@ def _is_num(v):
     return isinstance(v, (int, float, bool)) and not isinstance(v, str)
 
 
-def _has_num(v):
+def _has_num(v, bools_count=True):
+    """Does a subtree hold a numeric leaf? Inside a config record a boolean is
+    a switch and does not count (`bools_count=False`); everywhere else it does."""
+    if isinstance(v, bool):
+        return bools_count
     if _is_num(v):
         return True
     if isinstance(v, dict):
-        return any(_has_num(x) for x in v.values())
+        return any(_has_num(x, bools_count) for x in v.values())
     if isinstance(v, list):
-        return any(_has_num(x) for x in v)
+        return any(_has_num(x, bools_count) for x in v)
     return False
 
 
@@ -97,7 +107,7 @@ def _walk(a, b, path, rep, in_config=False):
             p = f"{path}/{k}"
             if k not in b or k not in a:
                 side, sub = ("golden only", a[k]) if k in a else ("fresh only", b[k])
-                if _has_num(sub):
+                if _has_num(sub, bools_count=not (in_config or k == "config")):
                     rep.red.append(f"{p}: key {side} and its subtree carries NUMBERS")
                 elif in_config or k == "config":
                     rep.record.append(f"{p}: {side}")

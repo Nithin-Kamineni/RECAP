@@ -13,6 +13,9 @@ THE NAMESPACE
 `Pre`   the mapping was chosen without knowing about reconstruction; the ECC
         effect is applied during energy evaluation only.
 `Post`  the mapping itself was optimised for the reduced weight width.
+THE PHASE IS DERIVED PER ARM (`settings.run.result_phase`, 2026-09-14): Task 1
+and Task 2 are `Pre` by construction, a placement mapped on its own chip is
+`Post`. `ECC_PHASE` is gone; nothing lands anywhere it did not before.
 
 The four segments after `{BCH}` are the collision guards the spec asks for, and
 `legacy/docs/RESULTS_SCHEMA.md` explains why each is needed. `{RUNID}` is
@@ -45,6 +48,8 @@ import os
 import platform
 import socket
 import subprocess
+
+from ..settings.run import result_phase
 
 SCHEMA_VERSION = "1.0"
 
@@ -169,7 +174,12 @@ class ResultBuilder:
         self.fixed_mapping = bool(fixed_mapping)
         self.reference = reference
         self.embedded_reference = embedded_reference
-        self.phase = phase or cfg.phase
+        # The RESOLVED configuration's experiment, not this builder's label:
+        # the placement study labels its file `reconstruction_placement` and
+        # runs under ECC_EXPERIMENT=recon, and it is the latter that says a
+        # placement was mapped on its own chip.
+        self.phase = phase or result_phase(getattr(cfg, "experiment", experiment),
+                                           getattr(cfg, "recon_optimizer", True))
         self.variants = []
         self.warnings = []
         self.approximations = []
@@ -440,7 +450,8 @@ def load(path):
 
 def load_latest(results, arch, model, phase=None):
     """The most recent result for one (phase, arch, model, ...) namespace."""
-    d = results.evaluation_dir(arch, model, phase)
+    d = results.evaluation_dir(arch, model, phase or result_phase(
+        results.cfg.experiment, getattr(results.cfg, "recon_optimizer", True)))
     pointer = d / "latest.json"
     if pointer.exists():
         name = json.loads(pointer.read_text(encoding="utf-8"))["latest"]

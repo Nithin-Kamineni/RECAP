@@ -25,6 +25,7 @@ from __future__ import annotations
 import math
 import pandas as pd
 
+from ..arch.weight_path import DECODE_SITE
 from ..arch import arms
 from ..arch import placements
 from ..arch import weight_path
@@ -359,25 +360,9 @@ def figure(cfg, ses, panels):
 
 # ------------------------------------------------------------------------ run
 def run(cfg):
-    # PHASE AND TASK ARE ONE CHOICE, NOT TWO. `Pre` means the mapping is
-    # ECC-unaware and the ECC effect is applied when evaluating, which is Task
-    # 3; `Post` means the mapping itself was solved for the reduced weight
-    # width, which is Task 4 and needs RECON_OPTIMIZER=True. The two crossed
-    # combinations are both a result filed under a heading that misdescribes
-    # it, so both stop the run. (`config.py` catches Post-without-optimizer
-    # from the other side.)
-    if cfg.recon_optimizer and cfg.phase != "Post":
-        guards.refuse("task4-not-task3",
-            f"RECON_OPTIMIZER=True is Task 4 and is a `Post` result: the "
-            f"mapping was re-optimised for the reduced weight width.\n"
-            f"  -> ECC_PHASE=Post RECON_OPTIMIZER=True ...")
-    if not cfg.recon_optimizer and cfg.phase != "Pre":
-        guards.refuse("task3-is-pre-figure",
-            f"ECC_PHASE={cfg.phase} but Task 3 is a `Pre` result by "
-            f"construction: the mapping is fixed and ECC-unaware, and the "
-            f"placement effect is applied when evaluating. `Post` is Task 4, "
-            f"where the mapping itself is optimised for the reduced width.\n"
-            f"  -> ECC_PHASE=Post RECON_OPTIMIZER=True   runs Task 4")
+    # THE PHASE IS DERIVED PER ARM (`settings.run.result_phase`, 2026-09-14):
+    # a placement mapped on its own chip files under `Post`, the two reference
+    # bars under `Pre`, and no knob can contradict either any more.
 
     model = cfg.models[0]
     # ONE PANEL PER ARCHITECTURE, and every one of them checked BEFORE anything
@@ -462,7 +447,7 @@ def run(cfg):
     ses.finish(figs, csv, groups, extra={
         "title": _title(cfg, panels),
         "title_caveats": caveats,
-        "recon_decode_site": cfg.recon_decode_site,
+        "recon_decode_site": DECODE_SITE,
         "dram_pj_per_bit": cfg.dram_pj_per_bit,
         "dram_cost_provenance": cfg.dram_cost_note,
         "dram_static_terms": cfg.dram_static_note,

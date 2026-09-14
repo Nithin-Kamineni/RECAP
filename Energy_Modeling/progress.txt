@@ -2131,3 +2131,72 @@ clock_mhz and leakage_nw stubs; CLAUDE.md's pointers to the moved facts were
 corrected in place (the PROTECTED width section keeps every sentence; only the
 two file pointers moved). env.sh is 96 lines shorter; the width, leakage and
 clock prose there now points at the files.
+
+================================================================================
+ENVREORGANISATION PHASE 2 -- dead and settled knobs out, the phase per arm
+================================================================================
+2026-09-14.  plans/EnvReorganisation.md section 7, phase 2.
+
+GATE: PASSED. 302 fingerprint rows byte-identical. NUMBERS MOVED: 0 -- every
+energy, count, cycle and exit status identical, checked by the classifier on
+every JSON leaf, CSV cell and stdout token. The record and prose divergence
+was read in full and DECLARED (restructure/golden/record.log carries the
+reason and the classifier's list): exactly the eight deleted knobs, gone from
+the config record of all eight result/manifest files, plus three kinds of
+prose -- the banner's `result phase` row, the codec note that named
+ECC_RECON_DECODE_SITE, and the run-id config hash that follows the record.
+Suite 493 -> 492 (declared: the controller-site test went with the row it
+tested). The recon result still files under results/evaluation/Post/.
+
+WHAT WENT, AND WHERE ITS JOB IS NOW:
+  ECC_EVAL_EXPERIMENTS      hpc/run_all.sh derives it: `recon` when section 4
+                            routes the run there, `baseline embedded` otherwise
+  ECC_PHASE                 DERIVED PER ARM (settings/run.py result_phase):
+                            baseline/embedded are Pre by construction, a
+                            placement mapped on its own chip is Post. Keyed on
+                            the RESOLVED configuration's experiment, not on a
+                            builder's label -- the placement study labels its
+                            file `reconstruction_placement` and the first cut
+                            keyed on that, which moved the file to Pre; the
+                            gate's prose list showed the path and it was put
+                            right before anything was accepted. paths.
+                            evaluation_dir() now takes the phase; results_store
+                            is the one place that derives it.
+  ECC_RECON_DECODE_SITE     the decoder is ON THE DRAM DIE, full stop:
+                            weight_path.DECODE_SITE is the constant every record
+                            still names; placements.decode_site(), the
+                            `controller` branches in stages_for() /
+                            effective_placement() / placement_study, and the
+                            config guard are gone. physics/parity.py WAS NOT
+                            TOUCHED: the plan's "controller" hit there is the
+                            word in a comment about the memory controller, not
+                            the knob; the file stays frozen.
+  ECC_RECON_REQUIRE_GROUP_RESIDENCY  a constant False at the one call site in
+                            placement_eval.py, with the 2026-09-13 reasoning and
+                            the measured effect beside it; granularity.
+                            feasibility() keeps the strict reading as a
+                            parameter, for the test that pins both readings
+  ECC_RECON_PLACEMENT_CHARGES_DECODE  folded into ECC_DECODE (two sites)
+  ECC_RECON_STEM            the literal `ReconSweep` (config.stem, env.sh s10)
+  ECC_RECON_ONCHIP_FRACTION read by nothing; deleted
+  ECC_DEPTH_SWEEP_RECON_DW, _GATE_VICTORIES, _GATE_SCALES  hpc/map_depth_sweep.sh's
+                            own defaults (the environment still wins), the
+                            same values in report/dilation_view.py --gate
+
+GUARDS RETIRED (GUARDS.md 139 -> 132): unknown-decode-site, unknown-phase,
+task4-is-post, task3-is-pre, task3-is-pre-figure, task4-not-task3,
+arm-phase-is-pre. `ert-arm-needs-optimiser` now needs only RECON_OPTIMIZER=True
+(phase 3 removes that knob and with it the guard).
+
+THE ONE HUNK IN A FROZEN FILE: study/baseline.py lost its five-line ECC_PHASE
+check (EnvReorganisation 9.1, decided by the user); nothing else in it moved and
+its totals are byte-identical. study/embedded.py lost the matching check.
+
+THE CLASSIFIER LEARNED ONE THING: a BOOLEAN inside a config record is a switch,
+not a measured quantity, so a deleted boolean knob is RECORD, while a boolean
+whose VALUE changes stays red (mutation-tested both ways before use). The two
+switches deleted here were the case.
+
+NOTE FOR PHASE 3: `restructure/snapshot.py`'s baseline/embedded stages still
+export ECC_PHASE=Pre and RECON_OPTIMIZER=False; ECC_PHASE is now read by
+nothing (proved: the totals did not move), RECON_OPTIMIZER goes in phase 3.

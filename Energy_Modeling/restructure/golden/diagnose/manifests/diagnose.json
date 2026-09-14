@@ -189,15 +189,6 @@
     "decode_enabled": false,
     "decode_pj_base": 40.0,
     "decode_pj_emb": 40.0,
-    "depth_sweep_gate_scales": [
-      "1.0",
-      "0.125"
-    ],
-    "depth_sweep_gate_victories": [
-      "2000",
-      "4000",
-      "10000"
-    ],
     "disable_pair_geometry_assert": false,
     "dpi": 400,
     "dram_background_pj": 0.0,
@@ -248,11 +239,9 @@
     "parity_charge_padding": true,
     "parity_frac": 0.6153846153846154,
     "parity_grouping": "layer",
-    "phase": "Post",
     "recon_bw_scale": true,
     "recon_charges_decode": true,
     "recon_clock_gating_pct": 99.5,
-    "recon_decode_site": "ondie",
     "recon_encoder_site": "destination",
     "recon_ert_arm": "reference",
     "recon_ert_aware": true,
@@ -278,16 +267,12 @@
     "recon_json": "data/dc/BCH_N63_results.json",
     "recon_layer": "all",
     "recon_modeling": true,
-    "recon_onchip_fraction": null,
     "recon_optimizer": true,
     "recon_packing": "stream",
     "recon_pj_override": null,
-    "recon_placement_charges_decode": true,
     "recon_placement_keys": [
       "eyeriss_like_wglb=recon1 recon2 recon3 recon4 recon5"
     ],
-    "recon_require_group_residency": false,
-    "recon_stem": "ReconSweep",
     "replot_only": false,
     "rerun_optimiser": false,
     "results_dir": "results",

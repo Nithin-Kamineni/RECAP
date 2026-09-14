@@ -421,11 +421,10 @@ def validate_placements(name, doc, stages, path):
 
 
 # THE PREFIX RULE AND THE REACHABILITY RULE ARE NOT CHECKED HERE, and that is
-# deliberate. `arch.arms.validate_placement_space()` states both over the stages
-# a CONFIGURATION resolves -- `ECC_RECON_DECODE_SITE=controller` makes the DRAM
-# stage irreducible, and the space is a different shape under it. Checking the
-# declared file instead would refuse `eyeriss_v2_like_wglb` AT IMPORT: its
-# `weight_glb` stage is reducible and no boundary reaches it, which is a known,
-# documented gap (CLAUDE.md; prompt_6 Appendix B has the fix). That design is
-# REFUSED when the study asks for it, with the reason -- it does not stop every
-# other design from loading.
+# deliberate. `arch.arms.validate_placement_space()` states both over the
+# stages a CONFIGURATION resolves (the encoder site still reshapes a network
+# boundary's count). Checking the declared file instead would have refused
+# `eyeriss_v2_like_wglb` AT IMPORT while its `weight_glb` stage had no boundary
+# (prompt_6 Appendix B, fixed in its placements.yaml). A design is REFUSED when
+# the study asks for it, with the reason -- it does not stop every other design
+# from loading.

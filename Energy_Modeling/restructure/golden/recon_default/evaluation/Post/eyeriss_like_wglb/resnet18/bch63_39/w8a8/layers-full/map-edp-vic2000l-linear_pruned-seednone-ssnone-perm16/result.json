@@ -4,7 +4,7 @@
     "exact stored codeword count x measured DRAM refetch factor; parity + message padding; rounded up to whole DRAM words once",
     "The baseline's DRAM cost is a PER-BIT PRICE, not extra traffic: it reads the same weight bits as the embedded arm (the decoder is on the DRAM die, so parity is corrected there and never crosses the datapath) and pays 22 pJ/bit against 20 for the bigger, indexed array (x1.1000 on the whole DRAM category, weights, inputs and outputs alike -- a per-bit cost is a property of the device, not of a dataspace). The parity accounting on this result is the array-SIZE evidence for that price, not an energy term; it charges no pJ. E_background and E_refresh grow with the array and are not modelled.",
     "complete codeword read: every bit of every DRAM weight read that Timeloop counts is billed, message and embedded parity alike, and no K/N reduction is applied at DRAM; no external parity; physical DRAM words are ESTIMATED as bits / word rounded up once at the end (bit-proportional -- Timeloop bills per 8-bit scalar); the final chunk's tail padding is reported, not charged, as for the baseline",
-    "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout. Since 2026-09-09 the decoder sits on the DRAM die (ECC_RECON_DECODE_SITE=ondie), off the fetch path; it is the same BCH decoder relocated, runs once per corrected codeword, is DRAM-process logic, and stays outside the placement comparison.",
+    "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout. Since 2026-09-09 the decoder sits on the DRAM die, off the fetch path (the only model since 2026-09-14); it is the same BCH decoder relocated, runs once per corrected codeword, is DRAM-process logic, and stays outside the placement comparison.",
     "RECONSTRUCTION-AWARE MAPPING WITH THE ENCODER IN THE OBJECTIVE (prompt_6), ONE PLAN PER BOUNDARY (prompt_7 B1/B2). The arms are the DISTINCT CHIPS the mapper sees -- (datawidth q on the storage levels the boundary narrows) x (its ERT bump, where its site is a storage level whose counter names one real ERT action and whose bump is not constant across the mapspace) x (its declared per-dataspace bandwidth scale) -- derived from the placement records, never listed. An ERT-injectable arm was RE-MAPPED with its encoder toll in Timeloop's energy table (E_w x block_size on the site's access action, idle x (1 - g) on `leak`), so the mapper solved the loop nest knowing what reconstruction costs at that boundary; such a bar is billed from ITS OWN plan (bill, discounts, cycles, DRAM reads) and the toll Timeloop billed inside the level is MOVED into `Reconstruction`, never added a second time. A boundary whose own chip is not yet mapped is billed from a NAMED plan that narrows the SAME storage levels, with the lender's toll already moved out; a boundary for which no such plan exists on disk is billed from the reference plan and flagged `geometry_matches: false`. EVERY BAR'S RECORD NAMES THE PLAN IT WAS BILLED FROM in `billed_from`, and the figure marks it.",
     "FIXED-MAPPING RESULT. Every access count, fanout, multicast factor and hop count here is the one Timeloop chose WITHOUT knowing about reconstruction, and the mapper was not re-run for any placement. So this file answers 'what does moving the boundary cost and save at constant data movement', not 'what is the best this architecture can do' -- packed reduced weights raise the effective weight capacity and may enable better tiling, which is Task 4's question and is deliberately not credited here.",
     "stream: the retained k bits of each codeword are packed with no per-weight alignment, so values per physical word and operands per flit rise by n/k and every stage scales by k/n. aligned: each reduced weight occupies ceil(weight_bits*k/n) whole bits and nothing is repacked, so wire energy falls but a physical word may hold no more values than before and its access count does not move.",
@@ -9754,15 +9754,6 @@
       "decode_enabled": false,
       "decode_pj_base": 40.0,
       "decode_pj_emb": 40.0,
-      "depth_sweep_gate_scales": [
-        "1.0",
-        "0.125"
-      ],
-      "depth_sweep_gate_victories": [
-        "2000",
-        "4000",
-        "10000"
-      ],
       "disable_pair_geometry_assert": false,
       "dpi": 400,
       "dram_background_pj": 0.0,
@@ -9813,11 +9804,9 @@
       "parity_charge_padding": true,
       "parity_frac": 0.6153846153846154,
       "parity_grouping": "layer",
-      "phase": "Post",
       "recon_bw_scale": true,
       "recon_charges_decode": true,
       "recon_clock_gating_pct": 99.5,
-      "recon_decode_site": "ondie",
       "recon_encoder_site": "destination",
       "recon_ert_arm": "reference",
       "recon_ert_aware": true,
@@ -9843,16 +9832,12 @@
       "recon_json": "data/dc/BCH_N63_results.json",
       "recon_layer": "all",
       "recon_modeling": true,
-      "recon_onchip_fraction": null,
       "recon_optimizer": true,
       "recon_packing": "stream",
       "recon_pj_override": null,
-      "recon_placement_charges_decode": true,
       "recon_placement_keys": [
         "eyeriss_like_wglb=recon1 recon2 recon3 recon4 recon5"
       ],
-      "recon_require_group_residency": false,
-      "recon_stem": "ReconSweep",
       "replot_only": false,
       "rerun_optimiser": false,
       "results_dir": "results",
@@ -9891,7 +9876,7 @@
       "weights_per_codeword": 4,
       "workload": "cnn"
     },
-    "config_hash": "3d5d2ddc",
+    "config_hash": "46def58a",
     "finished_utc": "<scrubbed>",
     "git_commit": "<scrubbed>",
     "host": "<scrubbed>",
@@ -12779,7 +12764,7 @@
   "variants": [
     {
       "detail": {
-        "ecc_codec_energy": "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout. Since 2026-09-09 the decoder sits on the DRAM die (ECC_RECON_DECODE_SITE=ondie), off the fetch path; it is the same BCH decoder relocated, runs once per corrected codeword, is DRAM-process logic, and stays outside the placement comparison.",
+        "ecc_codec_energy": "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout. Since 2026-09-09 the decoder sits on the DRAM die, off the fetch path (the only model since 2026-09-14); it is the same BCH decoder relocated, runs once per corrected codeword, is DRAM-process logic, and stays outside the placement comparison.",
         "external_parity_accounting": {
           "charge_message_padding": true,
           "code": {
@@ -12907,7 +12892,7 @@
           "dram_weight_energy_pJ": 1914798080.0,
           "rule": "dram = DRAM weight energy x K/N under every boundary when the decoder is on the DRAM die (01_project_context Sec. 4). Accelergy's CactiDRAM is one flat per-bit DYNAMIC access constant and the whole of it is credited: the DRAM access fetches only the message bits of each codeword. E_background and E_refresh are not modelled (both 0)"
         },
-        "ecc_codec_energy": "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout. Since 2026-09-09 the decoder sits on the DRAM die (ECC_RECON_DECODE_SITE=ondie), off the fetch path; it is the same BCH decoder relocated, runs once per corrected codeword, is DRAM-process logic, and stays outside the placement comparison.",
+        "ecc_codec_energy": "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout. Since 2026-09-09 the decoder sits on the DRAM die, off the fetch path (the only model since 2026-09-14); it is the same BCH decoder relocated, runs once per corrected codeword, is DRAM-process logic, and stays outside the placement comparison.",
         "embedded_dram_accounting": {
           "code": {
             "k": 39,
@@ -13165,7 +13150,7 @@
         },
         "dram_weight_reads_reference": 11967488.0,
         "dram_weight_reads_this_arm": 12262400.0,
-        "ecc_codec_energy": "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout. Since 2026-09-09 the decoder sits on the DRAM die (ECC_RECON_DECODE_SITE=ondie), off the fetch path; it is the same BCH decoder relocated, runs once per corrected codeword, is DRAM-process logic, and stays outside the placement comparison.",
+        "ecc_codec_energy": "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout. Since 2026-09-09 the decoder sits on the DRAM die, off the fetch path (the only model since 2026-09-14); it is the same BCH decoder relocated, runs once per corrected codeword, is DRAM-process logic, and stays outside the placement comparison.",
         "energy_saved_by_category_pJ": {
           "DRAM": 747422476.1904762
         },
@@ -13970,7 +13955,7 @@
         },
         "dram_weight_reads_reference": 11967488.0,
         "dram_weight_reads_this_arm": 12262400.0,
-        "ecc_codec_energy": "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout. Since 2026-09-09 the decoder sits on the DRAM die (ECC_RECON_DECODE_SITE=ondie), off the fetch path; it is the same BCH decoder relocated, runs once per corrected codeword, is DRAM-process logic, and stays outside the placement comparison.",
+        "ecc_codec_energy": "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout. Since 2026-09-09 the decoder sits on the DRAM die, off the fetch path (the only model since 2026-09-14); it is the same BCH decoder relocated, runs once per corrected codeword, is DRAM-process logic, and stays outside the placement comparison.",
         "energy_saved_by_category_pJ": {
           "DRAM": 747422476.1904762,
           "Global buffer": 0.0
@@ -14884,7 +14869,7 @@
         },
         "dram_weight_reads_reference": 11967488.0,
         "dram_weight_reads_this_arm": 12262400.0,
-        "ecc_codec_energy": "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout. Since 2026-09-09 the decoder sits on the DRAM die (ECC_RECON_DECODE_SITE=ondie), off the fetch path; it is the same BCH decoder relocated, runs once per corrected codeword, is DRAM-process logic, and stays outside the placement comparison.",
+        "ecc_codec_energy": "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout. Since 2026-09-09 the decoder sits on the DRAM die, off the fetch path (the only model since 2026-09-14); it is the same BCH decoder relocated, runs once per corrected codeword, is DRAM-process logic, and stays outside the placement comparison.",
         "energy_saved_by_category_pJ": {
           "DRAM": 747422476.1904762,
           "Global buffer": 0.0,
@@ -15729,7 +15714,7 @@
         },
         "dram_weight_reads_reference": 11967488.0,
         "dram_weight_reads_this_arm": 12262400.0,
-        "ecc_codec_energy": "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout. Since 2026-09-09 the decoder sits on the DRAM die (ECC_RECON_DECODE_SITE=ondie), off the fetch path; it is the same BCH decoder relocated, runs once per corrected codeword, is DRAM-process logic, and stays outside the placement comparison.",
+        "ecc_codec_energy": "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout. Since 2026-09-09 the decoder sits on the DRAM die, off the fetch path (the only model since 2026-09-14); it is the same BCH decoder relocated, runs once per corrected codeword, is DRAM-process logic, and stays outside the placement comparison.",
         "energy_saved_by_category_pJ": {
           "DRAM": 747422476.1904762,
           "Global buffer": 0.0,
@@ -16660,7 +16645,7 @@
         },
         "dram_weight_reads_reference": 11967488.0,
         "dram_weight_reads_this_arm": 11967488.0,
-        "ecc_codec_energy": "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout. Since 2026-09-09 the decoder sits on the DRAM die (ECC_RECON_DECODE_SITE=ondie), off the fetch path; it is the same BCH decoder relocated, runs once per corrected codeword, is DRAM-process logic, and stays outside the placement comparison.",
+        "ecc_codec_energy": "ECC codec (decode/correction) energy is OUTSIDE this comparison unless ECC_DECODE=1, exactly as in Task 2. Every placement decodes the same codewords as the embedded reference -- the reduced representation is taken AFTER correction -- so a characterised codec cost would cancel between the embedded bar and every recon bar, and would not cancel against the conventional baseline, which counts codewords by a different layout. Since 2026-09-09 the decoder sits on the DRAM die, off the fetch path (the only model since 2026-09-14); it is the same BCH decoder relocated, runs once per corrected codeword, is DRAM-process logic, and stays outside the placement comparison.",
         "energy_saved_by_category_pJ": {
           "DRAM": 729446887.6190476,
           "Global buffer": 0.0,

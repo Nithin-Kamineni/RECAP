@@ -48,9 +48,6 @@ def _cfg(**env):
         ECC_CONST_MODEL="resnet18", ECC_CONST_K="51",
         ECC_MAPPER_THREADS="8", ECC_VICTORY="100", ECC_FROM_CACHE="1",
         ECC_RECON_PACKING="stream", ECC_RECON_ENCODER_GRANULARITY="weight",
-        # The decoder is on the DRAM die, so the
-        # synthetic case fixes one: 5000 pJ of DRAM = 3750 array + 1250 interface.
-        ECC_RECON_DECODE_SITE="ondie",
         # prompt_7 Issue 4: every assertion below predates clock gating and
         # states the UNGATED formula. PCT=0 is algebraically identical to it,
         # so pinning it here keeps those assertions exact and meaningful; the
@@ -578,10 +575,8 @@ def test_a_pe_local_boundary_is_rejected_when_the_tile_is_smaller_than_g_rec():
         assert detail["infeasible_layers"][0]["weights_resident"] == 3
         assert detail["layers_below_G_rec"] == 1, detail
         assert "fewest: 3" in detail["reason"], detail["reason"]
-        strict_cfg = cfg.with_(recon_require_group_residency=True)
-        res = placement_eval.evaluate_placement(strict_cfg, "eyeriss_v2_like", p, wp,
-                                          base_w, base, 4.0, gran, packing)
-        assert res.status == "unsupported" and res.total_pJ == 0.0
+        # (the strict reading is a parameter of the physics function only:
+        # the knob that let a RUN choose it went on 2026-09-14)
 
         # DEFAULT: charged, and the shortfall travels WITH the bar. Losing the
         # number would be worse than losing the bar -- it is what bounds the
@@ -769,95 +764,9 @@ def test_a_dram_component_off_the_K_over_N_value_fails_in_either_direction():
 
 
 # ------------------------------------------- the decode site
-def test_controller_site_reproduces_the_pre_2026_09_09_numbers():
-    """`ECC_RECON_DECODE_SITE=controller` must be the OLD model to the digit.
-
-    These are the hand checks the suite carried before the decoder moved onto
-    the DRAM die: DRAM identical on every bar, R1 saving nothing, R2 the mesh
-    only, R3 both networks, R4a the scratchpad too. If they stop holding
-    under `controller`, the diff row proves nothing.
-    """
-    from ..arch import arms
-    from ..arch import placements as placements_mod
-    from ..arch import weight_path
-    from ..physics import granularity
-    from ..physics import packing as packing_mod
-    from ..study import capacity
-    from ..study import placement_eval
-    from ..toolchain import weight_stats
-    cfg, wp, base, base_w, gran, packing = _placement_setup(
-        ECC_RECON_DECODE_SITE="controller")
-    assert wp.decode_site == "controller"
-    # the single dram stage owns the whole level and is NOT reducible
-    assert math.isclose(wp.stages["dram"].energy_pJ, _DRAM_W)
-    assert not any(s.reducible for s in placements_mod.stages_for("eyeriss_v2_like", cfg)
-                   if s.key == "dram")
-    # ...and it has left every placement's reduced set, R1's included
-    for p in placements_mod.placements_for("eyeriss_v2_like", cfg):
-        assert "dram" not in p.reduced, p
-    assert placements_mod.placement_by_key("eyeriss_v2_like", "recon1", cfg).reduced == ()
-    ok, detail = arms.validate_placement_space("eyeriss_v2_like", cfg)
-    assert ok is True, detail
-    assert detail["decode_site"] == "controller"
-    assert detail["reducible_stages_in_path_order"][0] == "inter_cluster_mesh"
-    ok, detail = placement_eval.cross_check(cfg, "eyeriss_v2_like", wp, base_w)
-    assert ok is True, detail
-
-    frac = 51 / 63
-    out = {}
-    # the ON-DIE table's placements are handed in deliberately: evaluate_placement
-    # has to apply the decode site itself, whatever form the caller holds
-    for p in placements_mod.placements_for("eyeriss_v2_like"):
-        assert "dram" in p.reduced
-        res = placement_eval.evaluate_placement(cfg, "eyeriss_v2_like", p, wp, base_w,
-                                          base, 4.0, gran, packing)
-        assert res.status == "evaluated", (p.key, res.reason)
-        out[p.key] = res
-        assert res.components["DRAM"] == 5000.0, (p.key, res.components["DRAM"])
-        assert math.isclose(res.components["Compute"], 9000.0, rel_tol=1e-12)
-        dm = res.detail["dram_model"]
-        assert dm["decode_site"] == "controller"
-        assert dm["dram_reduced"] is False
-        assert dm["dram_saving_pJ"] == 0.0
-        assert "dram" not in res.placement.reduced
-    r1, r2, r3, r4a = (out[k] for k in ("recon1", "recon2", "recon3",
-                                        "recon4"))
-    assert math.isclose(sum(r1.detail["energy_saved_by_category_pJ"].values()),
-                        0.0, abs_tol=1e-9)
-    assert math.isclose(r1.components["Reconstruction"], 2048 / (63 / 8) * 4.0,
-                        rel_tol=1e-12)
-    assert math.isclose(r2.components["NoC"], 130.0 * frac + 20.0, rel_tol=1e-12)
-    assert math.isclose(r3.components["NoC"], 150.0 * frac, rel_tol=1e-12)
-    assert math.isclose(r3.components["Local (spads/RF)"], 911.0, rel_tol=1e-12)
-    assert math.isclose(r4a.components["Local (spads/RF)"],
-                        911.0 - 800.0 * (1 - frac), rel_tol=1e-12)
-    # R1 is worse than the embedded reference under controller-side correction
-    assert r1.total_pJ > float(base.sum())
-
-    # the same placements under the on-die model differ from these by EXACTLY
-    # the interface saving, on every bar, and by nothing else
-    cfg2, wp2, _b, _bw, gran2, packing2 = _placement_setup()
-    for key, old in out.items():
-        new = placement_eval.evaluate_placement(
-            cfg2, "eyeriss_v2_like", placements_mod.placement_by_key("eyeriss_v2_like", key),
-            wp2, base_w, base, 4.0, gran2, packing2)
-        for cat in old.components:
-            diff = old.components[cat] - new.components[cat]
-            want = _DRAM_W * (1 - frac) if cat == "DRAM" else 0.0
-            assert math.isclose(diff, want, rel_tol=1e-12, abs_tol=1e-9), (key, cat)
-
-    # ...and the recorded checks pass under `controller` too, where the DRAM
-    # check collapses onto "identical to the embedded reference"
-    good = _task3_validation(ECC_RECON_DECODE_SITE="controller")
-    for name in _TASK3_CHECKS:
-        assert good[name] is True, (name, good)
-
-    # the whole level is still the one dram stage under controller; it simply
-    # is not reduced
-    cfg3, wp3, *_ = _placement_setup(ECC_RECON_DECODE_SITE="controller")
-    assert math.isclose(wp3.stages["dram"].energy_pJ, _DRAM_W)
-    ok, _ = placement_eval.cross_check(cfg3, "eyeriss_v2_like", wp3, base_w)
-    assert ok is True
+# `test_controller_site_reproduces_the_pre_2026_09_09_numbers` went with the
+# `controller` row itself on 2026-09-14 (EnvReorganisation 6.7): the decoder is
+# on the DRAM die and there is no other model to diff against.
 
 
 def test_the_dram_cost_knobs_are_validated_and_titled():
@@ -886,8 +795,7 @@ def test_the_dram_cost_knobs_are_validated_and_titled():
     # ...and setting it does nothing at all: it is not read
     assert _cfg(ECC_DRAM_IF_FRAC="0.25").dram_pj_per_bit == _cfg().dram_pj_per_bit
 
-    for bad in (dict(ECC_RECON_DECODE_SITE="dimm"),
-                dict(ECC_DRAM_PJ_PER_BIT="0"),
+    for bad in (dict(ECC_DRAM_PJ_PER_BIT="0"),
                 dict(ECC_DRAM_PJ_PER_BIT="-1"),
                 dict(ECC_DRAM_BACKGROUND_PJ="-1"),
                 dict(ECC_DRAM_REFRESH_PJ="-1")):
@@ -910,8 +818,6 @@ def test_the_dram_cost_knobs_are_validated_and_titled():
     assert "\n" not in c.recon_title(), c.recon_title()
     t = "\n".join(c.recon_caveats())
     assert "DRAM die" in t, t
-    t = "\n".join(_cfg(ECC_RECON_DECODE_SITE="controller").recon_caveats())
-    assert "controller" in t.lower() and "pre-2026-09-09" in t, t
     one = _cfg(ECC_LAYERS="layer3.0.conv1")
     assert "layer3.0.conv1" in one.recon_title() and "\n" not in one.recon_title()
     assert any("DEVELOPMENT RUN" in ln for ln in one.recon_caveats())
@@ -986,57 +892,42 @@ def test_r1_isolates_the_interface_saving_from_every_on_chip_saving():
 
 
 # ------------------------------------------------------------- configuration
-def test_recon_optimizer_true_is_task4_and_cannot_be_filed_as_a_pre_result():
-    """RECON_OPTIMIZER=True is Task 4 (since 2026-09-09) and is `Post` only.
-
-    The knob used to refuse outright, because Task 4 did not exist and the one
-    thing that must never happen is fixed-mapping numbers under a heading that
-    says the mapping was optimised. Task 4 is implemented now, so the refusal
-    moved to where it can still be checked:
-
-      * here -- a re-optimised mapping filed as a `Pre` result, which is a
-        result whose own phase field contradicts it;
-      * `study.dilated_view.dilated_view()` -- the reconstruction arm's mapper
-        cache missing, the design having no weight level to dilate, or the
-        dilated capacity not coming back N/K times the reference's. Each of
-        those would otherwise fall back to the reference mapping, which IS
-        Task 3.
+def test_the_phase_is_derived_per_arm_and_no_knob_can_contradict_it():
+    """`Pre` / `Post` is a fact about the ARM, not a setting (EnvReorganisation
+    6.1, 2026-09-14). Baseline and embedded are `Pre` by construction -- there
+    is no reduced representation for a mapper to have known about -- and a
+    placement mapped on its own chip is `Post`. One run spans both, so
+    ECC_PHASE could not be one value; it is gone, and so are the two guards
+    (`task4-is-post`, `task3-is-pre`) that held it in agreement with
+    RECON_OPTIMIZER. The namespace under results/evaluation/ is unchanged.
     """
-    from eccenergy.config import ConfigError
-    try:
-        _cfg(ECC_RECON_OPTIMIZER="True")            # ECC_PHASE defaults to Pre
-    except ConfigError as exc:
-        assert "TASK 4" in str(exc), str(exc)
-        assert "Post" in str(exc), str(exc)
-    else:
-        raise AssertionError("RECON_OPTIMIZER=True was accepted as a `Pre` "
-                             "result; a re-optimised mapping is `Post` by "
-                             "construction and the phase field would lie")
-    # Post + True is Task 4 and is accepted, with the dilated capacity derived
-    # from the reference one rather than configured separately.
-    cfg = _cfg(ECC_RECON_OPTIMIZER="True", ECC_PHASE="Post")
+    from eccenergy.paths import Results
+    from eccenergy.settings.run import result_phase
+    from eccenergy.toolchain.results_store import ResultBuilder
+    assert result_phase("baseline") == "Pre"
+    assert result_phase("embedded") == "Pre"
+    assert result_phase("recon", recon_optimizer=True) == "Post"
+    assert result_phase("recon", recon_optimizer=False) == "Pre"      # Task 3
+    # an ECC_PHASE left in a shell is READ BY NOTHING
+    cfg = _cfg(ECC_RECON_OPTIMIZER="True", ECC_PHASE="Pre")
+    assert not hasattr(cfg, "phase") and "phase" not in cfg.to_dict()
     assert cfg.recon_optimizer is True
-    from ..arch import arms
-    from ..arch import placements as placements_mod
-    from ..arch import weight_path
-    from ..physics import granularity
-    from ..physics import packing as packing_mod
+    res = Results(cfg)
+    b = ResultBuilder(cfg, res, "eyeriss_v2_like", "resnet18",
+                      experiment="recon", fixed_mapping=False)
+    assert b.phase == "Post"
+    assert "/Post/" in res.evaluation_dir("eyeriss_v2_like", "resnet18", b.phase).as_posix()
+    # the phase follows the RUN's experiment, not a builder's label: Task 1 and
+    # Task 2 run under ECC_EXPERIMENT=baseline / embedded and are `Pre`
+    cfg_b = _cfg(ECC_EXPERIMENT="baseline", ECC_RECON_OPTIMIZER="True")
+    b1 = ResultBuilder(cfg_b, Results(cfg_b), "eyeriss_v2_like", "resnet18",
+                       experiment="baseline", fixed_mapping=True)
+    assert b1.phase == "Pre"
+    # the dilated capacity is still derived from the reference one
     from ..study import capacity
-    from ..study import placement_eval
-    from ..toolchain import weight_stats
     assert math.isclose(capacity.capacity_dilation_scale(cfg),
                         cfg.weight_capacity_scale * cfg.code_n / cfg.code_k,
                         rel_tol=1e-4)
-    # ...and the OTHER crossed combination, caught at config time so --dry-run
-    # reports it: Task 3 filed as a `Post` result claims a mapping that was
-    # never re-optimised.
-    try:
-        _cfg(ECC_RECON_MODELING="1", ECC_PHASE="Post")
-    except ConfigError as exc:
-        assert "Task 3" in str(exc) and "Pre" in str(exc), str(exc)
-    else:
-        raise AssertionError("ECC_PHASE=Post with RECON_OPTIMIZER=False was "
-                             "accepted; a fixed mapping is a `Pre` result")
     # False, and the spelling env.sh uses, are both fine
     assert _cfg(ECC_RECON_OPTIMIZER="False").recon_optimizer is False
 
@@ -1285,7 +1176,6 @@ _MANIFEST_ENV = {
     "split_read_write": "ECC_SPLIT_READ_WRITE",
     # not part of the mapping fingerprint, but they decide what the DRAM band
     # of the figure means, so the real case is evaluated at the same values
-    "recon_decode_site": "ECC_RECON_DECODE_SITE",
     "dram_pj_per_bit": "ECC_DRAM_PJ_PER_BIT",
 }
 

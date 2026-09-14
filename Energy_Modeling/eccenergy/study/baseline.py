@@ -129,12 +129,11 @@ def _report(cfg, arch, model, raw, energy_total, detail, pricing):
 
 
 def run(cfg):
-    if cfg.phase != "Pre":
-        raise SystemExit(
-            f"ECC_PHASE={cfg.phase} but the Task 1 baseline is a `Pre` result by "
-            f"construction: there is no reduced weight representation yet, so no "
-            f"mapping could have been optimised for one.")
-
+    # THE ONE EDIT THIS FROZEN FILE HAS HAD (EnvReorganisation 9.1, decided
+    # 2026-09-14): the `Pre` phase is derived per arm now
+    # (`settings.run.result_phase("baseline")`), so the ECC_PHASE check that
+    # stood here guarded a knob that no longer exists. Gated: every total in
+    # this file's output is byte-identical before and after.
     ses = Session(cfg).setup()
     ses.collect_all()
     prov = load_provenance()

@@ -102,6 +102,17 @@ set --
 
 source ./env.sh
 
+# THIS SCRIPT'S OWN DEFAULTS since 2026-09-14 (they were env.sh knobs; the
+# environment still wins). The convergence GATE maps the EMBEDDED arm at each
+# budget and re-checks it at the largest AND the smallest depth -- a budget
+# that converges on a big buffer may not on a small one. Measured cost,
+# 2026-09-10 (one layer, 18 threads): victory 10000 ran 1h13m-1h34m wall;
+# 50000 ran 6h02m-8h09m. `eccenergy/report/dilation_view.py --gate` reads the
+# same defaults. ECC_DEPTH_SWEEP_RECON_DW empty = round(ECC_WEIGHT_BITS * K/N).
+: "${ECC_DEPTH_SWEEP_GATE_VICTORIES:=2000 4000 10000}"
+: "${ECC_DEPTH_SWEEP_GATE_SCALES:=1.0 0.125}"
+: "${ECC_DEPTH_SWEEP_RECON_DW:=}"
+
 # ---- what the two arms are -------------------------------------------------
 # The reduced arm's datawidth. env.sh may pin it; otherwise it comes from
 # eccenergy/physics/widths.py -- round(ECC_WEIGHT_BITS * K/N), which is 4 at

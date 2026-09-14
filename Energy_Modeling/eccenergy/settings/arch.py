@@ -207,13 +207,6 @@ class ArchSettings:
     #: narrow `filter_glb` and leave `weights_spad` at 8. A name no weight
     #: level has is refused by `archs._set_weight_datawidth`.
     weight_datawidth_levels: tuple
-    #: PROMPT_2's convergence gate, read by `dilation --gate` and submitted by
-    #: `hpc/map_depth_sweep.sh`. The budgets the EMBEDDED arm is mapped at, and
-    #: the depths the gate is re-checked at -- the largest AND the smallest,
-    #: because a budget that converges on a big buffer may not on a small one.
-    #: Not in the mapper fingerprint: they select which caches to READ.
-    depth_sweep_gate_victories: tuple
-    depth_sweep_gate_scales: tuple
     # Timeloop's built-in wire model is a stub returning 0, so without these
     # every network is free -- in the evaluator AND in the mapper's objective.
     noc_enabled: bool
@@ -262,10 +255,6 @@ class ArchSettings:
             disable_pair_geometry_assert=_b("ECC_DISABLE_ASSERT_PAIR_GEOMETRY", False),
             weight_depth_levels=tuple(_list("ECC_WEIGHT_DEPTH_LEVELS")),
             weight_datawidth_levels=tuple(_list("ECC_WEIGHT_DATAWIDTH_LEVELS")),
-            depth_sweep_gate_victories=tuple(
-            _list("ECC_DEPTH_SWEEP_GATE_VICTORIES", "2000 4000 10000")),
-            depth_sweep_gate_scales=tuple(
-            _list("ECC_DEPTH_SWEEP_GATE_SCALES", "1.0 0.125")),
             noc_enabled=_b("ECC_NOC", True),
             noc_wire_pj_per_bit_mm=_of("ECC_NOC_WIRE_PJ_PER_BIT_MM"),
             noc_router_pj=_of("ECC_NOC_ROUTER_PJ"),

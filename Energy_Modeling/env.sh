@@ -81,17 +81,12 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 : "${ECC_SWEEP:=arch}"
 
-# Which evaluations are written per model, in order. `baseline` is Task 1's
-# conventional-ECC file; `embedded` is Task 2's, which holds the SAME baseline
-# plus the embedded arm from the same cached mappings and checks that only the
-# DRAM component moved.
-: "${ECC_EVAL_EXPERIMENTS:=baseline embedded}"
-
-# Which half of the study a result belongs to.
-#   Pre   the mapping is ECC-unaware; the ECC effect is applied when evaluating
-#         (Tasks 1-3). Task 1 is Pre by construction.
-#   Post  the mapping itself was optimised for the reduced weight width (Task 4+)
-: "${ECC_PHASE:=Post}"
+# WHICH EVALUATIONS ARE WRITTEN, AND UNDER WHICH PHASE, ARE DERIVED (2026-09-14):
+# and are gone. hpc/run_all.sh writes Task 1
+# and Task 2 (`baseline`, `embedded`) unless section 4 routes the run to the
+# placement study; and every result files under results/evaluation/{Pre|Post}
+# BY ARM -- baseline and embedded are `Pre` (the mapping is ECC-unaware), a
+# placement mapped on its own chip is `Post` (settings/run.py result_phase).
 
 
 # =============================================================================
@@ -110,17 +105,14 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # times the reference's) and by `task4_checks()`, which records both mapping
 # fingerprints on every result.
 #
-# MUST AGREE WITH ECC_PHASE, and config.py refuses both contradictions:
-#     ECC_PHASE=Post  RECON_OPTIMIZER=True    Task 4   <- a second mapping IS solved
-#     ECC_PHASE=Pre   RECON_OPTIMIZER=False   Task 3   <- one fixed mapping
-# `RECON_OPTIMIZER=True` with `ECC_PHASE=Pre` loads NOTHING -- every command
-# that reads the config dies on it, including --dry-run.
+# The result PHASE follows from it per arm (Post for a re-mapped placement) and
+# is no longer a knob to keep in agreement.
 : "${RECON_OPTIMIZER:=True}"
 
 # prompt_6 -- RECONSTRUCTION-AWARE MAPPING, ONE PLAN PER BOUNDARY. 1 puts the
 # encoder's energy into the mapper's objective and bills each boundary from
-# the plan of ITS OWN CHIP. Requires RECON_OPTIMIZER=True and ECC_PHASE=Post;
-# config.py refuses anything else. 0 = Task 4 as before.
+# the plan of ITS OWN CHIP. Requires RECON_OPTIMIZER=True; config.py refuses
+# anything else. 0 = Task 4 as before.
 #
 # SINCE prompt_7 PHASE B (2026-09-12) the arms are the DISTINCT CHIPS, not
 # the ERT-injectable boundaries: SIX on Eyeriss v1 (+filter GLB), five on
@@ -255,10 +247,11 @@ declare -A ECC_RECON_PLACEMENTS=(
     #   [simple_input_stationary]="..."
 )
 
-# Where the figure, table and manifest are called. Fixed name, like the three
-# sweeps: a re-run at a different point REWRITES it and the manifest beside it
-# records which point is on disk. A selected-layer run appends its layer scope.
-: "${ECC_RECON_STEM:=ReconSweep}"
+# The figure, table and manifest are called `ReconSweep` (`_optimiser` under
+# RECON_OPTIMIZER=True), a fixed name like the three sweeps': a re-run at a
+# different point REWRITES it and the manifest beside it records which point is
+# on disk; a selected-layer run appends its layer scope. (, which
+# only ever held that name, went on 2026-09-14.)
 
 # ---- how the reduced representation is physically exploited ----------------
 # Section 16 of 02_reconstruction_dse_and_implementation.txt: "Reducing weights
@@ -293,37 +286,10 @@ declare -A ECC_RECON_PLACEMENTS=(
 # evaluator-side model.
 : "${ECC_RECON_PACKING:=stream}"
 
-# ---- does a PE-local boundary need a WHOLE group resident? ------------------
-# 0 (default) = NO. 1 = refuse the placement where it does not.
-#
-# WHAT G_rec IS. The embedded layout treats the weights as ONE BIT STREAM and
-# cuts it into n-bit codewords. 63 / 8 = 7.875 is not a whole number, so a
-# codeword drifts across weight boundaries and the worst-aligned one reaches
-# into ceil(63/8) + 1 = 9 weights. G_rec is that 9: the weights whose retained
-# bits one codeword touches.
-#
-# WHAT THE REFUSAL USED TO ASSUME. That an engine can only rebuild from weights
-# co-resident in the level AT ONE INSTANT, so a level holding 6 of the 9 could
-# never complete a group and the boundary was reported `unsupported`.
-#
-# WHY IT IS OFF (decided 2026-09-13). RECAP's reconstruction engine ACCUMULATES
-# the retained bits as they arrive and rebuilds when the group completes; it
-# does not need all 9 weights resident simultaneously. A level holding 6 -- or
-# 1 -- still feeds it, over more accesses and with more buffering. So a small
-# resident tile is a COST, not an impossibility, and deleting the bar overstated
-# what the hardware cannot do.
-#
-# WHAT IS STILL MEASURED AND REPORTED, on every bar, in the record and the
-# manifest (`group_residency`): how many (layer, stage) pairs sit below G_rec
-# and the fewest weights any of them holds. That number bounds the buffer the
-# engine needs, so it must not be lost -- it is reported rather than refused,
-# the same rule PE-count differences follow.
-#
-# MEASURED EFFECT of turning it off (mobilenet_v2, BCH(63,39), after prompt_7
-# Phase C): R2/R3 recover from 1 layer of 31 below G_rec, R4 from 4, R5a from
-# 14 -- four of five placements come back. resnet18 has no layer below G_rec at
-# all, so nothing there moves either way.
-: "${ECC_RECON_REQUIRE_GROUP_RESIDENCY:=0}"
+# GROUP RESIDENCY IS REPORTED, NEVER REFUSED (decided 2026-09-13; the knob
+# went on 2026-09-14). The reasoning and the
+# measured effect are with the constant, in eccenergy/study/placement_eval.py;
+# the shortfall below G_rec is still on every bar's record.
 
 # ---- how encoder work is charged -------------------------------------------
 # Section 15: the encoder may work at CODEWORD granularity, because rebuilding
@@ -343,34 +309,18 @@ declare -A ECC_RECON_PLACEMENTS=(
 
 
 
-# Fraction of the weight bits held on chip. EMPTY = derived from the code (K/N),
-# which is what the embedded layout dictates. Set it only for a sensitivity run.
-: "${ECC_RECON_ONCHIP_FRACTION:=}"
+# (, read by nothing, and
+#, folded into ECC_DECODE, went 2026-09-14.)
 
-# Does a placement pay the decoder as well as the rebuild? (section 6 has the
-# decoder energies themselves, and ECC_DECODE=0 charges every bar zero.)
-: "${ECC_RECON_PLACEMENT_CHARGES_DECODE:=1}"
-
-# ---- where the BCH decoder sits, and what that does to the DRAM term --------
-# 01_project_context_and_architectures.txt Sec. 1 and 4. Accelergy's CactiDRAM
-# bills a DRAM read as ONE flat per-bit DYNAMIC access constant. Since
-# 2026-09-09 that constant is a SINGLE weight-path stage `dram`
-# (eccenergy/recon.py WEIGHT_PATHS) and it is reducible in full:
-#     dram = DRAM weight energy x K/N   under EVERY boundary, R1 included
-# The f_if array/interface split that used to sit here is REMOVED; see
-# ECC_DRAM_PJ_PER_BIT below for what replaced it and what it assumes.
-#   ondie       the decoder is on the DRAM die and OFF the fetch path (it
-#               corrects at write, on a scrub pass or on a prior access), so at
-#               fetch time only the k message bits of each n-bit codeword are
-#               read out and driven off the die, so the WHOLE DRAM weight
-#               term falls by K/N, on every R bar, R1 included. THE DEFAULT.
-#   controller  the pre-2026-09-09 model: correction at the memory controller,
-#               on the fetch path, so the complete codeword is read AND crosses
-#               the interface and the DRAM term is identical on every bar. Kept
-#               as a runnable row so the change can be diffed; do not quote it.
-# The two reference bars (Task 1 conventional, Task 2 embedded) keep
-# controller-side correction under BOTH settings and do not move.
-: "${ECC_RECON_DECODE_SITE:=ondie}"
+# ---- where the BCH decoder sits: ON THE DRAM DIE, and that is not a knob ----
+# 01_project_context_and_architectures.txt Sec. 1 and 4. The decoder is on the
+# DRAM die and OFF the fetch path (it corrects at write, on a scrub pass or on
+# a prior access), so at fetch time only the k message bits of each n-bit
+# codeword are read out and driven off the die: the WHOLE DRAM weight term
+# falls by K/N on every R bar, R1 included (the single `dram` stage of the
+# weight path; the f_if split is REMOVED -- see ECC_DRAM_PJ_PER_BIT below). The
+# two reference bars keep controller-side correction and do not move. The
+# pre-2026-09-09 `controller` row and went on 2026-09-14.
 
 # WHERE A NETWORK BOUNDARY'S ENCODERS SIT, and therefore how many times they
 # run. Sec. 7.1 of 01_project_context_and_architectures.txt states the tradeoff
@@ -880,25 +830,12 @@ declare -A ECC_RECON_PLACEMENTS=(
 # depths -- do them only after the strong codes show something.
 : "${ECC_DEPTH_SWEEP_SCALES:=1.0 0.7071 0.5 0.3536 0.25 0.1768 0.125}"
 
-# The reconstruction arm's on-chip datawidth for the sweep. EMPTY derives it as
-# round(ECC_WEIGHT_BITS * K/N), which is 4 at BCH(63,30).
-: "${ECC_DEPTH_SWEEP_RECON_DW:=}"
-
-# CONVERGENCE IS A GATE, and it runs BEFORE any number is quoted. Map the
-# EMBEDDED arm at each of these victory budgets; converged means the last two
-# agree within a margin you STATE, and that margin must be SMALLER than the
-# Recon-vs-Embedded effect being claimed. Re-checked at the SMALLEST depth as
-# well as the largest, because a budget that converges on a big buffer may not
-# on a small one. ECC_VICTORY (section 2) is the budget the sweep itself runs
-# at and must be one of these.
-# Measured cost, 2026-09-10 (jobs 41582127-30, one layer, 18 threads):
-# victory 10000 ran 1h13m-1h34m wall; victory 50000 ran 6h02m-8h09m. A 4-point
-# gate at 50000 is a full day per arm.
-: "${ECC_DEPTH_SWEEP_GATE_VICTORIES:=2000 4000 10000}"
-
-# Which depths the gate is re-checked at: the largest and the smallest of the
-# ladder. A budget that converges on a big buffer may not on a small one.
-: "${ECC_DEPTH_SWEEP_GATE_SCALES:=1.0 0.125}"
+# The sweep's convergence GATE (the embedded arm at victories 2000/4000/10000,
+# re-checked at depths x1.0 and x0.125) and the reconstruction arm's derived
+# datawidth are hpc/map_depth_sweep.sh's own defaults since 2026-09-14
+# (,,
+#); read the gate with
+#   bash hpc/tl.sh python3 -m eccenergy.report.dilation_view --gate
 
 # ---- the MAC cost, i.e. the DENOMINATOR of every ECC percentage -------------
 # An ECC saving is saved_uJ / total_uJ. The saved uJ are weight traffic and do
@@ -1271,10 +1208,10 @@ if [ "${ECC_RECON_MODELING}" = "1" ]; then
     # for the reduced weight width, so its bars are not comparable with a
     # fixed-mapping ReconSweep.png and must never overwrite it. Same rule as
     # the three sweeps: the stem comes from the configuration alone.
-    _ecc_stem="${ECC_RECON_STEM}"
+    _ecc_stem="ReconSweep"
     _ecc_opt=0
     case "${ECC_RECON_OPTIMIZER}" in
-        [Tt]rue|1|[Yy]es) _ecc_stem="${ECC_RECON_STEM}_optimiser"; _ecc_opt=1 ;;
+        [Tt]rue|1|[Yy]es) _ecc_stem="ReconSweep_optimiser"; _ecc_opt=1 ;;
     esac
     if [ -z "${ECC_LAYERS}" ] || [ "${_ecc_opt}" = "1" ]; then
         # prompt_6 9: the optimiser figure has ONE path PER MODEL,
@@ -1292,9 +1229,6 @@ if [ "${ECC_RECON_MODELING}" = "1" ]; then
         ECC_STEM=""
     fi
     unset _ecc_stem _ecc_opt
-    # `recon` is the only evaluation this study writes: it holds Task 1's and
-    # Task 2's bars itself, from Task 1's and Task 2's own functions.
-    ECC_EVAL_EXPERIMENTS="recon"
 fi
 : "${ECC_RECON_PLACEMENT_LIST:=}"
 
@@ -1386,16 +1320,15 @@ export ECC_PROJECT_ROOT ECC_SIF ECC_TASKFILE ECC_USE_CONTAINER ECC_PYTHON \
        ECC_VICTORY ECC_VICTORY_SCALING ECC_MAPPER_TIMEOUT \
        ECC_MAPPER_MAX_PERMUTATIONS ECC_MAPPER_SEED ECC_OPT_METRIC \
        ECC_RERUN_OPTIMISER ECC_ARCHS ECC_MODELS ECC_KS ECC_CODE_N \
-       ECC_APPROACHES ECC_SWEEP ECC_EVAL_EXPERIMENTS ECC_PHASE ECC_LAYERS \
+       ECC_APPROACHES ECC_SWEEP ECC_LAYERS \
        ECC_RECON_MODELING ECC_RECON_ARCH ECC_RECON_ARCHS ECC_RECON_MODEL ECC_RECON_LAYER \
        ECC_RECON_CODE_N \
-       ECC_RECON_K ECC_RECON_STEM ECC_RECON_PLACEMENT_LIST \
+       ECC_RECON_K ECC_RECON_PLACEMENT_LIST \
        ECC_RECON_OPTIMIZER RECON_OPTIMIZER ECC_RECON_ERT_AWARE ECC_RECON_ERT_ARM \
        ECC_RECON_PACKING \
        ECC_RECON_ENCODER_GRANULARITY \
-       ECC_RECON_ONCHIP_FRACTION ECC_RECON_PLACEMENT_CHARGES_DECODE \
-       ECC_RECON_REQUIRE_GROUP_RESIDENCY \
-       ECC_RECON_DECODE_SITE ECC_RECON_ENCODER_SITE ECC_RECON_CLOCK_GATING_PCT ECC_ENERGY_MODEL_REV \
+ \
+ ECC_RECON_ENCODER_SITE ECC_RECON_CLOCK_GATING_PCT ECC_ENERGY_MODEL_REV \
        ECC_DRAM_PJ_PER_BIT ECC_BASELINE_DRAM_PJ_PER_BIT \
        ECC_DRAM_BACKGROUND_PJ ECC_DRAM_REFRESH_PJ ECC_DRAM_BANDWIDTH_MBPS \
        ECC_STATIC_ENERGY ECC_LATENCY_MODEL \
@@ -1407,8 +1340,7 @@ export ECC_PROJECT_ROOT ECC_SIF ECC_TASKFILE ECC_USE_CONTAINER ECC_PYTHON \
        ECC_WEIGHT_DATAWIDTH ECC_WEIGHT_DATAWIDTH_LEVELS \
        ECC_WEIGHT_DEPTH_SCALE ECC_WEIGHT_DEPTH_LEVELS \
  ECC_DISABLE_ASSERT_PAIR_GEOMETRY \
-       ECC_DEPTH_SWEEP_SCALES ECC_DEPTH_SWEEP_RECON_DW \
-       ECC_DEPTH_SWEEP_GATE_VICTORIES ECC_DEPTH_SWEEP_GATE_SCALES \
+       ECC_DEPTH_SWEEP_SCALES \
        ECC_GLOBAL_CYCLE_SECONDS ECC_NOC ECC_NOC_WIRE_PJ_PER_BIT_MM \
        ECC_NOC_ROUTER_PJ ECC_NOC_PE_LATCH_PJ ECC_NOC_SCALE \
        ECC_PARITY_GROUPING ECC_PARITY_CHARGE_PADDING ECC_EMB_WEIGHTS_PER_CW \

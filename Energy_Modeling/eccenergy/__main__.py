@@ -40,8 +40,6 @@ def _parse_args(argv):
                         "never invoke the mapper. No container needed.")
     p.add_argument("--overwrite", action="store_true",
                    help="ECC_OVERWRITE=1: allow replacing an existing result file")
-    p.add_argument("--phase", choices=("Pre", "Post"),
-                   help="override ECC_PHASE: which half of the study this is")
     p.add_argument("--dry-run", action="store_true",
                    help="resolve and print the configuration, then exit")
     return p.parse_args(argv)
@@ -58,8 +56,6 @@ def _apply_overrides(args):
         os.environ["ECC_FROM_CACHE"] = "1"
     if args.overwrite:
         os.environ["ECC_OVERWRITE"] = "1"
-    if args.phase:
-        os.environ["ECC_PHASE"] = args.phase
     if args.layers is not None:
         # `--layers all` is the readable way to ask for the full model back
         # after a shell has ECC_LAYERS exported.

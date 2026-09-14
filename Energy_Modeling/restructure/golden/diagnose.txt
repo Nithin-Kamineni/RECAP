@@ -9,7 +9,7 @@ ecc-energy  |  sweep=arch (architecture)  |  output=ReconSweep_optimiser__resnet
   weight precision      : 8b (the protected payload)
   activation precision  : 8b
   accumulator precision : per architecture, as published (v1 16b, v2 20b, Simba 24b, simple designs 16b)  [primary]
-  result phase          : Post   (mapping optimised for the reduced width)
+  result phase          : derived per arm: Pre for baseline/embedded (the mapping is ECC-unaware), Post for a placement mapped on its own chip
   code                  : BCH(63,39)  t=4  r=24
   weights / codeword    : 4.0000
   DRAM weight traffic   : identical on all three arms; baseline pays 22 pJ/bit against 20 pJ/bit (bigger array + indexing), recon fetches K/N = 0.6190 of the bits

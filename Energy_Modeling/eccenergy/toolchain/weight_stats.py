@@ -43,7 +43,8 @@ import re
 
 from dataclasses import dataclass, field
 
-from ..arch.placements import decode_site, stages_for
+from ..arch.placements import stages_for
+from ..arch.weight_path import DECODE_SITE
 
 
 # ===========================================================================
@@ -602,7 +603,7 @@ def weight_path(cfg, arch, model, layers, stats_paths):
     return ModelWeightPath(arch=arch, model=model, stages=stages,
                            per_layer=per_layer,
                            unclaimed=unclaimed, stats_dir=stats_dir,
-                           stage_defs=stage_defs, decode_site=decode_site(cfg),
+                           stage_defs=stage_defs, decode_site=DECODE_SITE,
                            dram_pj_per_bit=float(getattr(cfg, 'dram_pj_per_bit', None) or 0.0),
                            dram_cost_note=getattr(cfg, 'dram_cost_note', ''),
                            cycles=sum(lp.cycles for lp in layer_paths))

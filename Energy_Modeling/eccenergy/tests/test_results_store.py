@@ -342,15 +342,15 @@ def test_namespace_separates_dev_from_full_and_forced_precision():
     from eccenergy.paths import Results
     with tempfile.TemporaryDirectory() as tmp:
         dev = Results(_cfg(ECC_RESULTS_DIR=tmp)).prepare()
-        dev_dir = dev.evaluation_dir("eyeriss_v2_like", "resnet18")
+        dev_dir = dev.evaluation_dir("eyeriss_v2_like", "resnet18", "Pre")
         full = Results(_cfg(ECC_RESULTS_DIR=tmp, ECC_LAYERS="")).prepare()
-        full_dir = full.evaluation_dir("eyeriss_v2_like", "resnet18")
+        full_dir = full.evaluation_dir("eyeriss_v2_like", "resnet18", "Pre")
         assert dev_dir != full_dir
         assert "layers-full" in full_dir.as_posix()
         assert "layers2__" in dev_dir.as_posix()
 
         forced = Results(_cfg(ECC_RESULTS_DIR=tmp, ECC_ACC_BITS="24")).prepare()
-        forced_dir = forced.evaluation_dir("eyeriss_v2_like", "resnet18")
+        forced_dir = forced.evaluation_dir("eyeriss_v2_like", "resnet18", "Pre")
         assert forced_dir != dev_dir
         assert "w8a8acc24" in forced_dir.as_posix()
 

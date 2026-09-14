@@ -2,7 +2,15 @@
 
 The DC datapath numbers (`data/dc/BCH_N63_results.json` and the two override
 tables), the placement study's scope, the packing and granularity models, the
-encoder and decode sites, and the ERT arm.
+encoder site, and the ERT arm.
+
+FIVE KNOBS LEFT ON 2026-09-14 (EnvReorganisation phase 2), each a settled
+decision that no longer needed a switch: the BCH decoder is ON THE DRAM DIE
+(`ECC_RECON_DECODE_SITE`; the `controller` row and its code path are gone),
+group residency is REPORTED and never refused (`ECC_RECON_REQUIRE_GROUP_
+RESIDENCY`), a placement pays the decoder whenever ECC_DECODE=1 does
+(`ECC_RECON_PLACEMENT_CHARGES_DECODE`), the figure is called `ReconSweep`
+(`ECC_RECON_STEM`), and `ECC_RECON_ONCHIP_FRACTION` was read by nothing.
 
 ONLY `recon_ert_arm` REACHES THE MAPPER. Everything else here is evaluator-side
 and must never enter the cache key: a bar re-costed at a different reconstruction
@@ -24,13 +32,6 @@ from .env import _b, _f, _i, _list, _of, _oi, _one, _s, _table
 RECON_PACKINGS = ("stream", "aligned")
 
 RECON_GRANULARITIES = ("weight", "codeword")
-
-#: Where the BCH decoder sits (env.sh section 4). `ondie` is the model since
-#: 2026-09-09: the decoder is on the DRAM die and off the fetch path, so only
-#: the k message bits cross the DRAM interface and every placement's DRAM
-#: interface term scales by K/N. `controller` is the pre-2026-09-09 model kept
-#: as a runnable row for the diff. `recon.DECODE_SITES` must stay in step.
-RECON_DECODE_SITES = ("ondie", "controller")
 
 #: Where a NETWORK boundary's encoders sit, and therefore how many times they
 #: run: `destination` (one per destination, count = the network's
@@ -57,13 +58,6 @@ class ReconSettings:
     #: when the JSON has no entry for the (N,K) in play. ECC_RECON_INCLUDE_IDLE
     #: is retired: the two terms are never added, each has its own denominator.
     recon_incremental_table: dict
-    #: ECC_RECON_REQUIRE_GROUP_RESIDENCY (env.sh section 4). 1 = a PE-local
-    #: boundary whose level holds fewer than `G_rec` weights at once is refused
-    #: as `unsupported`; 0 (the default, decided 2026-09-13) charges it and
-    #: REPORTS the shortfall instead. RECAP's engine accumulates retained bits
-    #: as they arrive rather than needing the whole group resident in one
-    #: instant, so a small tile costs buffering and accesses, not feasibility.
-    recon_require_group_residency: bool
     recon_idle_table: dict
     recon_pj_override: Optional[float]
     recon_incremental_fallback_pj: float
@@ -85,13 +79,8 @@ class ReconSettings:
     #: list that applies to every architecture. Read it through
     #: `recon_placements_for()`, never directly.
     recon_placement_keys: list
-    recon_stem: str
     recon_packing: str
     recon_granularity: str
-    recon_onchip_fraction: Optional[float]
-    recon_placement_charges_decode: bool
-    #: `ondie` | `controller` -- see RECON_DECODE_SITES.
-    recon_decode_site: str
     #: `destination` | `source` -- see RECON_ENCODER_SITES and
     #: `recon.ENCODER_SITES`. Only network boundaries depend on it.
     recon_encoder_site: str
@@ -134,7 +123,6 @@ class ReconSettings:
         return ReconSettings(
             recon_json=_s("ECC_RECON_JSON", "data/dc/BCH_N63_results.json"),
             recon_incremental_table=_table("ECC_RECON_INCREMENTAL_PJ_LIST"),
-            recon_require_group_residency=_b("ECC_RECON_REQUIRE_GROUP_RESIDENCY", False),
             recon_idle_table=_table("ECC_RECON_IDLE_PJ_LIST"),
             recon_pj_override=_of("ECC_RECON_PJ"),
             recon_incremental_fallback_pj=_f("ECC_RECON_INCREMENTAL_FALLBACK_PJ", 1.8995),
@@ -145,12 +133,8 @@ class ReconSettings:
             # ECC_-prefixed name every other knob uses.
             recon_optimizer=_b("ECC_RECON_OPTIMIZER", False),
             recon_placement_keys=_list("ECC_RECON_PLACEMENT_LIST", sep=";"),
-            recon_stem=_s("ECC_RECON_STEM", "ReconSweep"),
             recon_packing=_s("ECC_RECON_PACKING", "stream").lower(),
             recon_granularity=_s("ECC_RECON_ENCODER_GRANULARITY", "weight").lower(),
-            recon_onchip_fraction=_of("ECC_RECON_ONCHIP_FRACTION"),
-            recon_placement_charges_decode=_b("ECC_RECON_PLACEMENT_CHARGES_DECODE", True),
-            recon_decode_site=_s("ECC_RECON_DECODE_SITE", "ondie").lower(),
             recon_encoder_site=_s("ECC_RECON_ENCODER_SITE", "destination").lower(),
             recon_ert_aware=_b("ECC_RECON_ERT_AWARE", False),
             recon_ert_arm=_s("ECC_RECON_ERT_ARM").strip().lower(),

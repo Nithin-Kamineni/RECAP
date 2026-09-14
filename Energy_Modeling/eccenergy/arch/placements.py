@@ -61,7 +61,7 @@ from dataclasses import dataclass, replace
 from ..paths import ARCH_SRC
 from . import design, weight_path
 
-from .weight_path import DECODE_SITES, ENCODER_SITES, WEIGHT_PATHS
+from .weight_path import ENCODER_SITES, WEIGHT_PATHS
 from ..settings import guards
 
 
@@ -191,14 +191,6 @@ def supported_archs():
     return tuple(sorted(WEIGHT_PATHS))
 
 
-def decode_site(cfg):
-    """`ondie` (the model) or `controller` (the pre-2026-09-09 diff row)."""
-    site = getattr(cfg, "recon_decode_site", "ondie") if cfg is not None else "ondie"
-    if site not in DECODE_SITES:
-        raise ValueError(f"unknown decode site {site!r}; one of {DECODE_SITES}")
-    return site
-
-
 def encoder_site(cfg):
     """`destination` (the model) or `source` (the pre-2026-09-09 diff row)."""
     site = (getattr(cfg, "recon_encoder_site", "destination")
@@ -209,35 +201,24 @@ def encoder_site(cfg):
 
 
 def stages_for(arch, cfg=None):
-    """The weight path of `arch`, as the decode site makes it.
-
-    The tables above are written for the on-die decoder. Under `controller`
-    the complete codeword crosses the interface, so `dram` is handed
-    back with `reducible=False` and nothing else changes -- which is exactly
-    what makes the old numbers come back rather than a different model.
-    """
+    """The weight path of `arch`. `cfg` is accepted for the call sites that
+    hand it in; since 2026-09-14 nothing in it changes the path (the
+    controller-side decoder row, which made `dram` irreducible, is gone)."""
     if arch not in WEIGHT_PATHS:
         raise KeyError(arch)
-    stages = WEIGHT_PATHS[arch]
-    if decode_site(cfg) == "controller":
-        stages = tuple(replace(s, reducible=False) if s.key == "dram"
-                       else s for s in stages)
-    return stages
+    return WEIGHT_PATHS[arch]
 
 
 def effective_placement(placement, cfg):
-    """`placement` as the two site knobs make it.
+    """`placement` as the encoder-site knob makes it.
 
-    Under `ECC_RECON_DECODE_SITE=controller` the DRAM interface is not
-    reducible, so it leaves every placement's `reduced` set. Under
-    `ECC_RECON_ENCODER_SITE=source` a network boundary counts its
+    Under `ECC_RECON_ENCODER_SITE=source` a network boundary counts its
     reconstructions at the network's INGRESSES rather than its destination-side
     arrivals -- one encoder before the fanout instead of one per destination.
-    Both are the pre-2026-09-09 model, kept runnable so the change is a diff.
+    That is the pre-2026-09-09 model, kept runnable so the change is a diff.
+    (The decode-site half of this function went with the `controller` row on
+    2026-09-14: `dram` is in every placement's reduced set, always.)
     """
-    if decode_site(cfg) == "controller" and "dram" in placement.reduced:
-        placement = replace(placement, reduced=tuple(
-            k for k in placement.reduced if k != "dram"))
     if encoder_site(cfg) == "source" and placement.site_counter == "deliveries":
         placement = replace(placement, site_counter="ingresses")
     return placement

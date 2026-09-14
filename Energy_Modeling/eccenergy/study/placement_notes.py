@@ -50,8 +50,8 @@ CODEC_NOTE = (
     "AFTER correction -- so a characterised codec cost would cancel between the "
     "embedded bar and every recon bar, and would not cancel against the "
     "conventional baseline, which counts codewords by a different layout. "
-    "Since 2026-09-09 the decoder sits on the DRAM die (ECC_RECON_DECODE_SITE="
-    "ondie), off the fetch path; it is the same BCH decoder relocated, runs once "
+    "Since 2026-09-09 the decoder sits on the DRAM die, off the fetch path "
+    "(the only model since 2026-09-14); it is the same BCH decoder relocated, runs once "
     "per corrected codeword, is DRAM-process logic, and stays outside the "
     "placement comparison.")
 

@@ -47,11 +47,11 @@ fetch time the stored codeword is already corrected and only the k message bits
 of each n-bit codeword are driven across the DRAM interface. The array still
 stores and reads the complete codeword -- a row activation and a burst move
 whole words -- so `dram` is reduced under every boundary, R1 included.
-`ECC_RECON_DECODE_SITE=controller` is the pre-2026-09-09 model (decode on the
-fetch path, the complete codeword across the interface, DRAM identical on every
-bar), kept as a runnable row so the change can be diffed; `stages_for()` and
-`placements_for()` take the config and hand back that space when it is asked
-for. The two reference bars keep controller-side correction under both settings:
+THE DECODER SITE IS FIXED since 2026-09-14 (EnvReorganisation 6.7): the
+`controller` row -- decode on the fetch path, the complete codeword across the
+interface, DRAM identical on every bar -- and the knob that selected it
+(`ECC_RECON_DECODE_SITE`) are gone; `DECODE_SITE` below is the constant every
+record still carries. The two reference bars keep controller-side correction:
 Task 1's external parity is read from the array AND crosses the interface, and
 Task 2's on-chip datapath consumes every weight bit, so its complete codeword
 crosses too. Their functions are frozen and do not change.
@@ -93,12 +93,11 @@ class Stage:
 
 
 
-#: Where the BCH decoder sits. `ondie` is the model since 2026-09-09 (decoder
-#: on the DRAM die, off the fetch path, `dram` reducible under every
-#: boundary); `controller` is the pre-2026-09-09 model kept as a runnable row
-#: for the diff (`dram` not reducible, DRAM identical on every bar).
-#: `config.RECON_DECODE_SITES` must stay in step with this tuple.
-DECODE_SITES = ("ondie", "controller")
+#: Where the BCH decoder sits: ON THE DRAM DIE, off the fetch path, `dram`
+#: reducible under every boundary (the model since 2026-09-09, the ONLY model
+#: since 2026-09-14). Every record still names it, so a result says where the
+#: decoder was modelled.
+DECODE_SITE = "ondie"
 
 #: WHERE A NETWORK BOUNDARY'S ENCODERS SIT, and therefore how many times they
 #: run. 02_.../01_project_context Sec. 7.1 states the tradeoff and asks for it

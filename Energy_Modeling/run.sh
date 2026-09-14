@@ -28,7 +28,7 @@
 #                                  env.sh section 4, or just set
 #                                  ECC_RECON_MODELING=1 and let the one command
 #                                  route everything to it.
-#                                  RECON_OPTIMIZER=True (with ECC_PHASE=Post)
+#                                  RECON_OPTIMIZER=True
 #                                  makes it TASK 4 instead: the reconstruction
 #                                  bars are re-derived from a SECOND mapping
 #                                  solved against N/K more weight room, so the

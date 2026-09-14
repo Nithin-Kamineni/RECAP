@@ -135,9 +135,14 @@ stage_eval() {
     # --eval forbids mapping outright, so a re-map request cannot survive into
     # this stage; it belongs to the mapping stage alone.
     export ECC_RERUN_OPTIMISER=0
-    local m x
+    # WHICH evaluations are written is DERIVED (ECC_EVAL_EXPERIMENTS went on
+    # 2026-09-14): the placement study when env.sh section 4 routed the run to
+    # it -- its file holds Task 1's and Task 2's bars itself -- and Task 1 +
+    # Task 2 otherwise.
+    local evals="baseline embedded" m x
+    [ "${ECC_EXPERIMENT}" = "recon" ] && evals="recon"
     for m in ${ECC_MODELS}; do
-        for x in ${ECC_EVAL_EXPERIMENTS}; do
+        for x in ${evals}; do
             echo "############ evaluate: ${x} -- ${m} ############"
             ( export ECC_CONST_MODEL="${m}"; _run "${x}" --eval )
         done
@@ -146,7 +151,7 @@ stage_eval() {
     echo
     echo "figures : ${ECC_RESULTS_DIR}/figures/"
     echo "tables  : ${ECC_RESULTS_DIR}/tables/"
-    echo "results : ${ECC_RESULTS_DIR}/evaluation/${ECC_PHASE}/<arch>/<model>/..."
+    echo "results : ${ECC_RESULTS_DIR}/evaluation/{Pre|Post}/<arch>/<model>/...   (phase per arm)"
 }
 
 # Map every (architecture, model) pair in this process, one at a time. For an
@@ -238,7 +243,7 @@ banner() {
             echo "              cache and refuses rather than falling back -> ${ECC_STEM:-ReconSweep_optimiser}"
         else
             echo " remapping  : RECON_OPTIMIZER=False -- Task 3, one fixed mapping on every arm"
-            echo "              (True + ECC_PHASE=Post is Task 4; validate the capacity"
+            echo "              (True is Task 4; validate the capacity"
             echo "               assumption first with  bash run.sh dilation)"
         fi
     fi

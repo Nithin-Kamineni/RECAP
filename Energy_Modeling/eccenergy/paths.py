@@ -131,8 +131,12 @@ class Results:
         return self
 
     # ---- the evaluation namespace (04_results_storage_spec.txt) ------------
-    def evaluation_dir(self, arch, model, phase=None):
+    def evaluation_dir(self, arch, model, phase):
         """`results/evaluation/{Pre|Post}/{ARCH}/{MODEL}/{BCH}/{PREC}/{SCOPE}/{MAPPER}`
+
+        `phase` IS DERIVED PER ARM, never configured (EnvReorganisation 6.1,
+        2026-09-14): `settings.run.result_phase()` is the one rule and
+        `toolchain/results_store.py` applies it, so the caller states it here.
 
         The spec asks for `Results/evaluation/{Pre|Post}/{ARCH}/{MODEL}/{BCH}/...`
         and then for the namespace to be extended only as far as needed to stop
@@ -154,11 +158,11 @@ class Results:
         Everything below `{PREC}` is deterministic given the config: the same
         configuration always resolves to the same directory.
         """
-        return (self.evaluation / (phase or self.cfg.phase) / arch / model /
+        return (self.evaluation / phase / arch / model /
                 self.cfg.code_slug / self.cfg.precision_slug /
                 self.cfg.layer_slug / self.cfg.mapper_slug)
 
-    def evaluation_path(self, arch, model, run_id, phase=None):
+    def evaluation_path(self, arch, model, run_id, phase):
         d = self.evaluation_dir(arch, model, phase)
         d.mkdir(parents=True, exist_ok=True)
         return d / f"{run_id}.json"

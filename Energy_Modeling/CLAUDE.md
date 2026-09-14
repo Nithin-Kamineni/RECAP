@@ -429,8 +429,9 @@ each weight whole bits), **reconstruction granularity** (`G_rec`, computed from 
 layout, not assumed), and **group residency** (how many weights a PE-local
 boundary's level holds against `G_rec`).
 
-**GROUP RESIDENCY IS REPORTED, NOT REFUSED** (`ECC_RECON_REQUIRE_GROUP_RESIDENCY`,
-default `0`, decided 2026-09-13). `G_rec` = 9 at BCH(63,·) over 8-bit weights:
+**GROUP RESIDENCY IS REPORTED, NOT REFUSED** (decided 2026-09-13; the knob
+`ECC_RECON_REQUIRE_GROUP_RESIDENCY` went on 2026-09-14 -- the reasoning now sits
+with the constant in `study/placement_eval.py`). `G_rec` = 9 at BCH(63,·) over 8-bit weights:
 63/8 = 7.875 is not whole, so a codeword drifts across weight boundaries and the
 worst-aligned one reaches into `ceil(63/8)+1` weights. The old refusal assumed an
 engine that can only rebuild from weights co-resident **at one instant**; RECAP's
@@ -438,8 +439,9 @@ accumulates the retained bits as they arrive, so a level holding 6 — or 1 — 
 feeds it, over more accesses and with more buffering. A small tile is a COST, not
 an impossibility. **The number is still measured and still on every bar's record**
 (`layers_below_G_rec`, `infeasible_layers`, `group_residency_note`) because it
-bounds the buffer the engine needs; set the knob to `1` for the conservative
-reading. Measured: this recovers R2/R3/R4/R5a on mobilenet_v2 (1, 1, 4 and 14
+bounds the buffer the engine needs; `granularity.feasibility()` keeps the
+conservative reading as a parameter, for the test that pins both.
+Measured: this recovers R2/R3/R4/R5a on mobilenet_v2 (1, 1, 4 and 14
 layers of 31 below `G_rec`) and changes resnet18 by **nothing** — no layer of it
 is below `G_rec`.
 
@@ -518,7 +520,12 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
 ## Working on this code
 
 - **Frozen**: `physics/parity.py`, `study/baseline.py` and `external_parity()` are not
-  refactored. `build_stacks()` **is no longer frozen** — prompt_6 RULE 3 changes
+  refactored. (`study/baseline.py` has had exactly ONE hunk since: on 2026-09-14
+  its `ECC_PHASE` check was deleted, because the phase is derived per arm now --
+  EnvReorganisation 9.1, gated, every total byte-identical. `physics/parity.py`
+  was NOT touched: the plan's "controller" mention there was the word in a
+  comment about the memory controller, not the decode-site knob.)
+  `build_stacks()` **is no longer frozen** — prompt_6 RULE 3 changes
   its reconstruction term. After any change there, re-run `bash run.sh baseline
   --eval` and diff: Task 1 and 2 totals must not move.
 - **Never** read `os.environ` outside `settings/env.py`, and never resolve a path
@@ -561,8 +568,8 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   too** -- no bump, only `ECC_MAC_PJ_OVERRIDE` on every `compute` row, `set`
   rather than `add`, so `apply_mac_override`'s ratio is exactly 1.0 and the
   mapper and the report price one MAC. `Mapper.supplies_ert` is the test, never
-  `ert_bump is not None`. `ECC_RECON_ERT_AWARE=1` (needs `RECON_OPTIMIZER=True`,
-  `ECC_PHASE=Post`) bills each bar from its own chip's plan; the toll Timeloop
+  `ert_bump is not None`. `ECC_RECON_ERT_AWARE=1` (needs `RECON_OPTIMIZER=True`;
+  the result phase is derived per arm since 2026-09-14) bills each bar from its own chip's plan; the toll Timeloop
   billed inside the level is MOVED into `Reconstruction`. Timeloop prints leakage
   outside the per-dataspace energies and the raw record never held it, so only
   the access toll is in the bill; the idle term is verified against the stats'

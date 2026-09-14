@@ -82,17 +82,28 @@ def evaluate_placement(cfg, arch, placement, wpath, base_w_by_cat, base_by_cat,
     weight share, from the SAME `Raw` record the baseline and embedded arms use.
     A stage's saving is subtracted from its own category, so the stack still
     sums to the total. The DRAM category moves by exactly its K/N reduction and
-    no more: the single `dram` stage is in every `reduced` set when the decoder
-    is on the die
-    (and in none when `ECC_RECON_DECODE_SITE=controller` -- `placement` is
-    passed through `effective_placement()` first, so a caller handing in the
-    table's on-die form still gets the right row).
+    no more: the single `dram` stage is in every `reduced` set (the decoder is
+    on the die; `placement` is still passed through `effective_placement()`
+    first, for the encoder-site knob).
     """
     placement = effective_placement(placement, cfg)
     stage_defs = stages_for(arch, cfg)
+    # GROUP RESIDENCY IS REPORTED, NEVER REFUSED (decided 2026-09-13; the knob
+    # ECC_RECON_REQUIRE_GROUP_RESIDENCY went on 2026-09-14). G_rec = 9 at
+    # BCH(63,.) over 8-bit weights: 63/8 is not whole, so a codeword drifts
+    # across weight boundaries and the worst-aligned one reaches into 9
+    # weights. The old refusal assumed an engine that can only rebuild from
+    # weights co-resident in the level AT ONE INSTANT; RECAP's accumulates the
+    # retained bits as they arrive, so a level holding 6 -- or 1 -- still feeds
+    # it, over more accesses and with more buffering: a COST, not an
+    # impossibility. The shortfall is still measured and travels with the bar
+    # (`layers_below_G_rec`, `infeasible_layers`, `group_residency_note`)
+    # because it bounds the buffer the engine needs. Measured: reporting it
+    # recovered R2/R3/R4/R5a on mobilenet_v2 (1, 1, 4 and 14 layers of 31
+    # below G_rec) and changed resnet18 by nothing. `granularity.feasibility`
+    # keeps the strict reading as a parameter, for the test that pins both.
     ok, feas = feasibility(placement, arch, wpath, gran,
-                           require_group_residency=getattr(
-                               cfg, "recon_require_group_residency", False))
+                           require_group_residency=False)
     if not ok:
         return PlacementResult(placement, "unsupported", {}, 0.0,
                                {"feasibility": feas}, feas["reason"])

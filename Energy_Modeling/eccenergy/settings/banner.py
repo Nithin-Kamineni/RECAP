@@ -70,9 +70,8 @@ def banner(cfg, recon_terms, recon_provenance, ert_arm_row=None):
         ("weight precision", f"{cfg.weight_bits}b (the protected payload)"),
         ("activation precision", f"{cfg.activation_bits}b"),
         ("accumulator precision", acc),
-        ("result phase", cfg.phase + ("   (mapping is ECC-unaware; the ECC effect is "
-                                      "applied during evaluation)" if cfg.phase == "Pre"
-                                      else "   (mapping optimised for the reduced width)")),
+        ("result phase", "derived per arm: Pre for baseline/embedded (the mapping is "
+                         "ECC-unaware), Post for a placement mapped on its own chip"),
     ]
     if cfg.sweep == "bch":
         rows.append(("recon pJ/codeword", recon_provenance))

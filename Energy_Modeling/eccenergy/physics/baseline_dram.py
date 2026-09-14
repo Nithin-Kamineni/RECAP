@@ -6,7 +6,7 @@
 WHAT CHANGED, AND WHY (2026-09-10)
 ----------------------------------
 All three arms move the SAME number of weight bits across the DRAM boundary.
-The BCH decoder is on the DRAM die (`ECC_RECON_DECODE_SITE=ondie`,
+The BCH decoder is on the DRAM die (the study's only model since 2026-09-14,
 01_project_context 1/4), so the baseline's parity is read, corrected and
 discarded ON DIE exactly as the embedded arm's is: it never travels the
 datapath. The baseline therefore issues no extra DRAM weight reads, and the

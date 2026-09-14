@@ -63,6 +63,7 @@ from __future__ import annotations
 
 import math
 
+from ..arch.weight_path import DECODE_SITE
 from ..arch import fingerprint
 from ..arch import design
 from ..arch import arms as arms_mod
@@ -149,7 +150,7 @@ def evaluate(cfg, ses, prov, arch, model, raw):
     # for reads it never made.
     n_cw_placement = p_raw.dram_w_reads / gran.weights_per_codeword
     decode_placement = ((n_cw_placement * cfg.decode_pj_emb)
-                        if (cfg.decode_enabled and cfg.recon_placement_charges_decode)
+                        if cfg.decode_enabled
                         else 0.0)
 
     # ---- the five placements ------------------------------------------------
@@ -234,7 +235,7 @@ def evaluate(cfg, ses, prov, arch, model, raw):
         # its own codeword count (the reference's would bill reads it never made).
         n_cw_p = p_raw.dram_w_reads / gran.weights_per_codeword
         decode_p = ((n_cw_p * cfg.decode_pj_emb)
-                    if (cfg.decode_enabled and cfg.recon_placement_charges_decode) else 0.0)
+                    if cfg.decode_enabled else 0.0)
         # An ERT bar charges the WORDS Timeloop billed inside its own level
         # (`billed_weights`); every other bar charges Timeloop's scalar count.
         v_p = own_view(p)
@@ -529,20 +530,13 @@ def evaluate(cfg, ses, prov, arch, model, raw):
         builder.approximate(FIXED_MAPPING_NOTE)
     builder.approximate(packing.to_dict()["meaning"])
     builder.approximate(gran.to_dict()["meaning"])
-    if cfg.recon_decode_site == "ondie":
-        builder.approximate(DRAM_TERM_NOTE)
-        builder.approximate(
-            f"DRAM model (decoder on the DRAM die, off the fetch path): the "
-            f"WHOLE DRAM weight energy is x K/N under every boundary -- the "
-            f"f_if array/interface split was removed 2026-09-09, and the DRAM "
-            f"access collects only the message bits of each codeword. "
-            f"{cfg.dram_cost_note}. {cfg.dram_static_note}.")
-    else:
-        builder.warn(
-            "ECC_RECON_DECODE_SITE=controller: this is the pre-2026-09-09 model "
-            "(controller-side correction on the fetch path, complete codeword "
-            "across the DRAM interface, DRAM identical on every bar), kept as a "
-            "runnable row for the diff. Do not quote it as the study's result.")
+    builder.approximate(DRAM_TERM_NOTE)
+    builder.approximate(
+        f"DRAM model (decoder on the DRAM die, off the fetch path): the "
+        f"WHOLE DRAM weight energy is x K/N under every boundary -- the "
+        f"f_if array/interface split was removed 2026-09-09, and the DRAM "
+        f"access collects only the message bits of each codeword. "
+        f"{cfg.dram_cost_note}. {cfg.dram_static_note}.")
     builder.approximate(
         "NO BOUNDARY CARRIES A PER-PE REUSE REGISTER. R4b (SPad output plus a "
         "reconstructed-weight register) was removed on 2026-09-10: measured on "
@@ -569,8 +563,7 @@ def evaluate(cfg, ses, prov, arch, model, raw):
     if cfg.decode_enabled:
         builder.warn(
             "ECC_DECODE=1: codec energy is charged to the reference bars and "
-            f"{'to' if cfg.recon_placement_charges_decode else 'NOT to'} the "
-            f"placements (ECC_RECON_PLACEMENT_CHARGES_DECODE). No characterised "
+            f"to the placements as well (one switch since 2026-09-14). No characterised "
             f"codec energy exists in this project, so the value is a parameter, "
             f"not a measurement.")
     audit.common_detail(builder, cfg, ses, arch, model, raw, arch_report, prov)
@@ -582,7 +575,7 @@ def evaluate(cfg, ses, prov, arch, model, raw):
             "reconstruction_datapath_pJ_per_codeword": recon_pj,
             "reconstruction_datapath_idle_pJ_per_cycle_per_engine": recon_idle_pj,
             "reconstruction_datapath_provenance": recon_prov,
-            "decode_site": cfg.recon_decode_site,
+            "decode_site": DECODE_SITE,
             "dram_pj_per_bit": cfg.dram_pj_per_bit,
             "dram_cost_provenance": cfg.dram_cost_note,
             "dram_static_terms": cfg.dram_static_note,
@@ -665,23 +658,20 @@ def task3_checks(builder, cfg, arch, raw, base_components, emb_components,
     #    that quietly credits the array sits BELOW it and fails the first; a
     #    bar that leaves the interface at full width sits ABOVE it and fails
     #    the second. Each also reads the placement's own dram_model rows, so a
-    #    stack cannot say one thing and its detail another. Under `controller`
-    #    the expected value is emb_DRAM and both checks collapse onto the
-    #    pre-2026-09-09 `dram_identical_to_embedded_reference`.
+    #    stack cannot say one thing and its detail another.
     dram_ref = emb_components.get("DRAM", 0.0)
     dram_w = float(base_w.get("DRAM", 0.0))
     term = wpath.dram_term()
-    ondie = term["decode_site"] == "ondie"
     frac = cfg.code_k / cfg.code_n
-    saving = dram_w * (1.0 - frac) if ondie else 0.0
+    saving = dram_w * (1.0 - frac)
     expected = dram_ref - saving
     tol = abs(expected) * 1e-12 + 1e-6
     rows, ok_d = {}, True
     for r in evaluated:
         got = r.components.get("DRAM", 0.0)
         dm = r.detail.get("dram_model", {})
-        want_scale = frac if ondie else 1.0
-        row_ok = (bool(dm.get("dram_reduced", False)) == ondie
+        want_scale = frac
+        row_ok = (bool(dm.get("dram_reduced", False))
                   and math.isclose(dm.get("dram_after_pJ", 0.0),
                                    dm.get("dram_weight_energy_pJ", 0.0) * want_scale,
                                    rel_tol=1e-12, abs_tol=1e-6))
@@ -706,8 +696,7 @@ def task3_checks(builder, cfg, arch, raw, base_components, emb_components,
                   "read out and driven off it, so the WHOLE DRAM weight energy "
                   "is x K/N under every boundary: every placement's DRAM "
                   "component must equal emb_DRAM - DRAM_w x (1 - K/N) exactly, "
-                  "and its dram row must carry that scale (1.0 under "
-                  "ECC_RECON_DECODE_SITE=controller). The f_if array/interface "
+                  "and its dram row must carry that scale. The f_if array/interface "
                   "split, and with it the separate array check, was removed on "
                   "2026-09-09; the whole term now moves together")})
 
@@ -816,7 +805,7 @@ def task4_checks(builder, cfg, arch, raw, dil, base_components, emb_components,
     frac = cfg.code_k / cfg.code_n
     nk = 1.0 / frac
     term = dil.wpath.dram_term()
-    ondie = term["decode_site"] == "ondie"
+    ondie = True          # the decoder is on the DRAM die; the controller row is gone (2026-09-14)
 
     # 0. the two tables that define the placement space still agree
     space_ok, space = arms_mod.validate_placement_space(arch, cfg)

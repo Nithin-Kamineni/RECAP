@@ -330,12 +330,8 @@ def evaluate(cfg, ses, prov, arch, model, raw):
 
 
 def run(cfg):
-    if cfg.phase != "Pre":
-        raise guards.refusal("arm-phase-is-pre",
-            f"ECC_PHASE={cfg.phase} but the Task 2 embedded-ECC result is a `Pre` "
-            f"result by construction: the embedded arm changes nothing the mapper "
-            f"sees, so no mapping could have been optimised for it.")
-
+    # `Pre` BY CONSTRUCTION -- `settings.run.result_phase("embedded")` -- since
+    # 2026-09-14; the ECC_PHASE knob this used to check against is gone.
     ses = Session(cfg).setup()
     ses.collect_all()
     prov = load_provenance()

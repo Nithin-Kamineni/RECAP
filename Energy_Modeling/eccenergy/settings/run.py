@@ -49,6 +49,20 @@ SWEEP_ALIASES = {
 #: yet, so there is nothing a mapper could have been made aware of.
 PHASES = ("Pre", "Post")
 
+
+def result_phase(experiment, recon_optimizer=True):
+    """THE PHASE IS DERIVED PER ARM, NOT CONFIGURED (EnvReorganisation 6.1,
+    2026-09-14). Baseline and embedded are `Pre` BY CONSTRUCTION -- there is
+    no reduced representation for a mapper to have been aware of -- and a
+    placement mapped on its own chip is `Post`. One run now spans both, so
+    `ECC_PHASE` could not be a single value and is gone; the namespace
+    `results/evaluation/{Pre|Post}/...` is unchanged and every file lands
+    where it always did. A fixed-mapping placement study (Task 3,
+    `RECON_OPTIMIZER=False`) stays `Pre`; that knob is removed in phase 3."""
+    if experiment == "recon" and recon_optimizer:
+        return "Post"
+    return "Pre"
+
 APPROACH_LABELS = {"baseline": "Baseline", "embedded": "Embedded", "recon": "Recon+"}
 
 APPROACH_TAGS = {"baseline": "Base.", "embedded": "Embe.", "recon": "Recon+"}
@@ -80,7 +94,6 @@ class RunSettings:
     const_k: int
     approaches: list
     layers: list
-    phase: str
     overwrite: bool
     cache_strict: bool
     #: ECC_RERUN_OPTIMISER=1 -- re-solve a mapping even when a valid cache entry
@@ -137,7 +150,6 @@ class RunSettings:
             const_k=_i("ECC_CONST_K", 51),
             approaches=[a.lower() for a in _list("ECC_APPROACHES", "baseline embedded recon")],
             layers=_list("ECC_LAYERS"),
-            phase=(_one("ECC_PHASE", "Pre") or "Pre").capitalize(),
             overwrite=_b("ECC_OVERWRITE", False),
             cache_strict=_b("ECC_CACHE_STRICT", True),
             rerun_optimiser=_b("ECC_RERUN_OPTIMISER", False),

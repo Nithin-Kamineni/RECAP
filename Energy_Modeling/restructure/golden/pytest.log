@@ -1,1 +1,2 @@
 2026-09-14T05:51:53Z	484 passed, 10 skipped in <T>s -> 493 passed, 10 skipped in <T>s	EnvReorganisation phase 1: +9 tests (widths.yaml schema, declared clock/leakage facts, WidthTable mutations)
+2026-09-14T06:10:55Z	493 passed, 10 skipped in <T>s -> 492 passed, 10 skipped in <T>s	EnvReorganisation phase 2: -1 test (test_controller_site_reproduces_the_pre_2026_09_09_numbers went with the controller row it tested)

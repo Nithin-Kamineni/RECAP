@@ -49,7 +49,8 @@ from __future__ import annotations
 from ..physics import recon_dc, widths
 from dataclasses import dataclass, replace
 
-from .placements import decode_site, encoder_site, placement_by_key, placements_for, stages_for
+from .placements import encoder_site, placement_by_key, placements_for, stages_for
+from .weight_path import DECODE_SITE
 
 
 # ===========================================================================
@@ -673,7 +674,7 @@ def validate_placement_space(arch, cfg=None):
             f"no placement at all, so every boundary below them silently "
             f"reports them at full width")
     return not violations, {
-        "decode_site": decode_site(cfg),
+        "decode_site": DECODE_SITE,
         "encoder_site": encoder_site(cfg),
         "reconstruction_counter_per_placement": {
             pl.key: {"stage": pl.site_stage,

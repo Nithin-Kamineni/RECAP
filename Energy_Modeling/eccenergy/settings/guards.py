@@ -100,9 +100,9 @@ def _g(tier, refuses, raises=ConfigError, note="", frozen_match=None, frozen_fil
 
 # =============================================================================
 #  THE REGISTRY.  One row per invariant -- NOT one row per raise site: an
-#  invariant checked in two places (`task3-is-pre` is checked while resolving
-#  the config AND again before the figure is drawn) is ONE guard with two sites,
-#  and `GUARDS.md` lists both. `tests/contract/test_guards.py` holds the two
+#  invariant checked in two places (`clock-positive` is checked at the design
+#  file AND again where a with_() override reaches it) is ONE guard with two
+#  sites, and `GUARDS.md` lists both. `tests/contract/test_guards.py` holds the two
 #  ends together: every id here must be called somewhere, and every refusal site
 #  in the package must name an id here.
 # =============================================================================
@@ -121,8 +121,6 @@ GUARDS = {
     "unknown-recon-packing":    _g(1, "ECC_RECON_PACKING naming no known packing"),
     "unknown-encoder-granularity": _g(1, "ECC_RECON_ENCODER_GRANULARITY naming no known granularity"),
     "unknown-encoder-site":     _g(1, "ECC_RECON_ENCODER_SITE naming no known site"),
-    "unknown-decode-site":      _g(1, "ECC_RECON_DECODE_SITE naming no known site"),
-    "unknown-phase":            _g(1, "ECC_PHASE that is neither Pre nor Post"),
     "unknown-classify":         _g(1, "ECC_CLASSIFY that is neither `instances` nor `name`"),
     "unknown-capacity-scope":   _g(1, "ECC_WEIGHT_CAPACITY_SCOPE naming no known scope"),
     "unknown-arch-fidelity":    _g(1, "ECC_ARCH_FIDELITY naming no known fidelity"),
@@ -206,13 +204,6 @@ GUARDS = {
                                  frozen_match="nothing was evaluated; see the [skip] lines above",
                                  frozen_file="eccenergy/study/baseline.py"),
     "stacks-refused":           _g(2, "a figure with no stacks to draw", SystemExit),
-    "arm-phase-is-pre":         _g(2, "Task 1 or Task 2 filed as anything but a `Pre` result", SystemExit,
-                                 note="COUPLING BY KIND, TIER 2 BY NECESSITY: its other site is in "
-                                      "the FROZEN `study/baseline.py`, which cannot be taught to "
-                                      "consult ECC_ALLOW. A guard that could be lifted at one of "
-                                      "its two sites and not the other is worse than either.",
-                                 frozen_match="but the Task 1 baseline is a `Pre` result by",
-                                 frozen_file="eccenergy/study/baseline.py"),
     "recon-nothing-collected":  _g(2, "a panelled placement study with a panel that collected nothing",
                                  SystemExit),
     "panels-nothing-to-plot":   _g(2, "a panel figure with no group in any panel", SystemExit),
@@ -281,20 +272,8 @@ GUARDS = {
     "ert-probe-level-no-weights": _g(2, "a probe level carrying no Weights in the reference stats", SystemExit),
 
     # ---- tier 3: COUPLING -- the combinations we thought of --------------
-    "ert-arm-needs-optimiser":  _g(3, "ECC_RECON_ERT_AWARE=1 without RECON_OPTIMIZER=True and ECC_PHASE=Post"),
+    "ert-arm-needs-optimiser":  _g(3, "ECC_RECON_ERT_AWARE=1 without RECON_OPTIMIZER=True"),
     "rerun-needs-the-mapper":   _g(3, "ECC_RERUN_OPTIMISER=1 together with a knob that never invokes Timeloop"),
-    "task4-is-post":            _g(3, "a re-optimised mapping filed as a `Pre` result"),
-    "task3-is-pre":             _g(3, "a fixed, ECC-unaware mapping filed as a `Post` result",
-                                 note="TWO SITES, TWO EXCEPTIONS, ON PURPOSE. This one is "
-                                      "raised while RESOLVING the config, so `--dry-run` "
-                                      "reports it; `task3-is-pre-figure` is the same "
-                                      "invariant checked again before the figure is drawn, "
-                                      "and it raises `SystemExit` because that is what it "
-                                      "raised before phase 6. Giving a site an id may not "
-                                      "change what it throws."),
-    "task3-is-pre-figure":      _g(3, "the same, caught at the figure instead of at the config",
-                                 SystemExit),
-    "task4-not-task3":          _g(3, "RECON_OPTIMIZER=True drawn under Task 3's heading", SystemExit),
     "recon-no-split-read-write": _g(3, "ECC_SPLIT_READ_WRITE=1 inside the placement study"),
     "panels-needs-arch-or-model-sweep": _g(3, "a panel layout that would vary two axes at once"),
 

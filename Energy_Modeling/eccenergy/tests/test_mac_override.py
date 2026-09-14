@@ -47,7 +47,6 @@ def _cfg(**env):
         ECC_CONST_MODEL="resnet18", ECC_CONST_K="51",
         ECC_MAPPER_THREADS="8", ECC_VICTORY="100", ECC_FROM_CACHE="1",
         ECC_OPT_METRIC="energy",
-        ECC_RECON_DECODE_SITE="ondie",
     )
     base.update(env)
     for k in list(os.environ):

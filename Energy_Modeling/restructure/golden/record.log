@@ -1,0 +1,93 @@
+2026-09-14T06:10:55Z	EnvReorganisation phase 2: eight knobs deleted from the record (phase, recon_decode_site, recon_onchip_fraction, recon_placement_charges_decode, recon_require_group_residency, recon_stem, depth_sweep_gate_victories, depth_sweep_gate_scales); prose: the banner's result-phase row, the codec note that named ECC_RECON_DECODE_SITE, and the run-id config hash that follows the record. Every number identical.
+	  NUMBERS MOVED (always red): 0
+	  RECORD keys added/removed (no number in them): 64
+	    baseline/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/depth_sweep_gate_scales: golden only
+	    baseline/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/depth_sweep_gate_victories: golden only
+	    baseline/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/phase: golden only
+	    baseline/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_decode_site: golden only
+	    baseline/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_onchip_fraction: golden only
+	    baseline/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_placement_charges_decode: golden only
+	    baseline/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_require_group_residency: golden only
+	    baseline/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_stem: golden only
+	    diagnose/manifests/diagnose.json/config/depth_sweep_gate_scales: golden only
+	    diagnose/manifests/diagnose.json/config/depth_sweep_gate_victories: golden only
+	    diagnose/manifests/diagnose.json/config/phase: golden only
+	    diagnose/manifests/diagnose.json/config/recon_decode_site: golden only
+	    diagnose/manifests/diagnose.json/config/recon_onchip_fraction: golden only
+	    diagnose/manifests/diagnose.json/config/recon_placement_charges_decode: golden only
+	    diagnose/manifests/diagnose.json/config/recon_require_group_residency: golden only
+	    diagnose/manifests/diagnose.json/config/recon_stem: golden only
+	    embedded/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/depth_sweep_gate_scales: golden only
+	    embedded/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/depth_sweep_gate_victories: golden only
+	    embedded/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/phase: golden only
+	    embedded/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_decode_site: golden only
+	    embedded/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_onchip_fraction: golden only
+	    embedded/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_placement_charges_decode: golden only
+	    embedded/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_require_group_residency: golden only
+	    embedded/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_stem: golden only
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/depth_sweep_gate_scales: golden only
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/depth_sweep_gate_victories: golden only
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/phase: golden only
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_decode_site: golden only
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_onchip_fraction: golden only
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_placement_charges_decode: golden only
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_require_group_residency: golden only
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_stem: golden only
+	    recon_default/manifests/ReconSweep_optimiser__resnet18.json/config/depth_sweep_gate_scales: golden only
+	    recon_default/manifests/ReconSweep_optimiser__resnet18.json/config/depth_sweep_gate_victories: golden only
+	    recon_default/manifests/ReconSweep_optimiser__resnet18.json/config/phase: golden only
+	    recon_default/manifests/ReconSweep_optimiser__resnet18.json/config/recon_decode_site: golden only
+	    recon_default/manifests/ReconSweep_optimiser__resnet18.json/config/recon_onchip_fraction: golden only
+	    recon_default/manifests/ReconSweep_optimiser__resnet18.json/config/recon_placement_charges_decode: golden only
+	    recon_default/manifests/ReconSweep_optimiser__resnet18.json/config/recon_require_group_residency: golden only
+	    recon_default/manifests/ReconSweep_optimiser__resnet18.json/config/recon_stem: golden only
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/depth_sweep_gate_scales: golden only
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/depth_sweep_gate_victories: golden only
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/phase: golden only
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_decode_site: golden only
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_onchip_fraction: golden only
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_placement_charges_decode: golden only
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_require_group_residency: golden only
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config/recon_stem: golden only
+	    recon_ert/manifests/ReconSweep_optimiser__resnet18.json/config/depth_sweep_gate_scales: golden only
+	    recon_ert/manifests/ReconSweep_optimiser__resnet18.json/config/depth_sweep_gate_victories: golden only
+	    recon_ert/manifests/ReconSweep_optimiser__resnet18.json/config/phase: golden only
+	    recon_ert/manifests/ReconSweep_optimiser__resnet18.json/config/recon_decode_site: golden only
+	    recon_ert/manifests/ReconSweep_optimiser__resnet18.json/config/recon_onchip_fraction: golden only
+	    recon_ert/manifests/ReconSweep_optimiser__resnet18.json/config/recon_placement_charges_decode: golden only
+	    recon_ert/manifests/ReconSweep_optimiser__resnet18.json/config/recon_require_group_residency: golden only
+	    recon_ert/manifests/ReconSweep_optimiser__resnet18.json/config/recon_stem: golden only
+	    validate/manifests/validate.json/config/depth_sweep_gate_scales: golden only
+	    validate/manifests/validate.json/config/depth_sweep_gate_victories: golden only
+	    validate/manifests/validate.json/config/phase: golden only
+	    validate/manifests/validate.json/config/recon_decode_site: golden only
+	    ... and 4 more
+	  PROSE (strings, text lines): 26
+	    baseline.txt:12: 1 line(s) reworded, numbers identical
+	    baseline/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config_hash: 'cfd6baf0' -> '226f21d4'
+	    diagnose.txt:12: 1 line(s) reworded, numbers identical
+	    embedded.txt:12: 1 line(s) reworded, numbers identical
+	    embedded/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config_hash: '9fc6f662' -> '95473f64'
+	    recon_default.txt:12: 1 line(s) reworded, numbers identical
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/approximations[4]: 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless' -> 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless'
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config_hash: '3d5d2ddc' -> '46def58a'
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/variants[0]/detail/ecc_codec_energy: 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless' -> 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless'
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/variants[1]/detail/ecc_codec_energy: 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless' -> 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless'
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/variants[2]/detail/ecc_codec_energy: 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless' -> 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless'
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/variants[3]/detail/ecc_codec_energy: 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless' -> 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless'
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/variants[4]/detail/ecc_codec_energy: 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless' -> 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless'
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/variants[5]/detail/ecc_codec_energy: 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless' -> 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless'
+	    recon_default/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/variants[6]/detail/ecc_codec_energy: 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless' -> 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless'
+	    recon_ert.txt:12: 1 line(s) reworded, numbers identical
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/approximations[4]: 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless' -> 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless'
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/provenance/config_hash: '3d5d2ddc' -> '46def58a'
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/variants[0]/detail/ecc_codec_energy: 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless' -> 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless'
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/variants[1]/detail/ecc_codec_energy: 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless' -> 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless'
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/variants[2]/detail/ecc_codec_energy: 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless' -> 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless'
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/variants[3]/detail/ecc_codec_energy: 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless' -> 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless'
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/variants[4]/detail/ecc_codec_energy: 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless' -> 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless'
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/variants[5]/detail/ecc_codec_energy: 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless' -> 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless'
+	    recon_ert/evaluation/Post/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/result.json/variants[6]/detail/ecc_codec_energy: 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless' -> 'ECC codec (decode/correction) energy is OUTSIDE this comparison unless'
+	    validate.txt:12: 1 line(s) reworded, numbers identical
+	  verdict: record/prose only -- every number identical. Read the lists,
+	           then record it:  bash restructure/gate.sh --accept-record '<why>'

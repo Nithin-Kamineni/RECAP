@@ -28,6 +28,11 @@ from ..study.dilation_tables import DATASPACE_CSV_COLUMNS, convergence_gate, dat
 from ..settings import guards
 
 
+#: prompt_2's convergence gate, defaults shared with hpc/map_depth_sweep.sh.
+GATE_VICTORIES = (2000, 4000, 10000)
+GATE_SCALES = (1.0, 0.125)
+
+
 def dataspace_to_csv(rows, path):
     import csv
     path = pathlib.Path(path)
@@ -184,10 +189,14 @@ def main(argv=None):
     k_over_n = cfg.code_k / cfg.code_n
 
     if a.gate:
+        # prompt_2's convergence gate: the budgets the EMBEDDED arm is mapped
+        # at, re-checked at the largest AND the smallest depth. Script-local
+        # defaults since 2026-09-14 (they were ECC_DEPTH_SWEEP_GATE_*), the
+        # same ones hpc/map_depth_sweep.sh submits; --victories/--scales win.
         vs = ([int(float(x)) for x in a.victories.split()] if a.victories
-              else [int(float(x)) for x in cfg.depth_sweep_gate_victories])
+              else list(GATE_VICTORIES))
         scales = ([float(s) for s in a.scales.split()] if a.scales
-                  else [float(s) for s in cfg.depth_sweep_gate_scales])
+                  else list(GATE_SCALES))
         dw = a.recon_datawidth
         if dw is None:
             dw = widths.declared_datawidth(cfg.code_n, cfg.code_k,

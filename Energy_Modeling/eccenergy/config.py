@@ -71,10 +71,10 @@ from .settings.energy import DC_MEASUREMENT_CLOCK_NS, EnergySettings
 from .settings.mapper import (OPT_METRICS, VICTORY_MAX_SCALE,
                               VICTORY_REFERENCE_LEVELS, VICTORY_SCALINGS,
                               MapperSettings)
-from .settings.recon import (RECON_DECODE_SITES, RECON_ENCODER_SITES,
-                             RECON_GRANULARITIES, RECON_PACKINGS, ReconSettings)
+from .settings.recon import (RECON_ENCODER_SITES, RECON_GRANULARITIES,
+                             RECON_PACKINGS, ReconSettings)
 from .settings.run import (APPROACH_LABELS, APPROACH_TAGS, APPROACHES,
-                           EXPERIMENTS, PHASES, SWEEP_ALIASES, SWEEP_STEMS,
+                           EXPERIMENTS, SWEEP_ALIASES, SWEEP_STEMS,
                            SWEEPS, RunSettings)
 from .settings import guards
 
@@ -128,12 +128,11 @@ FIELD_ORDER = (
     "emb_weights_per_cw_override", "parity_grouping", "parity_charge_padding",
     "decode_enabled", "decode_pj_base", "decode_pj_emb",
     "recon_charges_decode", "recon_json", "recon_incremental_table",
-    "recon_require_group_residency", "recon_idle_table", "recon_pj_override",
+    "recon_idle_table", "recon_pj_override",
     "recon_incremental_fallback_pj", "recon_idle_fallback_pj",
     "recon_clock_gating_pct", "energy_model_rev", "recon_modeling",
-    "recon_optimizer", "recon_placement_keys", "recon_stem", "recon_packing",
-    "recon_granularity", "recon_onchip_fraction",
-    "recon_placement_charges_decode", "recon_decode_site",
+    "recon_optimizer", "recon_placement_keys", "recon_packing",
+    "recon_granularity",
     "recon_encoder_site", "recon_ert_aware", "recon_ert_arm", "recon_layer",
     "dram_pj_per_bit", "baseline_dram_pj_per_bit", "dram_background_pj",
     "dram_refresh_pj", "static_energy", "leakage_nw", "latency_model",
@@ -145,10 +144,9 @@ FIELD_ORDER = (
     "weight_factor_relax", "mapspace_constrain", "weight_datawidth",
     "weight_depth_scale", "weight_width_glb_mult",
     "disable_pair_geometry_assert", "weight_depth_levels",
-    "weight_datawidth_levels", "depth_sweep_gate_victories",
-    "depth_sweep_gate_scales", "noc_enabled", "noc_wire_pj_per_bit_mm",
+    "weight_datawidth_levels", "noc_enabled", "noc_wire_pj_per_bit_mm",
     "noc_router_pj", "noc_pe_latch_pj", "noc_scale", "mac_pj_override",
-    "layers", "phase", "overwrite", "cache_strict", "rerun_optimiser",
+    "layers", "overwrite", "cache_strict", "rerun_optimiser",
     "run_note", "opt_metric", "victory", "victory_scaling", "mapper_threads",
     "mapper_timeout", "mapper_algorithm", "mapper_seed", "mapper_search_size",
     "mapper_max_permutations", "results_dir", "replot_only", "from_cache",
@@ -355,55 +353,16 @@ def _resolve(self):
             f"Timeloop's destination-side arrivals, ingresses x multicast "
             f"factor); `source` is one encoder before the fanout and is the "
             f"pre-2026-09-09 row, kept for the diff. See recon.ENCODER_SITES")
-    if self.recon_decode_site not in RECON_DECODE_SITES:
-        raise guards.refusal("unknown-decode-site",
-            f"ECC_RECON_DECODE_SITE must be one of "
-            f"{', '.join(RECON_DECODE_SITES)} (got {self.recon_decode_site!r}): "
-            f"`ondie` puts the BCH decoder on the DRAM die, off the fetch "
-            f"path, so only the k message bits cross the DRAM interface; "
-            f"`controller` is the pre-2026-09-09 model kept for the diff")
     for _n, _v in (("ECC_DRAM_BACKGROUND_PJ", self.dram_background_pj),
                    ("ECC_DRAM_REFRESH_PJ", self.dram_refresh_pj)):
         if _v < 0:
             raise guards.refusal("dram-static-terms-nonnegative",
                 f"{_n}={_v} must be >= 0 (0 = term not modelled)")
-    if self.recon_optimizer:
-        # TASK 4 IS IMPLEMENTED (2026-09-09), and the guarantee the old
-        # placeholder existed to give is KEPT INTACT: a `True` here must
-        # never produce fixed-mapping numbers under a heading that says the
-        # mapping was optimised for reconstruction. That is now enforced
-        # where it can actually be checked instead of by refusing outright.
-        # `study.dilated_view.dilated_view()` stops the run when the
-        # reconstruction arm's OWN mapper cache is absent, when the design
-        # has no weight level to dilate, or when the dilated capacity does
-        # not come back N/K times the reference's; and `task4_checks()`
-        # records the two mapping fingerprints side by side on every
-        # result, so a figure drawn from one cache cannot claim two.
-        # What is refused here is the one combination that cannot mean
-        # anything: a re-optimised mapping filed as a `Pre` result.
-        if self.phase != "Post":
-            guards.refuse("task4-is-post",
-                f"RECON_OPTIMIZER=True is TASK 4: the mapping itself is "
-                f"re-optimised for the reduced weight width, so the result "
-                f"is a `Post` result by construction -- not ECC_PHASE="
-                f"{self.phase}, which means 'the mapping is ECC-unaware and "
-                f"the ECC effect is applied when evaluating'.\n"
-                f"  -> ECC_PHASE=Post RECON_OPTIMIZER=True   is Task 4\n"
-                f"  -> RECON_OPTIMIZER=False                 is Task 3, the "
-                f"fixed-mapping placement study")
-    if self.experiment == "recon" and not self.recon_optimizer \
-            and self.phase != "Pre":
-        # The other half of the pair above. Caught HERE rather than only in
-        # `report.recon_view.run()` so `--dry-run` reports it too: a
-        # configuration this contradictory should never survive to a run.
-        guards.refuse("task3-is-pre",
-            f"ECC_PHASE={self.phase} but RECON_OPTIMIZER=False is Task 3, "
-            f"which is a `Pre` result by construction: the mapping is "
-            f"fixed and ECC-unaware, and the placement effect is applied "
-            f"when evaluating.\n"
-            f"  -> ECC_PHASE=Pre                         is Task 3\n"
-            f"  -> ECC_PHASE=Post RECON_OPTIMIZER=True   is Task 4, where "
-            f"the mapping itself is solved for the reduced width")
+    # THE PHASE IS DERIVED PER ARM since 2026-09-14 (EnvReorganisation 6.1,
+    # `settings.run.result_phase`): baseline and embedded are `Pre` by
+    # construction, a placement mapped on its own chip is `Post`. The two
+    # guards that used to hold ECC_PHASE and RECON_OPTIMIZER in agreement
+    # (`task4-is-post`, `task3-is-pre`) checked a knob that no longer exists.
     if self.experiment == "recon":
         if not self.archs:
             raise guards.refusal("recon-needs-an-arch",
@@ -434,10 +393,6 @@ def _resolve(self):
                 "different factors, so the split would be attributed "
                 "wrongly.\n  -> run the placement study with "
                 "ECC_SPLIT_READ_WRITE=0")
-    if self.phase not in PHASES:
-        raise guards.refusal("unknown-phase",
-            f"ECC_PHASE must be one of {', '.join(PHASES)}")
-
     d = BCH63_KTOD.get(self.code_k) if self.code_n == 63 else None
     self.code_t = (d - 1) // 2 if d else max(1, (self.code_n - self.code_k) // 6)
 
@@ -539,12 +494,12 @@ def _resolve(self):
                 f"ECC_FORMATS: unsupported format {fmt!r}")
 
     # ---- prompt_6: reconstruction-aware mapping ----------------------
-    if self.recon_ert_aware and not (self.recon_optimizer and self.phase == "Post"):
+    if self.recon_ert_aware and not self.recon_optimizer:
         guards.refuse("ert-arm-needs-optimiser",
             f"ECC_RECON_ERT_AWARE=1 puts the encoder's energy into the mapper's "
             f"objective, so the ERT arms are RE-MAPPED: that is Task 4 extended, "
-            f"and it needs RECON_OPTIMIZER=True and ECC_PHASE=Post (got "
-            f"RECON_OPTIMIZER={self.recon_optimizer}, ECC_PHASE={self.phase}).")
+            f"and it needs RECON_OPTIMIZER=True (got "
+            f"RECON_OPTIMIZER={self.recon_optimizer}).")
     if self.recon_ert_arm in ("", "reference"):
         self.recon_ert_arm = "reference"
     else:
@@ -787,7 +742,7 @@ class Config:
         if self.experiment == "recon":
             # The placement study has its own axis -- WHERE the encoder sits --
             # so it has its own name and cannot land on a sweep's figure.
-            base = self.recon_stem or "ReconSweep"
+            base = "ReconSweep"        # a fixed name; ECC_RECON_STEM went 2026-09-14
             if self.recon_optimizer:
                 # TASK 4 OWNS ITS OWN NAME, on a layer-scoped run too. Its bars
                 # come from a mapping solved against N/K more weight room, so
@@ -1632,10 +1587,6 @@ class Config:
     def dram_model_line(self):
         """The one line every Task 3 figure has to carry: where the decoder is,
         and therefore what happened to the DRAM term and at what per-bit cost."""
-        if self.recon_decode_site == "controller":
-            return ("Controller-side correction (ECC_RECON_DECODE_SITE=controller, "
-                    "pre-2026-09-09 model): complete codeword read and driven "
-                    "off die, DRAM identical on every bar")
         enc = ("one encoder per DESTINATION of a multicast network "
                "(count = ingresses \u00d7 multicast factor)"
                if self.recon_encoder_site == "destination" else
