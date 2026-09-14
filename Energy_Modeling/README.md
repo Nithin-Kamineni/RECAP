@@ -66,37 +66,55 @@ shape is a cache hit. If a map task fails, SLURM cancels the dependent eval job
 ## `env.sh` — the only file you edit
 
 Every knob in the project is in `env.sh`, one per line, each with a comment
-saying what it does. `run.sh`, `hpc/run_all.sh`, `hpc/map.sbatch` and `hpc/tl.sh`
-all source it, so a value cannot mean one thing to the mapper and another to the
-evaluator.
+saying what it does. `run.sh`, `hpc/run_all.sh`, `hpc/map.sbatch`, `hpc/tl.sh`,
+`hpc/smoke_models.sh` and `restructure/snapshot.py` all source it, so a value
+cannot mean one thing to the mapper and another to the evaluator.
+
+**EIGHT SECTIONS SINCE 2026-09-14** (EnvReorganisation phase 4), ordered as
+§4.1 asks: what you turn, the mapper, the chip, the prices, then the plumbing.
+env.sh's own header maps the old ten section numbers onto these eight, for a
+docstring that still says "section 6".
 
 | section | what is in it |
 |---|---|
-| 1 the few you change most often | `ECC_MAPPER_THREADS`, `ECC_LAYERS`, `ECC_USE_CONTAINER` |
-| 2 the mapping optimiser | `ECC_MAPPER_ALGORITHM`, `ECC_MAPPER_SEARCH_SIZE`, `ECC_VICTORY`, `ECC_VICTORY_SCALING`, `ECC_MAPPER_TIMEOUT`, `ECC_MAPPER_MAX_PERMUTATIONS`, `ECC_OPT_METRIC` |
-| 3 what the pipeline runs | `ECC_RERUN_OPTIMISER`, `ECC_ARCHS`, `ECC_MODELS`, `ECC_CODE_N`, `ECC_KS`, `ECC_APPROACHES`, `ECC_SWEEP`, `ECC_EVAL_EXPERIMENTS`, `ECC_PHASE` |
-| 4 reconstruction placement study | **placeholder — no code reads it yet.** `ECC_RECON_MODELING`, `ECC_RECON_ARCH/MODEL/K`, `ECC_RECON_PLACEMENTS` |
-| 5 hardware / architecture model | precisions, `ECC_ARCH_FIDELITY`, `ECC_FORCE_DATAWIDTH`, `ECC_FORCE_TECHNOLOGY`, DRAM, the NoC |
-| 6 ECC accounting | parity grouping and padding, decoder energy, the DC reconstruction table, the weak overlay, the level classifier |
-| 7 the cluster | account, QOS, partition, cores, memory, wall time, concurrency, the image path |
-| 8 output and figures | `ECC_RESULTS_DIR`, palette, formats, DPI, labels |
-| 9 miscellaneous | `ECC_OVERWRITE`, `ECC_CACHE_STRICT`, `ECC_RUN_NOTE`, `ECC_REPLOT_ONLY`, `ECC_FROM_CACHE` |
-| 10 derived | **not knobs.** Translates the lists in section 3 into the swept-list-plus-two-constants form `eccenergy/config.py` reads, and generates the task list |
+| **1 what to compute and plot** | **the four lines that decide the study** — `ECC_APPROACHES`, `ECC_SWEEP`, `ECC_METRICS`, `ECC_RECON_DEFAULT` — plus the lists they range over (`ECC_ARCHS`, `ECC_MODELS`, `ECC_CODE_N`, `ECC_KS`, `ECC_DEPTH_SWEEP_SCALES`), `ECC_SCOPE`, `ECC_LAYERS`, `ECC_JOBS`, `ECC_ALLOW` |
+| **2 the mapper** | **>>> COLDS THE MAPPER CACHE <<<** `ECC_MAPPER_ALGORITHM`, `ECC_VICTORY`, `ECC_VICTORY_SCALING`, `ECC_MAPPER_TIMEOUT`, `ECC_MAPPER_MAX_PERMUTATIONS`, `ECC_OPT_METRIC`, `ECC_MAPPER_SEED`, `ECC_MAPPER_THREADS`, `ECC_RERUN_OPTIMISER` |
+| **3 the chip** | **>>> COLDS THE MAPPER CACHE <<<** precisions, `ECC_ARCH_FIDELITY`, `ECC_FORCE_DATAWIDTH`, `ECC_FORCE_TECHNOLOGY`, `ECC_MAPSPACE_CONSTRAIN`, `ECC_MAC_PJ_OVERRIDE`, `ECC_ENERGY_MODEL_REV`, the NoC |
+| **4 the prices** | evaluator only — re-priced from cache in ms. The reconstruction terms, DRAM per-bit, latency and standby, parity grouping and padding, decoder energy, the weak overlay, the level classifier |
+| **5 the cluster** | account, QOS, partition, cores, memory, wall time, concurrency, `ECC_SIF`, `ECC_USE_CONTAINER`, `ECC_ARCH_PIN_DIR` |
+| **6 output and figures** | `ECC_RESULTS_DIR`, palette, formats, DPI, labels |
+| **7 miscellaneous** | `ECC_OVERWRITE`, `ECC_CACHE_STRICT`, `ECC_RUN_NOTE`, `ECC_REPLOT_ONLY`, `ECC_FROM_CACHE` |
+| **8 derived** | **not knobs.** Translates section 1's lists into the swept-list-plus-two-constants form `eccenergy/config.py` reads, and generates the task file |
 
-### The lists in section 3 are the run
+Sections 2 and 3 are walled off and marked in the file itself: changing one
+re-fingerprints the architecture and colds the mapper cache. Nothing in 4 to 8
+colds anything.
+
+### The four lines in section 1 are the run
 
 ```bash
-ECC_ARCHS="eyeriss_v2_like eyeriss_like_wglb simple_weight_stationary ..."
-ECC_MODELS="resnet18 mobilenet_v2"
-ECC_KS="51"
-ECC_APPROACHES="baseline embedded recon"
-ECC_SWEEP=arch
+# baseline | embedded | recon1 | recon2 | recon3 | recon4 | recon5
+ECC_APPROACHES="baseline embedded recon1 recon2 recon3 recon4 recon5"
+# bch | model | arch | area | fix     (area = buffer depth; fix and area are POINT sweeps)
+ECC_SWEEP=fix
+# energy | edp | latency | area
+ECC_METRICS=energy
+# what a bare `recon` bar MEANS
+ECC_RECON_DEFAULT=recon2
 ```
 
-The mapper solves every `(architecture, model)` pair in those lists. `ECC_SWEEP`
-picks which list goes on the figure's x axis; the other two axes are held at the
-**first entry** of their list. All three ECC arms are always drawn — they are
-arms, never an axis.
+`ECC_APPROACHES` is the BARS, `ECC_SWEEP` the x axis and `ECC_METRICS` the
+figure's rows. The mapper solves every CHIP those imply — an architecture, at a
+code, at a buffer depth, in an arm — crossed with each distinct layer shape, and
+**units already in the cache are not submitted**. `ECC_SWEEP` picks which list
+goes on the x axis; the other axes are held at the **first entry** of their
+list.
+
+**There is no abstract `recon` arm.** It was retired by EnvReorganisation phase
+6: a bare `recon` in `ECC_APPROACHES` resolves to `ECC_RECON_DEFAULT`, and every
+reconstruction bar is a boundary some design declares, billed from its own
+mapper cache. A boundary a design has not got is a `[skip]` line, not a
+refusal.
 
 More than one model with `ECC_SWEEP=arch` gives the **panelled layout**: one
 panel per model, top to bottom, the same x axis inside each. Two models cannot
@@ -159,9 +177,13 @@ a login node — they need only python with pandas/matplotlib/pyyaml, which is w
 they still go through `hpc/tl.sh`. Set `ECC_USE_CONTAINER=0` to use the host
 python instead.
 
-`bash hpc/run_all.sh --eval-only` is exactly the loop over
-`ECC_EVAL_EXPERIMENTS` × `ECC_MODELS` followed by the figure, which is what the
-dependent SLURM job runs.
+`bash hpc/run_all.sh --eval-only` is exactly that loop followed by the figure,
+which is what the dependent SLURM job runs. **Which evaluations it writes is
+DERIVED, not selected** (`ECC_EVAL_EXPERIMENTS` was deleted by
+EnvReorganisation phase 2): the placement study alone when the axis routed the
+run to it — its file already holds Task 1's and Task 2's bars — and Task 1 +
+Task 2 otherwise, over `ECC_MODELS`, or over the held model alone on a point
+sweep (`fix`, `area`).
 
 **Never run the mapper on a login node.** Get cores first:
 

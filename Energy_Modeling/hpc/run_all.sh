@@ -220,6 +220,15 @@ stage_eval() {
 # Map every UNIT in this process, one at a time, in task-file order. For an
 # interactive allocation; the SLURM array below is the real path.
 stage_map_local() {
+    # PIN archs/ HERE TOO. --local maps in THIS process over minutes or hours,
+    # so it is exposed to the same mid-flight edit as an array is, and it was
+    # the only mapping path that did not pin (FINDINGS 6, defect 5: a
+    # design.yaml was edited while a --local run was in flight). Before
+    # write_taskfile, exactly as submit_map and submit_smoke do it, so the
+    # units are enumerated from the same copy the maps are solved against.
+    # Not silenced: `local` runs banner() BEFORE this stage, so pin_archs' own
+    # line is the only thing that tells the user where the pin is.
+    pin_archs
     write_taskfile
     local line b a m k d arm l
     while read -r b a m k d arm l; do

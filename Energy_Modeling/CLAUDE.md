@@ -214,8 +214,14 @@ task file, because `map.sbatch` resolves its rows when the job RUNS.
 
 ## One sweep, two constants
 
-All three ECC arms (`baseline`, `embedded`, `recon`) are always drawn, so the arms
-are never an axis. A run sweeps exactly ONE of the remaining three axes:
+**The BARS are `ECC_APPROACHES`** — `baseline`, `embedded`, and any of
+`recon1`..`recon5` the design declares, up to seven — and the arms are never an
+axis. **The figure's ROWS are `ECC_METRICS`** (`energy` | `edp` | `latency` |
+`area`), drawn in THAT order whatever order the knob names them. `area` is the
+one metric with no source of its own — ART per level plus the DC engine area of
+the recon arm — and is new in EnvReorganisation phase 5. **`metrics` is a
+plotting choice and is NOT in `IN_FINGERPRINT`**: changing it re-draws and never
+colds a mapper cache. A run then sweeps exactly ONE of the remaining three axes:
 
 | `ECC_SWEEP` | x axis | sweep list | held | stem |
 |---|---|---|---|---|
@@ -230,17 +236,22 @@ they hold ALL THREE lists at the first entry, which is the rule every held axis
 follows, and env.sh collapses `ECC_SWEEP_*`/`ECC_CONST_*` onto that point with a
 bare `=` so a leftover in the shell cannot widen them. `fix` IS the placement
 study (`ECC_EXPERIMENT=recon`); `area` maps the depth ladder and submits no
-evaluation, because the sweep is a property of the MAPPINGS. Neither has a
-`report/sweep.py` renderer until phase 6, and `sweep-has-no-figure` says so.
+evaluation, because the sweep is a property of the MAPPINGS. **SINCE PHASE 6
+`fix` HAS A `report/sweep.py` RENDERER** — it is that module's ordinary path
+with a one-entry list, so an axis with no x is simply one group. **`area` still
+has none**, because its stem carries no depth and two points of the ladder would
+overwrite one figure; read it with
+`python3 -m eccenergy.report.dilation_view --levels`. `sweep-has-no-figure` was
+NARROWED to `area` rather than retired (`NO_FIGURE_SWEEPS`).
 
 Nothing below `config.py` except `sweep.py` knows which axis is swept. A model
 sweep is all-CNN or all-transformer — mixing families is a config error.
 
 **`ECC_SWEEP=fix`** is the placement study — the axis is WHERE on the weight
 path the reconstruction boundary sits, and the bars are what `ECC_APPROACHES`
-names (`recon` = every placement the design declares; `recon1`..`recon5` select
-a subset, and a boundary the design does not declare is a `[skip]` line, never
-a refusal). The figure is always
+names (a bare `recon` RESOLVES to `ECC_RECON_DEFAULT` = `recon2`;
+`recon1`..`recon5` name placements directly, and a boundary the design does not
+declare is a `[skip]` line, never a refusal). The figure is always
 `results/figures/ReconSweep_optimiser__<model>.png`, even on a one-layer run; the
 scope is in the manifest and the title, the model in the name (since 2026-09-11,
 so two networks never overwrite each other).
@@ -697,10 +708,15 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   together" a property of the directory rather than a warning here. Get the
   stage-to-level match right by reading a real `timeloop-mapper.stats.txt` AND
   `timeloop-mapper.map.txt` from that design's cache. Nothing else: the
-  boundaries to compare are `ECC_APPROACHES` (the abstract `recon` draws every
-  one the design declares), and a name this design has not got is a `[skip]`
-  line rather than a refusal, because two designs do not have the same
-  boundaries.
+  boundaries to compare are `ECC_APPROACHES`, named one by one. **The abstract
+  `recon` arm is RETIRED** (EnvReorganisation phase 6, plan 6.2, answer 9.2):
+  the column `build_stacks()` used to add -- one engine at the chip entrance,
+  K/N on every on-chip level of every design -- is gone, and a bare `recon` in
+  `ECC_APPROACHES` now RESOLVES to `ECC_RECON_DEFAULT` (`recon2`) in
+  `Config.bar_arms()`. Every reconstruction bar is therefore a boundary some
+  design declares, looked up in its OWN mapper cache. A name this design has
+  not got is a `[skip]` line rather than a refusal, because two designs do not
+  have the same boundaries.
   `test_every_placement_space_is_valid_for_every_supported_design` covers the
   new design automatically, and the schema refuses a boundary that names a stage
   the weight path does not declare.

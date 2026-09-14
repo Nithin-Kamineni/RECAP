@@ -3901,3 +3901,131 @@ ALSO STILL OWED:
     the hard way this session -- a design.yaml was edited while a --local run
     was in flight).  One `pin_archs` call in `stage_map_local` fixes it.
   * DO NOT START PHASE 7 (docs).
+
+================================================================================
+ENVREORGANISATION PHASE 7 -- DOCS.  THE PLAN IS DELIVERED.
+================================================================================
+2026-09-14.  plans/EnvReorganisation.md section 7, phase 7, the last phase.
+Phase 6 is fa86c89 + 9b1e53b + dec40f6.
+
+GATE BEFORE ANY CHANGE: GREEN, all six items, no flag -- 302 fingerprint rows
+identical, every evaluated total and guard report identical, 535 passed /
+10 skipped.  That is the baseline every claim below is against.
+
+PHASE 7 MOVES NO NUMBERS, and none moved: item 1 byte-identical, items 2-5
+byte-identical, item 6 535/10 unchanged.  No --accept-record, no --accept-tests,
+no flag of any kind.
+
+--------------------------------------------------------------------------
+THE SMOKE JOBS PHASE 6 LEFT QUEUED: BOTH COMPLETED
+--------------------------------------------------------------------------
+  42155707_0  simple_weight_stationary  COMPLETED 0:0  3m25s
+              1 newly mapped, 0 failed, fp=1e5f80133837,  9 loop levels
+  42155709_0  eyeriss_v2_like_wglb      COMPLETED 0:0  14m12s
+              1 newly mapped, 0 failed, fp=c8c649320298, 11 loop levels
+
+NEITHER RISK THE PHASE 6 NOTE NAMED MATERIALISED.  No shape came back with
+nothing feasible, so no free-set needs widening and v2's `S` was not the
+problem it was predicted to be; and v2's six-word-deep `weight_noc` -- flagged
+as a risk when the sizing was chosen, never before mapped -- did not strangle
+the mapper.  The logs show the phase 6 fixes firing in a real job: the width
+table renormalised with total bits preserved (196,608 and 2,304 both unchanged),
+weight-factor-relax applied, and ECC_MAC_PJ_OVERRIDE reaching the MAPPER's
+objective.  THE COLD-MAP PATH IS PROVEN ON BOTH DESIGNS.  Task D itself --
+the two designs mapped at scope, and their figures -- is still owed and is
+still phase 6's, not this one's.
+
+--------------------------------------------------------------------------
+WHAT WAS ACTUALLY STALE, WHICH WAS NOT WHAT THE PHASE 6 NOTE PREDICTED
+--------------------------------------------------------------------------
+The brief expected CLAUDE.md's six `map_ert_arms.sh` / `map_by_shape.sh` /
+`map_depth_sweep.sh` lines (100, 101, 111, 327, 782, 783) to be wrong.  THEY
+WERE NOT.  Every one of them already carries its own dated correction -- "was
+that command until 2026-09-14", "deleted 2026-09-14", "were DELETED by
+EnvReorganisation phase 3; git has them" -- so they are history, correctly
+labelled, and were left exactly as they stand.  The same is true of
+FINDINGS.md 23, 319 and 401: 319 records that prompt_6's 2026-09-11 numbers came
+from `map_ert_arms.sh`, which is what ran that day.  Rewriting it would falsify
+a record to tidy a name.  NOTHING IN FINDINGS.md WAS TOUCHED.
+
+What WAS stale was the control surface -- the documents describing knobs and
+units that phases 2 to 6 changed underneath them:
+
+  CLAUDE.md
+    * "All three ECC arms (baseline, embedded, recon) are always drawn" -- the
+      abstract `recon` arm was RETIRED by phase 6 (plan 6.2, answer 9.2).  Now
+      states that the BARS are ECC_APPROACHES, up to seven, and that a bare
+      `recon` RESOLVES to ECC_RECON_DEFAULT in Config.bar_arms().
+    * the same abstract arm again in the "Adding an architecture" note and in
+      the ECC_SWEEP=fix paragraph.  Both corrected.
+    * "Neither [fix nor area] has a report/sweep.py renderer until phase 6, and
+      `sweep-has-no-figure` says so" -- phase 6 BUILT the `fix` renderer.  Now
+      states that `fix` has one, that `area` still has none because its stem
+      carries no depth, and that the guard was NARROWED to `area`
+      (NO_FIGURE_SWEEPS) rather than retired.
+    * ECC_METRICS WAS NOT DOCUMENTED IN CLAUDE.md AT ALL -- phase 5 built it and
+      no doc said so.  Added as the figure's ROWS, in METRICS order, with `area`
+      named as the one metric with no source of its own, and with the fact that
+      `metrics` is NOT in IN_FINGERPRINT and therefore never colds a cache.
+
+  README.md  (not named in the phase 7 brief; it was the worst of them)
+    * the env.sh table still listed the OLD TEN SECTIONS.  Rewritten to the
+      eight, with section 1 as the four deciding lines, and 2 and 3 marked as
+      the two that cold the mapper cache.
+    * it listed ECC_EVAL_EXPERIMENTS as a live knob of section 3 (deleted by
+      phase 2) and called section 4 "reconstruction placement study --
+      placeholder, no code reads it yet", which has been false since prompt_6.
+    * "The lists in section 3 are the run" showed ECC_APPROACHES="baseline
+      embedded recon" and claimed "All three ECC arms are always drawn".
+      Replaced by the four section-1 lines and the resolution rule.
+    * "--eval-only is exactly the loop over ECC_EVAL_EXPERIMENTS x ECC_MODELS":
+      that selection is DERIVED now, in stage_eval.
+
+  hpc/HIPERGATOR.md
+    * "The unit of independent work is one (architecture, model) pair" -- three
+      places (15, 263, 376).  The unit has been a CHIP x SHAPE since phase 3,
+      and the file already said so 80 lines lower, so it contradicted itself.
+      The old paragraph is KEPT, marked as superseded, because its cache-layout
+      and shape-collision reasoning is still right and the 2026-09-07 ShapeLock
+      note is what lifted the constraint.
+    * ECC_EVAL_EXPERIMENTS again, at the --eval-only step.
+
+  plans/README.md
+    * EnvReorganisation.md was still "PLAN -- awaiting answers to its §9 before
+      phase 1".  Every §9 question is answered and phases 0-7 are done.
+      ProjectRestructure's row was checked and left: its phase 7 is "backfill
+      tests", genuinely ongoing, which is a different thing.
+
+  GUARDS.md -- regenerated with `make guards` BEFORE the gate, as the rule
+    requires.  UNCHANGED, 139 guards / 50 contract tests: this phase edited
+    documents and one bash file, so no guards.refusal() call site moved.
+    `python3 tools/gen_guards.py --check` says current.
+
+--------------------------------------------------------------------------
+THE ONE CODE CHANGE: --local NOW PINS archs/  (FINDINGS 6, defect 5)
+--------------------------------------------------------------------------
+`stage_map_local()` never called `pin_archs`; `submit_map` and `submit_smoke`
+both did.  So the ONE mapping path that runs in the foreground for minutes or
+hours -- the interactive one, the one a person watches and is therefore most
+likely to edit archs/ during -- was the only one exposed to the mid-flight edit
+that cost the 2026-09-13 efficientnet_b0 run its 282 maps.
+
+Fixed with one `pin_archs` call, placed BEFORE `write_taskfile` exactly as the
+two submit paths place it, so the units are enumerated from the same copy the
+maps are solved against.  NOT silenced with >/dev/null, because `local` mode
+runs banner() BEFORE this stage and pin_archs' own line is then the only thing
+that tells the user where the pin is.
+
+PROVEN, not assumed: the function definitions were sourced and stage_map_local
+called with write_taskfile and _run stubbed.  It pinned, exported
+ECC_ARCH_PIN_DIR, and the pin held all nine designs.  `bash -n` clean.
+(A --dry-run cannot see this: --dry-run never reaches stage_map_local.)
+
+--------------------------------------------------------------------------
+STILL OWED -- NONE OF IT PHASE 7's
+--------------------------------------------------------------------------
+  * TASK D, phase 6's: the two designs mapped at scope and their figures.  The
+    smoke above is what unblocks it; the commands are in the phase 6 entry.
+  * FINDINGS 2.11 has no numbers from the two new designs.  It is waiting on
+    Task D, not on a document.
+  * ProjectRestructure phase 7 (backfill tests) remains ongoing, unrelated.
