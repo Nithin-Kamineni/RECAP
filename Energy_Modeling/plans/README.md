@@ -31,6 +31,7 @@ mapper job. `prompt_7.1.md` is a buffer-size sweep to run after prompt_7.
 | `prompt_7.1.md` | buffer-size sweep | queued, after prompt_7 |
 | `prompt_mac_constant.txt` | which per-MAC energy is the denominator | settled: `ECC_MAC_PJ_OVERRIDE=0.23` |
 | `ProjectRestructure.md` | making the code hold still while the study grows | phases 0–6 **done**, 7 ongoing |
+| `EnvReorganisation.md` | one launcher, one env.sh, any ablation: `run_all.sh` driven by `ECC_APPROACHES` / `ECC_SWEEP` / `ECC_METRICS` | **PLAN** — awaiting answers to its §9 before phase 1 |
 
 ## `specs/` — the three source specifications
 

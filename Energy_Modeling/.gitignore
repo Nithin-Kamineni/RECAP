@@ -53,7 +53,7 @@ ecc_energy_study/globals_*.yaml
 # The restructure gate's scratch. `restructure/` was removed on 2026-09-13,
 # once phases 0-7 were done and its last permanent inhabitants (gen_guards.py,
 # scaffold_arch.py) had moved to tools/. These stay so that restoring the
-# directory -- `git log -- Energy_Modeling/restructure` -- does not also
+# directory -- from Energy_Modeling/: `git log -- restructure` -- does not also
 # restore its scratch as untracked noise.
 restructure/.fresh/
 restructure/.trial*/

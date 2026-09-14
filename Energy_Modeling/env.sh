@@ -69,13 +69,13 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${ECC_RERUN_OPTIMISER:=0}"
 
 
-: "${ECC_ARCHS:=eyeriss_v2_like eyeriss_like_wglb simple_weight_stationary simple_output_stationary simple_input_stationary simba_like}"
+: "${ECC_ARCHS:=eyeriss_like_wglb simple_weight_stationary eyeriss_v2_like simple_output_stationary simple_input_stationary simba_like}"
 
 : "${ECC_MODELS:=resnet18 mobilenet_v2}"
 
 # the BCH code
 : "${ECC_CODE_N:=63}"
-: "${ECC_KS:=30}"
+: "${ECC_KS:=39 57 45 30}" # For RECON: BCH(63,57) (q=7), (63,45) (q=6), (63,39) (q=5), (63,30) (q=4)
 
 : "${ECC_APPROACHES:=baseline embedded recon}"
 
@@ -128,7 +128,7 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # that narrows the SAME storage levels and says so on its record -- R3 from
 # R2, never from the reference. `bash hpc/map_ert_arms.sh --progress` says
 # which arms are cached and which are cold; Phase C maps the cold ones.
-: "${ECC_RECON_ERT_AWARE:=0}"
+: "${ECC_RECON_ERT_AWARE:=1}"
 
 # WHICH ARM ONE MAPPER JOB SOLVES -- set by hpc/map_ert_arms.sh in --export,
 # not by hand. `reference` (or EMPTY) is the published 8-bit chip with no
@@ -291,7 +291,7 @@ declare -A ECC_RECON_PLACEMENTS=(
 # also if the declared datawidth disagrees with ceil(weight_bits*K/N).
 # Set `stream` with ECC_WEIGHT_DATAWIDTH empty to reproduce the pre-2026-09-10
 # evaluator-side model.
-: "${ECC_RECON_PACKING:=aligned}"
+: "${ECC_RECON_PACKING:=stream}"
 
 # ---- does a PE-local boundary need a WHOLE group resident? ------------------
 # 0 (default) = NO. 1 = refuse the placement where it does not.
@@ -526,7 +526,7 @@ declare -A ECC_LEAKAGE_NW=(
     [sram_bit]=2.693        # per stored bit   (CACTI 45nm itrs-lop; itrs-hp = 59.37)
     [rf_bit]=70.0           # per stored bit   (aladdin reg.csv, 40nm)
     [mac_instance]=7844.9 ) # per MAC          (ERT leak row, 0.00784449 pJ/cycle @1GHz)
-: "${ECC_STATIC_ENERGY:=0}"          # 1 = charge the above to ALL THREE arms
+: "${ECC_STATIC_ENERGY:=1}"          # 1 = charge the above to ALL THREE arms
 
 # ---- clock rate, per architecture ------------------------------------------
 # prompt_7 Issue 14. ECC_GLOBAL_CYCLE_SECONDS (section 5) is ONE number for every
@@ -917,7 +917,7 @@ declare -A ECC_ARCH_CLOCK_MHZ=(
 : "${ECC_DEPTH_SWEEP_SCALES:=1.0 0.7071 0.5 0.3536 0.25 0.1768 0.125}"
 
 # The reconstruction arm's on-chip datawidth for the sweep. EMPTY derives it as
-# ceil(ECC_WEIGHT_BITS * K/N), which is 4 at BCH(63,30).
+# round(ECC_WEIGHT_BITS * K/N), which is 4 at BCH(63,30).
 : "${ECC_DEPTH_SWEEP_RECON_DW:=}"
 
 # CONVERGENCE IS A GATE, and it runs BEFORE any number is quoted. Map the
@@ -1199,7 +1199,7 @@ declare -A ECC_RECON_IDLE_PJ=(          # pJ per CYCLE per ENGINE
 
 : "${ECC_RESULTS_DIR:=results}"
 : "${ECC_PALETTE:=house}"        # house | cvd (colourblind-safe Okabe-Ito)
-: "${ECC_FORMATS:=png pdf}"
+: "${ECC_FORMATS:=png}"
 : "${ECC_DPI:=400}"
 : "${ECC_NICE_LABELS:=1}"        # 1 -> "Eyeriss v2"; 0 -> "eyeriss_v2_like"
 : "${ECC_TITLE_NOTE:=}"          # free text appended to the figure title

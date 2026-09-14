@@ -31,7 +31,9 @@ blocking**, so `restructure/` -- the gate, its golden snapshot and the two
 migration scripts -- was REMOVED on 2026-09-13 rather than left as scaffolding
 nobody runs. It is one command away if a future phase wants it back:
 
-    git log -- Energy_Modeling/restructure     # then `git checkout <commit> -- ...`
+    git log -- restructure                     # from Energy_Modeling/; last present at 46a8df1
+    git checkout 46a8df1 -- restructure/gate.sh restructure/snapshot.py \
+                            restructure/_fingerprints.py restructure/golden
 
 ProjectRestructure §10 is still what not to do, and §9.1 says what the gate
 covered and what it could not.
@@ -393,9 +395,11 @@ and `PLACEMENTS[<arch>]` (the boundaries: which stages stay reduced, and what
 drives the reconstruction count).
 
 **Designs do not have the same boundaries.** `eyeriss_like_wglb` (Eyeriss v1) and
-`simple_weight_stationary` have five; `eyeriss_v2_like` has four.
-`eyeriss_v2_like_wglb` **is refused** — its `weight_glb` stage has no boundary
-(prompt_6 Appendix B has the fix).
+`simple_weight_stationary` have five; `eyeriss_v2_like` and `eyeriss_v2_like_wglb`
+have four. *(Until phase 5, `eyeriss_v2_like_wglb` was refused because its
+`weight_glb` stop had no boundary — prompt_6 Appendix B. Its `placements.yaml`
+fixed that; verified 2026-09-14: `placements_for` → recon1–4, `mapper_arms` →
+reference + recon1–4, no refusal.)*
 
 That is enforced, not advised. `validate_placement_space()` requires a placement's
 `reduced` set to be a **prefix** of the path's reducible stages in path order, and
@@ -478,6 +482,16 @@ it "Simba-like (reference design)".
 filter-weight allocation of the 108 kB GLB, so the file that models it is the
 design; `eyeriss_like`, which declares `!Nothing` in its place, is retired — still
 mappable by name for a diff, but no longer the design.
+
+**Eyeriss v2 IS `eyeriss_v2_like_wglb`** (the user's decision, 2026-09-14). When the
+user says "Eyeriss v2" they mean this design, not `eyeriss_v2_like`. Know what that
+chooses: its own README calls it *"a diagnostic variant, not a second model of the
+paper"* — real Eyeriss v2 has no weight GLB, and the 64 kB `weight_noc` level this
+variant adds *"is not a buffer the silicon has"*; it stands in for the weight
+routers Timeloop's dense flow cannot express. It is the variant that can HOST
+reconstruction boundaries (four of them), which is why it is the one in scope.
+It is **cold at the live configuration**: its cached mappings are all under old
+`opt-energy` / `random_pruned` / `wcap*` treatments. Label it as the README does.
 
 **THREE OF ITS DECLARED CAPACITIES DIVERGE FROM JSSC 2017 ON PURPOSE**
 (confirmed and kept 2026-09-13, prompt_7 C1.7): `filter_glb` 2 kB against the
