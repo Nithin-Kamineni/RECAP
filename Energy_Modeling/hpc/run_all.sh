@@ -325,7 +325,12 @@ prune_locks() {
 }
 
 submit_map() {
-    prune_locks
+    # STDOUT HERE IS THE JOB ID. `MAP=$(submit_map)` captures it and feeds it
+    # to `--dependency=afterok:`, so anything else printed on stdout becomes
+    # part of the dependency and SLURM rejects the eval with "Job dependency
+    # problem" -- which is what `pin_archs >/dev/null` below has always been
+    # for, and what the prune needs too. The lines still reach the terminal.
+    prune_locks >&2
     pin_archs >/dev/null
     write_taskfile
     local snap n
