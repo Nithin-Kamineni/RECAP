@@ -37,4 +37,4 @@ JSON fields replaced by `<scrubbed>`: `finished_utc`, `git_commit`, `host`, `pla
 | `recon_ert` | 0 | recon_ert.txt + 3 result file(s) |
 | `validate` | 0 | validate.txt + 1 result file(s) |
 | `diagnose` | 0 | diagnose.txt + 2 result file(s) |
-| `pytest` | 0 | pytest.txt |
+| `pytest` | 1 | pytest.txt |

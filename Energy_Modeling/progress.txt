@@ -4029,3 +4029,313 @@ STILL OWED -- NONE OF IT PHASE 7's
   * FINDINGS 2.11 has no numbers from the two new designs.  It is waiting on
     Task D, not on a document.
   * ProjectRestructure phase 7 (backfill tests) remains ongoing, unrelated.
+
+================================================================================
+TASK D SESSION 1 -- simple_weight_stationary, MAPPED AND DRAWN.
+================================================================================
+2026-09-14.  plans/TaskD_MapTheTwoDesigns.md section 1.  Session 1 of three.
+Session 2 (eyeriss_v2_like_wglb) and session 3 (the three-panel figure) are
+DELIBERATELY NOT STARTED -- the plan's split, section 2's instruction.
+
+--------------------------------------------------------------------------
+PREDICTIONS -- WRITTEN BEFORE THE FIGURE WAS DRAWN
+--------------------------------------------------------------------------
+Recorded here before `--eval-only` ran, as section 1.4 requires.  A figure that
+contradicts one of these is a BUG until proven otherwise.  The reasoning is
+from placements.yaml's four boundaries and THE WIDTH TABLE, not from a result.
+
+Constants: BCH(63,39), K/N = 0.6190, so q = round(8 x 39/63) = 5 and the
+ceiling on any weight-path term is 1 - K/N = 0.3810.  Scope is the two-layer
+dev scope: conv1 (C3 M64 R7 S7 P112 Q112) and layer3.0.conv1 (C128 M256 R3 S3
+P14 Q14).  conv1 holds 9,408 weights and layer3.0.conv1 holds 294,912, so the
+weight path is dominated by the second layer and conv1 is activation-bound.
+
+P1  embedded < baseline in energy.  Baseline pays a dearer per-bit DRAM PRICE
+    (the array also holds parity) and NOT extra traffic; embedded hides parity
+    inside the stored weights and pays neither.  The gap is the DRAM price
+    delta alone.
+
+P2  every recon bar < embedded in energy.  All four boundaries reduce the
+    `dram` stage, and the whole DRAM term carries K/N of the bits.  This
+    saving is COMMON to R1-R4a and is the only saving R1 has.
+
+P3  THE SHAPE ACROSS THE FOUR BOUNDARIES IS NOT MONOTONIC.  Going inward the
+    gross weight-path saving accumulates (the `reduced` sets are nested
+    prefixes: dram; +weight_glb; +weight_noc; +pe_spad) but the encoder moves
+    to a busier site and the reconstruction COUNT rises with it --
+    reads at DRAM, reads at the buffer, fills at the PE, reads at the RF.
+    So the net saving should RISE from R1 to R2 to R3 and then FALL BACK at
+    R4a:
+
+        R1  <  R2  <=  R3   >   R4a
+
+    R3 is the peak.  R4a is the one boundary whose encoder sits inside the
+    weight-stationary inner loop, where each resident weight is read many
+    times and each read pays a reconstruction (placements.yaml, rating 2/5,
+    "the one row of the WS table rated BELOW the early boundaries"; Sec. 6.1's
+    illustrative 100 reads and 100 reconstructions).  R4a may fall BELOW R1
+    and may be a net PENALTY.  Its own source hypothesis rates the four
+    control, 3/5, 4/5, 2/5 -- the same shape.
+
+P4  the percentage savings are SMALL in absolute terms -- low single digits of
+    the total -- because at these two layers compute and activations dominate
+    and the weight path is a minority of the total energy.  The ceiling line
+    is what makes that arithmetic rather than a missing term.
+
+P5  latency FALLS for every recon bar relative to baseline/embedded, and is
+    roughly FLAT across R1-R4a.  The roofline binds on DRAM for these layers,
+    all four boundaries cut off-chip weight bits by the same K/N, and none of
+    them changes the DRAM traffic relative to each other.
+
+P6  EDP improves MORE than energy alone, because energy and delay both fall
+    (P2 and P5), and the three metric rows are drawn energy, edp, latency in
+    THAT order whatever order ECC_METRICS names them.
+
+P7  five arms are mapped and SEVEN bars are named.  `recon5` is withdrawn for
+    this design, so it must appear as a `[skip]` line and never as a refusal;
+    the bar count differing from eyeriss_like_wglb's is by construction.
+
+--------------------------------------------------------------------------
+WHAT WAS RUN
+--------------------------------------------------------------------------
+Section 1.2's command, with the sweep PINNED -- env.sh ships ECC_SWEEP=bch and
+a three-bar ECC_APPROACHES, and the bare launcher would have drawn a code sweep
+with two arms instead of the placement study.  env.sh itself was NOT edited:
+every deviation was passed as an argument, which is the user's instruction.
+
+  ECC_SCOPE=dev ECC_SWEEP=fix
+  ECC_APPROACHES="baseline embedded recon1 recon2 recon3 recon4 recon5"
+  ECC_ARCHS=simple_weight_stationary ECC_CONST_ARCH=simple_weight_stationary
+
+--dry-run FIRST, and the bill matched section 1.2 exactly: 5 chips, 2 shapes,
+10 units, arms `recon1 recon2 recon3 recon4 reference`.  Nothing was submitted
+until it did.
+
+SMOKE BEFORE THE MATRIX, because --dry-run cannot see the code a job runs:
+job 42174896, one COLD unit, COMPLETED 5m31s, fp=946dbf528944, conv1's 9,408
+DRAM weight reads.  The cache-path half could not be smoked -- 0 of 10 units
+were cached, and run_all.sh said so rather than pretending otherwise.
+
+MAP ARRAY 42176663: 8 array tasks (10 units, bundled up to 2 and walked
+serially), ALL 8 COMPLETED 0:0, 3m22s to 6m33s, no failure marker in any log.
+The re-run of --dry-run afterwards reported `cached 10 / 10 -> 0 to map`.
+
+EVALUATED with --eval-only, NOT --replot (section 1.4: --replot reads
+results/_raw/ only and cannot draw newly-mapped units).
+
+ECC_METRICS="energy edp latency area" -- FOUR rows, the user's request.  `area`
+worked: recon_area.yaml carries a measured engine at k=39 (2,276.57 um2) and
+every one of the five chips was freshly mapped, so each had the ART the
+`area-chip-never-mapped` guard requires.  `metrics` is NOT in IN_FINGERPRINT,
+so adding a row re-draws and colds nothing -- which is why it was safe to add
+under section 0's "no fingerprint may move again".
+
+--------------------------------------------------------------------------
+THE NUMBERS
+--------------------------------------------------------------------------
+Weight stationary, resnet18, conv1 + layer3.0.conv1, BCH(63,39) t=4, q=5,
+ERT-aware mapping.  Ceiling on the weight path: 1 - K/N = 0.3810.
+
+  bar                     energy uJ   vs baseline   vs embedded    EDP uJ.ms   latency ms
+  Baseline ext. parity      590.164        --          -4.33%         7524        12.7
+  Embedded no ext. parity   565.685      +4.15%          --           7212        12.7
+  R1  @ chip ingress        547.464      +7.24%        +3.22%         6451        11.8
+  R2  @ buffer output       546.837      +7.34%        +3.33%         6444        11.8
+  R3  @ PE input            549.024      +6.97%        +2.95%         6469        11.8
+  R4a @ RF output           626.256      -6.12%       -10.71%         7379        11.8
+
+Silicon area: 1.59 mm2 on every bar; the DC engine is 2,277 um2 = 0.14% of it.
+R1 is +0.1% (it narrows nothing on chip, so the engine is a pure addition);
+R2/R3 are -0.1% and R4a -0.4%, because the narrowed weight arrays give back
+more than the engine costs.
+
+LOWEST-ENERGY FEASIBLE PLACEMENT: R2, the global weight-buffer output.
+
+--------------------------------------------------------------------------
+PREDICTIONS vs THE FIGURE -- ONE MISS, AND IT IS NOT A BUG
+--------------------------------------------------------------------------
+P1 CONFIRMED.  embedded 565.685 < baseline 590.164; the gap is the DRAM price
+   delta alone, 4.15%.
+P4 CONFIRMED.  The savings are low single digits: 7.34% against baseline,
+   3.33% against embedded -- and 3.33% IS the ceiling (18.93 uJ of 565.685),
+   so R2 takes essentially all of what the boundary has to give.
+P5 CONFIRMED EXACTLY.  12,749,426 cycles -> 11,783,332 on every recon bar,
+   -7.6%, identical across all four: they cut the same off-chip bits by the
+   same K/N and the roofline binds on DRAM for both layers.
+P6 CONFIRMED.  EDP -14.4% against energy -7.3% -- energy and delay both fall,
+   so the product falls about twice as far.
+P7 CONFIRMED.  `[skip] simple_weight_stationary does not declare recon5 --
+   it has recon1, recon2, recon3, recon4. Drawing 4 bar(s), not 5.`  A skip
+   line, not a refusal, exactly as the withdrawal intends.
+
+P2 FALSIFIED AS STATED.  "Every recon bar < embedded" is wrong: R4a is 626.256
+   uJ, ABOVE both embedded and baseline.  P3 had already named this exception
+   ("R4a may fall BELOW R1 and may be a net PENALTY"), so the blanket in P2 was
+   the careless half of the same prediction, not a surprise in the result.
+
+P3 HALF RIGHT, AND THE HALF THAT IS WRONG IS THE INTERESTING ONE.
+   The SHAPE is confirmed: the saving rises off R1, peaks, then collapses at
+   R4a.  THE PEAK IS R2, NOT R3.  R3 is below R2 AND below R1.
+
+   Predicted R1 < R2 <= R3 > R4a.   Measured R1 < R2 > R3 >> R4a.
+
+   PROVEN, not rationalised.  R3 is worse than R2 by 2.187398 uJ, and that
+   number is fully accounted for:
+
+       R3 extra reconstruction   2.464831 uJ   (16 engines vs 1)
+       R3 extra NoC saving      -0.277432 uJ   (the weight_noc stage it buys)
+       ------------------------------------
+       net                       2.187398 uJ
+       observed gap              2.187398 uJ   residual 1.25e-08 uJ
+
+   The cause is the ENGINE COUNT, which is prompt_6 RULE 3's second
+   denominator -- idle_per_cycle x cycles x N_engines.  R2's boundary sits at
+   ONE global buffer read port: 1.00 engine cycle-weighted, leak 0.164 uJ.
+   R3's sits at the PE input of a 16x16 array: 16.00 engines cycle-weighted of
+   256 declared, leak 2.629 uJ.  Their ACCESS terms are all but identical
+   (0.2293 uJ reads vs 0.2292 uJ fills), so the whole inversion is the idle
+   term.  Moving the boundary one stage inward buys the weight_noc stage --
+   worth 0.277 uJ here -- and pays sixteen engines' standby to get it.
+
+   THIS CONTRADICTS THE SOURCE HYPOTHESIS, and that is a RESULT rather than an
+   error: placements.yaml carries Sec. 6.2's ratings, which put R3 at 4/5 and
+   R2 at 3/5.  The hypothesis assumed the NoC saving would dominate.  With a
+   clock-gated engine per PE row leaking across the whole run, it does not.
+   FINDINGS 2.11 should carry this when it is written for whole models; the
+   dev scope here is development, not a published number.
+
+R4a's collapse is the mechanism its own 2/5 rating names, and it is quantified:
+22,325,953 reconstruction events rebuilding 175,816,880 weights -- against a
+mapping of 175,816,704 MACs.  EVERY MAC's weight read pays a rebuild, which is
+Sec. 6.1's "100 reduced-width RF reads and 100 reconstructions" at full scale.
+97.10 uJ of reconstruction against 17.49 uJ of on-chip saving.  The depth-1
+`weight_reg` does not amortize it -- the mapping fills it once per read.
+
+--------------------------------------------------------------------------
+THE GOLDEN SNAPSHOT WAS RE-TAKEN, ONCE, AND THIS IS WHY
+--------------------------------------------------------------------------
+Section 0's re-baseline.  `bash hpc/tl.sh bash restructure/gate.sh --update`,
+run BEFORE any change of this session's own.  ONE --update, never a second.
+
+MEASURED, NOT TRUSTED.  The plan says 300 of 306 lines and says to measure it
+rather than believe the number.  Measured here: **301** of 306 `fingerprints.tsv`
+lines differ from the golden as it stood.  The 5 that do not are three header
+comments, the `# digests` line and `_components_digest 91e7f4dbe0b6`.
+
+THE CAUSE WAS PROVEN, NOT ASSUMED.  Re-running the same enumeration at
+`ECC_MAPPER_THREADS=18` -- the value the golden was taken at -- puts **300** of
+those 301 lines back BYTE-IDENTICAL.  The single line that still differs is
+`_config_hash` (e390be6e -> 36a80922), which moves on ANY env.sh change and so
+carries the rest of ee4e6e3's edits.  So: 300 architecture fingerprints moved
+for exactly one reason, the thread count in `cfg.mapper_settings()`, and one
+line moved for the others.  No energy number moved; the configuration under
+which they are computed did.
+
+env.sh ships `ECC_MAPPER_THREADS=${SLURM_CPUS_PER_TASK:-16}` and this session
+ran from a login node with no allocation, so 16 is what resolved.  CLAUDE.md
+still says "keep ECC_MAPPER_THREADS=18"; that sentence is now stale against
+env.sh and is left alone rather than edited, this session having been told to
+declare nothing.
+
+GATE BEFORE THE RE-TAKE (check mode, run first ON PURPOSE -- `--update`
+overwrites the golden blindly, and the plan's claim that no energy number moved
+had to be VERIFIED before it was baked in, not after):
+  item 1  RED, 301 lines, as above
+  items 2-5  RED: compare.py classified 110 NUMBERS MOVED, 12 RECORD keys,
+             69 PROSE lines.  Every one of the moved numbers is the SCOPE:
+             the golden was taken at `layers-full` and env.sh now ships
+             ECC_SCOPE=dev, so the result path moves from `layers-full` to
+             `layers2__conv1__layer3_0_conv1` and every energy is two layers'
+             worth instead of twenty-one.  That is the configuration, not the
+             model -- which is exactly what section 0 says, and it was read
+             before the re-take rather than accepted afterwards.
+  item 6  RED, 2 failed / 533 passed (see below)
+
+GATE AFTER, run ALONE with nothing else touching the repo:
+  item 1      IDENTICAL, 302 rows.  NO FINGERPRINT MOVED.  Task D declares
+              nothing and nothing moved, which is the whole of section 4's
+              absolute rule.
+  items 2-5   IDENTICAL -- every evaluated total and every guard report.
+              No --accept-record was needed and none was used.
+  item 6      RED, 2 failed / 533 passed -- the SAME two, unchanged.
+
+`make guards` was run LAST before the gate, as the closing order requires, and
+GUARDS.md came back UNCHANGED: 139 guards, 50 contract tests.
+`python3 tools/gen_guards.py --check` says current.  (CLAUDE.md's prose still
+says 131 guards; not corrected here.)
+
+ONE SIDE EFFECT OF --update, REPAIRED.  `snapshot.py` writes the golden
+directory fresh, so the re-take DELETED `golden/record.log` (42,741 bytes --
+every past --accept-record with its reason and the classifier's own list) and
+`golden/pytest.log`.  Those are the gate's permanent audit trail, maintained by
+gate.sh and not by the snapshot, and losing them is not Task D's to do.  Both
+were restored from HEAD.  Worth fixing in gate.sh: --update should preserve the
+two logs it does not own.
+
+--------------------------------------------------------------------------
+THE TWO FAILING TESTS -- PRE-EXISTING, AND DELIBERATELY NOT TOUCHED
+--------------------------------------------------------------------------
+They were RED before this session changed anything, and they are red for the
+same reason the fingerprints drifted: the shipped defaults moved.
+
+  test_metrics.py::test_env_sh_ships_a_default_and_it_is_one_row
+      asserts env.sh contains `: "${ECC_METRICS:=energy}"`.  ee4e6e3 shipped
+      `energy edp latency`.
+  test_dilation.py::test_ecc_sweep_fix_routes_to_the_placement_study_and_
+      names_it_per_model  asserts ECC_LAYERS == "" (the whole model).
+      04c15a7 shipped ECC_SCOPE=dev, which populates it with the two-layer
+      dev scope.
+
+BOTH TESTS ARE WORKING CORRECTLY.  They read env.sh's own default rather than
+exporting the knob -- which is the point of them -- and they have caught that
+the default changed.  Neither is a defect in the model.
+
+THE USER'S DECISION, ASKED AND ANSWERED THIS SESSION: keep env.sh as it is and
+do not change the tests; pass what a run needs as ARGUMENTS instead.  That is
+what was done -- every deviation above was an argument on the command line, and
+env.sh was not edited.  GATE 6 THEREFORE CANNOT GO GREEN THIS SESSION: it
+refuses a failing suite unconditionally, and no flag lifts it (--accept-tests
+only covers a DROP in the passing count, and the count did not drop).  The red
+is recorded rather than hidden, and it is owed to whoever confirms or reverts
+the ablation configuration.
+
+--------------------------------------------------------------------------
+THE FIGURE PATH COLLIDES -- WHAT WAS PROTECTED, AND WHERE IT IS
+--------------------------------------------------------------------------
+The placement stem `ReconSweep_optimiser__<model>` carries NO architecture, so
+this run overwrote eyeriss_like_wglb's figure, table and manifest in place.
+Copied aside BEFORE evaluating, to:
+
+    results/_preserved/eyeriss_like_wglb__before_TaskD_session1/
+        ReconSweep_optimiser__resnet18.png .pdf .csv .json  + README.txt
+
+ONE THING THE PLAN DID NOT ANTICIPATE, recorded because it changes what those
+copies ARE: by the time section 1.3's copy could be taken, the working-tree
+figure had ALREADY been replaced -- by this session's own mandated
+`gate.sh --update`, whose recon_default and recon_ert stages render at env.sh's
+shipped configuration and write into results/.  So the preserved .png/.csv/.json
+are eyeriss_like_wglb at the DEV two-layer scope, not the full-scope figure.
+The full-scope .png and .pdf are still at git HEAD, and the README.txt in that
+directory says so.  Nothing was lost; it is just not what "the file that was
+there" would suggest.  A later session that wants the full-scope figure back
+takes it from HEAD or re-draws it from results/_raw/ with --replot.
+
+--------------------------------------------------------------------------
+STILL OWED
+--------------------------------------------------------------------------
+  * SESSION 2's design, `eyeriss_v2_like_wglb` (plan section 2).  DELIBERATELY
+    NOT STARTED -- the plan splits one design per session so the record is
+    unambiguous about which change produced which number.
+  * SESSION 3's three-panel figure (plan section 3), after both designs.
+  * FINDINGS 2.11 still has NO NUMBERS from either new design.  The numbers
+    above are the DEV scope -- development, not a published number -- and the
+    R2-over-R3 inversion is the thing worth writing up once whole models are
+    mapped.
+  * The two failing tests above, pending the user's call on the ablation
+    configuration.
+  * gate.sh --update deleting record.log and pytest.log (above).
+  * The two figure defects phase 6 recorded and did not fix.  BOTH ARE STILL
+    VISIBLE on this figure and neither was fixed here: a saving and a penalty
+    print in the SAME RED (R4a's +6.1% penalty is the same colour as R2's
+    -7.3% saving, which is exactly the case that makes it misread), and each
+    group reserves about a third more width than its bars use.

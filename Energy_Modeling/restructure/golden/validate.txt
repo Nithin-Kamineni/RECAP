@@ -1,11 +1,11 @@
 ==============================================================================
 ecc-energy  |  sweep=fix (the held point)  |  output=ReconSweep_optimiser__resnet18
 ==============================================================================
-  sweeping              : baseline, embedded, recon1, recon2, recon3, recon4, recon5
+  sweeping              : baseline, embedded, recon
   holding               : model=resnet18   code=BCH(63,39) t=4
-  approaches            : baseline, embedded, recon1, recon2, recon3, recon4, recon5
+  approaches            : baseline, embedded, recon
   workload file         : cnn
-  layer scope           : full
+  layer scope           : two-layer: conv1, layer3.0.conv1
   weight precision      : 8b (the protected payload)
   activation precision  : 8b
   accumulator precision : per architecture, as published (v1 16b, v2 20b, Simba 24b, simple designs 16b)  [primary]
@@ -52,7 +52,7 @@ PER ARCHITECTURE
   eyeriss_like_wglb  (Eyeriss v1 (+8kB filter GLB))
     source        : <ROOT>/archs/eyeriss_like_wglb/arch_paper.yaml
     origin        : derived   provenance recorded: yes
-    fingerprint   : 2db6a4d92ff5
+    fingerprint   : d1444604cd01
     precisions    : weight/activation 8b   multiplier 8b   accumulator 16b
     acc. evidence : inherited from eyeriss_like
     DRAM          : width 64b  datawidth 8b  depth 1048576

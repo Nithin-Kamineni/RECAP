@@ -1,11 +1,11 @@
 ==============================================================================
 ecc-energy  |  sweep=fix (the held point)  |  output=ReconSweep_optimiser__resnet18
 ==============================================================================
-  sweeping              : baseline, embedded, recon1, recon2, recon3, recon4, recon5
+  sweeping              : baseline, embedded, recon
   holding               : model=resnet18   code=BCH(63,39) t=4
-  approaches            : baseline, embedded, recon1, recon2, recon3, recon4, recon5
+  approaches            : baseline, embedded, recon
   workload file         : cnn
-  layer scope           : full
+  layer scope           : two-layer: conv1, layer3.0.conv1
   weight precision      : 8b (the protected payload)
   activation precision  : 8b
   accumulator precision : per architecture, as published (v1 16b, v2 20b, Simba 24b, simple designs 16b)  [primary]
@@ -65,13 +65,13 @@ CONFOUNDS  --  1 found
 ==============================================================================
 MEASURED COMPARISON  --  from results/_raw/ (energies in uJ)
 ==============================================================================
-                                 DRAM  Global buffer  Local (spads/RF)      NoC  Compute  total_uJ  DRAM_weight_uJ  DRAM_weight_reads  pJ_per_DRAM_weight_read  DRAM_refetch_x  layers_ok  layers_skipped
-eyeriss_like_wglb / resnet18 2,359.52         602.82            961.45 1,149.24   417.24  5,490.26          765.92      11,967,488.00                    64.00            1.02      21.00            0.00
+                               DRAM  Global buffer  Local (spads/RF)    NoC  Compute  total_uJ  DRAM_weight_uJ  DRAM_weight_reads  pJ_per_DRAM_weight_read  DRAM_refetch_x  layers_ok  layers_skipped
+eyeriss_like_wglb / resnet18 324.85         176.29            107.40 163.09    40.44    812.07           28.51         445,440.00                    64.00            1.46       2.00            0.00
 
 ==============================================================================
 ORDERING  --  cheapest architecture first
 ==============================================================================
-  eyeriss_like_wglb / resnet18                     5,490.26 uJ    1.00x   DRAM weight reads     11,967,488  (1.02 fetches per weight)
+  eyeriss_like_wglb / resnet18                       812.07 uJ    1.00x   DRAM weight reads        445,440  (1.46 fetches per weight)
 
   Reading this table:
     * DRAM_refetch_x is how many times the average weight crosses the DRAM

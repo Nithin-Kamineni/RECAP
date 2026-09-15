@@ -1,11 +1,11 @@
 ==============================================================================
 ecc-energy  |  sweep=fix (the held point)  |  output=ReconSweep_optimiser__resnet18
 ==============================================================================
-  sweeping              : baseline, embedded, recon1, recon2, recon3, recon4, recon5
+  sweeping              : baseline, embedded, recon
   holding               : model=resnet18   code=BCH(63,39) t=4
-  approaches            : baseline, embedded, recon1, recon2, recon3, recon4, recon5
+  approaches            : baseline, embedded, recon
   workload file         : cnn
-  layer scope           : full
+  layer scope           : two-layer: conv1, layer3.0.conv1
   weight precision      : 8b (the protected payload)
   activation precision  : 8b
   accumulator precision : per architecture, as published (v1 16b, v2 20b, Simba 24b, simple designs 16b)  [primary]
@@ -30,46 +30,50 @@ ecc-energy  |  sweep=fix (the held point)  |  output=ReconSweep_optimiser__resne
   re-run the optimiser  : False
 ==============================================================================
   ECC_FROM_CACHE=1: reading solved mappings only, Timeloop will not be invoked
+  [layers] resnet18: 2 of 21 layers  (304,320 of 11,678,912 weights, 2.61% of the model)
+           conv1                    C3_M64_R7_S7_P112_Q112_ws2_hs2  weights=9,408
+           layer3.0.conv1           C128_M256_R3_S3_P14_Q14_ws2_hs2  weights=294,912
+  [scope] two-layer run -- results are written under layers2__conv1__layer3_0_conv1/ and are NOT full-model numbers
 
 ########## architecture: eyeriss_like_wglb ##########
   raw cache hit: resnet18
-  [MAC OVERRIDE] Compute rescaled to 1,814,073,344 MACs x 0.23 pJ = 417.237 uJ (ERT: 0.23000 pJ/MAC, 417.237 uJ); Horowitz ISSCC 2014 int8 mult+add, 45 nm. Every percentage's DENOMINATOR moves; no saved pJ does.
+  [MAC OVERRIDE] Compute rescaled to 175,816,704 MACs x 0.23 pJ = 40.438 uJ (ERT: 0.23000 pJ/MAC, 40.438 uJ); Horowitz ISSCC 2014 int8 mult+add, 45 nm. Every percentage's DENOMINATOR moves; no saved pJ does.
   [warn] ECC_OPT_METRIC=edp: a cheaper MAC can move an EDP-optimal mapping, and the mapper was not re-run (it prices MACs from the ERT) -- a fixed-mapping result, not a re-optimised design
-  [DRAM OVERRIDE] DRAM rescaled 8 -> 20 pJ/bit (x2.5): weight DRAM 765.919 -> 1,914.798 uJ. ECC_DRAM_PJ_PER_BIT=20 -- Horowitz, ISSCC 2014, "Computing's Energy Problem": 32b DRAM read = 640 pJ = 20 pJ/bit = 1.28 nJ/64b
+  [DRAM OVERRIDE] DRAM rescaled 8 -> 20 pJ/bit (x2.5): weight DRAM 28.508 -> 71.270 uJ. ECC_DRAM_PJ_PER_BIT=20 -- Horowitz, ISSCC 2014, "Computing's Energy Problem": 32b DRAM read = 640 pJ = 20 pJ/bit = 1.28 nJ/64b
   [DRAM OVERRIDE] E_total(DRAM) = E_dynamic only; E_background and E_refresh are NOT modelled (both 0) -- the embedded arm holds fewer weight bits in DRAM and is given no credit for it
   [LATENCY] latency model: roofline, off-chip limit 120 MB/s = 0.6 items/cycle at 5 ns; ALSO declared on the DRAM level since prompt_7 C1.1, so the mapper optimised against it -- the re-timing here is evaluator-only and not in the fingerprint
-            61,445,721 cycles = 307.229 ms against Timeloop's 61,445,721 (x1.0000); binding: DRAM on 21 layer(s)
-  [STANDBY] 1,842.448 uJ charged to ALL THREE arms over roofline cycles (61,445,721 against Timeloop's 61,445,721, x1.0000); Timeloop's own leakage bill on the same plan was 1.209423 uJ (x1,523)
-            filter_glb     sram    0.0445 mW/instance x   0.68 mean instances =      9.341 uJ
-            ifmap_glb      sram    1.1472 mW/instance x   0.68 mean instances =    240.971 uJ
-            ifmap_spad     rf      0.0134 mW/instance x  29.52 mean instances =    121.906 uJ
-            mac            mac     0.0078 mW/instance x  29.52 mean instances =     71.156 uJ
-            psum_glb       sram    1.1472 mW/instance x   0.68 mean instances =    240.971 uJ
-            psum_spad      rf      0.1075 mW/instance x  29.52 mean instances =    975.246 uJ
-            weights_spad   rf      0.0202 mW/instance x  29.52 mean instances =    182.859 uJ
-  resnet18           raw    10,871.98 uJ   DRAM weight reads     11,967,488
+            8,459,539 cycles = 42.298 ms against Timeloop's 8,459,539 (x1.0000); binding: DRAM on 2 layer(s)
+  [STANDBY] 194.323 uJ charged to ALL THREE arms over roofline cycles (8,459,539 against Timeloop's 8,459,539, x1.0000); Timeloop's own leakage bill on the same plan was 0.160526 uJ (x1,211)
+            filter_glb     sram    0.0445 mW/instance x   0.64 mean instances =      1.205 uJ
+            ifmap_glb      sram    1.1472 mW/instance x   0.64 mean instances =     31.083 uJ
+            ifmap_spad     rf      0.0134 mW/instance x  20.78 mean instances =     11.815 uJ
+            mac            mac     0.0078 mW/instance x  20.78 mean instances =      6.896 uJ
+            psum_glb       sram    1.1472 mW/instance x   0.64 mean instances =     31.083 uJ
+            psum_spad      rf      0.1075 mW/instance x  20.78 mean instances =     94.519 uJ
+            weights_spad   rf      0.0202 mW/instance x  20.78 mean instances =     17.722 uJ
+  resnet18           raw     1,493.67 uJ   DRAM weight reads        445,440
 
   --- eyeriss_like_wglb / resnet18 : Task 2, embedded ECC vs conventional ECC (DRAM effect only) ---
     precisions            : weight 8b   activation 8b   accumulator 16b (published)
     code                  : BCH(63,39) t=4   24b parity per codeword
     embedded layout       : 63-bit chunks of the weight bit stream -> 7.8750 weights/codeword, period 8 codewords = 63 weights, 7 of 8 boundaries split a weight
     parity per weight     : bit0 1.000, bit1 1.000, bit2 1.000, bit3 0.048  (bits overwritten, by significance)
-    payload               : 11,678,912 weights = 11,678,912 B   (both arms)
+    payload               : 304,320 weights = 304,320 B   (both arms)
                                conventional (Task 1)     embedded (Task 2)
-    stored codewords      :                2,919,728             1,483,051
-    external parity       :              8,759,184 B                   0 B
-    padding stored        :              2,554,762 B                 115 B
-    stored total          :             22,992,858 B          11,679,027 B
-    bits per weight       :                  15.7500                8.0001
-    DRAM weight reads     :               11,967,488            11,967,488   (identical; refetch x1.02)
-    external DRAM words   :                1,449,188                     0
+    stored codewords      :                   76,080                38,645
+    external parity       :                228,240 B                   0 B
+    padding stored        :                 66,570 B                   9 B
+    stored total          :                599,130 B             304,329 B
+    bits per weight       :                  15.7500                8.0002
+    DRAM weight reads     :                  445,440               445,440   (identical; refetch x1.46)
+    external DRAM words   :                   53,940                     0
     pJ per DRAM bit       :                     22.0                  20.0   (x1.1000; bigger array + indexing)
-    DRAM weight energy    :             2,106.278 uJ          1,914.798 uJ
+    DRAM weight energy    :                78.397 uJ             71.270 uJ
     parity traffic energy :                 0.000 uJ              0.000 uJ   (neither arm: corrected on the DRAM die)
-    total                 :            11,461.860 uJ         10,871.981 uJ   -> saving 5.15%
+    total                 :             1,574.877 uJ          1,493.666 uJ   -> saving 5.16%
     non-DRAM components   : identical by construction, checked
     hand checks           : baseline PASS   embedded PASS
-    -> <ROOT>/results/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers-full/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/<RUNID>.json
+    -> <ROOT>/results/evaluation/Pre/eyeriss_like_wglb/resnet18/bch63_39/w8a8/layers2__conv1__layer3_0_conv1/map-edp-vic2000l-linear_pruned-seednone-ssnone-perm16/<RUNID>.json
 
 ==============================================================================
 Task 2 embedded ECC: 1 result file(s) written under <ROOT>/results/evaluation

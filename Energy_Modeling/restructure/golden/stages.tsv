@@ -6,4 +6,4 @@ recon_default	0	recon_default.txt + 3 result file(s)
 recon_ert	0	recon_ert.txt + 3 result file(s)
 validate	0	validate.txt + 1 result file(s)
 diagnose	0	diagnose.txt + 2 result file(s)
-pytest	0	pytest.txt
+pytest	1	pytest.txt

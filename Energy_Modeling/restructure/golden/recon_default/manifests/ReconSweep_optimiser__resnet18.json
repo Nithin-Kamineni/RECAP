@@ -5,11 +5,7 @@
     "approaches": [
       "baseline",
       "embedded",
-      "recon1",
-      "recon2",
-      "recon3",
-      "recon4",
-      "recon5"
+      "recon"
     ],
     "arch_clock_mhz": {
       "eyeriss_like": 200.0,
@@ -58,8 +54,24 @@
     "from_cache": true,
     "global_cycle_seconds": "1e-9",
     "latency_model": true,
-    "layers": [],
-    "layers_by_model": {},
+    "layers": [
+      "conv1",
+      "layer3.0.conv1"
+    ],
+    "layers_by_model": {
+      "efficientnet_b0": [
+        "features.1.0.block.0.0",
+        "features.5.0.block.1.0"
+      ],
+      "mobilenet_v2": [
+        "features.1.conv.0.0",
+        "features.9.conv.2"
+      ],
+      "resnet18": [
+        "conv1",
+        "layer3.0.conv1"
+      ]
+    },
     "leakage_nw": {
       "mac_instance": 7844.9,
       "rf_bit": 70.0,
@@ -70,11 +82,13 @@
     "mapper_max_permutations": 16,
     "mapper_search_size": null,
     "mapper_seed": null,
-    "mapper_threads": 18,
+    "mapper_threads": 16,
     "mapper_timeout": 100000000,
     "mapspace_constrain": true,
     "metrics": [
-      "energy"
+      "energy",
+      "edp",
+      "latency"
     ],
     "models": [
       "resnet18"
@@ -169,7 +183,7 @@
       "dram_cost_provenance": "ECC_DRAM_PJ_PER_BIT=20 -- Horowitz, ISSCC 2014, \"Computing's Energy Problem\": 32b DRAM read = 640 pJ = 20 pJ/bit = 1.28 nJ/64b",
       "dram_pj_per_bit": 20.0,
       "dram_reducible": true,
-      "dram_weight_energy_pJ": 1914798080.0,
+      "dram_weight_energy_pJ": 71270400.0,
       "rule": "dram = DRAM weight energy x K/N under every boundary when the decoder is on the DRAM die (01_project_context Sec. 4). Accelergy's CactiDRAM is one flat per-bit DYNAMIC access constant and the whole of it is credited: the DRAM access fetches only the message bits of each codeword. E_background and E_refresh are not modelled (both 0)"
     }
   },
@@ -179,18 +193,18 @@
   "mac_energy": {
     "citation": "M. Horowitz, 'Computing's energy problem (and what we can do about it)', ISSCC 2014, Fig. 1.1.9 'Rough energy costs for various operations in 45nm 0.9V'",
     "citation_short": "Horowitz ISSCC 2014 int8 mult+add, 45 nm",
-    "compute_pJ_charged": 417236869.12,
-    "compute_pJ_ert": 417236869.1200001,
-    "compute_scale": 0.9999999999999997,
-    "ert_pj_per_mac": 0.23000000000000007,
-    "macs": 1814073344.0,
+    "compute_pJ_charged": 40437841.92,
+    "compute_pJ_ert": 40437841.92,
+    "compute_scale": 1.0,
+    "ert_pj_per_mac": 0.23,
+    "macs": 175816704.0,
     "mapping_note": "ECC_OPT_METRIC=edp: a cheaper MAC can move the mapping optimum, and the mapper was NOT re-run (it prices MACs from the ERT) -- a fixed-mapping result",
     "opt_metric": "edp",
     "override_pj_per_mac": 0.23,
     "pj_per_mac_charged": 0.23,
     "source": "ECC_MAC_PJ_OVERRIDE"
   },
-  "mapper_fingerprint": "e390be6e",
+  "mapper_fingerprint": "36a80922",
   "notes": [],
   "panel_per_architecture": [
     "eyeriss_like_wglb"
@@ -204,14 +218,10 @@
   "swept_values": [
     "baseline",
     "embedded",
-    "recon1",
-    "recon2",
-    "recon3",
-    "recon4",
-    "recon5"
+    "recon2"
   ],
   "table": "<ROOT>/results/tables/ReconSweep_optimiser__resnet18.csv",
-  "title": "Eyeriss v1 (+filter GLB)  \u00b7  resnet18  \u00b7  8-bit weights  \u00b7  BCH(63,39) t=4  \u00b7  ERT-aware mapping",
+  "title": "Eyeriss v1 (+filter GLB)  \u00b7  resnet18  \u00b7  conv1, layer3.0.conv1  \u00b7  8-bit weights  \u00b7  BCH(63,39) t=4  \u00b7  ERT-aware mapping",
   "title_caveats": [
     "Reconstruction-boundary placement  \u00b7  ERT-AWARE MAPPING, ONE PLAN PER BOUNDARY: 6 distinct chips -- reference + recon1, recon2, recon3, recon4, recon5 -- each (datawidth q on the levels it narrows) x (its ERT bump) x (its declared bandwidth scale). EVERY BAR NAMES THE PLAN IT WAS BILLED FROM in `billed_from` on its own record, with whether that plan's storage geometry is its own",
     "Decoder on the DRAM die: the WHOLE DRAM weight term \u00d7 K/N on every R bar  \u00b7  ECC_DRAM_PJ_PER_BIT=20 -- Horowitz, ISSCC 2014, \"Computing's Energy Problem\": 32b DRAM read = 640 pJ = 20 pJ/bit = 1.28 nJ/64b",
@@ -225,11 +235,8 @@
     "R-5 LABELS. A constrained or relaxed dataflow is a DIFFERENT ACCELERATOR -- label such bars \"constrained dataflow\" and never quote them as the published chip. A design whose provenance is `reference_design` is named after a paper, not published as one: \"Simba-like (reference design)\".",
     "R-6 THE ABSTRACT `recon` ARM IS RETIRED (EnvReorganisation phase 6, 2026-09-14). It was `build_stacks()`'s third column -- one point applied to every design at once, at the chip ingress with a single engine, and no physical boundary did what it did -- and this rule existed to stop it being quoted as a placement. Every reconstruction bar on every figure is now a boundary some design declares, looked up in ITS OWN mapper cache at every swept point, and a bare `recon` is the one ECC_RECON_DEFAULT names. The FINDINGS numbers built on the abstract arm stay as history, labelled as the abstract arm; they are not reproducible from this tree.",
     "CLOCK GATING: this figure is ECC_RECON_CLOCK_GATING_PCT=99.5. The two settings that must be reported side by side are 0 (the pessimistic bound: the engine's whole DC idle constant is charged every cycle it is switched on) and 99.5 (the measured clock/dynamic share of that constant). They differ by ~193x on the idle term and they INVERT the ranking of the boundaries.",
-    "Eyeriss v1 (+filter GLB) recon1: its own EDP-optimal plan uses a different PE count than the reference plan on 1 of 12 layer shapes -- C128_M256_R3_S3_P14_Q14_ws2_hs2 (96 vs 48 PEs); idle is charged on the instances that leak (utilized, per layer), as Timeloop bills it",
-    "Eyeriss v1 (+filter GLB) recon2: its own EDP-optimal plan uses a different PE count than the reference plan on 3 of 12 layer shapes -- C128_M256_R3_S3_P14_Q14_ws2_hs2 (96 vs 48 PEs), C256_M512_R3_S3_P7_Q7_ws2_hs2 (96 vs 48 PEs), C512_M512_R3_S3_P7_Q7_ws1_hs1 (96 vs 48 PEs); idle is charged on the instances that leak (utilized, per layer), as Timeloop bills it",
-    "Eyeriss v1 (+filter GLB) recon3: its own EDP-optimal plan uses a different PE count than the reference plan on 3 of 12 layer shapes -- C128_M256_R3_S3_P14_Q14_ws2_hs2 (96 vs 48 PEs), C256_M512_R3_S3_P7_Q7_ws2_hs2 (96 vs 48 PEs), C512_M512_R3_S3_P7_Q7_ws1_hs1 (96 vs 48 PEs); idle is charged on the instances that leak (utilized, per layer), as Timeloop bills it",
-    "Eyeriss v1 (+filter GLB) recon4: its own EDP-optimal plan uses a different PE count than the reference plan on 4 of 12 layer shapes -- C64_M128_R1_S1_P28_Q28_ws2_hs2 (8 vs 32 PEs), C128_M256_R3_S3_P14_Q14_ws2_hs2 (96 vs 48 PEs), C128_M256_R1_S1_P14_Q14_ws2_hs2 (32 vs 64 PEs), C256_M512_R3_S3_P7_Q7_ws2_hs2 (96 vs 48 PEs); idle is charged on the instances that leak (utilized, per layer), as Timeloop bills it",
-    "Eyeriss v1 (+filter GLB) recon5: its own EDP-optimal plan uses a different PE count than the reference plan on 4 of 12 layer shapes -- C64_M128_R1_S1_P28_Q28_ws2_hs2 (8 vs 32 PEs), C128_M256_R3_S3_P14_Q14_ws2_hs2 (96 vs 48 PEs), C128_M256_R1_S1_P14_Q14_ws2_hs2 (32 vs 64 PEs), C256_M512_R3_S3_P7_Q7_ws2_hs2 (96 vs 48 PEs); idle is charged on the instances that leak (utilized, per layer), as Timeloop bills it"
+    "DEVELOPMENT RUN \u2014 two-layer only: conv1, layer3.0.conv1  (not a full-model result)",
+    "Eyeriss v1 (+filter GLB) recon2: its own EDP-optimal plan uses a different PE count than the reference plan on 1 of 2 layer shapes -- C128_M256_R3_S3_P14_Q14_ws2_hs2 (96 vs 48 PEs); idle is charged on the instances that leak (utilized, per layer), as Timeloop bills it"
   ],
   "workload_meta": {}
 }

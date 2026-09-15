@@ -5,11 +5,7 @@
     "approaches": [
       "baseline",
       "embedded",
-      "recon1",
-      "recon2",
-      "recon3",
-      "recon4",
-      "recon5"
+      "recon"
     ],
     "arch_clock_mhz": {
       "eyeriss_like": 200.0,
@@ -58,8 +54,24 @@
     "from_cache": false,
     "global_cycle_seconds": "1e-9",
     "latency_model": true,
-    "layers": [],
-    "layers_by_model": {},
+    "layers": [
+      "conv1",
+      "layer3.0.conv1"
+    ],
+    "layers_by_model": {
+      "efficientnet_b0": [
+        "features.1.0.block.0.0",
+        "features.5.0.block.1.0"
+      ],
+      "mobilenet_v2": [
+        "features.1.conv.0.0",
+        "features.9.conv.2"
+      ],
+      "resnet18": [
+        "conv1",
+        "layer3.0.conv1"
+      ]
+    },
     "leakage_nw": {
       "mac_instance": 7844.9,
       "rf_bit": 70.0,
@@ -70,11 +82,13 @@
     "mapper_max_permutations": 16,
     "mapper_search_size": null,
     "mapper_seed": null,
-    "mapper_threads": 18,
+    "mapper_threads": 16,
     "mapper_timeout": 100000000,
     "mapspace_constrain": true,
     "metrics": [
-      "energy"
+      "energy",
+      "edp",
+      "latency"
     ],
     "models": [
       "resnet18"
@@ -160,7 +174,7 @@
     "weights_per_codeword": 4,
     "workload": "cnn"
   },
-  "mapper_fingerprint": "e390be6e",
+  "mapper_fingerprint": "36a80922",
   "reports": [
     {
       "arch": "eyeriss_like_wglb",
@@ -312,7 +326,7 @@
           }
         ]
       },
-      "fingerprint": "2db6a4d92ff5",
+      "fingerprint": "d1444604cd01",
       "notes": [
         "published at 65nm, modelled at 45nm. Deliberate: a mixed-node comparison would report silicon as architecture.",
         "interconnect: multicast_network_no_routers -- wire 0.12 pJ/b/mm (shared); PE_column: router 0 pJ, ingress 0.915206 pJ, hop from area; PE: router 0 pJ, ingress 0.915206 pJ, hop from area (archs/_shared/noc.yaml)"
