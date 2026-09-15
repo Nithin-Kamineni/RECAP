@@ -26,6 +26,20 @@ from .style import plt
 #: Bar geometry, shared by every panel so two figures are always comparable.
 BAR_WIDTH, BAR_GAP = 0.34, 0.06
 
+#: THE GAP BETWEEN GROUPS, AS A FRACTION OF THE WIDTH THE GROUP'S BARS USE
+#: (Task D session 2, 2026-09-14; phase 6 recorded the defect and left it).
+#: It was a CONSTANT 1.4 data units, which is a constant only in the axis's
+#: coordinates and not in anything a reader sees: the bars around it change
+#: width and number, the gap did not. Measured on the two figures this project
+#: draws, the empty share of each group's reserved width was 35 % on the
+#: seven-bar bch sweep and 61 % on the one-bar-per-group placement figure. A
+#: fraction holds that share fixed instead, and the FLOOR keeps a single wide
+#: bar from touching its neighbour.
+#: This changes no number and no page size -- `panel_width` still sets the
+#: inches, so the inches per GROUP (and so the room a group label has) are
+#: exactly what they were. Only the bars' share of that room grows.
+GROUP_GAP_FRAC, GROUP_GAP_MIN_SPANS = 0.35, 0.5
+
 
 def active_categories(cfg, panel_stacks, cats=None):
     """Categories non-zero SOMEWHERE across every panel handed in.
@@ -88,12 +102,22 @@ def panel_width(n_bars, n_groups):
 
 
 def _bar_x(cfg, n, bars=None, width=BAR_WIDTH):
-    """Group centres, and the per-bar offset within a group."""
+    """Group centres, the per-bar offset within a group, and the outer margin.
+
+    `extent` is what the group's bars ACTUALLY occupy, edge to edge, and the
+    gap to the next group is a fraction of it (`GROUP_GAP_FRAC`) rather than
+    the constant it was until Task D session 2. The margin returned is half a
+    gap plus half an extent, so the paper outside the first and last group
+    matches the paper between two of them.
+    """
     bars = list(bars or cfg.bar_arms)
     span = width + BAR_GAP
-    centers = np.arange(n) * (len(bars) * span + 1.4)
+    extent = (len(bars) - 1) * span + width
+    gap = max(GROUP_GAP_FRAC * extent, GROUP_GAP_MIN_SPANS * span)
+    centers = np.arange(n) * (extent + gap)
     first = -(len(bars) - 1) / 2.0
-    return centers, {a: (first + i) * span for i, a in enumerate(bars)}
+    return (centers, {a: (first + i) * span for i, a in enumerate(bars)},
+            (extent + gap) / 2.0)
 
 
 def draw_panel(ax, cfg, groups, stacks, group_labels, *, pal, active, div,
@@ -134,8 +158,9 @@ def draw_panel(ax, cfg, groups, stacks, group_labels, *, pal, active, div,
     """
     approaches = list(bars or cfg.bar_arms)
     tags = APPROACH_TAGS if bar_tags is None else bar_tags
+    ann = style.annotation(cfg)
     n = len(groups)
-    centers, xoff = _bar_x(cfg, n, approaches, bar_width)
+    centers, xoff, margin = _bar_x(cfg, n, approaches, bar_width)
 
     # WHICH (group, bar) SLOTS EXIST. `np.nan` is what matplotlib draws as
     # nothing, and it is also what keeps a missing bar out of every maximum,
@@ -188,9 +213,15 @@ def draw_panel(ax, cfg, groups, stacks, group_labels, *, pal, active, div,
                 # `-{pct}` printed it as "--11.8%". The sign carries the
                 # direction: a minus is energy saved, a plus is energy spent.
                 sign = "\u2212" if pct >= 0 else "+"
+                # AND THE COLOUR CARRIES THE SAME DIRECTION (Task D session 2).
+                # Both used to print in `Compute`'s red, so the sign glyph was
+                # the only thing separating a 7 % saving from a 15 % penalty.
+                # `style.annotation` keeps the red for the penalty and gives
+                # the saving its own colour; see its comment for the CVD pair.
                 ax.text(centers[i] + xoff[a], bottoms[a][i] + ymax * 0.045,
                         f"{sign}{abs(pct):.1f}%", ha="center", va="bottom",
-                        fontsize=13, fontweight="bold", color="#B03A2E")
+                        fontsize=13, fontweight="bold",
+                        color=ann["saving" if pct >= 0 else "penalty"])
         note = (bar_notes or {}).get(g)
         if note:
             ax.text(centers[i], max((bottoms[a][i] for a in approaches
@@ -228,7 +259,7 @@ def draw_panel(ax, cfg, groups, stacks, group_labels, *, pal, active, div,
                      default=0)
     ax.set_ylim(0, ymax * (1.22 if not bar_notes
                            else 1.34 + 0.06 * max(0, note_lines - 2)))
-    ax.set_xlim(centers[0] - 1.4, centers[-1] + 1.4)
+    ax.set_xlim(centers[0] - margin, centers[-1] + margin)
     ax.tick_params(axis="y", labelsize=20, width=2.0, length=9)
     ax.grid(axis="y", ls=":", alpha=0.35, zorder=0)
     ax.spines["top"].set_visible(False)

@@ -75,6 +75,24 @@ NICE_CATEGORY = {
 
 INK = "#2b2b2b"
 
+#: THE SAVINGS ANNOTATION, IN TWO COLOURS SINCE TASK D SESSION 2 (2026-09-14).
+#: Every percentage above a bar used to print in ONE red -- `Compute`'s own
+#: #B03A2E -- so a saving and a PENALTY differed by their sign glyph alone, and
+#: a reader scanning the figure read "+15.4%" as another win. The sign is still
+#: there and is still the fallback; the colour now carries the direction too.
+#: A penalty keeps the red it always had, so no bar that costs more than its
+#: reference changed colour; a saving is what moved.
+#: The CVD pair is Okabe-Ito -- bluish green against vermillion, which separate
+#: under protanopia and deuteranopia; the house pair is a conventional
+#: green/red and does not, which is what `ECC_PALETTE=cvd` is for.
+ANNOTATION = {"saving": "#1B7837", "penalty": "#B03A2E"}
+ANNOTATION_CVD = {"saving": "#009E73", "penalty": "#D55E00"}
+
+
+def annotation(cfg):
+    """`{"saving": colour, "penalty": colour}` for this run's palette."""
+    return ANNOTATION_CVD if cfg.palette == "cvd" else ANNOTATION
+
 
 def palette(cfg):
     return CVD if cfg.palette == "cvd" else HOUSE
