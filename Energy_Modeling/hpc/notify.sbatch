@@ -103,6 +103,14 @@ BODYEOF
 # mail that never lands in the inbox is still diagnosable from hpc/logs/.
 printf '%s\n' "${SUBJECT}" "${BODY}"
 
+# The last sweep of the run. run_all.sh tidies on its way IN, which cannot
+# reach the logs of the submission it is itself starting; this job runs after
+# every one of them has terminated, so it is the only place that can retire the
+# eval job's own log. Its own log survives -- this job is still in `squeue`.
+if [ "${ECC_TIDY_LOGS:-0}" = "1" ] && [ -x "${SLURM_SUBMIT_DIR:-.}/hpc/tidy_logs.sh" ]; then
+    (cd "${SLURM_SUBMIT_DIR:-.}" && bash hpc/tidy_logs.sh --quiet) || true
+fi
+
 # THE COMPUTE NODES CANNOT SEND MAIL BY THEMSELVES. mail(1) and mailx are not
 # installed on them (they exist only on the login nodes), and /usr/sbin/sendmail
 # is msmtp with no configuration file -- "account default not found". Both were

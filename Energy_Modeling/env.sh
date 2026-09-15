@@ -898,6 +898,16 @@ declare -A ECC_RECON_IDLE_PJ=(          # pJ per CYCLE per ENGINE
 : "${ECC_MAIL_SMTP:=smtp.ufl.edu}"
 : "${ECC_MAIL_SMTP_PORT:=25}"
 
+# 1 = hpc/run_all.sh sweeps hpc/logs/ on its way past, EVERY invocation, so
+# logs/ holds the jobs still in the queue and old-logs/ holds the rest. This is
+# what makes the sweep automatic without a cron job -- HiPerGator does not let
+# users have one ("not allowed to use this program"). The dependent eval job IS
+# `run_all.sh --eval-only`, so the sweep also fires the moment a map array
+# finishes, which is exactly when its logs stop being interesting, and it costs
+# no queue slot of its own. 0 = only ever sweep when you run hpc/tidy_logs.sh
+# by hand. Nothing is deleted at either setting.
+: "${ECC_TIDY_LOGS:=1}"
+
 # the Timeloop+Accelergy image
 : "${ECC_SIF:=${ECC_PROJECT_ROOT}/timeloop.sif}"
 
@@ -1197,7 +1207,7 @@ export ECC_ACC_BITS ECC_ACCOUNT ECC_ACTIVATION_BITS ECC_ALLOW ECC_APPROACHES \
        ECC_RERUN_OPTIMISER ECC_RESULTS_DIR ECC_RUN_NOTE ECC_SEQ ECC_SIF \
        ECC_SCOPE ECC_SPLIT_READ_WRITE ECC_STATIC_ENERGY ECC_STEM ECC_SWEEP \
        ECC_SWEEP_ARCHS ECC_SWEEP_KS ECC_SWEEP_MODELS ECC_TASKFILE \
-       ECC_TITLE_NOTE ECC_USE_CONTAINER ECC_VERBOSE ECC_VICTORY \
+       ECC_TIDY_LOGS ECC_TITLE_NOTE ECC_USE_CONTAINER ECC_VERBOSE ECC_VICTORY \
        ECC_VICTORY_SCALING ECC_WEAK ECC_WEAK_K ECC_WEAK_N ECC_WEIGHT_BITS \
        ECC_WEIGHT_DEPTH_LEVELS ECC_WEIGHT_DEPTH_SCALE \
        ECC_WEIGHT_FACTOR_RELAX

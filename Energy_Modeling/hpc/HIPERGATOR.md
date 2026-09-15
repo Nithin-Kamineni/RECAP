@@ -266,8 +266,13 @@ carries architecture, treatment, fingerprint and shape).
     speaks SMTP to `ECC_MAIL_SMTP` (`smtp.ufl.edu:25`, reachable from the nodes,
     no credentials) and only falls back to a local `sendmail`. If mail ever
     stops arriving, that relay is the first thing to check.
-* `hpc/tidy_logs.sh` moves the job output of finished jobs into `hpc/old-logs/`,
-  so `hpc/logs/` keeps only what is still in the queue.
+* `hpc/logs/` tidies itself: every `hpc/run_all.sh` invocation moves the output
+  of jobs no longer in `squeue` into `hpc/old-logs/` (`ECC_TIDY_LOGS=1`, env.sh
+  section 5), so the directory holds the live run and nothing else. Users get no
+  cron on HiPerGator, so the hook rides on `run_all.sh` instead — and since the
+  dependent eval job *is* `run_all.sh --eval-only`, a map array's logs are swept
+  as soon as it finishes, without a queue slot of its own. `bash
+  hpc/tidy_logs.sh` runs it by hand; `--dry-run` shows what it would take.
 * Windows-side edits to `*.sh`/`*.py`/`*.yaml` may arrive with CRLF if they
   bypass the `.gitattributes`; `bash tools/fix-eol.sh` repairs them.
 * Do not delete `ecc_energy_study/outputs/` — hours of compute, and now the

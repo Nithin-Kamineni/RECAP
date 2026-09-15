@@ -24,11 +24,18 @@ LOGS="${HERE}/logs"
 OLD="${HERE}/old-logs"
 
 DRY_RUN=0
+QUIET=0
 case "${1:-}" in
     --dry-run|-n) DRY_RUN=1 ;;
+    # --quiet is what hpc/run_all.sh uses when it sweeps on the way past: a
+    # janitor that chatters on every invocation trains you to ignore the output
+    # of the script it is attached to.
+    --quiet|-q)   QUIET=1 ;;
     "")           ;;
-    *) echo "tidy_logs: unknown argument '$1' (expected --dry-run)" >&2; exit 2 ;;
+    *) echo "tidy_logs: unknown argument '$1' (expected --dry-run or --quiet)" >&2; exit 2 ;;
 esac
+
+say() { [ "${QUIET}" = 1 ] || echo "$@"; }
 
 [[ -d "${LOGS}" ]] || { echo "tidy_logs: no ${LOGS}"; exit 0; }
 mkdir -p "${OLD}"
@@ -46,7 +53,7 @@ if ! ACTIVE="$(squeue -u "${USER}" -h -o '%A' | sort -u)"; then
 fi
 
 active_count="$(printf '%s' "${ACTIVE}" | grep -c . || true)"
-echo "tidy_logs: ${active_count} job id(s) in the queue; their logs stay in hpc/logs/"
+say "tidy_logs: ${active_count} job id(s) in the queue; their logs stay in hpc/logs/"
 
 moved=0
 kept=0
@@ -63,16 +70,28 @@ while IFS= read -r -d '' path; do
     if (( DRY_RUN )); then
         echo "would move  ${name}"
     elif [[ -e "${OLD}/${name}" ]]; then
-        echo "tidy_logs: ${name} already in old-logs/ -- left in place" >&2
+        say "tidy_logs: ${name} already in old-logs/ -- left in place"
         continue
-    else
-        mv -- "${path}" "${OLD}/${name}"
+    elif ! mv -- "${path}" "${OLD}/${name}" 2>/dev/null; then
+        # Lost a race with a concurrent sweep, or the file went away. Never a
+        # reason to fail: this is a janitor attached to a submission, and a
+        # tidy that errors must not take the run down with it.
+        [[ -e "${path}" ]] && say "tidy_logs: could not move ${name} -- left in place"
+        continue
     fi
     moved=$(( moved + 1 ))
 done < <(find "${LOGS}" -maxdepth 1 -type f \( -name '*.out' -o -name '*.err' \) -print0)
 
 if (( DRY_RUN )); then
     echo "tidy_logs: would move ${moved}, would keep ${kept} (dry run, nothing changed)"
+elif [ "${QUIET}" = 1 ]; then
+    # One line, and only when there was something to do. A plain `[ ] && echo`
+    # here would return 1 when nothing moved and `set -e` would take the script
+    # -- and with it the run that called it -- down on the quiet path.
+    if [ "${moved}" -gt 0 ]; then
+        echo "tidy_logs: swept ${moved} finished log(s) into hpc/old-logs/"
+    fi
 else
     echo "tidy_logs: moved ${moved} to hpc/old-logs/, kept ${kept} in hpc/logs/"
 fi
+exit 0

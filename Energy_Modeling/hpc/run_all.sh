@@ -136,6 +136,19 @@ while [ $# -gt 0 ]; do
     shift
 done
 
+# SWEEP FINISHED JOB OUTPUT OUT OF hpc/logs/ ON THE WAY PAST (ECC_TIDY_LOGS=1,
+# env.sh section 5). Here, rather than in a cron job, because HiPerGator does not
+# give users cron -- and here rather than at the end of a submission, because the
+# dependent eval job IS this script with --eval-only, so a sweep at startup also
+# runs the moment the map array it waited on has finished. Anything still in
+# `squeue`, PENDING included, keeps its log; see hpc/tidy_logs.sh.
+#
+# `|| true`: a janitor must never take the run down with it. A failed tidy costs
+# you a cluttered directory; a failed run_all.sh costs you the submission.
+if [ "${ECC_TIDY_LOGS:-0}" = "1" ] && [ -x hpc/tidy_logs.sh ]; then
+    bash hpc/tidy_logs.sh --quiet || true
+fi
+
 # ECC_SWEEP=area's ladder is a shell list (env.sh section 1) and not a field of
 # the resolved configuration, so it travels to the enumerator as an argument.
 # Every other axis is already in the configuration.

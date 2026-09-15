@@ -297,12 +297,23 @@ and anything that did not COMPLETE. `afterany` is what makes a failed run mail
 too. Prove it works in about a minute, without running a mapping, with
 `bash hpc/run_all.sh --mail-test`.
 
-`hpc/logs/` accumulates one file per array task and gets unreadable after a few
-sweeps. `bash hpc/tidy_logs.sh` moves every log whose job id is no longer in
-`squeue` into `hpc/old-logs/` (`--dry-run` to see what it would take). Jobs still
-PENDING keep their id reserved, so the log a queued array task has not opened yet
-is not swept on the next tidy. Nothing is deleted, and the hand-kept
-`bringup-*.log` evidence stays in `hpc/logs/`.
+`hpc/logs/` accumulates one file per array task and would get unreadable after a
+few sweeps, so **it is tidied automatically**: `hpc/run_all.sh` moves every log
+whose job id is no longer in `squeue` into `hpc/old-logs/` on every invocation
+(`ECC_TIDY_LOGS=1`, env.sh section 5). `hpc/logs/` therefore holds the jobs that
+are still queued or running, and `tail -f hpc/logs/*.out` follows the live run.
+
+There is no cron job involved -- HiPerGator does not give users one. The hook is
+at the top of `run_all.sh`, and because the dependent eval job *is*
+`run_all.sh --eval-only`, the sweep also fires the moment a map array finishes,
+at no extra queue slot. When `ECC_MAIL_ON_DONE=1`, `hpc/notify.sbatch` sweeps
+once more after everything has terminated, which is what retires the eval job's
+own log.
+
+Run `bash hpc/tidy_logs.sh` by hand any time (`--dry-run` to see what it would
+take). A job that is still PENDING keeps its id reserved, so the log a queued
+array task has not opened yet is never swept out from under it. Nothing is ever
+deleted, and the hand-kept `bringup-*.log` evidence stays in `hpc/logs/`.
 
 Useful while a run is in flight:
 
