@@ -739,12 +739,33 @@ simba_like:
 simple_weight_stationary:
   source_document: "timeloop-accelergy-exercises reference design; NO paper"
   verified: 2026-09-06
+  diverges_from_reference: true
+  divergence:
+    what: >-
+      weight_glb `depth:` 4608 -> 3072, i.e. 36 kB -> 24 kB of weight capacity,
+      edited by hand on 2026-09-15 01:22 with no reason recorded.
+    consequence: >-
+      The operand split no longer reconstructs the stock 128 kB shared_glb:
+      24 + 28 + 64 = 116 kB. Preserving that total is the stated rationale for
+      splitting the buffer at all, so that rationale is now historical rather
+      than descriptive. The split ratio moves with it, 56.25/43.75 ->
+      46.2/53.8.
+    why_it_is_kept: >-
+      It is the value every result in this repository is computed at: the
+      reference arm fingerprints to `fp-d9fbe8441aa3` under it, which is the
+      directory the 2026-09-15 placement study and BCH sweep were mapped and
+      evaluated in. Reverting would cold this design's whole mapper cache and
+      invalidate those figures; recording the divergence does not.
+    still_owed: >-
+      ONE LINE OF RATIONALE, from whoever made the edit. Until it is written
+      this is a divergence and not a modelling choice, and this design's
+      weight capacity may not be quoted as the reference design's.
   levels:
     input_glb + weight_glb + psum_glb:
       modelled: >-
         the stock 128 kB shared_glb split by DATASPACE into 28 kB inputs (8b),
-        36 kB weights (8b, or q on the reconstruction arm) and 64 kB psums
-        (16b)
+        24 kB weights (8b, or q on the reconstruction arm) and 64 kB psums
+        (16b) -- 116 kB, NOT the stock total: see divergence below
       rationale: >-
         The stock file declares datawidth 16 on EVERY level while declaring an
         8-bit multiplier, so an 8-bit-weight study charged it twice the DRAM
@@ -756,9 +777,13 @@ simple_weight_stationary:
         declare the reconstruction arm's q-bit weights without also declaring
         the input activations to be q bits, and under the default
         ECC_WEIGHT_CAPACITY_SCOPE=exclusive it is not a weight level at all.
-        Total capacity and word width are unchanged (36 + 28 + 64 = 128 kB).
+        The split was DERIVED to leave total capacity and word width
+        unchanged (36 + 28 + 64 = 128 kB). IT NO LONGER DOES: weight_glb was
+        reduced to 24 kB on 2026-09-15 and the total is 116 kB. See the
+        divergence recorded at the top of this entry.
       split_ratio:
-        value: "36 kB weights / 28 kB inputs = 56.25 / 43.75"
+        value: "24 kB weights / 28 kB inputs = 46.2 / 53.8 (was 36/28 =
+          56.25 / 43.75, the ratio the split was derived for)"
         status: >-
           NOT CITED, and there is no paper to cite: this is a reference design.
           Chosen 2026-09-13 from this design's OWN cached mappings, 53 distinct

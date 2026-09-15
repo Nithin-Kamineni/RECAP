@@ -139,12 +139,22 @@ architecture:
       # reconstruction arm's `datawidth: q`.  DECLARED here at the design's
       # own 64-b word; `archs._set_weight_geometry()` reshapes every weight
       # level per arm from THE WIDTH TABLE and renormalises depth to hold
-      # these bits, so what the mapper sees is 768 x 384b (294,912 b, exact
-      # at every q) and NOT this shape.  Do not hand-pick a width here.
+      # these bits, so what the mapper sees is 512 x 384b (196,608 b) and
+      # NOT this shape.  Do not hand-pick a width here.
+      #
+      # REDUCED FROM 4608 (36 kB) TO 3072 (24 kB) ON 2026-09-15, by hand and
+      # with no reason recorded.  It is the value EVERY result in this
+      # repository is computed at -- the reference arm fingerprints to
+      # `fp-d9fbe8441aa3` under it -- so it is kept and the divergence is
+      # written down rather than reverted, which would cold the whole cache.
+      # WHAT IT COSTS: the operand split no longer reconstructs the stock
+      # 128 kB shared_glb (24 + 28 + 64 = 116 kB), which is the rationale
+      # `provenance.yaml` `simple_weight_stationary` gives for splitting it
+      # at all.  See that entry's `diverges_from_reference`.
       name: weight_glb
       class: smartbuffer_SRAM
       attributes:
-        depth: 4608        # 8 banks x 576 entries = 294,912 b = 36 kB
+        depth: 3072        # 8 banks x 384 entries = 196,608 b = 24 kB
         width: 64
         n_banks: 8
         datawidth: 8       # 8-bit weights on the baseline/embedded arm;

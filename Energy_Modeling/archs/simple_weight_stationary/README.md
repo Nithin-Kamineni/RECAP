@@ -36,7 +36,7 @@ one the eyeriss designs use:
 | level | stock | here |
 |---|---|---|
 | DRAM | dw 16 | dw 8 |
-| shared_glb, 128 kB, dw 16 | one level, all dataspaces | `input_glb` 28 kB dw 8 + `weight_glb` 36 kB dw 8 + `psum_glb` 64 kB dw 16 |
+| shared_glb, 128 kB, dw 16 | one level, all dataspaces | `input_glb` 28 kB dw 8 + `weight_glb` **24 kB** dw 8 + `psum_glb` 64 kB dw 16 — **116 kB, not 128**: see the note below |
 | pe_spad (keeps Weights) | dw 16 | dw 8 -> 384 weights |
 | weight_reg / input_activation_reg | 16b | 8b |
 | output_activation_reg | 16b | 16b (unchanged: it holds a psum) |
@@ -80,7 +80,7 @@ is the only input reuse level on chip and takes 90 % of its reads.
 reach before, so fills — DRAM traffic — can only rise on both, and the
 peak-demand layers re-tile.
 
-Splitting one 64 kB array into a 36 kB and a 28 kB one also gives CACTI two
+Splitting one 64 kB array into a 24 kB and a 28 kB one also gives CACTI two
 smaller arrays, so **per-access energy on the operand path is no longer the
 stock number**. Measured (Accelergy, 45nm, reference arm, per 8-bit value so
 the word widths compare):
@@ -97,10 +97,18 @@ arrays carry two sets of peripherals. `../_shared/provenance.yaml` records
 this rather than compensating for it.
 
 `n_banks` is 8 on both halves, conserving the 16 operand banks and pricing both
-on the same banking model; entries per bank move (576 and 448) instead of the
+on the same banking model; entries per bank move (384 and 448) instead of the
 bank count. `weight_glb`'s 384-bit word is THE WIDTH TABLE's, not a choice made
 here: `archs._set_weight_geometry()` reshapes every weight level per arm and
-renormalises depth to hold the declared 294,912 bits — exactly, at every q.
+renormalises depth to hold the declared 196,608 bits.
+
+**`weight_glb` IS 24 kB, NOT THE 36 kB THE SPLIT WAS DERIVED FOR.** It was
+reduced from `depth: 4608` to `depth: 3072` by hand on 2026-09-15 with no
+reason recorded, and every number in this repository is computed at the new
+value. The operand split therefore no longer preserves the stock 128 kB
+(24 + 28 + 64 = 116 kB) — which is the whole rationale `provenance.yaml` gives
+for splitting the shared buffer. **A one-line reason is still owed here**;
+until it is written the reduction is a divergence, not a modelling choice.
 
 **This design no longer brackets.** `ECC_WEIGHT_CAPACITY_SCOPE=exclusive` and
 `shared` now give it the same answer — it has no level holding Weights beside
