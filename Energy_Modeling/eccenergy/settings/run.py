@@ -16,8 +16,8 @@ from typing import Optional
 
 from ..contracts.errors import ConfigError
 from .arch import CNN_MODELS, TRANSFORMER_MODELS
-from .env import (_b, _f, _i, _list, _list_or_none, _of, _oi, _one, _s,
-                  _scoped_list, _table)
+from .env import (_b, _f, _i, _list, _list_or_none, _of, _oi, _one,
+                  _one_or_scoped, _s, _scoped_list, _table)
 
 #: Every model name this project knows, in one tuple, for the ONE reader that
 #: needs to tell `resnet18.conv1` (the dotted ECC_LAYERS form) from
@@ -200,6 +200,11 @@ class RunSettings:
     #: which mapper cache is READ, never what the mapper solves, so it is not
     #: in `IN_FINGERPRINT`.
     recon_default: str
+    #: `ECC_RECON_DEFAULT`'s per-design form: `{arch: placement}`, from
+    #: `;`-separated `arch=reconN` entries. A design with no entry takes
+    #: `recon_default` above, so the bare spelling is still one value for
+    #: every design. `Config.recon_default_for(arch)` is the only reader.
+    recon_default_by_arch: dict
     #: `ECC_METRICS` -- which figure ROWS to draw, in `METRICS` order. See
     #: `METRICS` above for why this is not `mapper.OPT_METRIC` and why it is
     #: not in the fingerprint.
@@ -278,7 +283,11 @@ class RunSettings:
             # makes the phase's single expected divergence exactly the one the
             # plan predicts -- a new KEY in the config record, with no number
             # under it -- and turning the others on is one word in env.sh.
-            recon_default=_one("ECC_RECON_DEFAULT", "recon2").lower(),
+            recon_default=_one_or_scoped(
+                "ECC_RECON_DEFAULT", "recon2")[0].lower(),
+            recon_default_by_arch={
+                k: v.lower() for k, v
+                in _one_or_scoped("ECC_RECON_DEFAULT", "recon2")[1].items()},
             metrics=[m.lower() for m in _list("ECC_METRICS", "energy")],
             # The two spellings of ECC_LAYERS, told apart by the `=`. The
             # resolution into ONE scope needs the held model, which is

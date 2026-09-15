@@ -126,7 +126,7 @@ DESIGN_AXIS_KNOBS = ("const_arch", "sweep_archs", "sweep", "experiment",
 FIELD_ORDER = (
     "experiment", "sweep", "sweep_archs", "sweep_models", "sweep_ks",
     "panel_models", "const_arch", "const_model", "const_k", "approaches",
-    "metrics", "recon_default",
+    "metrics", "recon_default", "recon_default_by_arch",
     "weight_bits", "activation_bits", "acc_bits_override", "code_n",
     "emb_weights_per_cw_override", "parity_grouping", "parity_charge_padding",
     "decode_enabled", "decode_pj_base", "decode_pj_emb",
@@ -235,10 +235,28 @@ def _resolve(self):
     # entries. It must name a PLACEMENT and never one of the two reference
     # arms or the word `recon` itself: `recon` resolving to `recon` is the
     # abstract arm coming back under another name, and that arm is retired.
-    if self.recon_default not in RECON_PLACEMENT_APPROACHES:
+    # SINCE IT TAKES A PER-DESIGN TABLE, EVERY ENTRY IS CHECKED, not just the
+    # bare fallback -- a key that names no design, or a value that names no
+    # placement, would otherwise resolve to the fallback and draw a bar the
+    # user did not ask for, which is the silent half of a typo.
+    unknown_key = sorted(k for k in self.recon_default_by_arch
+                         if k not in KNOWN_ARCHS)
+    if unknown_key:
         raise guards.refusal("unknown-recon-default",
-            f"ECC_RECON_DEFAULT={self.recon_default!r} is not a reconstruction "
-            f"placement; choose one of "
+            f"ECC_RECON_DEFAULT names {', '.join(unknown_key)}, which is not a "
+            f"design this project declares; choose from "
+            f"{', '.join(sorted(KNOWN_ARCHS))}.\n"
+            f"  -> the per-design spelling is `;`-separated `arch=reconN` "
+            f"entries, and a design with no entry takes the bare fallback.")
+    bad = ([("", self.recon_default)]
+           if self.recon_default not in RECON_PLACEMENT_APPROACHES else [])
+    bad += [(k, v) for k, v in sorted(self.recon_default_by_arch.items())
+            if v not in RECON_PLACEMENT_APPROACHES]
+    if bad:
+        where, value = bad[0]
+        raise guards.refusal("unknown-recon-default",
+            f"ECC_RECON_DEFAULT{f'[{where}]' if where else ''}={value!r} is not "
+            f"a reconstruction placement; choose one of "
             f"{', '.join(RECON_PLACEMENT_APPROACHES)}.\n"
             f"  -> it says what a bare `recon` in ECC_APPROACHES means -- ONE "
             f"boundary, mapped on its own chip. The abstract `recon` arm that "
@@ -745,10 +763,27 @@ class Config:
         union and draws no bar where a design has none.
         """
         out = [a for a in REFERENCE_ARMS if a in self.approaches]
-        named = {self.recon_default if a == "recon" else a
-                 for a in self.approaches
-                 if a == "recon" or a in RECON_PLACEMENT_APPROACHES}
+        named = {a for a in self.approaches if a in RECON_PLACEMENT_APPROACHES}
+        if "recon" in self.approaches:
+            # A BARE `recon` IS A DIFFERENT BOUNDARY ON DIFFERENT DESIGNS, so
+            # the design-INDEPENDENT union is every answer this run can get.
+            # `bar_arms_for(arch)` narrows it back to the one that design
+            # resolves to, which is what keeps a panel to one recon bar.
+            named |= {self.recon_default_for(a) for a in self.archs} or \
+                     {self.recon_default}
         return out + [k for k in RECON_PLACEMENT_APPROACHES if k in named]
+
+    def recon_default_for(self, arch):
+        """WHICH PLACEMENT A BARE `recon` IS ON `arch`.
+
+        `ECC_RECON_DEFAULT` takes a per-design table, so the answer is a
+        property of the design and not of the run: a design with an entry
+        takes it, every other design takes the bare fallback. Nothing else
+        resolves the word `recon` -- `recon_placements_for()` and `bar_arms`
+        both come here, so the two cannot drift apart and draw one boundary
+        while mapping another.
+        """
+        return self.recon_default_by_arch.get(arch, self.recon_default)
 
     def bar_arms_for(self, arch, warn=True):
         """`bar_arms` filtered to the boundaries `arch` actually declares.
@@ -1520,9 +1555,10 @@ class Config:
         enumerating chips prints its own bill).
         """
         named = [a for a in self.approaches if a in RECON_PLACEMENT_APPROACHES]
-        if "recon" in self.approaches and self.recon_default not in named:
+        default = self.recon_default_for(arch)
+        if "recon" in self.approaches and default not in named:
             named = [k for k in RECON_PLACEMENT_APPROACHES
-                     if k in set(named) | {self.recon_default}]
+                     if k in set(named) | {default}]
         if not named:
             return []
         declared = [p.key for p in placements.PLACEMENTS.get(arch, ())]

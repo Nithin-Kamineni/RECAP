@@ -187,6 +187,52 @@ def _one(name, default=""):
     return got[0] if got else ""
 
 
+def _one_or_scoped(name, default=""):
+    """ONE value for every design, or `;`-separated `key=value` for some.
+
+    Two spellings, told apart by the `=`, exactly as `_scoped_list` tells
+    `ECC_LAYERS`' apart -- and for the same reason `_table` exists: bash
+    CANNOT EXPORT an associative array, so a per-key table reaches Python as
+    a flat string or not at all.
+
+    Returns `(bare, by_key)`. The bare form fills the first and leaves the
+    second empty; the table form leaves the first empty and fills the second,
+    and a key with no entry falls back to the caller's default. The spellings
+    may not be MIXED -- `recon2; a=recon3` is a typo, not a default beside an
+    override, and reading it as either would be a guess.
+
+    Syntactic only. WHICH keys and values are legal is not this layer's to
+    know -- `settings/` may not reach for a design -- and `config.py` checks
+    both against the registry and the placement names.
+    """
+    raw = _s(name, default).split("#", 1)[0]
+    if "=" not in raw:
+        toks = [tok for tok in raw.replace(",", " ").split() if tok]
+        if len(toks) > 1:
+            raise guards.refusal("one-value-not-a-list",
+                f"{name} takes ONE value, not {len(toks)}: {' '.join(toks)}\n"
+                f"  -> or `;`-separated `key=value` entries, one per design")
+        return (toks[0] if toks else ""), {}
+    by_key = {}
+    for entry in raw.split(";"):
+        entry = entry.strip()
+        if not entry:
+            continue
+        key, sep, val = entry.partition("=")
+        key, val = key.strip(), val.strip()
+        if not sep or not key or len(val.split()) != 1:
+            raise guards.refusal("not-a-key-value-list",
+                f"{name}: entry {entry!r} is not `key=value`. The two "
+                f"spellings may not be mixed: either ONE value for every "
+                f"design, or `;`-separated `key=value` entries")
+        by_key[key] = val
+    # The TABLE form says nothing about a design it does not name, so the
+    # fallback is the caller's default. The BARE form above returns what was
+    # typed, empty string included: an explicitly empty ECC_RECON_DEFAULT is a
+    # REFUSAL upstream, not a silent return to the default.
+    return default, by_key
+
+
 def _list_or_none(name, sep=None):
     """`None` if the variable is UNSET, a list if it is set -- empty or not.
 

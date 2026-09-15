@@ -385,7 +385,7 @@ def run(cfg):
     ses.finish(figs, csv, groups, extra={
         "bars": list(bars),
         "bar_labels": {a: cfg.bar_label(cfg.const_arch, a) for a in bars},
-        "recon_default": cfg.recon_default,
+        "recon_default": cfg.recon_default_for(cfg.const_arch),
         "bars_per_group": {str(g): list(stacks[g].columns) for g in groups},
         "bars_note": ("EVERY BAR IS A MAPPED CHIP (EnvReorganisation phase 6). "
                       "A reconstruction bar is a boundary the design declares, "
