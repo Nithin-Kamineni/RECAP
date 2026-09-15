@@ -57,41 +57,7 @@
 
 ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-
-# =============================================================================
-#  1. WHAT TO COMPUTE AND PLOT
-# =============================================================================
-#  THE LINES THAT DECIDE THE STUDY are ECC_APPROACHES (which bars), ECC_SWEEP
-#  (which x axis), ECC_METRICS (which y axes -- one figure ROW each), the three
-#  lists (ECC_ARCHS / ECC_MODELS / ECC_KS, whose FIRST entry is the held value
-#  on every axis that is not swept) and ECC_LAYERS (the scope).
-#  `bash hpc/run_all.sh` then maps what is cold, evaluates and draws;
-#  `--dry-run` prints the bill first. The whole figure is those three:
-#  rows = ECC_METRICS, columns = ECC_SWEEP, bars = ECC_APPROACHES.
-#
-#  THE LISTS ARE THE CHIPS, so widening one ADDS mapper work -- it never moves
-#  an existing cache entry, which is what separates them from sections 2 and 3.
-#  The one pair here that does re-fingerprint is the buffer-depth scale: a
-#  changed depth IS a different array, which is the whole point of ECC_SWEEP=
-#  area, and each scale gets its own `wdepth<s>` cache.
-#
-#  DESIGNS DO NOT HAVE THE SAME BOUNDARIES. eyeriss_like_wglb and
-#  simple_weight_stationary declare five placements, the two v2 variants four,
-#  and three designs declare none at all -- so a five-name ECC_APPROACHES draws
-#  five bars on one design and four on another, with a `[skip]` line saying so.
-#  That is a warning, never a refusal: one ECC_APPROACHES has to be legal for
-#  every design a sweep names.
-#
-#  EVERY RECONSTRUCTION BAR IS A REAL, MAPPED CHIP since EnvReorganisation
-#  phase 6. The abstract `recon` arm that used to be drawn beside baseline and
-#  embedded on the three sweeps -- one engine at the chip entrance, K/N applied
-#  to every on-chip level of every design identically -- is RETIRED: no
-#  boundary does that, it was an optimistic upper bound, and reporting rule R-6
-#  existed only to stop it being quoted as a placement. `recon` in
-#  ECC_APPROACHES now means ONE bar, the placement ECC_RECON_DEFAULT names, and
-#  every bar on every figure is looked up in ITS OWN mapper cache at EVERY
-#  swept point. The figures built on the abstract arm stay in FINDINGS as
-#  history, labelled as the abstract arm.
+: "${ECC_MAIL_ON_DONE:=0}"
 
 # baseline | embedded | recon | recon1 | recon2 | recon3 | recon4 | recon5
 #   `recon` on its own is ONE bar: the placement ECC_RECON_DEFAULT names
@@ -103,39 +69,13 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #   no entry takes recon2
 : "${ECC_RECON_DEFAULT:=eyeriss_like_wglb=recon2; eyeriss_v2_like_wglb=recon3; simple_weight_stationary=recon2}"
 
-# bch | model | arch | fix | area   <- an X AXIS. `area` here = buffer DEPTH;
-#                                      silicon area is ECC_METRICS below
-#   bch    BCH(63,K) over ECC_KS                 (arch, model held)
-#   model  the networks of ECC_MODELS            (arch, code held)
-#   arch   the designs of ECC_ARCHS              (model, code held)
-#   fix    NO x axis: the placement study at ONE point -- the bars are what
-#          ECC_APPROACHES names, at the FIRST entry of all three lists
-#   area   the buffer-depth ladder ECC_DEPTH_SWEEP_SCALES, all three lists
-#          held. One GROUP PER RUNG, bars = ECC_APPROACHES, and every bar is a
-#          mapped chip like any other axis -- a rung is its own
-#          `arch_fingerprint()` and its own mapper cache, so the ladder is as
-#          cold as its coldest rung. The figure is
-#          results/figures/DepthSweep__<arch>__<model>.png; the design and the
-#          network are in the name because this axis holds them and two runs
-#          would otherwise write one file. It draws SINCE 2026-09-15 -- the
-#          three things it was waiting for (the ladder as a field of the
-#          configuration, a depth slot in report/sweep.py's point spec, and a
-#          dependent eval from hpc/run_all.sh) are in. `--levels` is still the
-#          per-LEVEL table and is still the way to read refetch and fill:
-#          `python3 -m eccenergy.report.dilation_view --levels`
+# bch | model | arch | fix | area
 : "${ECC_SWEEP:=fix}"
 
-# energy | edp | latency | area   <- a Y AXIS: one figure ROW per entry, drawn
-#                                    in THIS order. `area` here = SILICON area
-#                                    (um2), not ECC_SWEEP's buffer depth
+# energy | edp | latency | area   <- a Y AXIS: one figure ROW per entry, drawn in THIS order. `area` here = SILICON area (um2), not ECC_SWEEP's buffer depth
 : "${ECC_METRICS:=energy edp latency}"
 
 # eyeriss_like_wglb | simple_weight_stationary | eyeriss_v2_like_wglb | eyeriss_v2_like | simple_output_stationary | simple_input_stationary | simba_like   (FIRST = held)
-#   THE THREE SCOPED DESIGNS since EnvReorganisation phase 6 (plan 6.8): the two
-#   that declare a weight GLB above the array plus the weight-stationary one.
-#   `eyeriss_v2_like_wglb` -- NOT `eyeriss_v2_like` -- is what "Eyeriss v2" means
-#   here (CLAUDE.md, the user's decision 2026-09-14); the three designs with no
-#   placements.yaml are still nameable and still draw their two reference bars.
 # : "${ECC_ARCHS:=eyeriss_like_wglb simple_weight_stationary eyeriss_v2_like_wglb}"
 : "${ECC_ARCHS:=eyeriss_v2_like_wglb}"
 
@@ -150,7 +90,8 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # the ladder ECC_SWEEP=area walks. The x axis of DepthSweep__<arch>__<model>
 # : "${ECC_DEPTH_SWEEP_SCALES:=1.0 0.7071 0.5 0.3536 0.25 0.1768 0.125}"
-: "${ECC_DEPTH_SWEEP_SCALES:=2 1.75 1.5 1.25 1.0 0.75 0.5 0.25 0.125}"
+# : "${ECC_DEPTH_SWEEP_SCALES:=2 1.75 1.5 1.25 1.0 0.75 0.5 0.25 0.125}"
+: "${ECC_DEPTH_SWEEP_SCALES:=8 6 4 2 1 0.5 0.25 0.125 0.0625 0.03125}"
 
 # the HELD buffer depth on every axis that is not `area`. 1.0 = as declared
 : "${ECC_WEIGHT_DEPTH_SCALE:=1.0}"
@@ -820,7 +761,7 @@ esac
 
 # the off-chip speed limit, MB/s per 8-bit weight. EMPTY = unlimited
 #   IN THE PATCHED YAML SINCE PHASE C1, so changing it COLDS EVERY ARM
-: "${ECC_DRAM_BANDWIDTH_MBPS=120}"
+: "${ECC_DRAM_BANDWIDTH_MBPS=240}"
 
 # 0 | 1     re-time the chosen mapping with the post-mapping roofline
 : "${ECC_LATENCY_MODEL:=1}"
@@ -943,6 +884,19 @@ declare -A ECC_RECON_IDLE_PJ=(          # pJ per CYCLE per ENGINE
 : "${ECC_EVAL_CPUS:=2}"
 : "${ECC_EVAL_MEM:=8gb}"
 : "${ECC_EVAL_TIME:=02:00:00}"
+
+# where that mail goes. HiPerGator delivers to <user>@ufl.edu.
+: "${ECC_MAIL_TO:=${USER}@ufl.edu}"
+
+# THE RELAY, because the compute nodes cannot send mail on their own. /usr/sbin/
+# sendmail there is msmtp with no configuration file, and mail(1)/mailx are not
+# installed at all -- both fail AFTER composing a perfectly good message. This
+# host is reachable from the compute nodes on port 25 and needs no credentials;
+# hpc/notify.sbatch talks to it with python3's smtplib and falls back to a local
+# sendmail only if that fails, which is what makes the mail work from a login
+# node too.
+: "${ECC_MAIL_SMTP:=smtp.ufl.edu}"
+: "${ECC_MAIL_SMTP_PORT:=25}"
 
 # the Timeloop+Accelergy image
 : "${ECC_SIF:=${ECC_PROJECT_ROOT}/timeloop.sif}"
@@ -1222,7 +1176,9 @@ export ECC_ACC_BITS ECC_ACCOUNT ECC_ACTIVATION_BITS ECC_ALLOW ECC_APPROACHES \
        ECC_FORCE_TECHNOLOGY ECC_FORMATS ECC_FROM_CACHE \
        ECC_GLOBAL_CYCLE_SECONDS ECC_INCLUDE_EMBEDDING ECC_INCLUDE_LM_HEAD \
        ECC_INPUT_HW ECC_JOBS ECC_KS ECC_LATENCY_MODEL ECC_LAYERS \
-       ECC_MAC_PJ_OVERRIDE ECC_MAP_CPUS ECC_MAP_MEM ECC_MAPPER_ALGORITHM \
+       ECC_MAC_PJ_OVERRIDE ECC_MAIL_ON_DONE ECC_MAIL_SMTP \
+       ECC_MAIL_SMTP_PORT ECC_MAIL_TO \
+       ECC_MAP_CPUS ECC_MAP_MEM ECC_MAPPER_ALGORITHM \
        ECC_MAPPER_MAX_PERMUTATIONS ECC_MAPPER_SEARCH_SIZE ECC_MAPPER_SEED \
        ECC_MAPPER_THREADS ECC_MAPPER_TIMEOUT ECC_MAPSPACE_CONSTRAIN \
        ECC_MAP_TIME ECC_METRICS ECC_MODELS ECC_NICE_LABELS ECC_NOC \

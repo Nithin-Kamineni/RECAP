@@ -254,6 +254,20 @@ carries architecture, treatment, fingerprint and shape).
 * Keep `ECC_MAPPER_THREADS=18` equal to `--cpus-per-task`. The thread count is
   hashed into the mapping fingerprint, so a different value is a different
   cache and a different search.
+* To be told when a submission finishes instead of watching `squeue`, set
+  `ECC_MAIL_ON_DONE=1` (env.sh section 5, default `0`). `hpc/run_all.sh` then
+  also submits `hpc/notify.sbatch`, held on `afterany` of the map array *and*
+  the eval job, which mails once with the axis, archs, models and arms the run
+  was submitted with plus the `sacct` state of every task. `afterany` is
+  deliberate: a run that failed is exactly the one you want the mail about.
+  Test it in a minute with `bash hpc/run_all.sh --mail-test`.
+  * The compute nodes have no working MTA — `mail`/`mailx` are login-node only
+    and `/usr/sbin/sendmail` is an unconfigured `msmtp`. The notifier therefore
+    speaks SMTP to `ECC_MAIL_SMTP` (`smtp.ufl.edu:25`, reachable from the nodes,
+    no credentials) and only falls back to a local `sendmail`. If mail ever
+    stops arriving, that relay is the first thing to check.
+* `hpc/tidy_logs.sh` moves the job output of finished jobs into `hpc/old-logs/`,
+  so `hpc/logs/` keeps only what is still in the queue.
 * Windows-side edits to `*.sh`/`*.py`/`*.yaml` may arrive with CRLF if they
   bypass the `.gitattributes`; `bash tools/fix-eol.sh` repairs them.
 * Do not delete `ecc_energy_study/outputs/` — hours of compute, and now the

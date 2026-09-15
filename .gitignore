@@ -28,6 +28,13 @@ __pycache__/
 **/logs/*.out
 **/logs/*.err
 
+# `bash Energy_Modeling/hpc/tidy_logs.sh` sweeps the job output of finished jobs
+# into a sibling old-logs/, so that logs/ holds only the run still in the queue.
+# Same rule, same reason: regenerable and noisy, and hand-kept evidence that
+# happens to land there is still not matched.
+**/old-logs/*.out
+**/old-logs/*.err
+
 # ---- editors / OS ----------------------------------------------------------
 .vscode/
 .idea/

@@ -75,6 +75,13 @@
 #                    which is how a broken cold-map import survived three
 #                    phases of "one real job before the matrix" (phase 6
 #                    session 1). Both halves, or neither.
+#      --mail-test   prove the end-of-run mail works, in about a minute: submit
+#                    a job that completes instantly and hang the real notifier
+#                    off it. Same hpc/notify.sbatch, same afterany dependency,
+#                    same `mail` call as a matrix would use, so what arrives in
+#                    your inbox is the thing a real run sends. Forces the mail
+#                    on for this invocation only -- it does not touch
+#                    ECC_MAIL_ON_DONE, which stays 0 until you set it in env.sh.
 #
 #  ECC_SWEEP=area MAPS THE LADDER AND SUBMITS NO EVALUATION, deliberately: the
 #  depth sweep is a property of the MAPPINGS, and an eval job over it would
@@ -122,6 +129,7 @@ while [ $# -gt 0 ]; do
         --local)     MODE=local ;;
         --dry-run)   MODE=dry ;;
         --smoke)     MODE=smoke ;;
+        --mail-test) MODE=mailtest ;;
         -h|--help)   usage; exit 0 ;;
         *) echo "hpc/run_all.sh: unknown option '$1'" >&2; usage >&2; exit 2 ;;
     esac
@@ -393,6 +401,29 @@ submit_eval() {
         hpc/run_all.sh --eval-only
 }
 
+# ONE MAIL AT THE END, when ECC_MAIL_ON_DONE=1. Held on `afterany` of every
+# job this invocation submitted, so it runs once, last, whatever the others did
+# -- including the case that matters most: a map task fails, SLURM cancels the
+# dependent eval, and nothing else would ever tell you. `afterok` here would
+# mail only the successes, which is the opposite of what a notifier is for.
+#
+# The job ids travel in ECC_NOTIFY_JOBS rather than being rediscovered from
+# squeue: this shell knows exactly what it submitted, and a later lookup could
+# not tell this run's jobs from a concurrent one's.
+submit_notify() {
+    local jobs="$1" label="$2"
+    [ "${ECC_MAIL_ON_DONE}" = "1" ] || return 0
+    mkdir -p hpc/logs
+    sbatch --parsable \
+        --dependency="afterany:${jobs}" \
+        --job-name=ecc-notify \
+        --account="${ECC_ACCOUNT}" --qos="${ECC_QOS}" --partition="${ECC_PARTITION}" \
+        --cpus-per-task=1 --mem=256mb --time=00:10:00 \
+        --output="hpc/logs/ecc-notify.%j.out" \
+        --export=ALL,ECC_NOTIFY_JOBS="${jobs}",ECC_NOTIFY_LABEL="${label}" \
+        hpc/notify.sbatch
+}
+
 banner() {
     echo "=============================================================================="
     if [ "${ECC_EXPERIMENT}" = "recon" ]; then
@@ -451,6 +482,30 @@ case "${MODE}" in
         echo "  BOTH must COMPLETE before a matrix. A cached unit returns"
         echo "  before Mapper._map_now and proves nothing about mapping."
         ;;
+    mailtest)
+        # A REAL SUBMISSION, not a simulation of one: `/bin/true` under sbatch
+        # terminates in seconds, and the notifier that watches it is the same
+        # file, dependency and mail call a 12-hour matrix uses. The only thing
+        # this does not exercise is the mapping, which is the point -- it tests
+        # the notification, in a minute, without a queue slot worth of Timeloop.
+        ECC_MAIL_ON_DONE=1
+        banner
+        echo "--mail-test: one instantly-completing job + the real notifier."
+        mkdir -p hpc/logs
+        PROBE=$(sbatch --parsable \
+            --job-name=ecc-mailtest \
+            --account="${ECC_ACCOUNT}" --qos="${ECC_QOS}" --partition="${ECC_PARTITION}" \
+            --cpus-per-task=1 --mem=256mb --time=00:02:00 \
+            --output="hpc/logs/ecc-mailtest.%j.out" \
+            --wrap='echo "mail test: this job exists only to terminate"; true')
+        NOTIFY=$(submit_notify "${PROBE}" "MAIL TEST (no mapping was run)")
+        echo "probe job ${PROBE}   log: hpc/logs/ecc-mailtest.${PROBE}.out"
+        echo "mail  job ${NOTIFY}   log: hpc/logs/ecc-notify.${NOTIFY}.out"
+        echo "  expect one mail at ${ECC_MAIL_TO} within a minute or two."
+        echo "  the notifier log holds the exact subject and body it sent, so"
+        echo "  a mail that never arrives is still diagnosable from here."
+        echo "  watch : squeue -u \$USER -j ${PROBE},${NOTIFY}"
+        ;;
     eval)
         banner
         stage_eval
@@ -468,6 +523,9 @@ case "${MODE}" in
         MAP=$(submit_map); banner
         echo "map  job ${MAP}   log: hpc/logs/ecc-map.${MAP}_*.out"
         echo "evaluate when it finishes with:  bash hpc/run_all.sh --eval-only"
+        NOTIFY=$(submit_notify "${MAP}" "mapping")
+        [ -n "${NOTIFY}" ] && \
+            echo "mail job ${NOTIFY}   -> ${ECC_MAIL_TO} when the array has terminated"
         ;;
     all)
         MAP=$(submit_map)
@@ -487,6 +545,9 @@ case "${MODE}" in
         echo "                  (runs when every map task succeeds; if one fails"
         echo "                   SLURM cancels it -- fix, rerun, or evaluate what"
         echo "                   exists with: bash hpc/run_all.sh --eval-only)"
+        NOTIFY=$(submit_notify "${MAP}:${EVAL}" "mapping+evaluation")
+        [ -n "${NOTIFY}" ] && \
+            echo "mail job ${NOTIFY}   -> ${ECC_MAIL_TO} when both have terminated"
         echo "watch: squeue -u \$USER"
         ;;
 esac

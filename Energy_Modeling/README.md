@@ -279,6 +279,7 @@ results/evaluation/{Pre|Post}/<arch>/<model>/<bch>/<prec>/<scope>/<mapper>/<runi
 | what | where |
 |---|---|
 | **SLURM job output** (stdout+stderr of each array task) | `hpc/logs/ecc-map.<arrayjob>_<task>.out`, and `hpc/logs/ecc-eval.<jobid>.out` for the evaluation job |
+| **Job output of finished runs** | `hpc/old-logs/`, same filenames — swept there by `bash hpc/tidy_logs.sh` so that `hpc/logs/` shows only the jobs still in the queue |
 | **Per-shape mapper logs** (the real Timeloop detail) | `ecc_energy_study/outputs/<arch>/<treatment>/fp-<hash>/<shape>/` — `mapper_console.log`, `timeloop-mapper.map.txt` (the chosen loop nest), `timeloop-mapper.stats.txt` (per-level energy), `timeloop-mapper.accelergy.log` |
 | **Bring-up verification logs** | `hpc/logs/bringup-check*.log` |
 | **Superseded figures / workload backups** | `ecc_energy_study/logs/` |
@@ -286,6 +287,22 @@ results/evaluation/{Pre|Post}/<arch>/<model>/<bch>/<prec>/<scope>/<mapper>/<runi
 | **The generated task list** | `hpc/.runtime/tasks.txt` |
 
 SLURM does not create the log directory; `hpc/run_all.sh` does it for you.
+
+To be mailed once when a whole submission finishes, set `ECC_MAIL_ON_DONE=1`
+(env.sh section 5; the default is `0`). `hpc/run_all.sh` then submits
+`hpc/notify.sbatch` alongside the map and eval jobs, held on `afterany` of both,
+and it mails the outcome once -- with `ECC_SWEEP`, `ECC_ARCHS`, `ECC_MODELS` and
+`ECC_APPROACHES` as they were *at submission*, the `sacct` state of every job,
+and anything that did not COMPLETE. `afterany` is what makes a failed run mail
+too. Prove it works in about a minute, without running a mapping, with
+`bash hpc/run_all.sh --mail-test`.
+
+`hpc/logs/` accumulates one file per array task and gets unreadable after a few
+sweeps. `bash hpc/tidy_logs.sh` moves every log whose job id is no longer in
+`squeue` into `hpc/old-logs/` (`--dry-run` to see what it would take). Jobs still
+PENDING keep their id reserved, so the log a queued array task has not opened yet
+is not swept on the next tidy. Nothing is deleted, and the hand-kept
+`bringup-*.log` evidence stays in `hpc/logs/`.
 
 Useful while a run is in flight:
 
@@ -347,8 +364,11 @@ hpc/
   map.sbatch           the mapper job array; no knobs, sources env.sh
   tl.sh                run any command inside the image
   summary.py           the model x arch matrix (stdlib only)
+  notify.sbatch        the one end-of-run mail (ECC_MAIL_ON_DONE=1)
+  tidy_logs.sh         sweep finished job output into old-logs/
   HIPERGATOR.md        transfer, image build, verification, parallel design
-  logs/                SLURM job output
+  logs/                SLURM job output -- jobs still in the queue
+  old-logs/            SLURM job output -- finished jobs (git-ignored)
   .runtime/            generated: the task list and CACTI scratch
 eccenergy/             the package (config, paths, archs, workloads, timeloop,
                        energy, ecc, parity, results_store, plots, experiments)
