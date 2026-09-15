@@ -399,6 +399,17 @@ Nothing but `toolchain/results_store.py` writes one. Schema: `docs/RESULTS_SCHEM
    **A different fingerprint is a MISS** — before this existed, editing an
    arch.yaml left the path unchanged and old mappings were reported as the new
    design.
+   **`scancel` ON A RUNNING MAP ARRAY LEAVES ITS LOCKS BEHIND**: `ShapeLock`
+   releases in a `finally` and a `finally` does not run on SIGTERM or SIGKILL.
+   The pid check only reaches a lock left on the SAME node, so every waiter
+   elsewhere used to sit out the 6-hour `stale_s` — measured 2026-09-15, a
+   cancelled array put ten running tasks to sleep for hours on work that takes
+   minutes. The owner file names the SLURM job now, and `hpc/run_all.sh` (at
+   submit) and `hpc/map.sbatch` (per array task) prune the locks whose job is
+   gone. **Both run OUTSIDE the container on purpose — `squeue` is not in the
+   image**, so a map job cannot make that judgement and "cannot ask SLURM"
+   never prunes anything. By hand:
+   `python3 -m eccenergy.toolchain.cache --prune [--dry-run]`.
 2. **Raw energy cache** — `results/_raw/`, parsed from the mapper cache. Pure
    Timeloop output, independent of the ECC configuration, so changing the code
    geometry and redrawing is milliseconds.

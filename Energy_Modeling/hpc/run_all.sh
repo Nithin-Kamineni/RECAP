@@ -312,7 +312,20 @@ pin_archs() {
 # THE TASK FILE IS SNAPSHOTTED PER SUBMISSION, because hpc/map.sbatch resolves
 # its rows when the job RUNS: a later launcher writing ECC_TASKFILE would
 # otherwise repoint every queued job at different work.
+# Locks whose SLURM job is GONE, cleared before anything is enumerated or
+# submitted. A cancelled array leaves its locks behind -- `finally` does not run
+# on SIGTERM or SIGKILL -- and the next submission then sleeps on them, a shape
+# at a time, until the six-hour staleness expires. This runs OUTSIDE the
+# container on purpose: `squeue` is not in the Timeloop image, so the map jobs
+# themselves cannot make this judgement. `hpc/map.sbatch` repeats it per array
+# task, for locks orphaned after this point.
+prune_locks() {
+    ${ECC_PYTHON:-python3} -m eccenergy.toolchain.cache --prune 2>/dev/null \
+        || true
+}
+
 submit_map() {
+    prune_locks
     pin_archs >/dev/null
     write_taskfile
     local snap n
@@ -403,6 +416,11 @@ case "${MODE}" in
     dry)
         banner
         echo "--dry-run: the bill. Nothing is submitted."
+        # ...and nothing is removed either: the bill reports what a real
+        # submission WOULD clear, so an orphaned lock is visible before it
+        # costs a queue slot rather than after.
+        ${ECC_PYTHON:-python3} -m eccenergy.toolchain.cache --prune --dry-run \
+            2>/dev/null || true
         _units ${DEPTHS:+--depths "${DEPTHS}"} ${ECC_JOBS:+--jobs "${ECC_JOBS}"}
         echo
         echo "  eval      : $(_eval_models) x ${ECC_EXPERIMENT}"\

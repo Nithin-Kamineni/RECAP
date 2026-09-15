@@ -111,6 +111,17 @@ echo "=== cores=${ECC_MAPPER_THREADS}  search=${ECC_MAPPER_ALGORITHM}/${ECC_MAPP
      "victory=${ECC_VICTORY}  rerun=${ECC_RERUN_OPTIMISER} ==="
 echo "=== started $(date -Is) ==="
 
+# LOCKS LEFT BY A CANCELLED JOB, CLEARED HERE -- and it has to be HERE, before
+# `hpc/tl.sh` below, because `squeue` is not in the Timeloop image and a task
+# already inside the container cannot tell a dead owner from a working one.
+# `release()` is in a `finally` and a `finally` does not run on SIGTERM or
+# SIGKILL, so every `scancel` of a running map leaves its locks behind.
+# Measured 2026-09-15: eight locks from a cancelled array put ten tasks to
+# sleep for hours on work that takes minutes. Only a lock whose SLURM job is
+# GONE is removed; "cannot ask SLURM" removes nothing.
+${ECC_PYTHON:-python3} -m eccenergy.toolchain.cache --prune 2>/dev/null \
+    || echo "=== (lock prune skipped: the package did not import here) ==="
+
 I=0
 for ROW in "${ROWS[@]}"; do
     read -r _B ARCH MODEL CODE_K DEPTH ARM LAYER <<< "${ROW}"

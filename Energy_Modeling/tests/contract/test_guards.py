@@ -40,6 +40,9 @@ NOT_A_GUARD = {
     "__main__.py": "`raise SystemExit(main())` -- the CLI's exit status.",
     "arch/generate.py": "`raise SystemExit(main())` -- the CLI's exit status.",
     "toolchain/units.py": "`raise SystemExit(main())` -- the CLI's exit status.",
+    "toolchain/cache.py": "`raise SystemExit(main())` -- the CLI's exit status "
+                          "(`--prune`, run outside the container by "
+                          "hpc/run_all.sh and hpc/map.sbatch).",
     "study/validate.py": "`raise SystemExit(1)` after the report has printed "
                          "every finding; the refusal IS the report.",
     "study/baseline.py": "FROZEN (CLAUDE.md). Registered by `frozen_match=` "
