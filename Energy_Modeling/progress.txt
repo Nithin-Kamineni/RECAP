@@ -4820,3 +4820,318 @@ STILL OWED
   * CLAUDE.md says "131 guards" (actual 139) and "keep ECC_MAPPER_THREADS=18"
     (env.sh ships 16).  Both still stale, both deliberately left: this
     session declares nothing.
+
+================================================================================
+TASK D SESSION 3 -- THE THREE-PANEL FIGURE.
+================================================================================
+2026-09-14.  plans/TaskD_MapTheTwoDesigns.md section 3, run in the same sitting
+as section 2 above but as a SEPARATE entry and a separate commit, because it is
+a separate deliverable and its numbers come from a different command.  Section
+2 (eyeriss_v2_like_wglb) is committed at 2415370 and its gate was items 1-5
+IDENTICAL / item 6 red on the same two tests, which is the condition section 3
+was allowed to start under.
+
+  ECC_EXPERIMENT=recon ECC_SWEEP=arch ECC_SCOPE=dev ECC_MODELS=resnet18
+  ECC_METRICS="energy edp latency area"
+  ECC_ARCHS / ECC_SWEEP_ARCHS = "eyeriss_like_wglb simple_weight_stationary
+                                 eyeriss_v2_like_wglb"
+  ECC_APPROACHES="baseline embedded recon1 recon2 recon3 recon4 recon5"
+
+`fix` HOLDS the architecture, so several designs in one placement figure is an
+ARCH sweep routed to the placement renderer.  ECC_MODELS=resnet18 is REQUIRED:
+an arch sweep with two models is the PANEL layout and would evaluate
+mobilenet_v2, which is not mapped for these designs.
+
+--------------------------------------------------------------------------
+PREDICTIONS -- WRITTEN BEFORE THE FIGURE WAS DRAWN
+--------------------------------------------------------------------------
+Two of the three panels are ALREADY MEASURED, which makes this the strongest
+prediction any of these sessions has been able to make: they are not a
+direction, they are numbers.
+
+S1 PANELS 2 AND 3 MUST REPRODUCE THE TWO SINGLE-DESIGN FIGURES TO THE pJ.
+   Same caches, same code, same scope, same held model; only the axis knob
+   differs, and `sweep.py` is one renderer.  So:
+
+     simple_weight_stationary  590.164  565.685  547.464  546.837  549.024
+                               626.256   (baseline, embedded, R1, R2, R3, R4a)
+     eyeriss_v2_like_wglb      677.838  652.969  633.044  631.627  541.718
+                               542.494  628.450  (baseline, embedded, R1..R5a)
+
+   ANY movement in either row is a BUG, not a result.
+
+S2 PANEL 2 CARRIES A `[skip]` LINE AND PANELS 1 AND 3 DO NOT.
+   simple_weight_stationary declares four boundaries (recon5 withdrawn), so
+   its panel has 6 bars against the other two panels' 7.  A missing bar is
+   drawn as NOTHING -- no bar, no total, no saving -- never as a zero.
+
+S3 PANEL 1's FOUR NEW BARS MAY MOVE OFF THE NUMBERS PHASE 6 PRINTED, AND THAT
+   WOULD NOT BE A BUG.  Phase 6 measured eyeriss_like_wglb on these two layers
+   at BCH(63,39) as -6.7 / -7.5 / -7.3 / -6.2 / +15.4 % against baseline for
+   R1..R5.  But `--dry-run` says recon1, recon3, recon4 and recon5 are COLD
+   for this design at the dev scope, so those four bars were billed from a
+   NAMED borrowed plan.  This run maps each on its OWN chip.  A bar that gains
+   its own mapping can only be billed from a plan chosen FOR it, so I predict
+   these four move in the direction of MORE saving (or stand still), and that
+   R2 -- already mapped, already on its own plan -- does not move at all.
+   R2 standing still is the check that separates "the new plans" from "the
+   renderer".
+
+S4 THE PEAK IS NOT THE SAME BOUNDARY ON ALL THREE PANELS, and that is the
+   whole point of the figure.  Predicted: R2 on simple_weight_stationary
+   (measured, session 1), R3 on eyeriss_v2_like_wglb (measured, above), and
+   R2 on eyeriss_like_wglb (phase 6's -7.5 % beats R3's -7.3 %, by a hair
+   that the new plans could easily flip).
+
+S5 R5a IS A LARGE PENALTY ON eyeriss_like_wglb, as phase 6 measured (+15.4 %).
+   The innermost boundary pays one rebuild per weight READ on every design
+   that declares it.  On eyeriss_v2_like_wglb it does too (93.5 uJ against
+   R3), and only LOOKS like a saving there because it inherits that design's
+   re-planned loop nest -- see the section above.
+
+S6 NO PERCENTAGE ON ONE PANEL SAYS ANYTHING ABOUT ANOTHER.  Each panel keeps
+   its own x axis and its own two reference bars; the three designs have
+   different absolute energies (v1 ~1,500 uJ, swS ~570, v2 ~650 at these two
+   layers) and different boundary lists.  Nothing below compares them, and
+   nothing in any caption should.
+
+--------------------------------------------------------------------------
+WHAT WAS RUN, AND WHAT CAME OF IT
+--------------------------------------------------------------------------
+--dry-run FIRST: 17 chips, 2 shapes, 34 units, `cached 26 / 34`, the 8 cold
+ones all eyeriss_like_wglb (recon1, recon3, recon4, recon5 x 2 shapes).  That
+is section 3's bill exactly.
+
+SMOKE, BOTH HALVES, job 42185774: the CACHED half returned in 10 s
+(fp=d1444604cd01, before Mapper._map_now) and the MAPPER half COMPLETED in
+18 s -- "0 cached, 1 newly mapped, 0 failed", fp=facfb645aee9, the arm-recon1
+slug.  Eighteen seconds is not a failure disguised as a success: v1 is the one
+design with a declared free-set, so conv1 solves in 9 loop levels at victory
+4000.  That is FINDINGS 2.2 the right way round.
+
+MAP ARRAY 42185987: 7 tasks, ALL COMPLETED 0:0, 18 s to 47 s, 7 newly mapped,
+0 failed, four new fingerprints each covering both shapes (facfb645aee9
+recon1, a6eb179ee8e5, 5738902f4172, a19ba148a23a).  --dry-run then reported
+`cached 34 / 34 -> 0 to map`.
+
+**THE THREE-PANEL FIGURE WAS NOT DRAWN.  Section 3's command REFUSES, and the
+refusal is correct.**  Two independent defects, in a code path that has never
+been exercised before today -- eyeriss_v2_like_wglb and
+simple_weight_stationary only became panel-able on 2026-09-14, so a panelled
+placement study at more than ONE architecture with ECC_RECON_ERT_AWARE=1
+(env.sh's shipped value) has never run.
+
+  DEFECT 1 -- `ert-arm-one-arch`, tier 2, raised from inside a per-panel loop.
+
+    ECC_RECON_ERT_ARM='recon1' names the arm of ONE mapper job on ONE
+    architecture; this configuration has 3: eyeriss_like_wglb,
+    simple_weight_stationary, eyeriss_v2_like_wglb
+
+  THE GUARD IS RIGHT.  An arm resolves through `arms.mapper_arm_spec(
+  cfg.archs[0], ...)` into `datawidth: q` on the storage levels THAT DESIGN
+  names, and the three designs do not name the same levels.  What is wrong is
+  that `study/ert_view.py`'s two `cfg.with_(recon_ert_arm=...)` sites --
+  `arm_plan_state` (214) and `ert_aware_view` (256) -- BOTH ALREADY TAKE THE
+  ARCHITECTURE AS A PARAMETER and use it on the very next line, and both hand
+  `_resolve` a configuration that still names all three.
+
+  THE FIX IS KNOWN AND WAS MEASURED, THEN REVERTED (below).  Narrowing to
+  `cfg.with_(sweep_archs=[arch], const_arch=arch)` when `len(cfg.archs) != 1`
+  resolves the arm correctly and MOVES NO FINGERPRINT: `archs` reaches
+  `Config.fingerprint()` but NOT `arch_fingerprint()`, which is exactly why a
+  three-design run reads caches single-design runs wrote.  Measured on all
+  three designs, 2026-09-14: `arch_fingerprint` byte-identical narrowed and
+  not (d1444604cd01, 946dbf528944, f4a0194ce204), and every armed fingerprint
+  equal to a directory already on disk (v1 recon1 facfb645aee9 = the smoke's;
+  swS recon1 d1ecad2653b6 = session 1's; v2 recon2 9ff7597a05aa = this
+  session's).  It is a no-op on every single-architecture run by construction.
+
+  DEFECT 2 -- WHICH IS WHY DEFECT 1'S FIX WAS NOT KEPT.  With the narrowing in
+  place the study gets one step further and then raises a DIFFERENT tier-2
+  guard, `ert-toll-mismatch`:
+
+    eyeriss_like_wglb/recon2: the access term the evaluator charged
+    (239376.242414 pJ) is not the stats-side amount (867377.708221 pJ: moved
+    out of Global buffer); the encoder would be counted twice or not at all
+
+  CHARACTERISED, NOT GUESSED:
+    * THE STATS SIDE IS NOT WHAT MOVES.  867,377.708221 pJ is what the
+      SINGLE-architecture run also moves out of Global buffer ("moved 0.8674
+      uJ (access)"), and there it reconciles.  The ERT bump row is byte-
+      identical between the two runs: `filter_glb.read += 147.966173 pJ,
+      filter_glb.leak += 0.0697282475 pJ/instance/cycle, block_size 76,
+      E_w 1.946923 pJ/weight`.  So the ERT, the cache entry and the stats are
+      all the same.  IT IS THE EVALUATOR'S SIDE THAT CHANGES, by x3.62345.
+    * IT IS THE ARCH COUNT, NOT THE AXIS.  `ECC_SWEEP=arch` with ONE
+      architecture runs clean (exit 0, peak R2 at +7.461%), identical to
+      `ECC_SWEEP=fix` with one.  Adding a second architecture breaks it.
+    * IT IS NOT `archs[0]` AND IT IS NOT POSITIONAL.  Tested at
+      "simple_weight_stationary eyeriss_like_wglb" and "eyeriss_v2_like_wglb
+      eyeriss_like_wglb": v1 is SECOND in both and fails in both, with the
+      same two numbers to six decimals.  Deterministic, and specific to
+      eyeriss_like_wglb/recon2.
+    * A hypothesis for whoever picks this up, NOT a finding: all three designs
+      declare a weight-path stage whose key is `weight_glb`, and v1's carries
+      the prefix `filter_glb`.  A per-stage structure keyed by stage KEY and
+      shared across panels would collide exactly here.  `Session.collect_all()`
+      runs once, before the per-arch loop.  That is where I would look, and I
+      did not.
+
+  WHY IT STOPPED HERE.  Defect 2 is a second, independent arch-leak in the
+  placement EVALUATOR -- the module that bills every published number -- and
+  finding it is debugging, not "run the mapper and evaluate", which is all
+  Task D declares.  The session's absolute rule is that item 1 must not move,
+  and the honest cost of chasing a third and fourth leak at the end of a
+  session is worse than the figure is worth.  SO THE TREE CARRIES NO HALF-FIX:
+  `eccenergy/study/ert_view.py` is byte-identical to 2415370, verified with
+  `git diff`, and the reverted tree reproduces defect 1's refusal exactly.
+  **THE GUARDS ARE THE GOOD NEWS HERE.**  Two tier-2 refusals stopped a figure
+  that would otherwise have been drawn with one design's encoder count against
+  another's stats, and nothing on it would have said so.
+
+--------------------------------------------------------------------------
+WHAT WAS DELIVERED INSTEAD: ALL THREE PANELS, SEPARATELY, AND VERIFIED
+--------------------------------------------------------------------------
+The three panels' NUMBERS all exist and are each verified on their own run.
+What is missing is the three of them on ONE page.
+
+eyeriss_like_wglb is NEW THIS SESSION -- its recon1/3/4/5 had never been
+mapped at the dev scope, and this session mapped them, so for the first time
+every one of its five bars is billed from its OWN chip:
+
+  bar                      energy uJ   vs baseline   ceiling uJ   plan
+  Baseline ext. parity      1574.877        --            --      reference
+  Embedded no ext. parity   1493.666      +5.157%         --      reference
+  R1  @ source              1470.130      +6.651%      27.151     OWN
+  R2  @ filter GLB          1457.373      +7.461%      27.208     OWN
+  R3  @ column edge         1459.845      +7.304%      27.623     OWN
+  R4  @ spad input          1477.861      +6.160%      28.062     OWN
+  R5a @ spad output         1817.034     -15.376%      28.830     OWN
+
+Every bar is inside its own ceiling, which is what neither R3 nor R4 managed
+on eyeriss_v2_like_wglb -- v1 has no binding weight level for the narrowing to
+re-plan around, so its boundaries buy bit volume and nothing else.
+
+--------------------------------------------------------------------------
+PREDICTIONS vs WHAT COULD BE TESTED
+--------------------------------------------------------------------------
+S1 NOT TESTABLE.  The figure was never drawn, so panels 2 and 3 could not be
+   checked against the single-design runs from inside it.  What WAS confirmed
+   is the same claim from the other side: the v2 panel's numbers reproduced
+   exactly (+20.081% / +17.038%) on a --replot after the gate overwrote the
+   figure, and v1's reproduced across ECC_SWEEP=fix and ECC_SWEEP=arch.
+S2 NOT TESTABLE for the same reason.  The `[skip]` behaviour IS confirmed --
+   the banner printed the three panels' boundary lists and
+   simple_weight_stationary's is `recon1, recon2, recon3, recon4`, four
+   against the others' five.
+S3 FALSIFIED.  Predicted the four newly-mapped eyeriss_like_wglb bars would
+   move "in the direction of more saving" now that each has its own chip
+   instead of a borrowed plan.  THEY DID NOT MOVE AT ALL: phase 6 printed
+   -6.7 / -7.5 / -7.3 / -6.2 / +15.4 % and this run gives 6.651 / 7.461 /
+   7.304 / 6.160 / -15.376, which round to the same five numbers.  That is a
+   result worth keeping rather than a miss to note: it is `plan_assignment()`
+   validated.  Phase 6 billed those four bars from NAMED, geometry-compatible
+   borrowed plans, and when each is given its own mapping the totals agree to
+   the precision phase 6 printed.  The borrow was honest.
+S4 CONFIRMED where it could be checked: R2 is the peak on eyeriss_like_wglb
+   (7.461% against R3's 7.304%) and on simple_weight_stationary (session 1),
+   and R3 is the peak on eyeriss_v2_like_wglb.  THE PEAK IS NOT THE SAME
+   BOUNDARY ON ALL THREE DESIGNS, which is the thing the figure exists to
+   show, and it is now established from three separate runs instead.
+S5 CONFIRMED.  R5a is -15.376% on eyeriss_like_wglb -- a penalty, and the
+   largest on any of the three designs.
+S6 OBSERVED, not tested: no percentage above is compared across designs, here
+   or anywhere in this entry.
+
+--------------------------------------------------------------------------
+STILL OWED AFTER THIS SESSION
+--------------------------------------------------------------------------
+  * THE THREE-PANEL FIGURE ITSELF (plan section 3).  Its two blockers are
+    characterised above; defect 1's fix is written out verbatim and measured,
+    defect 2 is not fixed and has a place to start looking.  The MAPPING it
+    needs is DONE: all 34 units of section 3's bill are cached, so whoever
+    picks this up pays no queue time -- it is `--eval-only` once the evaluator
+    stops leaking the architecture.
+    The one-line fallback if the figure is wanted before that is
+    ECC_RECON_ERT_AWARE=0, and it is NOT a substitute: it bills every bar from
+    the reference plan, which is Task 3 under a heading that says Task 4, and
+    it would silently contradict all three of the single-design panels above.
+    Not run, for that reason.
+  * FINDINGS 2.11's numbers, on WHOLE MODELS.  Unchanged from the section 2
+    entry: everything measured this session is ECC_SCOPE=dev and none of it
+    may be written into FINDINGS as a result.  All three designs' dev-scope
+    placement numbers now exist, which is what 2.11 was waiting on in shape;
+    what it is still waiting on is the scope.
+  * The two failing tests, pending the user's call on the ablation
+    configuration.  Unchanged and untouched all session.
+  * `gate.sh --update` deleting `golden/record.log` and `golden/pytest.log`.
+    Not touched: this session ran no --update and none was owed.
+  * The `run_id` one-second race in the suite (section 2's entry).
+  * CLAUDE.md's "131 guards" (actual 139) and "keep ECC_MAPPER_THREADS=18"
+    (env.sh ships 16).  Still stale, still deliberately left.
+
+--------------------------------------------------------------------------
+THE GATE AFTER SECTION 3'S MAPPING -- ITEM 1 IDENTICAL, ITEMS 2-5 RED, AND
+THE RED IS THE MAPPING THE PLAN ASKED FOR
+--------------------------------------------------------------------------
+Closing order followed again: every edit finished -> `make guards` (UNCHANGED,
+139 guards / 50 contract tests) -> `gen_guards.py --check` says current ->
+gate, alone.  `git diff` over eccenergy/ hpc/ archs/ env.sh tools/ is EMPTY
+against 2415370: the ert_view.py experiment was reverted, so the code the gate
+ran is byte-identical to the code section 2's gate ran.
+
+  item 1      IDENTICAL, 302 rows.  NO FINGERPRINT MOVED.  No mapper cache
+              was invalidated by anything this session did.
+  items 2-5   RED.  compare.py: NUMBERS MOVED 2, RECORD 0, PROSE 266.
+  item 6      RED, 2 failed / 533 passed / 10 skipped -- the SAME two tests,
+              and the passing count matches the golden exactly (the run_id
+              race recorded in section 2's entry did not fire this time).
+
+WHAT ACTUALLY MOVED, READ OUT OF THE TWO SNAPSHOTS RATHER THAN INFERRED:
+
+  * NOT ONE EVALUATED TOTAL.  Both flagged stages carry 3 variants in golden
+    and 3 in fresh, the same three names, and `total_energy_pJ` is identical
+    for every one of them.  Zero.
+  * The two "NUMBERS MOVED" entries are THE SAME ONE THING, in the two
+    stages: `result.json/validation: list length 28 -> 68`.
+  * The 40 new entries are 4 newly-mapped arms x 10 checks -- recon1, recon3,
+    recon4 and recon5 each gaining `stored_ert_read_back_matches_the_bar`,
+    `attribution_split_reconciles`, `leak_multiplier_equals_the_utilized_
+    instances` and seven more.  ALL 40 PASS.  These are guards that could not
+    run before because the arm had no mapping, and now can.
+  * Of the 28 pre-existing checks, 24 are byte-identical and 4 differ.  ALL 4
+    STILL PASS, and all four say the same fact four ways:
+        arms_with_their_own_plan:  ['recon2'] -> ['recon1'..'recon5']
+        recon1's billing:          'borrowed' from reference -> 'own'
+        arm_fingerprints:          {recon2} -> {recon1..recon5}
+        the mapper-arm detail list
+    `newly_mapped_shapes: 0` in both, so the GATE mapped nothing; it read the
+    cache this session filled.
+  * The 266 PROSE lines are those same four arms' reports, all additions.
+
+SO THE CAUSE IS EXACTLY AND ONLY THIS: section 3 required
+`eyeriss_like_wglb` to be mapped at the dev scope -- the plan says so in as
+many words -- and its recon1/3/4/5 had never been mapped there.  The golden
+snapshot was taken while those four arms were COLD, and a cold arm is billed
+from a borrowed plan and validated by fewer checks.  Filling the cache changes
+what the placement study can REPORT about eyeriss_like_wglb.  It changes no
+energy, no latency and no cycle count anywhere in the project.
+
+NO FLAG WAS USED, AND `--accept-record` COULD NOT HAVE BEEN.  Read out of
+gate.sh rather than assumed: the `--accept-record` branch is reached only on
+the "Every number is identical" path, and compare.py counts the validation
+list's length change as a moved number because its rule is "a list whose
+length changed and is not a string list".  The list is a list of CHECK
+RECORDS, not of numbers -- but the classifier is being conservative in the
+right direction and I am not going to argue with it by rewriting a golden.
+The golden is left exactly as it stands.
+
+WHAT THIS COSTS AND WHO DECIDES.  Items 2-5 cannot go green again without a
+golden re-take, and a re-take is the USER'S call, not this session's: section
+0 says the golden was re-taken ONCE, at 0a05c4b, and never again this session.
+**2415370 -- section 2's commit -- is the last state at which the gate's items
+2-5 were byte-identical**, and it is clean: that gate ran BEFORE any
+eyeriss_like_wglb arm was mapped, which is why section 2 was gated and
+committed before section 3 was started.  A re-take would bake this session's
+mapping into the baseline, which is a reasonable thing to want and is not a
+thing Task D may decide.
