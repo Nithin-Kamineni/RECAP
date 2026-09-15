@@ -1,0 +1,425 @@
+{
+ "base": {
+  "DRAM": 21478912.0,
+  "Global buffer": 4674847.91,
+  "Local (spads/RF)": 765199.15,
+  "NoC": 2709139.6964800004,
+  "Compute": 295364.16,
+  "ECC decode": 0.0,
+  "Reconstruction": 0.0,
+  "Recon overhead": 0.0
+ },
+ "base_w": {
+  "DRAM": 419328.0,
+  "Global buffer": 3522.56,
+  "Local (spads/RF)": 23493.46,
+  "NoC": 14607.98,
+  "Compute": 0.0,
+  "ECC decode": 0.0,
+  "Reconstruction": 0.0,
+  "Recon overhead": 0.0
+ },
+ "base_i": {
+  "DRAM": 11927552.0,
+  "Global buffer": 1450985.61,
+  "Local (spads/RF)": 110626.77,
+  "NoC": 1137701.55,
+  "Compute": 0.0,
+  "ECC decode": 0.0,
+  "Reconstruction": 0.0,
+  "Recon overhead": 0.0
+ },
+ "e_dram_w": 419328.0,
+ "dram_w_reads": 6552.0,
+ "layers_ok": 1,
+ "layers_skipped": 0,
+ "weights": 6552,
+ "per_layer": [
+  {
+   "layer": "block4.rep.1.conv1",
+   "shape": "C1_M1_R3_S3_P14_Q14_ws1_hs1_G728",
+   "status": "ok",
+   "weights": 6552,
+   "macs": 1284192,
+   "grouped": true,
+   "repeat_count": 1,
+   "mapping_id": "b18368ee1d7e2644",
+   "mapping_cached": false,
+   "total_energy_pJ": 29923462.916479997,
+   "dram_weight_reads": 6552.0,
+   "dram_weight_energy_pJ": 419328.0,
+   "cycles": 555187,
+   "physical": {
+    "compute_cycles": 214032,
+    "levels": [
+     {
+      "level": "mac",
+      "arithmetic": true,
+      "offchip": false,
+      "instances": 168,
+      "utilized": 6,
+      "size": null,
+      "word_bits": 16,
+      "cycles": 214032,
+      "timeloop_leakage_pJ": null,
+      "read_bw": null,
+      "write_bw": null,
+      "shared_bw": null,
+      "throttling": null,
+      "reads": {},
+      "writes": {}
+     },
+     {
+      "level": "psum_spad",
+      "arithmetic": false,
+      "offchip": false,
+      "instances": 168,
+      "utilized": 6,
+      "size": 96,
+      "word_bits": 16,
+      "cycles": 214032,
+      "timeloop_leakage_pJ": 86.32,
+      "read_bw": 2.0,
+      "write_bw": 2.0,
+      "shared_bw": null,
+      "throttling": 1.0,
+      "bw_consumption_scale": 1.0,
+      "reads": {
+       "Outputs": 142688.0
+      },
+      "writes": {
+       "Outputs": 356720.0
+      }
+     },
+     {
+      "level": "weights_spad",
+      "arithmetic": false,
+      "offchip": false,
+      "instances": 168,
+      "utilized": 6,
+      "size": 36,
+      "word_bits": 8,
+      "cycles": 214032,
+      "timeloop_leakage_pJ": 44.62,
+      "read_bw": 2.0,
+      "write_bw": 2.0,
+      "shared_bw": null,
+      "throttling": 1.0,
+      "bw_consumption_scale": 1.0,
+      "reads": {
+       "Weights": 214032.0
+      },
+      "writes": {
+       "Weights": 1092.0
+      }
+     },
+     {
+      "level": "ifmap_spad",
+      "arithmetic": false,
+      "offchip": false,
+      "instances": 168,
+      "utilized": 6,
+      "size": 24,
+      "word_bits": 8,
+      "cycles": 214032,
+      "timeloop_leakage_pJ": 49.32,
+      "read_bw": 2.0,
+      "write_bw": 2.0,
+      "shared_bw": null,
+      "throttling": 1.0,
+      "bw_consumption_scale": 1.0,
+      "reads": {
+       "Inputs": 347013.0
+      },
+      "writes": {
+       "Inputs": 214032.0
+      }
+     },
+     {
+      "level": "filter_glb",
+      "arithmetic": false,
+      "offchip": false,
+      "instances": 1,
+      "utilized": 1,
+      "size": 2064,
+      "word_bits": 8,
+      "cycles": 214032,
+      "timeloop_leakage_pJ": 221.19,
+      "read_bw": 16.0,
+      "write_bw": 16.0,
+      "shared_bw": null,
+      "throttling": 1.0,
+      "bw_consumption_scale": 1.0,
+      "reads": {
+       "Weights": 6552.0
+      },
+      "writes": {
+       "Weights": 6552.0
+      }
+     },
+     {
+      "level": "psum_glb",
+      "arithmetic": false,
+      "offchip": false,
+      "instances": 1,
+      "utilized": 1,
+      "size": 26624,
+      "word_bits": 16,
+      "cycles": 214032,
+      "timeloop_leakage_pJ": 4505.11,
+      "read_bw": 16.0,
+      "write_bw": 16.0,
+      "shared_bw": null,
+      "throttling": 1.0,
+      "bw_consumption_scale": 1.0,
+      "reads": {
+       "Outputs": 285376.0
+      },
+      "writes": {
+       "Outputs": 428064.0
+      }
+     },
+     {
+      "level": "ifmap_glb",
+      "arithmetic": false,
+      "offchip": false,
+      "instances": 1,
+      "utilized": 1,
+      "size": 53248,
+      "word_bits": 8,
+      "cycles": 214032,
+      "timeloop_leakage_pJ": 4878.31,
+      "read_bw": 16.0,
+      "write_bw": 16.0,
+      "shared_bw": null,
+      "throttling": 1.0,
+      "bw_consumption_scale": 1.0,
+      "reads": {
+       "Inputs": 486304.0
+      },
+      "writes": {
+       "Inputs": 186368.0
+      }
+     },
+     {
+      "level": "DRAM",
+      "arithmetic": false,
+      "offchip": true,
+      "instances": 1,
+      "utilized": 1,
+      "size": 8388608,
+      "word_bits": 8,
+      "cycles": 555187,
+      "timeloop_leakage_pJ": 0.0,
+      "read_bw": null,
+      "write_bw": null,
+      "shared_bw": 0.6,
+      "throttling": 0.39,
+      "bw_consumption_scale": 0.62,
+      "reads": {
+       "Weights": 6552.0,
+       "Inputs": 186368.0,
+       "Outputs": 0.0
+      },
+      "writes": {
+       "Weights": 0.0,
+       "Inputs": 0.0,
+       "Outputs": 142688.0
+      }
+     }
+    ]
+   }
+  }
+ ],
+ "levels": [
+  {
+   "level": "DRAM",
+   "dataspace": "Inputs",
+   "category": "DRAM",
+   "instances": 1,
+   "word_bits": 8,
+   "energy_pJ": 11927552.0,
+   "reads": 186368.0,
+   "writes": 0.0
+  },
+  {
+   "level": "DRAM",
+   "dataspace": "Outputs",
+   "category": "DRAM",
+   "instances": 1,
+   "word_bits": 8,
+   "energy_pJ": 9132032.0,
+   "reads": 0.0,
+   "writes": 142688.0
+  },
+  {
+   "level": "DRAM",
+   "dataspace": "Weights",
+   "category": "DRAM",
+   "instances": 1,
+   "word_bits": 8,
+   "energy_pJ": 419328.0,
+   "reads": 6552.0,
+   "writes": 0.0
+  },
+  {
+   "level": "NoC: inter_PE_column_spatial <==> inter_PE_spatial",
+   "dataspace": "Inputs",
+   "category": "NoC",
+   "instances": null,
+   "word_bits": null,
+   "energy_pJ": 445068.34,
+   "reads": 486304.0,
+   "writes": 0.0
+  },
+  {
+   "level": "NoC: inter_PE_column_spatial <==> inter_PE_spatial",
+   "dataspace": "Outputs",
+   "category": "NoC",
+   "instances": null,
+   "word_bits": null,
+   "energy_pJ": 391766.74,
+   "reads": 428064.0,
+   "writes": 0.0
+  },
+  {
+   "level": "NoC: inter_PE_column_spatial <==> inter_PE_spatial",
+   "dataspace": "Weights",
+   "category": "NoC",
+   "instances": null,
+   "word_bits": null,
+   "energy_pJ": 5996.43,
+   "reads": 6552.0,
+   "writes": 0.0
+  },
+  {
+   "level": "NoC: inter_PE_spatial <==> ifmap_spad",
+   "dataspace": "Inputs",
+   "category": "NoC",
+   "instances": null,
+   "word_bits": null,
+   "energy_pJ": 692633.21,
+   "reads": 486304.0,
+   "writes": 0.0
+  },
+  {
+   "level": "NoC: inter_PE_spatial <==> ifmap_spad",
+   "dataspace": "Outputs",
+   "category": "NoC",
+   "instances": null,
+   "word_bits": null,
+   "energy_pJ": 619572.91,
+   "reads": 428064.0,
+   "writes": 0.0
+  },
+  {
+   "level": "NoC: inter_PE_spatial <==> ifmap_spad",
+   "dataspace": "Weights",
+   "category": "NoC",
+   "instances": null,
+   "word_bits": null,
+   "energy_pJ": 8611.55,
+   "reads": 6552.0,
+   "writes": 0.0
+  },
+  {
+   "level": "NoC: inter_PE_spatial <==> ifmap_spad [psum word width]",
+   "dataspace": "Outputs",
+   "category": "NoC",
+   "instances": null,
+   "word_bits": null,
+   "energy_pJ": 227798.53824,
+   "reads": 0.0,
+   "writes": 0.0
+  },
+  {
+   "level": "NoC: inter_PE_spatial <==> ifmap_spad [spatial reduction]",
+   "dataspace": "Outputs",
+   "category": "NoC",
+   "instances": null,
+   "word_bits": null,
+   "energy_pJ": 317691.97823999997,
+   "reads": 856128.0,
+   "writes": 0.0
+  },
+  {
+   "level": "filter_glb",
+   "dataspace": "Weights",
+   "category": "Global buffer",
+   "instances": 1,
+   "word_bits": 8,
+   "energy_pJ": 3522.56,
+   "reads": 6552.0,
+   "writes": 6552.0
+  },
+  {
+   "level": "ifmap_glb",
+   "dataspace": "Inputs",
+   "category": "Global buffer",
+   "instances": 1,
+   "word_bits": 8,
+   "energy_pJ": 1450985.61,
+   "reads": 486304.0,
+   "writes": 186368.0
+  },
+  {
+   "level": "ifmap_spad",
+   "dataspace": "Inputs",
+   "category": "Local (spads/RF)",
+   "instances": 168,
+   "word_bits": 8,
+   "energy_pJ": 110626.77,
+   "reads": 347013.0,
+   "writes": 214032.0
+  },
+  {
+   "level": "mac",
+   "dataspace": "Compute",
+   "category": "Compute",
+   "instances": 168,
+   "word_bits": null,
+   "energy_pJ": 295364.16,
+   "reads": 0.0,
+   "writes": 0.0
+  },
+  {
+   "level": "psum_glb",
+   "dataspace": "Outputs",
+   "category": "Global buffer",
+   "instances": 1,
+   "word_bits": 16,
+   "energy_pJ": 3220339.74,
+   "reads": 285376.0,
+   "writes": 428064.0
+  },
+  {
+   "level": "psum_spad",
+   "dataspace": "Outputs",
+   "category": "Local (spads/RF)",
+   "instances": 168,
+   "word_bits": 16,
+   "energy_pJ": 631078.92,
+   "reads": 142688.0,
+   "writes": 356720.0
+  },
+  {
+   "level": "weights_spad",
+   "dataspace": "Weights",
+   "category": "Local (spads/RF)",
+   "instances": 168,
+   "word_bits": 8,
+   "energy_pJ": 23493.46,
+   "reads": 214032.0,
+   "writes": 1092.0
+  }
+ ],
+ "noc_post": {
+  "adder_pj_per_bit": 0.0065625,
+  "enabled": true,
+  "network_word_bits": 8,
+  "noc_scale": 1.0,
+  "outputs_word_bits": 16,
+  "reduction_hops": 1.0
+ },
+ "cycles": 555187
+}

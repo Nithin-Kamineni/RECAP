@@ -1,0 +1,242 @@
+{
+ "config": {
+  "experiment": "recon",
+  "sweep": "fix",
+  "sweep_archs": [
+   "eyeriss_like_wglb"
+  ],
+  "sweep_models": [
+   "resnet18"
+  ],
+  "sweep_ks": [
+   39
+  ],
+  "panel_models": [],
+  "const_arch": "eyeriss_like_wglb",
+  "const_model": "resnet18",
+  "const_k": 39,
+  "approaches": [
+   "baseline",
+   "embedded",
+   "recon"
+  ],
+  "metrics": [
+   "energy",
+   "edp",
+   "latency"
+  ],
+  "recon_default": "recon2",
+  "weight_bits": 8,
+  "activation_bits": 8,
+  "acc_bits_override": null,
+  "code_n": 63,
+  "emb_weights_per_cw_override": null,
+  "parity_grouping": "layer",
+  "parity_charge_padding": true,
+  "decode_enabled": false,
+  "decode_pj_base": 40.0,
+  "decode_pj_emb": 40.0,
+  "recon_charges_decode": true,
+  "recon_json": "data/dc/BCH_N63_results.json",
+  "recon_incremental_table": {
+   "BCH_63_30_t6": 1.3786,
+   "BCH_63_51_t2": 1.8995,
+   "BCH_63_36_t5": 1.5082,
+   "BCH_63_39_t4": 1.4561,
+   "BCH_63_57_t1": 1.6574,
+   "BCH_63_45_t3": 1.6383
+  },
+  "recon_idle_table": {
+   "BCH_63_30_t6": 2.8310811,
+   "BCH_63_51_t2": 2.2301273,
+   "BCH_63_36_t5": 2.8358254,
+   "BCH_63_39_t4": 2.7891299,
+   "BCH_63_57_t1": 1.9359672,
+   "BCH_63_45_t3": 2.4120856
+  },
+  "recon_pj_override": null,
+  "recon_incremental_fallback_pj": 1.8995,
+  "recon_idle_fallback_pj": 2.2301273,
+  "recon_clock_gating_pct": 99.5,
+  "energy_model_rev": "2026-09-12-neurosim-adders",
+  "recon_packing": "stream",
+  "recon_granularity": "weight",
+  "recon_encoder_site": "destination",
+  "recon_ert_aware": true,
+  "recon_ert_arm": "reference",
+  "dram_pj_per_bit": 20.0,
+  "baseline_dram_pj_per_bit": 22.0,
+  "dram_background_pj": 0.0,
+  "dram_refresh_pj": 0.0,
+  "static_energy": true,
+  "leakage_nw": {
+   "sram_bit": 2.693,
+   "rf_bit": 70.0,
+   "mac_instance": 7844.9
+  },
+  "latency_model": true,
+  "dram_bandwidth_mbps": 120.0,
+  "arch_clock_mhz": {
+   "eyeriss_like": 200.0,
+   "eyeriss_like_wglb": 200.0,
+   "eyeriss_v2_like": 1000.0,
+   "eyeriss_v2_like_wglb": 1000.0,
+   "simple_weight_stationary": 1000.0,
+   "simple_output_stationary": 1000.0,
+   "simple_input_stationary": 1000.0,
+   "simba_like": 1000.0
+  },
+  "recon_bw_scale": true,
+  "onchip_bw_bitaware": true,
+  "weak_enabled": false,
+  "weak_n": 63,
+  "weak_k": 57,
+  "baseline_inflates_onchip": false,
+  "split_read_write": false,
+  "classify_mode": "instances",
+  "arch_fidelity": "paper",
+  "force_technology": "",
+  "force_datawidth": null,
+  "dram_depth": 1048576,
+  "global_cycle_seconds": "1e-9",
+  "weight_capacity_scale": 1.0,
+  "weight_capacity_scope": "exclusive",
+  "weight_factor_relax": true,
+  "mapspace_constrain": true,
+  "weight_datawidth": null,
+  "weight_depth_scale": 1.0,
+  "weight_width_glb_mult": 4,
+  "disable_pair_geometry_assert": false,
+  "weight_depth_levels": [],
+  "weight_datawidth_levels": [],
+  "noc_enabled": true,
+  "noc_wire_pj_per_bit_mm": null,
+  "noc_router_pj": null,
+  "noc_pe_latch_pj": null,
+  "noc_scale": 1.0,
+  "mac_pj_override": 0.23,
+  "layers": [
+   "conv1",
+   "layer3.0.conv1"
+  ],
+  "layers_by_model": {
+   "resnet18": [
+    "conv1",
+    "layer3.0.conv1"
+   ],
+   "mobilenet_v2": [
+    "features.1.conv.0.0",
+    "features.9.conv.2"
+   ],
+   "efficientnet_b0": [
+    "features.1.0.block.0.0",
+    "features.5.0.block.1.0"
+   ]
+  },
+  "overwrite": false,
+  "cache_strict": true,
+  "rerun_optimiser": false,
+  "run_note": "",
+  "opt_metric": "edp",
+  "victory": 2000,
+  "victory_scaling": "levels",
+  "mapper_threads": 16,
+  "mapper_timeout": 100000000,
+  "mapper_algorithm": "linear_pruned",
+  "mapper_seed": null,
+  "mapper_search_size": null,
+  "mapper_max_permutations": 16,
+  "results_dir": "results",
+  "replot_only": false,
+  "from_cache": true,
+  "palette": "house",
+  "dpi": 400,
+  "formats": [
+   "png"
+  ],
+  "title_note": "",
+  "nice_labels": true,
+  "stem_override": "ReconSweep_optimiser__resnet18",
+  "archs": [
+   "eyeriss_like_wglb"
+  ],
+  "models": [
+   "resnet18"
+  ],
+  "code_k": 39,
+  "code_t": 4,
+  "workload": "cnn",
+  "stem": "ReconSweep_optimiser__resnet18",
+  "arch_variant_slug": "vic2000__vicx__alg-linear_pruned__to100000000__noc__clk5e-09__paper__wt96__mcons__wrelax",
+  "weights_per_codeword": 4,
+  "emb_weights_per_cw": 7.875,
+  "parity_frac": 0.6153846153846154,
+  "sram_scale": 0.6190476190476191,
+  "weak_overhead": 1.0
+ },
+ "mapper_fingerprint": "36a80922",
+ "recon_pj_per_codeword": 1.4561,
+ "recon_idle_pj_per_cycle_per_engine": 13.945649499999998,
+ "recon_idle_note": "prompt_6 RULE 3: Reconstruction = codewords x incremental + idle x cycles x engines. THE ABSTRACT INGRESS ARM IS RETIRED (EnvReorganisation phase 6): every reconstruction bar is a declared boundary, billed from its own plan, with its own engine count from physics/granularity.py",
+ "recon_provenance": "env.sh DC tables [BCH_63_39_t4]: incremental=1.4561000 pJ/codeword, idle=2.7891299 pJ/cycle/engine at the DC report's 1 ns; idle rescaled x5 to this design's clock (5 ns against the DC report's 1 ns) -> 13.9456495 pJ/cycle/engine. The INCREMENTAL term is per codeword and is NOT rescaled",
+ "workload_meta": {},
+ "swept_axis": "fix",
+ "swept_values": [
+  "baseline",
+  "embedded",
+  "recon2"
+ ],
+ "figures": [
+  "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/results/figures/ReconSweep_optimiser__resnet18.png"
+ ],
+ "table": "/blue/rewetz/vkamineni/Projects/RECAP/Energy_Modeling/results/tables/ReconSweep_optimiser__resnet18.csv",
+ "notes": [],
+ "mac_energy": {
+  "macs": 175816704.0,
+  "compute_pJ_ert": 40437841.92,
+  "ert_pj_per_mac": 0.23,
+  "override_pj_per_mac": 0.23,
+  "pj_per_mac_charged": 0.23,
+  "source": "ECC_MAC_PJ_OVERRIDE",
+  "citation_short": "Horowitz ISSCC 2014 int8 mult+add, 45 nm",
+  "citation": "M. Horowitz, 'Computing's energy problem (and what we can do about it)', ISSCC 2014, Fig. 1.1.9 'Rough energy costs for various operations in 45nm 0.9V'",
+  "compute_pJ_charged": 40437841.92,
+  "compute_scale": 1.0,
+  "opt_metric": "edp",
+  "mapping_note": "ECC_OPT_METRIC=edp: a cheaper MAC can move the mapping optimum, and the mapper was NOT re-run (it prices MACs from the ERT) -- a fixed-mapping result"
+ },
+ "title": "Eyeriss v1 (+filter GLB)  \u00b7  resnet18  \u00b7  conv1, layer3.0.conv1  \u00b7  8-bit weights  \u00b7  BCH(63,39) t=4  \u00b7  ERT-aware mapping",
+ "title_caveats": [
+  "Reconstruction-boundary placement  \u00b7  ERT-AWARE MAPPING, ONE PLAN PER BOUNDARY: 6 distinct chips -- reference + recon1, recon2, recon3, recon4, recon5 -- each (datawidth q on the levels it narrows) x (its ERT bump) x (its declared bandwidth scale). EVERY BAR NAMES THE PLAN IT WAS BILLED FROM in `billed_from` on its own record, with whether that plan's storage geometry is its own",
+  "Decoder on the DRAM die: the WHOLE DRAM weight term \u00d7 K/N on every R bar  \u00b7  ECC_DRAM_PJ_PER_BIT=20 -- Horowitz, ISSCC 2014, \"Computing's Energy Problem\": 32b DRAM read = 640 pJ = 20 pJ/bit = 1.28 nJ/64b",
+  "E_total(DRAM) = E_dynamic only; E_background and E_refresh are NOT modelled (both 0) -- the embedded arm holds fewer weight bits in DRAM and is given no credit for it",
+  "Network boundaries: one encoder per DESTINATION of a multicast network (count = ingresses \u00d7 multicast factor)",
+  "MAC 0.23 pJ/op = ECC_MAC_PJ_OVERRIDE (Horowitz ISSCC 2014 int8 mult+add, 45 nm, ERT was 0.2300)  \u00b7  the MAC cost is the denominator of every percentage on this figure",
+  "R-1 LATENCY IS FLAT ACROSS BOUNDARIES BY CONSTRUCTION. Every placement's `reduced` set contains `dram`, so every placement gets the same off-chip relief. A difference between two bars on a latency figure is mapping noise unless it exceeds the per-shape PE-count variation reported beside them.",
+  "R-2 WHICH LEVEL BINDS IS A PROPERTY OF WHAT THE ARCHITECTURE DECLARES, AND IT CHANGED WITH prompt_7 C1.1. RESTATED 2026-09-13. BEFORE: no architecture in archs/ declared an off-chip bandwidth, so Timeloop skipped the DRAM throughput check entirely and only ifmap_glb (11 of 43 shapes, worst throttling 0.180) and psum_glb (5 of 43, worst 0.610) ever throttled -- levels carrying INPUTS and PARTIAL SUMS, which reconstruction cannot touch. That was the honest headline of Defect 1 and it was never a fact about the chip: it was the absence of a declared number. NOW: the DRAM level declares `shared_bandwidth` (ECC_DRAM_BANDWIDTH_MBPS at the design's own clock) and DRAM BINDS. Measured on resnet18, 12 shapes, 120 MB/s at 200 MHz = 0.6 items/cycle: DRAM is the binding level on 21 of 21 layers, worst throttling 0.074, and the reconstruction arms convert their K/N relief 1:1 into time -- 12.56 % against a 12.56 % ceiling. SO THE CAVEAT INVERTS: the binding resource is now exactly the one reconstruction relieves, and the number to report beside any latency claim is HOW BOUND the design is, because at LPDDR4 speeds the limit never binds and the saving is 0.000 % (prompt_7 7.2, A.3). filter_glb still never throttles, and still sits exactly on its declared 16 items/cycle at the fully-connected layers -- 'never throttles' and 'never binds' remain different claims. Still a statement about the CONSTRAINED mapspace in force (see R-5).",
+  "R-3 R3'S LATENCY EQUALS R2'S BY CONSTRUCTION, NOT BY MEASUREMENT. Timeloop has no network timing model (LegacyNetwork::ComputePerformance() is an empty stub; a network stats block carries no Cycles and no bandwidth field), archs/_shared/noc.yaml declares energy coefficients only, and no interconnect bandwidth is cited anywhere in this study. R3's `reduced` set contains dram and filter_glb, both real storage levels, so R3 receives exactly the same latency saving as R2 and R4; what is unmodelled is the INCREMENTAL benefit of the array multicast carrying reduced-width words, i.e. the difference between R3 and R2. Report it as \"R3 = R2 by construction\", never as \"R3 shows 0% latency benefit\" -- the second claims a mechanism was tested and found ineffective, and it was not tested. It is unmodelled, not unfixable: NoC energy is already charged outside Timeloop by noc_post.py, and latency_post.py could carry a declared NoC items/cycle limit the same way once one is cited.",
+  "R-4 THE MAPPER SEES LEAKAGE; THE REPORT DID NOT. Timeloop's `Energy:` and `EDP(J*cycle)` -- the mapper's objective -- already include `Leakage energy (total)`, at ERT prices that are 10^3-10^4 too low and in three cases exactly 0. Before Phase A parse_stats discarded that number, so the accelerator's standby energy was charged to no arm while the reconstruction engines were charged theirs. Any statement of the form \"leakage is absent from the model\" is wrong; the correct statement names which side dropped it. ECC_STATIC_ENERGY=1: the replacement densities (ECC_LEAKAGE_NW) are charged to all three arms as the `Standby` category.",
+  "R-5 LABELS. A constrained or relaxed dataflow is a DIFFERENT ACCELERATOR -- label such bars \"constrained dataflow\" and never quote them as the published chip. A design whose provenance is `reference_design` is named after a paper, not published as one: \"Simba-like (reference design)\".",
+  "R-6 THE ABSTRACT `recon` ARM IS RETIRED (EnvReorganisation phase 6, 2026-09-14). It was `build_stacks()`'s third column -- one point applied to every design at once, at the chip ingress with a single engine, and no physical boundary did what it did -- and this rule existed to stop it being quoted as a placement. Every reconstruction bar on every figure is now a boundary some design declares, looked up in ITS OWN mapper cache at every swept point, and a bare `recon` is the one ECC_RECON_DEFAULT names. The FINDINGS numbers built on the abstract arm stay as history, labelled as the abstract arm; they are not reproducible from this tree.",
+  "CLOCK GATING: this figure is ECC_RECON_CLOCK_GATING_PCT=99.5. The two settings that must be reported side by side are 0 (the pessimistic bound: the engine's whole DC idle constant is charged every cycle it is switched on) and 99.5 (the measured clock/dynamic share of that constant). They differ by ~193x on the idle term and they INVERT the ranking of the boundaries.",
+  "DEVELOPMENT RUN \u2014 two-layer only: conv1, layer3.0.conv1  (not a full-model result)",
+  "Eyeriss v1 (+filter GLB) recon2: its own EDP-optimal plan uses a different PE count than the reference plan on 1 of 2 layer shapes -- C128_M256_R3_S3_P14_Q14_ws2_hs2 (96 vs 48 PEs); idle is charged on the instances that leak (utilized, per layer), as Timeloop bills it"
+ ],
+ "recon_decode_site": "ondie",
+ "dram_pj_per_bit": 20.0,
+ "dram_cost_provenance": "ECC_DRAM_PJ_PER_BIT=20 -- Horowitz, ISSCC 2014, \"Computing's Energy Problem\": 32b DRAM read = 640 pJ = 20 pJ/bit = 1.28 nJ/64b",
+ "dram_static_terms": "E_total(DRAM) = E_dynamic only; E_background and E_refresh are NOT modelled (both 0) -- the embedded arm holds fewer weight bits in DRAM and is given no credit for it",
+ "panel_per_architecture": [
+  "eyeriss_like_wglb"
+ ],
+ "dram_term": {
+  "eyeriss_like_wglb": {
+   "decode_site": "ondie",
+   "dram_pj_per_bit": 20.0,
+   "dram_cost_provenance": "ECC_DRAM_PJ_PER_BIT=20 -- Horowitz, ISSCC 2014, \"Computing's Energy Problem\": 32b DRAM read = 640 pJ = 20 pJ/bit = 1.28 nJ/64b",
+   "dram_weight_energy_pJ": 71270400.0,
+   "dram_reducible": true,
+   "rule": "dram = DRAM weight energy x K/N under every boundary when the decoder is on the DRAM die (01_project_context Sec. 4). Accelergy's CactiDRAM is one flat per-bit DYNAMIC access constant and the whole of it is credited: the DRAM access fetches only the message bits of each codeword. E_background and E_refresh are not modelled (both 0)"
+  }
+ }
+}

@@ -75,3 +75,9 @@ restructure/.mut/
 legacy/results_noc_*/figures/
 legacy/results_noc_*/tables/
 legacy/results_noc_*/manifests/
+
+# Agent scratch: throwaway probes and pre-edit backups (CLAUDE.md, Layout).
+# Never an input to a result -- it writes to no cache and nothing imports it --
+# and 12 MB of it, so it is ignored rather than versioned, exactly as
+# hpc/.runtime/ and tmp/ are above.
+Claude-sandbox/
