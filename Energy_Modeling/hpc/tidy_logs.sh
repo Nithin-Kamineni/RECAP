@@ -25,17 +25,33 @@ OLD="${HERE}/old-logs"
 
 DRY_RUN=0
 QUIET=0
-case "${1:-}" in
-    --dry-run|-n) DRY_RUN=1 ;;
-    # --quiet is what hpc/run_all.sh uses when it sweeps on the way past: a
-    # janitor that chatters on every invocation trains you to ignore the output
-    # of the script it is attached to.
-    --quiet|-q)   QUIET=1 ;;
-    "")           ;;
-    *) echo "tidy_logs: unknown argument '$1' (expected --dry-run or --quiet)" >&2; exit 2 ;;
-esac
+ONLY=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --dry-run|-n) DRY_RUN=1 ;;
+        # --quiet is what the dependent tidy job uses: a janitor that chatters
+        # trains you to ignore the output of the thing it is attached to.
+        --quiet|-q)   QUIET=1 ;;
+        # --jobs 111:222 sweeps ONLY those job ids -- the submission that just
+        # finished, which is what hpc/run_all.sh hangs off its own jobs. Without
+        # it the sweep considers every log in the directory, which is what you
+        # want when running it by hand and NOT what you want from a job whose
+        # business is its own submission and nobody else's.
+        --jobs)       ONLY="${2:-}"; shift ;;
+        *) echo "tidy_logs: unknown argument '$1'" >&2
+           echo "  usage: tidy_logs.sh [--dry-run] [--quiet] [--jobs ID:ID:...]" >&2
+           exit 2 ;;
+    esac
+    shift
+done
 
 say() { [ "${QUIET}" = 1 ] || echo "$@"; }
+
+# The --jobs allow-list, one id per line, so `grep -qx` can test membership.
+ONLY_IDS=""
+if [ -n "${ONLY}" ]; then
+    ONLY_IDS="$(printf '%s' "${ONLY}" | tr ':,' '\n\n' | grep -E '^[0-9]+$' || true)"
+fi
 
 [[ -d "${LOGS}" ]] || { echo "tidy_logs: no ${LOGS}"; exit 0; }
 mkdir -p "${OLD}"
@@ -54,6 +70,9 @@ fi
 
 active_count="$(printf '%s' "${ACTIVE}" | grep -c . || true)"
 say "tidy_logs: ${active_count} job id(s) in the queue; their logs stay in hpc/logs/"
+if [ -n "${ONLY_IDS}" ]; then
+    say "tidy_logs: scoped to job(s) ${ONLY//:/ }"
+fi
 
 moved=0
 kept=0
@@ -66,6 +85,13 @@ while IFS= read -r -d '' path; do
     if [[ -n "${id}" ]] && grep -qx "${id}" <<<"${ACTIVE}"; then
         kept=$(( kept + 1 ))
         continue
+    fi
+    # Scoped to one submission: anything else's log is not this job's business.
+    if [[ -n "${ONLY_IDS}" ]]; then
+        if [[ -z "${id}" ]] || ! grep -qx "${id}" <<<"${ONLY_IDS}"; then
+            kept=$(( kept + 1 ))
+            continue
+        fi
     fi
     if (( DRY_RUN )); then
         echo "would move  ${name}"

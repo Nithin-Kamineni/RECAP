@@ -297,23 +297,26 @@ and anything that did not COMPLETE. `afterany` is what makes a failed run mail
 too. Prove it works in about a minute, without running a mapping, with
 `bash hpc/run_all.sh --mail-test`.
 
-`hpc/logs/` accumulates one file per array task and would get unreadable after a
-few sweeps, so **it is tidied automatically**: `hpc/run_all.sh` moves every log
-whose job id is no longer in `squeue` into `hpc/old-logs/` on every invocation
-(`ECC_TIDY_LOGS=1`, env.sh section 5). `hpc/logs/` therefore holds the jobs that
-are still queued or running, and `tail -f hpc/logs/*.out` follows the live run.
+`hpc/logs/` accumulates one file per array task, so **every submission cleans up
+after itself** (`ECC_TIDY_LOGS=1`, env.sh section 5, the default).
+`hpc/run_all.sh` hangs `hpc/notify.sbatch` off `afterany` of the jobs it just
+launched; once they have all terminated, that job moves *their* logs into
+`hpc/old-logs/`. `hpc/logs/` therefore holds the run you are watching, and
+`tail -f hpc/logs/*.out` follows it.
 
-There is no cron job involved -- HiPerGator does not give users one. The hook is
-at the top of `run_all.sh`, and because the dependent eval job *is*
-`run_all.sh --eval-only`, the sweep also fires the moment a map array finishes,
-at no extra queue slot. When `ECC_MAIL_ON_DONE=1`, `hpc/notify.sbatch` sweeps
-once more after everything has terminated, which is what retires the eval job's
-own log.
+The sweep is **scoped by job id** (`tidy_logs.sh --jobs`), so a submission
+retires its own logs and never touches a concurrent run's live output. No cron
+is involved and none is possible -- HiPerGator answers `crontab` with *"not
+allowed to use this program"* -- and hanging it off the jobs beats a timer
+anyway: it fires exactly when a submission finishes and knows precisely which
+logs are now dead. The same job mails you when `ECC_MAIL_ON_DONE=1`; the sweep
+does not depend on that setting.
 
-Run `bash hpc/tidy_logs.sh` by hand any time (`--dry-run` to see what it would
-take). A job that is still PENDING keeps its id reserved, so the log a queued
-array task has not opened yet is never swept out from under it. Nothing is ever
-deleted, and the hand-kept `bringup-*.log` evidence stays in `hpc/logs/`.
+Run `bash hpc/tidy_logs.sh` by hand any time for an unscoped sweep (`--dry-run`
+to see what it would take). A job that is still PENDING keeps its id reserved,
+so the log a queued array task has not opened yet is never swept out from under
+it. Nothing is ever deleted, and the hand-kept `bringup-*.log` evidence stays in
+`hpc/logs/`.
 
 Useful while a run is in flight:
 

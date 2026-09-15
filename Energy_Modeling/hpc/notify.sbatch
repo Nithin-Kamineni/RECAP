@@ -1,8 +1,18 @@
 #!/bin/bash
 # =============================================================================
-#  ONE MAIL PER SUBMISSION, sent after every job hpc/run_all.sh launched has
-#  terminated. Submitted by run_all.sh when ECC_MAIL_ON_DONE=1 (env.sh section
-#  5, default 0); never run by hand.
+#  THE JOB THAT RUNS AFTER A SUBMISSION IS DONE. Held on
+#  `--dependency=afterany:<map>:<eval>`, so it runs exactly once, after every
+#  job hpc/run_all.sh launched has terminated, whatever they did. Submitted by
+#  run_all.sh; never run by hand. It does two things:
+#
+#    1. SWEEPS THE LOGS OF THIS SUBMISSION into hpc/old-logs/ (ECC_TIDY_LOGS=1,
+#       the default). Scoped with `tidy_logs.sh --jobs`: this job retires the
+#       logs of the jobs it was hung off and nothing else, so a sweep here can
+#       never touch a concurrent run's live output.
+#    2. MAILS the outcome, but only when ECC_MAIL_ON_DONE=1 (default 0).
+#
+#  The sweep is why this is submitted even with the mail off: "finished jobs
+#  leave hpc/logs/" should not depend on a mail setting.
 #
 #  WHY A JOB AND NOT `sbatch --mail-type=END`: --mail-type fires once per array
 #  TASK, so a 12-task sweep mails you twelve times, and its body is SLURM's
@@ -49,6 +59,19 @@ if [ -z "${TABLE}" ]; then
     TABLE="(sacct returned no rows for ${ids})"
 fi
 
+# THE SWEEP -- this job's first duty, and the one that does not depend on mail
+# being switched on. `--jobs "${JOBS}"` limits it to the submission this job was
+# hung off: another run's array can be mid-flight in the same directory and its
+# logs are none of our business. This job's OWN log survives, because tidy_logs
+# keeps anything still in `squeue` and this job is still in it.
+if [ "${ECC_TIDY_LOGS:-0}" = "1" ]; then
+    if (cd "${SLURM_SUBMIT_DIR:-.}" && bash hpc/tidy_logs.sh --quiet --jobs "${JOBS}"); then
+        :
+    else
+        echo "notify: the sweep failed -- logs stay in hpc/logs/" >&2
+    fi
+fi
+
 # Anything that is not COMPLETED is a failure worth naming: FAILED, TIMEOUT,
 # OUT_OF_MEMORY, NODE_FAIL, and CANCELLED -- which is what a dependent eval job
 # becomes when a map task fails and SLURM tears the chain down.
@@ -87,14 +110,17 @@ $(if [ "${NBAD}" -gt 0 ]; then
   fi)
 
 LOGS
-  hpc/logs/ecc-map.<jobid>_*.out      the mapping array
-  hpc/logs/ecc-eval.<jobid>.out       the evaluation
-  hpc/logs/ecc-notify.${SLURM_JOB_ID:-?}.out    this notifier
-
-  Finished jobs' logs are swept into hpc/old-logs/ by hpc/tidy_logs.sh.
+  This submission's logs have just been swept into hpc/old-logs/ :
+$(printf '%s\n' "${TABLE}" | awk -F'|' '{printf "    hpc/old-logs/%s.%s.out\n", $2, $1}')
+  hpc/logs/ecc-notify.${SLURM_JOB_ID:-?}.out    this job (still running, so still there)
 
 --
-Sent because ECC_MAIL_ON_DONE=1 in env.sh section 5. Set it to 0 to stop.
+$(if [ "${ECC_MAIL_ON_DONE:-0}" = "1" ]; then
+    printf 'Sent because ECC_MAIL_ON_DONE=1 in env.sh section 5. Set it to 0 to stop.'
+  else
+    printf 'NOT SENT: ECC_MAIL_ON_DONE is 0. This is the report the job composed\n'
+    printf 'anyway, kept here because the sweep runs either way.'
+  fi)
 $(date '+%Y-%m-%d %H:%M:%S %Z') on $(hostname)
 BODYEOF
 )
@@ -103,12 +129,9 @@ BODYEOF
 # mail that never lands in the inbox is still diagnosable from hpc/logs/.
 printf '%s\n' "${SUBJECT}" "${BODY}"
 
-# The last sweep of the run. run_all.sh tidies on its way IN, which cannot
-# reach the logs of the submission it is itself starting; this job runs after
-# every one of them has terminated, so it is the only place that can retire the
-# eval job's own log. Its own log survives -- this job is still in `squeue`.
-if [ "${ECC_TIDY_LOGS:-0}" = "1" ] && [ -x "${SLURM_SUBMIT_DIR:-.}/hpc/tidy_logs.sh" ]; then
-    (cd "${SLURM_SUBMIT_DIR:-.}" && bash hpc/tidy_logs.sh --quiet) || true
+if [ "${ECC_MAIL_ON_DONE:-0}" != "1" ]; then
+    echo "notify: ECC_MAIL_ON_DONE is not 1 -- swept the logs, sending no mail"
+    exit 0
 fi
 
 # THE COMPUTE NODES CANNOT SEND MAIL BY THEMSELVES. mail(1) and mailx are not

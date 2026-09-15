@@ -898,14 +898,19 @@ declare -A ECC_RECON_IDLE_PJ=(          # pJ per CYCLE per ENGINE
 : "${ECC_MAIL_SMTP:=smtp.ufl.edu}"
 : "${ECC_MAIL_SMTP_PORT:=25}"
 
-# 1 = hpc/run_all.sh sweeps hpc/logs/ on its way past, EVERY invocation, so
-# logs/ holds the jobs still in the queue and old-logs/ holds the rest. This is
-# what makes the sweep automatic without a cron job -- HiPerGator does not let
-# users have one ("not allowed to use this program"). The dependent eval job IS
-# `run_all.sh --eval-only`, so the sweep also fires the moment a map array
-# finishes, which is exactly when its logs stop being interesting, and it costs
-# no queue slot of its own. 0 = only ever sweep when you run hpc/tidy_logs.sh
-# by hand. Nothing is deleted at either setting.
+# 1 = EVERY SUBMISSION CLEANS UP AFTER ITSELF. hpc/run_all.sh hangs
+# hpc/notify.sbatch off `afterany` of the jobs it just launched; when they have
+# all terminated, that job moves THEIR logs -- and only theirs, it is scoped by
+# job id -- into hpc/old-logs/. So hpc/logs/ holds the run you are watching and
+# `tail -f hpc/logs/*.out` follows it.
+#
+# NO CRON IS INVOLVED, and none is possible: HiPerGator answers `crontab` with
+# "not allowed to use this program". Hanging the sweep off the jobs is better
+# than a timer anyway -- it fires exactly when a submission finishes, knows
+# precisely which logs are now dead, and cannot touch a concurrent run's.
+#
+# 0 = never sweep on its own; `bash hpc/tidy_logs.sh` still does it by hand,
+# unscoped. Nothing is deleted at either setting.
 : "${ECC_TIDY_LOGS:=1}"
 
 # the Timeloop+Accelergy image

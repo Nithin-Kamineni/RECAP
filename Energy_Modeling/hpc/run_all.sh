@@ -136,19 +136,6 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-# SWEEP FINISHED JOB OUTPUT OUT OF hpc/logs/ ON THE WAY PAST (ECC_TIDY_LOGS=1,
-# env.sh section 5). Here, rather than in a cron job, because HiPerGator does not
-# give users cron -- and here rather than at the end of a submission, because the
-# dependent eval job IS this script with --eval-only, so a sweep at startup also
-# runs the moment the map array it waited on has finished. Anything still in
-# `squeue`, PENDING included, keeps its log; see hpc/tidy_logs.sh.
-#
-# `|| true`: a janitor must never take the run down with it. A failed tidy costs
-# you a cluttered directory; a failed run_all.sh costs you the submission.
-if [ "${ECC_TIDY_LOGS:-0}" = "1" ] && [ -x hpc/tidy_logs.sh ]; then
-    bash hpc/tidy_logs.sh --quiet || true
-fi
-
 # ECC_SWEEP=area's ladder is a shell list (env.sh section 1) and not a field of
 # the resolved configuration, so it travels to the enumerator as an argument.
 # Every other axis is already in the configuration.
@@ -414,18 +401,25 @@ submit_eval() {
         hpc/run_all.sh --eval-only
 }
 
-# ONE MAIL AT THE END, when ECC_MAIL_ON_DONE=1. Held on `afterany` of every
-# job this invocation submitted, so it runs once, last, whatever the others did
-# -- including the case that matters most: a map task fails, SLURM cancels the
-# dependent eval, and nothing else would ever tell you. `afterok` here would
-# mail only the successes, which is the opposite of what a notifier is for.
+# THE JOB THAT CLEANS UP AFTER THIS SUBMISSION, and mails if you asked it to.
+# Held on `afterany` of every job this invocation submitted, so it runs once,
+# last, whatever the others did -- including the case that matters most: a map
+# task fails, SLURM cancels the dependent eval, and nothing else would ever
+# notice. `afterok` here would fire only on success, which is the opposite of
+# what a cleanup and a notifier are both for.
+#
+# SUBMITTED WHENEVER EITHER DUTY IS ON. ECC_TIDY_LOGS=1 (the default) is the
+# sweep: when these jobs finish, THEIR logs leave hpc/logs/, which is the whole
+# reason logs/ stays readable. ECC_MAIL_ON_DONE=1 adds the mail. Both off and
+# there is nothing to run, so nothing is submitted.
 #
 # The job ids travel in ECC_NOTIFY_JOBS rather than being rediscovered from
 # squeue: this shell knows exactly what it submitted, and a later lookup could
-# not tell this run's jobs from a concurrent one's.
+# not tell this run's jobs from a concurrent one's. That list is also what
+# scopes the sweep -- see `tidy_logs.sh --jobs`.
 submit_notify() {
     local jobs="$1" label="$2"
-    [ "${ECC_MAIL_ON_DONE}" = "1" ] || return 0
+    [ "${ECC_TIDY_LOGS}" = "1" ] || [ "${ECC_MAIL_ON_DONE}" = "1" ] || return 0
     mkdir -p hpc/logs
     sbatch --parsable \
         --dependency="afterany:${jobs}" \
@@ -538,7 +532,8 @@ case "${MODE}" in
         echo "evaluate when it finishes with:  bash hpc/run_all.sh --eval-only"
         NOTIFY=$(submit_notify "${MAP}" "mapping")
         [ -n "${NOTIFY}" ] && \
-            echo "mail job ${NOTIFY}   -> ${ECC_MAIL_TO} when the array has terminated"
+            echo "after job ${NOTIFY}   sweeps these logs into hpc/old-logs/ when"\
+                 "the array has terminated$([ "${ECC_MAIL_ON_DONE}" = 1 ] && echo ", and mails ${ECC_MAIL_TO}")"
         ;;
     all)
         MAP=$(submit_map)
@@ -560,7 +555,8 @@ case "${MODE}" in
         echo "                   exists with: bash hpc/run_all.sh --eval-only)"
         NOTIFY=$(submit_notify "${MAP}:${EVAL}" "mapping+evaluation")
         [ -n "${NOTIFY}" ] && \
-            echo "mail job ${NOTIFY}   -> ${ECC_MAIL_TO} when both have terminated"
+            echo "after job ${NOTIFY}   sweeps these logs into hpc/old-logs/ when"\
+                 "both have terminated$([ "${ECC_MAIL_ON_DONE}" = 1 ] && echo ", and mails ${ECC_MAIL_TO}")"
         echo "watch: squeue -u \$USER"
         ;;
 esac
