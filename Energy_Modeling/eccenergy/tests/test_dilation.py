@@ -1314,8 +1314,27 @@ def test_ecc_sweep_fix_routes_to_the_placement_study_and_names_it_per_model():
     layers, stem, exp, _, _, _ = resolve(ECC_SWEEP="bch", ECC_LAYERS="conv1")
     assert (exp, stem, layers) == ("sweep", "", "conv1")
 
-    # ECC_SWEEP=area holds the same three axes and routes the same way
-    _, stem, exp, model, _, _ = resolve(ECC_SWEEP="area")
+    # ECC_SWEEP=area HOLDS THE SAME THREE AXES AND ROUTES THE OTHER WAY
+    # (2026-09-15). It used to be asserted here as `recon` with the placement
+    # study's own stem, which is what this test was written against and what
+    # the comment above `: "${ECC_EXPERIMENT:=recon}"` denied at the time: the
+    # guard only fires for `sweep`/`panels`, so routing the ladder to `recon`
+    # never tripped it and `--eval-only` wrote
+    # `ReconSweep_optimiser__<model>` one RUNG at a time, over the placement
+    # study's figure, with no depth in the name. The ladder has its own
+    # renderer now, so it routes to `sweep` and env.sh leaves ECC_STEM EMPTY --
+    # `Config._stem_base()` derives `DepthSweep__<arch>__<model>`, which is
+    # what keeps two designs' ladders apart.
+    _, stem, exp, model, arch, _ = resolve(ECC_SWEEP="area")
+    assert (exp, stem) == ("sweep", ""), (exp, stem)
+    # and the point is still HELD at the first entry of all three lists
+    _, _, _, model, arch, k = resolve(ECC_SWEEP="area",
+                                      ECC_ARCHS="eyeriss_v2_like_wglb eyeriss_like_wglb",
+                                      ECC_MODELS="mobilenet_v2 resnet18",
+                                      ECC_KS="45 39")
+    assert (arch, model, k) == ("eyeriss_v2_like_wglb", "mobilenet_v2", "45")
+    # `fix` is UNTOUCHED by that split and still owns the placement stem
+    _, stem, exp, model, _, _ = resolve(ECC_SWEEP="fix")
     assert exp == "recon" and stem == f"ReconSweep_optimiser__{model}", (exp, stem)
 
 

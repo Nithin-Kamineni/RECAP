@@ -20,6 +20,7 @@ purpose (CLAUDE.md) and a skip is the correct answer there, not a failure.
 """
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 
@@ -40,17 +41,31 @@ def test_the_four_metric_names_are_the_plans_four(cfg):
     assert METRICS == ("energy", "edp", "latency", "area")
 
 
-def test_env_sh_ships_a_default_and_it_is_one_row():
+def test_env_sh_ships_a_default_and_every_row_of_it_is_a_real_metric():
     """THE DEFAULT IS THE FEATURE, so it is read out of env.sh itself.
 
     Exporting the knob and asserting on it proves the knob works and says
     nothing about what a bare `bash run.sh` draws -- which is the thing every
     figure in the project is actually produced by.
+
+    IT USED TO PIN THE VALUE `energy`, because phase 5 chose ONE row so that
+    the knob's arrival changed no existing figure or table. `ee4e6e3`
+    (2026-09-14) deliberately widened it to `energy edp latency` -- "the
+    working ablation configuration" -- and this test was not moved with it, so
+    it sat red through every session since, asserting a decision that had been
+    superseded on purpose. Pinning a DECISION that env.sh is entitled to make
+    is the wrong shape of test; what must hold is that the knob is declared
+    with a default and that every row of that default is a metric the figure
+    can actually draw.
     """
     text = (ROOT / "env.sh").read_text()
-    assert ': "${ECC_METRICS:=energy}"' in text, (
-        "env.sh must declare ECC_METRICS with a default; phase 5 chose ONE row "
-        "so that the knob's arrival changed no existing figure or table.")
+    m = re.search(r'^: "\$\{ECC_METRICS:=([^}]*)\}"', text, re.M)
+    assert m, ("env.sh must declare ECC_METRICS with a default -- what a bare "
+               "`bash run.sh` draws is the thing every figure is produced by.")
+    rows = m.group(1).split()
+    assert rows, "ECC_METRICS' default is empty; `metrics-empty` would refuse it"
+    unknown = [r for r in rows if r not in METRICS]
+    assert not unknown, f"env.sh's ECC_METRICS default names {unknown}"
 
 
 def test_env_sh_says_which_area_is_which():

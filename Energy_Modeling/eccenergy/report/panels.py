@@ -311,7 +311,44 @@ def stacked_panels(cfg, results, panels, title, stem, group_fontsize=17,
                        for p in (energy_panels or panels)], stem,
                       bars=bars, ref_totals=ref_totals,
                       extra_columns=extra_columns)
+    # ...AND ONE TABLE PER OTHER METRIC, BESIDE IT (2026-09-15). The paragraph
+    # above is still the rule for the table AT THE STEM -- it stays the energy
+    # table, in µJ, byte-identical to every result this project has written --
+    # and the reason it cannot simply grow columns is unchanged: seconds beside
+    # picojoules in one row is two units in one record.
+    #
+    # So each further metric gets its OWN file, `<stem>__<metric>.csv`, in its
+    # own unit, with its own segments. A figure row that exists only as pixels
+    # is a number nobody can re-read: `ECC_METRICS=edp` drew an EDP row and
+    # wrote an energy table, and the EDP numbers were on disk nowhere at all.
+    for p in panels:
+        m = panel_metric(p)
+        if m in (None, "energy"):
+            continue
+        write_table(cfg, results, [(p[0], p[2], p[3], p[4])],
+                    f"{stem}__{m}", bars=bars,
+                    ref_totals=_metric_refs(ref_totals, p), metric=m)
     return figs, csv
+
+
+def _metric_refs(ref_totals, panel):
+    """`ref_totals` for ONE metric panel, or None.
+
+    `stacked_panels` takes references keyed by PANEL, and a metric row's
+    reference is in that row's own quantity -- the latency row against the
+    conventional bar's SECONDS, never against its picojoules. Handing the
+    energy row's totals to a latency table would print a saving computed from
+    two different units, which is worse than printing none.
+    """
+    if not ref_totals:
+        return None
+    here = ref_totals.get(panel[0])
+    # FLAT {group: value}, which is the shape `write_table._pick` looks a bare
+    # group up in. `stacked_panels` keys its references by PANEL and this
+    # writes one panel per file, so the outer key has nothing left to
+    # disambiguate and keeping it would make every lookup miss -- silently, as
+    # a saving computed against the panel's own first bar.
+    return dict(here) if here else None
 
 # ===========================================================================
 #  the driver: one panel per model, the swept axis repeated in each

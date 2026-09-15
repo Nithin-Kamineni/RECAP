@@ -37,7 +37,7 @@ nobody runs. It is one command away if a future phase wants it back:
 
 ProjectRestructure §10 is still what not to do, and §9.1 says what the gate
 covered and what it could not.
-**`GUARDS.md` (generated, `make guards`) is the list of every guard** -- 131 of
+**`GUARDS.md` (generated, `make guards`) is the list of every guard** -- 140 of
 them, each with an id and a TIER. Tiers 3 and 4 are liftable by naming them in
 `ECC_ALLOW` (env.sh section 1), and an override is RECORDED on the manifest as
 `guard_overrides` and on the figure's caveat list. Tiers 1 and 2 never lift.
@@ -229,20 +229,33 @@ colds a mapper cache. A run then sweeps exactly ONE of the remaining three axes:
 | `model` | networks | `ECC_SWEEP_MODELS` | arch, K | `ModelSweep` |
 | `arch` | accelerators | `ECC_SWEEP_ARCHS` | model, K | `ArchitectureSweep` |
 | `fix` | **none** — the bars are `ECC_APPROACHES` | — | arch, model, K | `ReconSweep_optimiser__<model>` |
-| `area` | buffer DEPTH | `ECC_DEPTH_SWEEP_SCALES` | arch, model, K | (maps only) |
+| `area` | buffer DEPTH | `ECC_DEPTH_SWEEP_SCALES` | arch, model, K | `DepthSweep__<arch>__<model>` |
 
 **`fix` and `area` are POINT sweeps** (EnvReorganisation phase 3, 2026-09-14):
 they hold ALL THREE lists at the first entry, which is the rule every held axis
 follows, and env.sh collapses `ECC_SWEEP_*`/`ECC_CONST_*` onto that point with a
 bare `=` so a leftover in the shell cannot widen them. `fix` IS the placement
-study (`ECC_EXPERIMENT=recon`); `area` maps the depth ladder and submits no
-evaluation, because the sweep is a property of the MAPPINGS. **SINCE PHASE 6
-`fix` HAS A `report/sweep.py` RENDERER** — it is that module's ordinary path
-with a one-entry list, so an axis with no x is simply one group. **`area` still
-has none**, because its stem carries no depth and two points of the ladder would
-overwrite one figure; read it with
-`python3 -m eccenergy.report.dilation_view --levels`. `sweep-has-no-figure` was
-NARROWED to `area` rather than retired (`NO_FIGURE_SWEEPS`).
+study (`ECC_EXPERIMENT=recon`). **SINCE PHASE 6 `fix` HAS A `report/sweep.py`
+RENDERER** — it is that module's ordinary path with a one-entry list, so an axis
+with no x is simply one group.
+
+**`area` HAS ONE TOO SINCE 2026-09-15**, and it is the one point sweep that
+routes to `ECC_EXPERIMENT=sweep` rather than `recon`: one group per rung of
+`ECC_DEPTH_SWEEP_SCALES`, bars = `ECC_APPROACHES`, each group a full placement
+evaluation on **that rung's own chip**. `weight_depth_scale` is in
+`IN_FINGERPRINT`, so a rung is its own `arch_fingerprint()` and its own mapper
+cache — the ladder is as cold as its coldest rung and `--dry-run` prints the
+bill. **Its stem carries the ARCH and the MODEL** (`DepthSweep__<arch>__<model>`):
+this is the axis that holds all three lists, so two runs of it differ only in
+constants no other axis puts in a name, and a bare `DepthSweep.png` let a second
+design overwrite the first's figure, table and manifest in silence. Until then
+the axis routed to `recon`, where it wrote `ReconSweep_optimiser__<model>` ONE
+RUNG AT A TIME over the placement study's own figure — `hpc/run_all.sh` hid that
+in `all` mode by submitting no dependent eval, and `--eval-only` did not.
+`dilation_view --levels` is still the per-LEVEL table (refetch, fill, weights
+held) and is still worth reading beside the figure. `NO_FIGURE_SWEEPS` is now
+EMPTY; `sweep-has-no-figure` is KEPT as the mechanism by which a new axis says it
+can be MAPPED before it can be DRAWN.
 
 Nothing below `config.py` except `sweep.py` knows which axis is swept. A model
 sweep is all-CNN or all-transformer — mixing families is a config error.
@@ -721,8 +734,13 @@ that is legitimately narrower declares `# psum-width-ok: <reason>` in the YAML.
   new design automatically, and the schema refuses a boundary that names a stage
   the weight path does not declare.
 - **Adding a sweep axis**: a name in `SWEEPS`, a stem in `SWEEP_STEMS`, resolution
-  in `Config.__post_init__`, and a `_<name>_groups()` in `report/sweep.py`. Do
-  not write a second renderer.
+  in `Config.__post_init__`, and a `_<name>_points()` in `report/sweep.py`'s
+  `POINTS`. Do not write a second renderer. If its LIST is a new knob, it needs a
+  field on the settings group that owns it and a line in `FIELD_ORDER` -- and it
+  must stay OUT of `IN_FINGERPRINT` unless the list itself changes what the
+  mapper is handed (`ECC_DEPTH_SWEEP_SCALES` does not; the ONE rung
+  `weight_depth_scale` does). An axis that can be mapped before it can be drawn
+  goes in `NO_FIGURE_SWEEPS` and comes out again when it has a renderer.
 - **Changing how a bar looks**: `draw_panel()` in `report/stacked.py` is the only
   place a bar is drawn, so every figure moves together. Add a parameter to it
   rather than a second routine.

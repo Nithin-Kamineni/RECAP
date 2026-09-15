@@ -105,6 +105,29 @@ def _list(name, default="", sep=None):
     return [tok for tok in raw.replace(",", " ").split() if tok]
 
 
+def _float_list(name, default=""):
+    """Space- or comma-separated list of NUMBERS, in the order they were typed.
+
+    For `ECC_DEPTH_SWEEP_SCALES` -- the buffer-depth ladder `ECC_SWEEP=area`
+    walks. The order is the x axis and is kept exactly as written, because a
+    ladder read low-to-high and one read high-to-low are the same measurement
+    drawn two ways and the author of the knob chose which.
+
+    Each entry goes through the same `not-a-number` refusal a scalar float
+    knob does, naming the entry rather than the whole list: a ladder with one
+    typo in it would otherwise either vanish silently or take the whole run
+    down with a message about a value nobody can find.
+    """
+    out = []
+    for tok in _list(name, default):
+        try:
+            out.append(float(tok))
+        except ValueError as exc:
+            raise guards.refusal("not-a-number",
+                f"{name}: entry {tok!r} is not a number") from exc
+    return out
+
+
 def _scoped_list(name, default="", models=()):
     """`ECC_LAYERS`' THREE spellings (EnvReorganisation 6.9, extended phase 6).
 

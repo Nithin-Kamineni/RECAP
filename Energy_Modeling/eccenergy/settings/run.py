@@ -16,8 +16,8 @@ from typing import Optional
 
 from ..contracts.errors import ConfigError
 from .arch import CNN_MODELS, TRANSFORMER_MODELS
-from .env import (_b, _f, _i, _list, _list_or_none, _of, _oi, _one,
-                  _one_or_scoped, _s, _scoped_list, _table)
+from .env import (_b, _f, _float_list, _i, _list, _list_or_none, _of, _oi,
+                  _one, _one_or_scoped, _s, _scoped_list, _table)
 
 #: Every model name this project knows, in one tuple, for the ONE reader that
 #: needs to tell `resnet18.conv1` (the dotted ECC_LAYERS form) from
@@ -97,8 +97,15 @@ SWEEPS = ("bch", "model", "arch", "fix", "area")
 
 #: Fixed output name per sweep. The whole point of the naming scheme is that a
 #: re-run at different constants OVERWRITES rather than adding another file.
-#: `fix` and `area` are only reached with ECC_STEM blanked by hand -- env.sh
-#: names the placement figure `ReconSweep_optimiser__<model>` under both.
+#: `fix` is only reached with ECC_STEM blanked by hand -- env.sh names the
+#: placement figure `ReconSweep_optimiser__<model>` there.
+#:
+#: `area` IS QUALIFIED BY ARCH AND MODEL (`config._stem_base`), and it is the
+#: one axis that has to be: the ladder holds ALL THREE lists, so two runs of it
+#: differ only in constants that no other axis puts in a name, and
+#: `DepthSweep.png` alone would let a second design overwrite the first's
+#: figure, table and manifest in silence. The same rule the model suffix has
+#: followed on the placement figure since 2026-09-11.
 SWEEP_STEMS = {"bch": "BCHsweep", "model": "ModelSweep", "arch": "ArchitectureSweep",
                "fix": "FixedPoint", "area": "DepthSweep"}
 
@@ -115,18 +122,28 @@ SWEEP_ALIASES = {
 
 #: The two axes that hold every one of the three lists fixed, so the x axis is
 #: something else entirely: `fix` has no x axis at all (the arms ARE the bars)
-#: and `area` sweeps the depth ladder. Neither has a `report/sweep.py`
-#: renderer until phase 6, which `sweep-has-no-figure` says rather than
+#: and `area` sweeps the depth ladder. Neither had a `report/sweep.py`
+#: renderer until phase 6, which `sweep-has-no-figure` said rather than
 #: letting the figure code fail on a missing group.
 #:
-#: SINCE PHASE 6 `fix` HAS ONE: the sweep renderer builds every bar from the
-#: placement evaluation, so an axis with no x is simply one group. `area` has
-#: none still -- its stem carries no depth, so two depths would overwrite one
-#: figure -- and `sweep-has-no-figure` was NARROWED to it rather than retired.
+#: BOTH HAVE ONE NOW. Phase 6 gave `fix` its renderer -- an axis with no x is
+#: simply one group. `area` got its own on 2026-09-15, and what it needed was
+#: the three things env.sh section 1 had listed against it: the ladder as a
+#: FIELD of the configuration (`depth_sweep_scales` below, so the renderer can
+#: walk it -- it used to reach `toolchain/units` as a bare `--depths` argument
+#: and nothing else could see it), a DEPTH in `report/sweep.py`'s point spec
+#: and `_point_cfg`, and a dependent eval from `hpc/run_all.sh`, which used to
+#: short-circuit the axis. The stem's half of it is `SWEEP_STEMS` above.
 POINT_SWEEPS = ("fix", "area")
 
-#: The point sweeps a `report/sweep.py` FIGURE still has no renderer for.
-NO_FIGURE_SWEEPS = ("area",)
+#: The sweeps a `report/sweep.py` FIGURE has no renderer for -- EMPTY since
+#: 2026-09-15, when `area` got one. `sweep-has-no-figure` is KEPT rather than
+#: retired: it is the mechanism by which a NEW axis declares it can be mapped
+#: before it can be drawn, and `config.py`'s refusal reads this tuple rather
+#: than naming an axis, so adding one here is the whole of turning it back on.
+#: `tests/contract/test_guards.py` still sees the refusal site; what it cannot
+#: see is that nothing currently reaches it, which is what this comment is for.
+NO_FIGURE_SWEEPS = ()
 
 #: Which half of the study a result belongs to. See legacy/docs/RESULTS_SCHEMA.md.
 #:
@@ -209,6 +226,18 @@ class RunSettings:
     #: `METRICS` above for why this is not `mapper.OPT_METRIC` and why it is
     #: not in the fingerprint.
     metrics: list
+    #: `ECC_DEPTH_SWEEP_SCALES` -- the buffer-depth ladder `ECC_SWEEP=area`
+    #: walks, in the order it was typed, each entry a multiplier on the
+    #: declared `depth:` of the levels `arch.weight_depth_levels` names.
+    #:
+    #: NOT IN `IN_FINGERPRINT`, and the distinction is the same one `metrics`
+    #: makes. `weight_depth_scale` -- ONE rung -- IS hashed and is what makes
+    #: each rung its own chip with its own mapper cache. This is the LIST of
+    #: rungs a FIGURE walks, and one process draws every rung by resolving a
+    #: `with_(weight_depth_scale=...)` configuration per point. Hashing the
+    #: list would give one chip a different fingerprint for every ladder that
+    #: happens to contain its rung -- a cold matrix for editing a plot.
+    depth_sweep_scales: list
     layers: list
     #: `ECC_LAYERS`' per-model spelling, `{model: [layer, ...]}` -- empty for
     #: the bare-list form (EnvReorganisation 6.9). Layer names are per
@@ -289,6 +318,7 @@ class RunSettings:
                 k: v.lower() for k, v
                 in _one_or_scoped("ECC_RECON_DEFAULT", "recon2")[1].items()},
             metrics=[m.lower() for m in _list("ECC_METRICS", "energy")],
+            depth_sweep_scales=_float_list("ECC_DEPTH_SWEEP_SCALES"),
             # The two spellings of ECC_LAYERS, told apart by the `=`. The
             # resolution into ONE scope needs the held model, which is
             # `_resolve()`'s job; this layer only parses.

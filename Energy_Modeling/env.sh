@@ -95,11 +95,13 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # baseline | embedded | recon | recon1 | recon2 | recon3 | recon4 | recon5
 #   `recon` on its own is ONE bar: the placement ECC_RECON_DEFAULT names
-# : "${ECC_APPROACHES:=baseline embedded recon1 recon2 recon3 recon4 recon5}"
-: "${ECC_APPROACHES:=baseline embedded recon}"
+: "${ECC_APPROACHES:=baseline embedded recon1 recon2 recon3 recon4 recon5}"
+# : "${ECC_APPROACHES:=baseline embedded recon}"
 
 # recon1 | recon2 | recon3 | recon4 | recon5   <- what a bare `recon` bar MEANS
-: "${ECC_RECON_DEFAULT:=recon2}"
+#   ONE value for every design, or `;`-separated `arch=reconN`; a design with
+#   no entry takes recon2
+: "${ECC_RECON_DEFAULT:=eyeriss_like_wglb=recon2; eyeriss_v2_like_wglb=recon3; simple_weight_stationary=recon2}"
 
 # bch | model | arch | fix | area   <- an X AXIS. `area` here = buffer DEPTH;
 #                                      silicon area is ECC_METRICS below
@@ -109,20 +111,18 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #   fix    NO x axis: the placement study at ONE point -- the bars are what
 #          ECC_APPROACHES names, at the FIRST entry of all three lists
 #   area   the buffer-depth ladder ECC_DEPTH_SWEEP_SCALES, all three lists
-#          held. Maps the ladder and submits NO eval: the sweep is a property
-#          of the MAPPINGS, read with
-#          `python3 -m eccenergy.report.dilation_view --levels`.
-#          IT IS THE ONE AXIS WITH NO STACKED-BAR FIGURE, and
-#          `sweep-has-no-figure` still refuses one for it -- reviewed and KEPT
-#          in phase 6 session 2. What it needs, in order: a DEPTH in the
-#          result namespace and the stem (two points of the ladder write one
-#          `latest.json` today), a depth slot in `report/sweep.py`'s point
-#          spec and `_point_cfg` (which pins arch/model/K and has nowhere to
-#          put a fourth axis), and a dependent eval from `hpc/run_all.sh`,
-#          which short-circuits this axis. None of that is the blocker: the
-#          ladder is 7 scales x the arms of COLD mappings, so the figure could
-#          not be LOOKED AT when it was built, and phase 6's own rule is that
-#          every figure is reviewed by eye. Map the ladder first, then lift it.
+#          held. One GROUP PER RUNG, bars = ECC_APPROACHES, and every bar is a
+#          mapped chip like any other axis -- a rung is its own
+#          `arch_fingerprint()` and its own mapper cache, so the ladder is as
+#          cold as its coldest rung. The figure is
+#          results/figures/DepthSweep__<arch>__<model>.png; the design and the
+#          network are in the name because this axis holds them and two runs
+#          would otherwise write one file. It draws SINCE 2026-09-15 -- the
+#          three things it was waiting for (the ladder as a field of the
+#          configuration, a depth slot in report/sweep.py's point spec, and a
+#          dependent eval from hpc/run_all.sh) are in. `--levels` is still the
+#          per-LEVEL table and is still the way to read refetch and fill:
+#          `python3 -m eccenergy.report.dilation_view --levels`
 : "${ECC_SWEEP:=fix}"
 
 # energy | edp | latency | area   <- a Y AXIS: one figure ROW per entry, drawn
@@ -136,7 +136,8 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #   `eyeriss_v2_like_wglb` -- NOT `eyeriss_v2_like` -- is what "Eyeriss v2" means
 #   here (CLAUDE.md, the user's decision 2026-09-14); the three designs with no
 #   placements.yaml are still nameable and still draw their two reference bars.
-: "${ECC_ARCHS:=eyeriss_like_wglb simple_weight_stationary eyeriss_v2_like_wglb}"
+# : "${ECC_ARCHS:=eyeriss_like_wglb simple_weight_stationary eyeriss_v2_like_wglb}"
+: "${ECC_ARCHS:=eyeriss_v2_like_wglb}"
 
 # resnet18 | mobilenet_v2 | resnet50 | efficientnet_b0 | densenet121 | squeezenet1_1 | convnext_tiny | xception   (FIRST = held; all-CNN or all-transformer, never mixed)
 : "${ECC_MODELS:=resnet18 mobilenet_v2}"
@@ -147,20 +148,21 @@ ECC_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # 57 (q=7) | 51 (q=6) | 45 (q=6) | 39 (q=5) | 36 (q=5) | 30 (q=4)   (FIRST = held)
 : "${ECC_KS:=39 57 45 30}"
 
-# the ladder ECC_SWEEP=area walks. sqrt(2) steps, NOT factor 2
-: "${ECC_DEPTH_SWEEP_SCALES:=1.0 0.7071 0.5 0.3536 0.25 0.1768 0.125}"
+# the ladder ECC_SWEEP=area walks. The x axis of DepthSweep__<arch>__<model>
+# : "${ECC_DEPTH_SWEEP_SCALES:=1.0 0.7071 0.5 0.3536 0.25 0.1768 0.125}"
+: "${ECC_DEPTH_SWEEP_SCALES:=2 1.75 1.5 1.25 1.0 0.75 0.5 0.25 0.125}"
 
 # the HELD buffer depth on every axis that is not `area`. 1.0 = as declared
 : "${ECC_WEIGHT_DEPTH_SCALE:=1.0}"
 
 # which weight levels the depth scale rewrites. EMPTY = every weight-carrying one
-#   : "${ECC_WEIGHT_DEPTH_LEVELS:=filter_glb}"
-: "${ECC_WEIGHT_DEPTH_LEVELS:=}"
+  : "${ECC_WEIGHT_DEPTH_LEVELS:=weight_glb}"
+# : "${ECC_WEIGHT_DEPTH_LEVELS:=}"
 
 # dev | full   <- dev = THE SIX-LAYER DEVELOPMENT SCOPE (EnvReorganisation 6.9);
 #                 full = whole models, which is what a published number is.
 #                 An explicit ECC_LAYERS below WINS over either.
-: "${ECC_SCOPE:=dev}"
+: "${ECC_SCOPE:=full}"
 case "$ECC_SCOPE" in
   dev)  : "${ECC_LAYERS:=resnet18=conv1 layer3.0.conv1; mobilenet_v2=features.1.conv.0.0 features.9.conv.2; efficientnet_b0=features.1.0.block.0.0 features.5.0.block.1.0}" ;;
   full) : "${ECC_LAYERS:=}" ;;
@@ -174,7 +176,7 @@ esac
 : "${ECC_LAYERS:=}"
 
 # EMPTY = one SLURM array task per UNIT | N = bundle the units into N jobs
-: "${ECC_JOBS:=8}"
+: "${ECC_JOBS:=12}"
 
 # guards you have deliberately lifted, by id. EMPTY on every published run
 #   ECC_ALLOW="zero-price"   ECC_ALLOW="zero-price,recon-no-split-read-write"
@@ -935,7 +937,7 @@ declare -A ECC_RECON_IDLE_PJ=(          # pJ per CYCLE per ENGINE
 # how many array tasks run at once. 181 investment cores / 18 per task = 10, so
 # 9 leaves room for an ondemand session. Above the limit just queues as
 # `JobArrayTaskLimit` -- not an error.
-: "${ECC_CONCURRENCY:=9}"
+: "${ECC_CONCURRENCY:=16}"
 
 # the evaluation job never invokes Timeloop, so it is small
 : "${ECC_EVAL_CPUS:=2}"
@@ -1093,9 +1095,22 @@ if [ "${ECC_POINT_SWEEP}" = "1" ]; then
     # own rule (`${VAR:=default}`, the environment wins) holds here too. The
     # three LISTS above stay a bare `=`: a leftover there would WIDEN a study
     # that only makes sense at one point, which is a different mistake.
-    # `ECC_SWEEP=area` still has no renderer and `sweep-has-no-figure` still
-    # refuses it.
-    : "${ECC_EXPERIMENT:=recon}"
+    # `ECC_SWEEP=area` HAS A RENDERER SINCE 2026-09-15 and routes to `sweep`,
+    # not to `recon`. The two point sweeps part company here, and it is the
+    # one place they must: `fix` holds the depth and its bars ARE the x axis,
+    # so the placement study IS the figure; `area` holds the placements and
+    # walks the depth, so its x axis is the ladder and each group is a full
+    # placement evaluation at one rung. Routing `area` to `recon` -- which is
+    # what this line did until then -- pointed it at a renderer that draws no
+    # ladder and, through ECC_STEM below, at the placement study's own
+    # filename: `--eval-only` or a bare `run.sh` overwrote
+    # ReconSweep_optimiser__<model> one rung at a time, with no depth in the
+    # name to tell them apart. `hpc/run_all.sh` hid it in `all` mode by
+    # submitting no dependent eval at all.
+    case "${ECC_SWEEP}" in
+        area|depth|depths|depthsweep|areasweep) : "${ECC_EXPERIMENT:=sweep}" ;;
+        *)                                      : "${ECC_EXPERIMENT:=recon}" ;;
+    esac
     ECC_PANEL_MODELS=""
 fi
 
@@ -1104,7 +1119,7 @@ fi
 # axis and no renderer -- it answers the one question a single sweep cannot,
 # whether the architecture ranking survives changing the network.
 if [ "${ECC_POINT_SWEEP}" = "1" ]; then
-    :                                     # already decided above: recon
+    :                        # already decided above: recon for fix, sweep for area
 elif [ "$(_ecc_count "${ECC_MODELS}")" -gt 1 ] && [ "${ECC_SWEEP}" = "arch" ]; then
     : "${ECC_EXPERIMENT:=panels}"
     : "${ECC_PANEL_MODELS:=${ECC_MODELS}}"
@@ -1128,8 +1143,19 @@ fi
 # path is overwritten on purpose. The model suffix is there since 2026-09-11,
 # when the study ran on two networks: without it the second model's eval
 # overwrote the first's figure.
-if [ "${ECC_POINT_SWEEP}" = "1" ]; then
+#
+# `ECC_SWEEP=area` IS THE ONE POINT SWEEP THAT NAMES ITSELF. It is left blank
+# here on purpose, so `Config._stem_base()` derives
+# `DepthSweep__<arch>__<model>` -- the ladder holds all three lists, so the
+# design and the network are the only things that differ between two runs of
+# it and they have to be in the name or the second run overwrites the first.
+# Setting ECC_STEM here, as this branch did for both point sweeps until
+# 2026-09-15, is exactly what handed the depth ladder the placement study's
+# filename.
+if [ "${ECC_POINT_SWEEP}" = "1" ] && [ "${ECC_EXPERIMENT}" = "recon" ]; then
     : "${ECC_STEM=ReconSweep_optimiser__${ECC_CONST_MODEL}}"
+elif [ "${ECC_POINT_SWEEP}" = "1" ]; then
+    :                                     # area: the configuration names it
 elif [ -z "${ECC_LAYERS}" ]; then
     case "${ECC_SWEEP}" in
         arch|archs|architecture*) : "${ECC_STEM=ArchitectureSweep}" ;;

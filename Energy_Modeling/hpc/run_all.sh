@@ -408,8 +408,8 @@ case "${MODE}" in
         echo "  eval      : $(_eval_models) x ${ECC_EXPERIMENT}"\
              "-> ${ECC_RESULTS_DIR}/figures/${ECC_STEM:-<self-describing>}"
         [ "${ECC_SWEEP}" = "area" ] && \
-            echo "  (ECC_SWEEP=area submits NO dependent eval -- read the ladder with"\
-                 "python3 -m eccenergy.report.dilation_view --levels)"
+            echo "  (ECC_SWEEP=area: one group per rung of ECC_DEPTH_SWEEP_SCALES;"\
+                 "the per-LEVEL table is python3 -m eccenergy.report.dilation_view --levels)"
         echo
         echo "  --dry-run CANNOT SEE THE CODE A JOB RUNS. It resolves the same"
         echo "  configuration and reads the same cache; only a real job proves the"
@@ -448,14 +448,15 @@ case "${MODE}" in
         ;;
     all)
         MAP=$(submit_map)
-        if [ "${ECC_SWEEP}" = "area" ]; then
-            banner
-            echo "map  job ${MAP}   log: hpc/logs/ecc-map.${MAP}_*.out"
-            echo "NO dependent eval: ECC_SWEEP=area is a property of the MAPPINGS."
-            echo "Read the ladder when it lands:"
-            echo "  bash hpc/tl.sh python3 -m eccenergy.report.dilation_view --levels"
-            exit 0
-        fi
+        # ECC_SWEEP=area SUBMITTED NO DEPENDENT EVAL UNTIL 2026-09-15, because
+        # the axis had no renderer: the ladder was a property of the MAPPINGS
+        # and was read with `dilation_view --levels`. It has one now -- one
+        # group per rung, bars = ECC_APPROACHES -- so it chains an eval like
+        # every other axis, and the short-circuit that used to sit here would
+        # leave the figure unbuilt after the maps landed. `--levels` is still
+        # the per-LEVEL table (refetch, fill, weights held) and is still worth
+        # reading beside the figure; it is no longer the only way to read this
+        # axis at all.
         EVAL=$(submit_eval "${MAP}")
         banner
         echo "map  job ${MAP}   log: hpc/logs/ecc-map.${MAP}_*.out"

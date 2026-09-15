@@ -72,7 +72,14 @@ def _apply_overrides(args):
         var = {"bch": "ECC_SWEEP_KS", "k": "ECC_SWEEP_KS", "code": "ECC_SWEEP_KS",
                "model": "ECC_SWEEP_MODELS", "models": "ECC_SWEEP_MODELS",
                "arch": "ECC_SWEEP_ARCHS", "archs": "ECC_SWEEP_ARCHS",
-               "architecture": "ECC_SWEEP_ARCHS"}.get(sweep)
+               "architecture": "ECC_SWEEP_ARCHS",
+               # The depth ladder is a swept LIST like the other three, so
+               # `--values` overrides it the same way. `fix` is still absent
+               # and still refuses: its x axis is ECC_APPROACHES, which is not
+               # a sweep list and is not something this flag may rewrite.
+               "area": "ECC_DEPTH_SWEEP_SCALES",
+               "depth": "ECC_DEPTH_SWEEP_SCALES",
+               "depths": "ECC_DEPTH_SWEEP_SCALES"}.get(sweep)
         if not var:
             raise guards.refusal("values-unknown-sweep",
                 f"--values: unknown sweep {sweep!r}")

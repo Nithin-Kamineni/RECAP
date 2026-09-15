@@ -189,18 +189,88 @@ def test_recon_default_never_reaches_the_mapper(cfg):
 
 
 # ----------------------------------------- 5. the guard was narrowed, not lifted
-def test_sweep_has_no_figure_is_narrowed_to_area(cfg):
-    """`fix` HAS a renderer since phase 6 -- one group, bars = the placements.
-    `area` still has none: its stem carries no depth, so two points of the
-    ladder would overwrite one figure."""
+def test_every_point_sweep_draws_and_the_guard_is_the_mechanism(cfg):
+    """BOTH point sweeps have a renderer now, and the guard is kept anyway.
+
+    `fix` got one in phase 6 -- one group, bars = the placements. `area` got
+    one on 2026-09-15: one group per rung of `ECC_DEPTH_SWEEP_SCALES`, each a
+    full placement evaluation on that rung's own chip.
+
+    `sweep-has-no-figure` was NOT retired with the last axis it refused. It is
+    the mechanism by which an axis that can be MAPPED before it can be DRAWN
+    says so -- `config.py` reads `NO_FIGURE_SWEEPS` rather than naming an axis
+    -- so what is asserted here is that the tuple is empty AND that putting an
+    axis back in it still refuses. A guard nobody can demonstrate is folklore.
+    """
     from ..report import sweep as sweep_mod
-    c = cfg(ECC_EXPERIMENT="sweep", ECC_SWEEP="fix")
-    assert c.sweep == "fix" and c.experiment == "sweep"
-    assert "fix" in sweep_mod.POINTS
-    with pytest.raises((ConfigError, SystemExit)) as e:
-        cfg(ECC_EXPERIMENT="sweep", ECC_SWEEP="area")
+    from ..settings import run as run_mod
+    # `area` needs its ladder: the fixture builds a Config from a bare
+    # environment, so nothing supplies env.sh's default and an axis with no
+    # points is refused by `depth-ladder-empty` before this can be asked.
+    for s, extra in (("fix", {}), ("area", {"ECC_DEPTH_SWEEP_SCALES": "1.0 0.5"})):
+        c = cfg(ECC_EXPERIMENT="sweep", ECC_SWEEP=s, **extra)
+        assert c.sweep == s and c.experiment == "sweep"
+        assert s in sweep_mod.POINTS
+    assert run_mod.NO_FIGURE_SWEEPS == ()
+
+    # THE GUARD STILL BITES. Put an axis back in the tuple and the refusal is
+    # the one `report/sweep.py` would otherwise fail on with a KeyError.
+    import unittest.mock as mock
+    from .. import config as config_mod
+    with mock.patch.object(config_mod, "NO_FIGURE_SWEEPS", ("area",)):
+        with pytest.raises((ConfigError, SystemExit)) as e:
+            cfg(ECC_EXPERIMENT="sweep", ECC_SWEEP="area",
+                ECC_DEPTH_SWEEP_SCALES="1.0 0.5")
+    assert getattr(e.value, "guard_id", None) == "sweep-has-no-figure"
     assert "area" in str(e.value)
-    assert "area" not in sweep_mod.POINTS
+
+
+def test_the_depth_ladder_is_the_x_axis_and_each_rung_is_its_own_chip(cfg):
+    """`ECC_SWEEP=area`'s groups ARE `ECC_DEPTH_SWEEP_SCALES`, in typed order.
+
+    And each point pins `weight_depth_scale`, which is in
+    `arch.IN_FINGERPRINT` -- so a rung reads the mapper cache of its own
+    geometry and not the held one's. That is the whole axis: get it wrong and
+    nine bars are drawn from one chip's plan under nine different labels.
+    """
+    from ..report import sweep as sweep_mod
+    c = cfg(ECC_EXPERIMENT="sweep", ECC_SWEEP="area",
+            ECC_DEPTH_SWEEP_SCALES="2 1.5 1.0 0.5")
+    assert c.swept_values == [2.0, 1.5, 1.0, 0.5]
+    assert c.swept_axis == "buffer depth"
+    spec, _fontsize = sweep_mod.POINTS["area"](c)
+    assert [row[4] for row in spec] == [2.0, 1.5, 1.0, 0.5]
+    # every point holds the SAME design, network and code -- only depth moves
+    assert {(row[1], row[2], row[3]) for row in spec} == {
+        (c.const_arch, c.const_model, c.code_k)}
+    fps = set()
+    for row in spec:
+        pcfg = sweep_mod._point_cfg(c, row[1], row[2], row[3], row[4])
+        assert pcfg.weight_depth_scale == row[4]
+        fps.add(pcfg.fingerprint())
+    assert len(fps) == 4, "four rungs must not share one mapper fingerprint"
+
+
+def test_an_empty_depth_ladder_is_refused_rather_than_drawn_empty(cfg):
+    """An x axis with no points. `depth-ladder-empty`, and only on `area`."""
+    with pytest.raises((ConfigError, SystemExit)) as e:
+        cfg(ECC_EXPERIMENT="sweep", ECC_SWEEP="area", ECC_DEPTH_SWEEP_SCALES=" ")
+    assert getattr(e.value, "guard_id", None) == "depth-ladder-empty"
+    # the same empty ladder is harmless on every other axis, which holds ONE
+    # depth (`ECC_WEIGHT_DEPTH_SCALE`) and never reads the list
+    assert cfg(ECC_SWEEP="bch", ECC_DEPTH_SWEEP_SCALES=" ").sweep == "bch"
+
+
+def test_the_depth_ladder_is_not_in_the_fingerprint(cfg):
+    """Editing the LADDER must never cold a mapper cache.
+
+    `weight_depth_scale` -- one rung -- is hashed and must be. The LIST is a
+    plotting axis, exactly as `metrics` is: hashing it would give one chip a
+    different fingerprint for every ladder that happens to contain its rung.
+    """
+    a = cfg(ECC_SWEEP="area", ECC_DEPTH_SWEEP_SCALES="1.0 0.5")
+    b = cfg(ECC_SWEEP="area", ECC_DEPTH_SWEEP_SCALES="1.0 0.5 0.25 0.125")
+    assert a.fingerprint() == b.fingerprint()
 
 
 def test_every_sweep_axis_that_draws_has_a_point_builder(cfg):

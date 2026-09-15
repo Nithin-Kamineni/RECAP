@@ -6,9 +6,19 @@ What the x axis walks is `ECC_SWEEP`:
     model  the networks in ECC_SWEEP_MODELS, on one architecture
     arch   the accelerators in ECC_SWEEP_ARCHS, for one network
     fix    NO x axis -- ONE group, at the first entry of all three lists
+    area   the buffer-DEPTH ladder ECC_DEPTH_SWEEP_SCALES, one group per rung
 
 Whichever it is, exactly one grouped stacked-bar figure comes out, named after
-the sweep, plus its CSV and a manifest recording the constants that produced it.
+the sweep, plus its CSV -- one more per `ECC_METRICS` row beyond `energy`,
+because seconds and picojoules cannot share a row -- and a manifest recording
+the constants that produced it.
+
+`area` IS THE ODD ONE AND IT IS WORTH KNOWING WHY. The other four ask a
+different question of one chip; `area` asks one question of a different chip
+per point, because a rung is a different `depth:` and therefore a different
+`arch_fingerprint()`. Nothing here has to know that -- `_point_cfg` pins
+`weight_depth_scale` the same way it pins the code, and every cache lookup
+below follows the point's own configuration.
 
 EVERY BAR IS A REAL, MAPPED CHIP (EnvReorganisation phase 6, 2026-09-14).
 Until then this module drew three bars per group -- `baseline`, `embedded` and
@@ -111,18 +121,21 @@ def _bch_points(cfg):
     entry in `config.py` and nothing here can move it.
     """
     order = sorted(cfg.sweep_ks, key=lambda k: -int(k))
-    return ([(k, cfg.const_arch, cfg.const_model, k, k_label(cfg, k))
+    return ([(k, cfg.const_arch, cfg.const_model, k, cfg.weight_depth_scale,
+              k_label(cfg, k))
              for k in order], 15)
 
 
 def _model_points(cfg):
     """x = network, on the one held architecture."""
-    return ([(m, cfg.const_arch, m, cfg.code_k, m) for m in cfg.models], 17)
+    return ([(m, cfg.const_arch, m, cfg.code_k, cfg.weight_depth_scale, m)
+             for m in cfg.models], 17)
 
 
 def _arch_points(cfg):
     """x = accelerator, for the one held network."""
-    return ([(a, a, cfg.const_model, cfg.code_k, cfg.arch_label(a))
+    return ([(a, a, cfg.const_model, cfg.code_k, cfg.weight_depth_scale,
+              cfg.arch_label(a))
              for a in cfg.archs], 17)
 
 
@@ -137,15 +150,41 @@ def _fix_points(cfg):
     notes, the placement table and the Task 3 checks; this is the diff.
     """
     return ([(cfg.const_model, cfg.const_arch, cfg.const_model, cfg.code_k,
-              cfg.arch_label(cfg.const_arch))], 17)
+              cfg.weight_depth_scale, cfg.arch_label(cfg.const_arch))], 17)
+
+
+def _area_points(cfg):
+    """x = BUFFER DEPTH: one group per rung of `ECC_DEPTH_SWEEP_SCALES`.
+
+    THE ONLY AXIS THAT MOVES THE CHIP'S GEOMETRY RATHER THAN THE QUESTION ASKED
+    OF IT. A bch point changes the code, a model point the workload, an arch
+    point the design -- each of those is a different thing to measure on
+    hardware that is otherwise fixed. A rung is a DIFFERENT BUFFER: `depth:` on
+    the levels `ECC_WEIGHT_DEPTH_LEVELS` names, multiplied and re-rounded, so
+    every rung has its own `arch_fingerprint()` and its own mapper cache and is
+    as cold as any other unmapped chip. That is the whole cost of this axis and
+    `bash hpc/run_all.sh --dry-run` prints it before anything is drawn.
+
+    THE RUNG IS NOT IN THE STEM. One figure holds the ladder; `config.stem`
+    puts the design and the network in the name instead, because those are what
+    this axis holds and what two runs of it differ in.
+
+    The order is the knob's, not sorted: a ladder typed large-to-small and one
+    typed small-to-large are the same measurement drawn two ways, and which one
+    reads correctly depends on what is being shown. `_bch_points` sorts because
+    a code has an intrinsic strength order; a depth ladder does not.
+    """
+    return ([(f"x{s:g}", cfg.const_arch, cfg.const_model, cfg.code_k, s,
+              f"×{s:g}")
+             for s in cfg.depth_sweep_scales], 17)
 
 
 POINTS = {"bch": _bch_points, "model": _model_points, "arch": _arch_points,
-          "fix": _fix_points}
+          "fix": _fix_points, "area": _area_points}
 
 
 # ------------------------------------------------------------- one swept point
-def _point_cfg(cfg, arch, model, k):
+def _point_cfg(cfg, arch, model, k, depth):
     """THE CONFIGURATION OF ONE POINT: the placement study, held there.
 
     `with_()` re-resolves and re-checks everything, so pinning the three axes
@@ -154,16 +193,38 @@ def _point_cfg(cfg, arch, model, k):
     sweep can carry a scope per model now: each point resolves its own.
 
     `experiment="recon"`, `sweep="fix"` because that IS what a point is: one
-    design, one network, one code, every bar billed from its own chip. The
-    result file each point writes therefore lands in the placement study's own
-    namespace, where it belongs; the FIGURE, the CSV and the manifest are the
-    sweep's and are written by `run()` from the outer configuration.
+    design, one network, one code, one buffer depth, every bar billed from its
+    own chip. The result file each point writes therefore lands in the
+    placement study's own namespace, where it belongs; the FIGURE, the CSVs and
+    the manifest are the sweep's and are written by `run()` from the outer
+    configuration.
+
+    `weight_depth_scale` IS ONE OF THE PINNED AXES and not a fourth kind of
+    thing, which is what makes `ECC_SWEEP=area` an ordinary axis here: it is in
+    `arch.IN_FINGERPRINT`, so `with_()` re-derives the fingerprint and the
+    point reads the mapper cache of ITS OWN rung. Every other axis passes the
+    HELD depth through unchanged, so nothing about them moves.
     """
     return cfg.with_(experiment="recon", sweep="fix",
-                     const_arch=arch, const_model=model, const_k=k)
+                     const_arch=arch, const_model=model, const_k=k,
+                     weight_depth_scale=depth)
 
 
-def _evaluate_point(cfg, prov, arch, model, k):
+def _at(pcfg, k):
+    """How a `[skip]` line NAMES the point it is dropping.
+
+    EVERY POINT OF A DEPTH LADDER HAS THE SAME arch, model AND CODE, so the
+    three things these messages used to print identify all nine of them
+    identically -- nine indistinguishable "nothing collected" lines, and no way
+    to tell which rung is missing from the run log. The rung is appended only
+    when it is not x1, so the message on every other axis is the one it has
+    always been.
+    """
+    s = pcfg.weight_depth_scale
+    return f"BCH({pcfg.code_n},{k})" + ("" if s == 1.0 else f" x{s:g}")
+
+
+def _evaluate_point(cfg, prov, arch, model, k, depth):
     """One point: `(pcfg, pses, out)`, or None with a `[skip]` line saying why.
 
     A COLD POINT KEEPS ITS TWO REFERENCE BARS AND LOSES ITS RECONSTRUCTION
@@ -181,19 +242,19 @@ def _evaluate_point(cfg, prov, arch, model, k):
     dropped a point because the weight path had drifted would report a shorter
     axis and nothing else.
     """
-    pcfg = _point_cfg(cfg, arch, model, k)
+    pcfg = _point_cfg(cfg, arch, model, k, depth)
     try:
         pses = Session(pcfg).setup()
         pses.collect_arch(arch)
         raw = (pses.raws.get(arch) or {}).get(model)
         if raw is None:
-            print(f"  [skip] {arch}/{model} at BCH({pcfg.code_n},{k}): nothing "
+            print(f"  [skip] {arch}/{model} at {_at(pcfg, k)}: nothing "
                   f"collected -- map it first")
             return None
     except REFUSALS as exc:
         if getattr(exc, "guard_id", None) not in NOTHING_AT_THIS_POINT:
             raise
-        print(f"  [skip] {arch}/{model} at BCH({pcfg.code_n},{k}): nothing "
+        print(f"  [skip] {arch}/{model} at {_at(pcfg, k)}: nothing "
               f"collected at all -- the whole point is dropped\n      "
               + str(exc).replace("\n", "\n      "))
         return None
@@ -203,7 +264,7 @@ def _evaluate_point(cfg, prov, arch, model, k):
         gid = getattr(exc, "guard_id", None)
         if gid not in COLD_AT_THIS_POINT:
             raise
-        print(f"  [skip] no reconstruction bar at BCH({pcfg.code_n},{k}) on "
+        print(f"  [skip] no reconstruction bar at {_at(pcfg, k)} on "
               f"{arch}/{model} ({gid}) -- its two reference bars are drawn and "
               f"no bar is billed from another chip's plan:\n      "
               + str(exc).replace("\n", "\n      "))
@@ -316,8 +377,8 @@ def collect_points(cfg, prov=None, ses=None):
     spec, fontsize = POINTS[cfg.sweep](cfg)
     points, groups, stacks, labels = {}, [], {}, {}
     bar_order = []
-    for key, arch, model, k, label in spec:
-        got = _evaluate_point(cfg, prov, arch, model, k)
+    for key, arch, model, k, depth, label in spec:
+        got = _evaluate_point(cfg, prov, arch, model, k, depth)
         if got is None:
             continue
         pcfg, pses, out = got

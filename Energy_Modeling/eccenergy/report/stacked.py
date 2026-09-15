@@ -298,11 +298,24 @@ def grouped_stacks(cfg, results, groups, stacks, group_labels, title, stem,
     the renderer: `stacked_panels` is the routine that already stacks axes
     vertically, and `draw_panel` is still the only place a bar is drawn.
 
-    WITH ONE METRIC -- which is env.sh's default -- nothing below changes and
-    the figure this project has always drawn comes out byte-identical. That is
-    deliberate: it is what lets phase 5 be gated on unchanged numbers.
+    WITH ONE METRIC AND THAT METRIC `energy` -- which is what env.sh's default
+    was when this was written -- nothing below changes and the figure this
+    project has always drawn comes out byte-identical. That is deliberate: it
+    is what lets phase 5 be gated on unchanged numbers.
+
+    AND THE METRIC HAS TO BE TESTED, not just the count (2026-09-15). The
+    condition was `len(metric_rows) > 1` alone, on the assumption that one row
+    meant the energy row. `ECC_METRICS=edp` is also one row: it fell through to
+    the single-panel path below, which draws the `stacks` ARGUMENT -- always
+    the energy stacks -- under the default "Inference energy" label. The EDP
+    row was built by the driver, handed in, and silently discarded; the figure
+    was an energy figure and said so, so nothing on it looked wrong. Any single
+    row that is not `energy` now takes the same delegation two rows take, which
+    is the path that already gets the unit, the segments and the reference bar
+    right for every metric.
     """
-    if metric_rows and len(metric_rows) > 1:
+    if metric_rows and (len(metric_rows) > 1
+                        or metric_rows[0][0] != "energy"):
         from .panels import stacked_panels
         # EVERY ROW GETS ITS OWN REFERENCE AND ITS OWN NOTES, keyed by metric.
         # A row measured against the ENERGY row's reference would annotate a
@@ -378,7 +391,7 @@ def _row_title(metric):
 
 
 def write_table(cfg, results, panels, stem, bars=None, ref_totals=None,
-                extra_columns=None):
+                extra_columns=None, metric=None):
     """Per-panel, per-group, per-approach, per-category energies in uJ.
 
     `panels` is [(panel key, groups, stacks, labels)]. A single-panel figure
@@ -408,7 +421,30 @@ def write_table(cfg, results, panels, stem, bars=None, ref_totals=None,
             return d[f"{panel_key}/{g}"]
         return d.get(g)
 
-    cats = plot_cats(cfg)
+    # THE METRIC OWNS THE CATEGORIES AND THE UNIT. With `metric` None or
+    # `energy` this is `plot_cats` and µJ -- the table every result of this
+    # project has carried, byte-identical. Any other metric brings its own
+    # segments (`latency` and `edp` are honestly ONE each: a plan's run length
+    # is a MAX over the levels and does not decompose) and its own base unit
+    # out of `study.metrics`, scaled here exactly once, by the same function
+    # the figure's axis is scaled by -- so a number in the table and the bar it
+    # was drawn from cannot end up in different units.
+    if metric in (None, "energy"):
+        cats, div, unit = plot_cats(cfg), 1e6, "uJ"
+    else:
+        seen = []
+        for _pk, groups, stacks, _l in panels:
+            for g in groups:
+                for c in stacks[g].index:
+                    if c not in seen:
+                        seen.append(c)
+        cats = seen
+        top = max([float(stacks[g][a].sum())
+                   for _pk, groups, stacks, _l in panels for g in groups
+                   for a in (bars or cfg.bar_arms) if a in stacks[g].columns]
+                  or [0.0])
+        div, unit = style.unit_for_metric(metric, top)
+        unit = unit.replace("·", "_").replace("µ", "u").replace("²", "2")
     cols = list(bars or cfg.bar_arms)
     rows = {}
     for panel_key, groups, stacks, labels in panels:
@@ -425,7 +461,7 @@ def write_table(cfg, results, panels, stem, bars=None, ref_totals=None,
             for c in cats:
                 for a in cols:
                     v = bar_value(st, c, a)
-                    row[f"{a}_{c}"] = "" if v is None else v / 1e6
+                    row[f"{a}_{c}"] = "" if v is None else v / div
             ref = (_pick(ref_totals, panel_key, g) if ref_totals is not None
                    else float(st[cols[0]].sum()) if cols[0] in st.columns
                    else 0.0)
@@ -434,7 +470,7 @@ def write_table(cfg, results, panels, stem, bars=None, ref_totals=None,
                 if a not in st.columns:
                     # This design does not declare this boundary at all -- an
                     # empty cell, exactly as the per-category ones above.
-                    row[f"{a}_total_uJ"] = ""
+                    row[f"{a}_total_{unit}"] = ""
                     row[f"{a}_saving_pct"] = ""
                     continue
                 total = float(st[a].sum())
@@ -451,10 +487,10 @@ def write_table(cfg, results, panels, stem, bars=None, ref_totals=None,
                     # columns (`saving_vs_embedded_only_pct`, ...) were already
                     # left blank for these rows, so this makes the generic pair
                     # agree with them.
-                    row[f"{a}_total_uJ"] = ""
+                    row[f"{a}_total_{unit}"] = ""
                     row[f"{a}_saving_pct"] = ""
                     continue
-                row[f"{a}_total_uJ"] = total / 1e6
+                row[f"{a}_total_{unit}"] = total / div
                 row[f"{a}_saving_pct"] = ((ref - total) / ref * 100) if ref > 0 else 0.0
             row.update(_pick(extra_columns, panel_key, g) or {})
             rows[g if panel_key is None else f"{panel_key}/{g}"] = row

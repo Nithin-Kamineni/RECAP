@@ -126,7 +126,7 @@ DESIGN_AXIS_KNOBS = ("const_arch", "sweep_archs", "sweep", "experiment",
 FIELD_ORDER = (
     "experiment", "sweep", "sweep_archs", "sweep_models", "sweep_ks",
     "panel_models", "const_arch", "const_model", "const_k", "approaches",
-    "metrics", "recon_default", "recon_default_by_arch",
+    "metrics", "depth_sweep_scales", "recon_default", "recon_default_by_arch",
     "weight_bits", "activation_bits", "acc_bits_override", "code_n",
     "emb_weights_per_cw_override", "parity_grouping", "parity_charge_padding",
     "decode_enabled", "decode_pj_base", "decode_pj_emb",
@@ -295,12 +295,34 @@ def _resolve(self):
     # of the MAPPINGS, which is why `ECC_SWEEP=area` submits no eval at all.
     if self.sweep in NO_FIGURE_SWEEPS and self.experiment in ("sweep", "panels"):
         raise guards.refusal("sweep-has-no-figure",
-            f"ECC_SWEEP={self.sweep} holds all three lists fixed, so there is "
-            f"no x axis for ECC_EXPERIMENT={self.experiment} to draw.\n"
-            f"  -> ECC_SWEEP=area maps the depth ladder; read it with "
-            f"`python3 -m eccenergy.report.dilation_view --levels`\n"
-            f"  -> its figure stem carries no depth, so two points of the "
-            f"ladder would overwrite one figure")
+            f"ECC_SWEEP={self.sweep} has no renderer in report/sweep.py, so "
+            f"there is nothing for ECC_EXPERIMENT={self.experiment} to draw.\n"
+            f"  -> map it, then give it a `_<name>_points()` and a POINTS "
+            f"entry (CLAUDE.md, 'Adding a sweep axis') and take it out of "
+            f"settings/run.py's NO_FIGURE_SWEEPS")
+
+    # THE LADDER IS THE X AXIS, so an empty one is an empty figure. It is a
+    # list and not a scalar, which is why it is checked here and not by
+    # `depth-scale-positive` (that guards ECC_WEIGHT_DEPTH_SCALE, the ONE rung
+    # every other axis holds). A non-positive rung is refused for the same
+    # reason a non-positive scale is: there is no array with fewer than no
+    # rows, and `_scale_weight_depth` would floor it to 1 and sweep on.
+    if self.sweep == "area":
+        if not self.depth_sweep_scales:
+            raise guards.refusal("depth-ladder-empty",
+                "ECC_SWEEP=area walks ECC_DEPTH_SWEEP_SCALES and it is "
+                "empty -- an x axis with no points.\n"
+                '  -> e.g. ECC_DEPTH_SWEEP_SCALES="2 1.5 1 0.5 0.25"')
+        bad = [s for s in self.depth_sweep_scales if s <= 0]
+        if bad:
+            raise guards.refusal("depth-scale-positive",
+                f"ECC_DEPTH_SWEEP_SCALES has entries that are not positive: "
+                f"{bad}. A depth scale multiplies a declared `depth:`.")
+        # De-duplicated IN THE TYPED ORDER, like every other swept list: two
+        # equal rungs are one chip, one mapper cache and one bar, and drawing
+        # the bar twice would say the ladder resolved something it did not.
+        self.depth_sweep_scales = list(dict.fromkeys(
+            round(float(s), 4) for s in self.depth_sweep_scales))
 
     if self.sweep == "arch":
         if not self.sweep_archs:
@@ -965,6 +987,17 @@ class Config:
                 base = f"{base}_optimiser"
             return base if not self.layers else f"{base}__{self.layer_slug}"
         base = SWEEP_STEMS[self.sweep]
+        if self.sweep == "area":
+            # THE DEPTH LADDER HOLDS ALL THREE LISTS, so two runs of it differ
+            # only in constants no other axis has ever had to put in a name --
+            # and the two the user actually varies between runs are the design
+            # and the network. Without them
+            # `ECC_ARCHS=a ... && ECC_ARCHS=b ...` writes one `DepthSweep.png`
+            # twice and the second silently replaces the first's figure, table
+            # and manifest. The rung is NOT in the name and must not be: the
+            # whole ladder is one figure, and one file per rung is what this
+            # renderer exists to stop.
+            base = f"{base}__{self.const_arch}__{self.const_model}"
         if self.experiment == "panels":
             # The panel models are IN the name, so a two-model figure can never
             # land on top of the single-model `ArchitectureSweep.png`, and two
@@ -987,13 +1020,19 @@ class Config:
         """The x axis, in order.
 
         Under `fix` that is the ARMS (plan 3.1: "plots exactly what
-        ECC_APPROACHES names"), and under `area` the ONE depth this
-        configuration is evaluated at -- the ladder is a set of runs, one
-        `ECC_WEIGHT_DEPTH_SCALE` each, not a list inside one result.
+        ECC_APPROACHES names"), and under `area` the LADDER --
+        `ECC_DEPTH_SWEEP_SCALES`, one group per rung.
+
+        IT USED TO BE `[self.weight_depth_scale]`, the one depth this
+        configuration is evaluated at, because the ladder was a set of runs
+        rather than a list inside one result. It is one result now: the
+        renderer resolves a `with_(weight_depth_scale=rung)` configuration per
+        point, so each rung is still its own chip and its own mapper cache --
+        what changed is that one process walks them and draws them together.
         """
         return {"bch": self.sweep_ks, "model": self.models, "arch": self.archs,
                 "fix": list(self.approaches),
-                "area": [self.weight_depth_scale]}[self.sweep]
+                "area": list(self.depth_sweep_scales)}[self.sweep]
 
     @property
     def held(self):
